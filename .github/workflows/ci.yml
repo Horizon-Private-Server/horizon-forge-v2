@@ -69,7 +69,10 @@ jobs:
       - name: Smoke packaged Linux app
         if: runner.os == 'Linux'
         shell: bash
-        run: bash scripts/smoke-package-linux.sh artifacts/ci-logs/package-smoke.log
+        run: |
+          sudo chown root:root artifacts/horizon-forge-linux-x64/chrome-sandbox
+          sudo chmod 4755 artifacts/horizon-forge-linux-x64/chrome-sandbox
+          bash scripts/smoke-package-linux.sh artifacts/ci-logs/package-smoke.log
 
       - name: Upload failure logs
         if: failure()
