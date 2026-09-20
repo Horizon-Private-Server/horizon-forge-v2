@@ -62,6 +62,15 @@ internal static class EditorRuntimeTests
             Equal(true, snapshot.Entities.All(entity => entity.Layer == "gameplay"), "multi-entity layer command");
             Equal(true, snapshot.Entities.All(entity => entity.State is { Hidden: true, Locked: true }),
                 "multi-entity state command");
+            await ThrowsAsync<ArgumentException>(() => runtime.ExecuteAsync(new(
+                Guid.NewGuid().ToString("D"), EditorCommandKind.RenameEntity, [firstId], Text: "Locked rename")));
+            await ThrowsAsync<ArgumentException>(() => runtime.ExecuteAsync(
+                Command(EditorCommandKind.UpdateTransform, [firstId], ProjectTransform.Identity)));
+            snapshot = await runtime.ExecuteAsync(new(
+                Guid.NewGuid().ToString("D"), EditorCommandKind.SetEntityState, [firstId],
+                State: new(Locked: false)));
+            Equal(false, snapshot.Entities.Single(entity => entity.EntityId == firstId).State.Locked,
+                "locked entity can be unlocked");
             await WaitForAsync(async () => (await runtime.ReadEventsAsync(0, EditorRuntimeEventLimit))
                 .Any(value => value.Kind == EditorEventKind.RecoveryWritten));
             var firstWorkspace = await ForgeProjectWorkspace.OpenAsync(firstPath);

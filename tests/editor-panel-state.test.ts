@@ -5,6 +5,7 @@ import {
   buildSceneEntityGroups,
   entityStateLabel,
   nextTreeSelection,
+  nextViewportSelection,
 } from '../src/renderer/editor/EditorPanelState.ts';
 import type { EditorEntity } from '../src/types/EditorRuntime.js';
 
@@ -56,4 +57,12 @@ test('tree selection follows desktop replace, toggle, and range conventions', ()
   assert.deepEqual(state, { selected: ['d'], anchor: 'b' });
   state = nextTreeSelection(state.selected, 'd', values, state.anchor, { toggle: false, range: true });
   assert.deepEqual(state, { selected: ['b', 'c', 'd'], anchor: 'b' });
+});
+
+test('viewport selection replaces, adds, toggles, and clears predictably', () => {
+  assert.deepEqual(nextViewportSelection(['a'], 'b', { toggle: false, add: false }), ['b']);
+  assert.deepEqual(nextViewportSelection(['a'], 'b', { toggle: false, add: true }), ['a', 'b']);
+  assert.deepEqual(nextViewportSelection(['a', 'b'], 'a', { toggle: true, add: false }), ['b']);
+  assert.deepEqual(nextViewportSelection(['a'], undefined, { toggle: false, add: false }), []);
+  assert.deepEqual(nextViewportSelection(['a'], undefined, { toggle: true, add: false }), ['a']);
 });

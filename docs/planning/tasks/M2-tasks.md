@@ -125,6 +125,15 @@ Acceptance:
 
 Verification: ray ordering and state-matrix tests plus synchronized UI checks.
 
+Implementation: viewport pointer clicks raycast against the projected scene and
+commit selection through the shared runtime command. Plain clicks replace, Shift
+adds, Ctrl/Cmd toggles, and blank clicks clear. Projection state hides hidden and
+disabled entities, highlights selection, and skips locked entities while walking
+nearest-first intersections. The host rejects mutations of locked entities while
+still allowing them to be selected from the tree and explicitly unlocked. Disabled
+state is persisted for the M3 baker. Selection fallback after deletion remains with
+M2-008, which owns delete commands.
+
 ## M2-006 — Add transform manipulation modes
 
 Requirements: FR-SCENE-005, FR-SCENE-006, FR-SCENE-008  

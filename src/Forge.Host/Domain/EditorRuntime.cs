@@ -319,6 +319,19 @@ public sealed class EditorRuntime : IAsyncDisposable
         var known = workspace.Content.Entities.Select(entity => entity.EntityId).ToHashSet();
         if (command.EntityIds.Any(id => !known.Contains(id)))
             throw new ArgumentException("Command references an entity that is not present in the active project.", nameof(command));
+        var locked = workspace.Content.Entities
+            .Where(entity => entity.State?.Locked == true)
+            .Select(entity => entity.EntityId)
+            .ToHashSet();
+        if (command.EntityIds.Any(locked.Contains)
+            && command.Kind is EditorCommandKind.UpdateTransform
+                or EditorCommandKind.RenameEntity
+                or EditorCommandKind.SetEntityLayer)
+            throw new ArgumentException("Locked entities cannot be modified.", nameof(command));
+        if (command.EntityIds.Any(locked.Contains)
+            && command.Kind == EditorCommandKind.SetEntityState
+            && command.State is not { Hidden: null, Disabled: null, Locked: false })
+            throw new ArgumentException("Unlock an entity before changing its state.", nameof(command));
         switch (command.Kind)
         {
             case EditorCommandKind.SetSelection when command.Transform is not null || command.Text is not null || command.State is not null:

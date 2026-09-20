@@ -3,7 +3,7 @@ import type { TreeNodeData } from '@mantine/core';
 import { useMemo, useState } from 'react';
 
 import type { EditorEntity, ProjectQuaternion, ProjectTransform, ProjectVector3 } from '../../types/EditorRuntime.js';
-import { useEditor, useEditorSnapshot } from './EditorContext.ts';
+import { useEditor } from './EditorContext.ts';
 import { buildSceneEntityGroups, entityStateLabel } from './EditorPanelState.ts';
 import {
   EditorEmptyState,
@@ -16,8 +16,14 @@ import {
 import { SceneViewport } from './SceneViewport.tsx';
 
 export function ViewportPanel() {
-  const project = useEditorSnapshot();
-  return <SceneViewport entities={project.entities} />;
+  const { project, execute } = useEditor();
+  return <SceneViewport
+    entities={project.entities}
+    selection={project.selection}
+    onSelectionChange={(entityIds) => void execute({
+      id: crypto.randomUUID(), kind: 'setSelection', entityIds,
+    })}
+  />;
 }
 
 export function SceneTreePanel() {

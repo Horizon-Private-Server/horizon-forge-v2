@@ -31,6 +31,19 @@ export function nextTreeSelection(
   return { selected: [value], anchor: value };
 }
 
+export function nextViewportSelection(
+  selected: readonly string[],
+  value: string | undefined,
+  modifiers: { toggle: boolean; add: boolean },
+): string[] {
+  if (!value) return modifiers.toggle || modifiers.add ? [...selected] : [];
+  if (modifiers.toggle) {
+    return selected.includes(value) ? selected.filter((candidate) => candidate !== value) : [...selected, value];
+  }
+  if (modifiers.add) return selected.includes(value) ? [...selected] : [...selected, value];
+  return [value];
+}
+
 export function buildSceneEntityGroups(
   entities: readonly EditorEntity[],
   filter: string,

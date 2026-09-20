@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { SceneProjection } from '../src/renderer/editor/SceneProjection.ts';
 import type { EditorEntity } from '../src/types/EditorRuntime.js';
 
-function entity(id: string, x = 0, asset = true): EditorEntity {
+function entity(id: string, x = 0, asset = true, state: Partial<EditorEntity['state']> = {}): EditorEntity {
   return {
     id,
     name: `Entity ${id}`,
@@ -16,7 +16,9 @@ function entity(id: string, x = 0, asset = true): EditorEntity {
       scale: { x: 1, y: 1, z: 1 },
     },
     asset: asset ? { id: 'asset', kind: 'moby' } : undefined,
-    state: { dirty: false, hidden: false, disabled: false, locked: false, invalid: false, missingAsset: false },
+    state: {
+      dirty: false, hidden: false, disabled: false, locked: false, invalid: false, missingAsset: false, ...state,
+    },
   };
 }
 
@@ -56,6 +58,30 @@ test('scene projection converts PS2 Z-up transforms to Three.js Y-up', () => {
   const rotatedX = new THREE.Vector3(1, 0, 0).applyQuaternion(object.quaternion);
   assert.ok(rotatedX.distanceTo(new THREE.Vector3(0, 0, -1)) < 1e-6);
   assert.deepEqual(object.scale.toArray(), [2, 4, 3]);
+  projection.dispose();
+});
+
+test('scene projection applies entity states and picks the nearest eligible entity', () => {
+  const projection = new SceneProjection();
+  const selected = entity('selected');
+  const normal = entity('normal');
+  const locked = entity('locked', 0, true, { locked: true });
+  const hidden = entity('hidden', 0, true, { hidden: true });
+  const disabled = entity('disabled', 0, true, { disabled: true });
+  projection.sync([selected, normal, locked, hidden, disabled], [selected.id]);
+
+  assert.notEqual(
+    (projection.getObject(selected.id) as THREE.Mesh).material,
+    (projection.getObject(normal.id) as THREE.Mesh).material,
+  );
+  assert.equal(projection.getObject(locked.id)?.visible, true);
+  assert.equal(projection.getObject(hidden.id)?.visible, false);
+  assert.equal(projection.getObject(disabled.id)?.visible, false);
+  const intersections = [locked, hidden, disabled, normal].map((value) => ({
+    object: projection.getObject(value.id)!,
+  })) as unknown as THREE.Intersection[];
+  assert.equal(projection.resolvePick(intersections), normal.id);
+  assert.equal(projection.resolvePick(intersections.slice(0, 3)), undefined);
   projection.dispose();
 });
 
