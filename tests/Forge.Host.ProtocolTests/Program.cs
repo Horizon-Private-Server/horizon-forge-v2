@@ -23,6 +23,7 @@ internal static class Program
             VerifyIdentityAndSchema();
             await UyaIsoSetupTests.RunAsync();
             await AssetCatalogTests.RunAsync();
+            await AssetMaintenanceTests.RunAsync();
             await UyaAssetImportTests.RunAsync();
             await ForgeProjectTests.RunAsync();
             await UyaProjectTests.RunAsync();
@@ -149,16 +150,48 @@ internal static class Program
         var recoveryRequest = new ProjectRecoveryRequestPayload("project", "assets", "1000-0123456789abcdef0123456789abcdef");
         Equal(recoveryRequest, BridgePayloadCodec.DecodeProjectRecoveryRequest(
             BridgePayloadCodec.EncodeProjectRecoveryRequest(recoveryRequest)), "project recovery request payload");
+        var repairRequest = new ProjectAssetRepairRequestPayload("project", "assets", "source.iso");
+        Equal(repairRequest, BridgePayloadCodec.DecodeProjectAssetRepairRequest(
+            BridgePayloadCodec.EncodeProjectAssetRepairRequest(repairRequest)), "project repair request payload");
+        var maintenanceRequest = new CatalogMaintenanceRequestPayload("assets", ["projects", "external"]);
+        var decodedMaintenanceRequest = BridgePayloadCodec.DecodeCatalogMaintenanceRequest(
+            BridgePayloadCodec.EncodeCatalogMaintenanceRequest(maintenanceRequest));
+        Equal(true, maintenanceRequest.ProjectRoots.SequenceEqual(decodedMaintenanceRequest.ProjectRoots),
+            "catalog maintenance roots");
+        var collectionRequest = new CatalogCollectionRequestPayload("assets", ["projects"], new string('c', 64));
+        var decodedCollectionRequest = BridgePayloadCodec.DecodeCatalogCollectionRequest(
+            BridgePayloadCodec.EncodeCatalogCollectionRequest(collectionRequest));
+        Equal(collectionRequest with { ProjectRoots = decodedCollectionRequest.ProjectRoots }, decodedCollectionRequest,
+            "catalog collection request payload");
+        var maintenance = new CatalogMaintenancePayload(
+            2, 500, 450, 50, 48, 123_456, collectionRequest.ConfirmationToken, ["Moby: 30", "Tie: 20"], []);
+        var decodedMaintenance = BridgePayloadCodec.DecodeCatalogMaintenance(
+            BridgePayloadCodec.EncodeCatalogMaintenance(maintenance));
+        Equal(maintenance with
+            {
+                CandidateKinds = decodedMaintenance.CandidateKinds,
+                Blockers = decodedMaintenance.Blockers,
+            }, decodedMaintenance, "catalog maintenance payload");
         var recovery = new ProjectRecoverySnapshotPayload(
             recoveryRequest.RecoveryId, 1000, "Recovered", 20, new string('a', 64), 4096);
         var descriptor = new ForgeProjectDescriptorPayload(
             "project", "Test", "UYA", "NTSC-U", "1.00", "uya-ntsc-u", 3, 1000, 20, 0,
-            false, false, ["partial"], [recovery]);
+            false, false, ["partial"], [recovery],
+            [new(new string('b', 64), "Moby", 2, true, ["UYA level 3"])]);
         var decodedDescriptor = BridgePayloadCodec.DecodeForgeProjectDescriptor(
             BridgePayloadCodec.EncodeForgeProjectDescriptor(descriptor));
         Equal(true, descriptor.Warnings.SequenceEqual(decodedDescriptor.Warnings), "project descriptor warnings");
         Equal(true, descriptor.Recoveries.SequenceEqual(decodedDescriptor.Recoveries), "project descriptor recoveries");
-        Equal(descriptor with { Warnings = decodedDescriptor.Warnings, Recoveries = decodedDescriptor.Recoveries },
+        Equal(descriptor.MissingAssets[0] with { Provenance = decodedDescriptor.MissingAssets[0].Provenance },
+            decodedDescriptor.MissingAssets[0], "project descriptor missing asset");
+        Equal(true, descriptor.MissingAssets[0].Provenance.SequenceEqual(decodedDescriptor.MissingAssets[0].Provenance),
+            "project descriptor missing provenance");
+        Equal(descriptor with
+            {
+                Warnings = decodedDescriptor.Warnings,
+                Recoveries = decodedDescriptor.Recoveries,
+                MissingAssets = decodedDescriptor.MissingAssets,
+            },
             decodedDescriptor, "project descriptor payload");
 
         var trailing = BridgePayloadCodec.EncodeText("x").Append((byte)0).ToArray();

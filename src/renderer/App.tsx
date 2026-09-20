@@ -78,6 +78,7 @@ export function App() {
             setHubAction(undefined);
             setActiveProject(project);
           }}
+          onOpenSetup={() => setSetupOpened(true)}
         />}
       <SettingsModal opened={settingsOpened} onClose={() => setSettingsOpened(false)} />
       <SetupWizard opened={setupOpened} onClose={() => {

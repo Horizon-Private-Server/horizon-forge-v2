@@ -23,6 +23,13 @@ public sealed record UyaProjectCreationRequest(
     int Level,
     bool AllowPartial);
 
+public sealed record MissingProjectAsset(
+    AssetId Id,
+    AssetKind Kind,
+    int EntityCount,
+    bool Repairable,
+    IReadOnlyList<string> Provenance);
+
 public sealed record ForgeProjectDescriptor(
     string Path,
     string Name,
@@ -37,4 +44,5 @@ public sealed record ForgeProjectDescriptor(
     bool IsDirty,
     bool MigrationPending,
     IReadOnlyList<string> Warnings,
-    IReadOnlyList<ProjectRecoverySnapshot> Recoveries);
+    IReadOnlyList<ProjectRecoverySnapshot> Recoveries,
+    IReadOnlyList<MissingProjectAsset> MissingAssets);

@@ -47,3 +47,16 @@ export interface ProjectRenameRequest extends ProjectInspectRequest {
 export interface ProjectRecoveryRequest extends ProjectInspectRequest {
   recoveryId: string;
 }
+
+export interface ProjectAssetRepairRequest extends ProjectInspectRequest {
+  sourceIsoPath: string;
+}
+
+export interface CatalogMaintenanceRequest {
+  catalogRootPath: string;
+  projectRoots: string[];
+}
+
+export interface CatalogCollectionRequest extends CatalogMaintenanceRequest {
+  confirmationToken: string;
+}

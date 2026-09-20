@@ -119,6 +119,14 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
     return resolved;
   }
 
+  async function getKnownProjectRoots(): Promise<string[]> {
+    const values = await getSettingValues();
+    return [...new Set([
+      String(values['paths.projects'] ?? ''),
+      ...await recentProjects.list(),
+    ].filter(Boolean).map((value) => path.resolve(value)))];
+  }
+
   ipcMain.handle('forge:host-status', async (event) => {
     assertSender(event.sender.id);
     return host.start();
@@ -189,6 +197,8 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
       activeSetupRequestId = request.requestId;
       const identity = await request.result;
       if (identity.isSupported) {
+        const values = await getSettingValues();
+        const sameSource = String(values['sources.uya.fingerprint'] ?? '') === identity.fingerprint;
         await settings.setMany({
           'sources.uya.iso': sourcePath,
           'sources.uya.game': identity.game,
@@ -197,9 +207,11 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
           'sources.uya.serial': identity.serial,
           'sources.uya.size': identity.size,
           'sources.uya.fingerprint': identity.fingerprint,
-          'targets.uya.developmentIso': '',
-          'imports.uya.completedFingerprint': '',
-          'imports.uya.completedVersion': 0,
+          ...sameSource ? {} : {
+            'targets.uya.developmentIso': '',
+            'imports.uya.completedFingerprint': '',
+            'imports.uya.completedVersion': 0,
+          },
         });
       }
       return { path: sourcePath, identity };
@@ -279,7 +291,7 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
   });
   ipcMain.handle('forge:setup-cancel', async (event) => {
     assertSender(event.sender.id);
-    if (activeSetupRequestId) await host.cancel(activeSetupRequestId);
+    if (activeSetupRequestId !== undefined) await host.cancel(activeSetupRequestId);
   });
   ipcMain.handle('forge:projects-hub', async (event) => {
     assertSender(event.sender.id);
@@ -368,6 +380,47 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
     const project = await request.result;
     await recentProjects.add(project.path);
     return project;
+  });
+  ipcMain.handle('forge:projects-repair-assets', async (event, projectPath: unknown) => {
+    assertSender(event.sender.id);
+    if (activeSetupRequestId !== undefined) throw new Error('Another setup or repair operation is already running');
+    const resolved = await assertRecentProject(projectPath);
+    const values = await getSettingValues();
+    const sourceIsoPath = String(values['sources.uya.iso'] ?? '');
+    if (!sourceIsoPath || !await fileExists(sourceIsoPath))
+      throw new Error('The clean UYA ISO is unavailable. Repair its path in Forge → Setup first.');
+    activeSetupRequestId = 0;
+    try {
+      const request = await host.repairForgeProjectAssets(
+        resolved,
+        settings.paths.assets,
+        sourceIsoPath,
+        (progress) => event.sender.send('forge:setup-progress', { operation: 'import', ...progress }),
+      );
+      activeSetupRequestId = request.requestId;
+      return await request.result;
+    } finally {
+      activeSetupRequestId = undefined;
+    }
+  });
+  ipcMain.handle('forge:catalog-gc-preview', async (event) => {
+    assertSender(event.sender.id);
+    return (await host.previewCatalogGarbageCollection(
+      settings.paths.assets, await getKnownProjectRoots())).result;
+  });
+  ipcMain.handle('forge:catalog-gc-collect', async (event, confirmationToken: unknown) => {
+    assertSender(event.sender.id);
+    if (typeof confirmationToken !== 'string' || confirmationToken.length !== 64)
+      throw new TypeError('Catalog cleanup confirmation is invalid');
+    const result = await (await host.collectCatalogGarbage(
+      settings.paths.assets, await getKnownProjectRoots(), confirmationToken)).result;
+    if (result.catalogCandidateCount > 0) {
+      await settings.setMany({
+        'imports.uya.completedFingerprint': '',
+        'imports.uya.completedVersion': 0,
+      });
+    }
+    return result;
   });
   ipcMain.handle('forge:projects-remove-recent', async (event, projectPath: unknown) => {
     assertSender(event.sender.id);

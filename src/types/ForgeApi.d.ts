@@ -104,6 +104,27 @@ export interface ForgeProjectDescriptor {
   migrationPending: boolean;
   warnings: string[];
   recoveries: ProjectRecoverySnapshot[];
+  missingAssets: MissingProjectAsset[];
+}
+
+export interface MissingProjectAsset {
+  id: string;
+  kind: string;
+  entityCount: number;
+  repairable: boolean;
+  provenance: string[];
+}
+
+export interface CatalogMaintenancePreview {
+  projectCount: number;
+  catalogAssetCount: number;
+  protectedAssetCount: number;
+  candidateCount: number;
+  catalogCandidateCount: number;
+  candidateBytes: number;
+  confirmationToken: string;
+  candidateKinds: string[];
+  blockers: string[];
 }
 
 export interface ProjectRecoverySnapshot {
@@ -170,6 +191,9 @@ export interface ForgeApi {
   renameForgeProject(path: string, name: string): Promise<ForgeProjectDescriptor>;
   restoreForgeProject(path: string, recoveryId: string): Promise<ForgeProjectDescriptor>;
   migrateForgeProject(path: string): Promise<ForgeProjectDescriptor>;
+  repairForgeProjectAssets(path: string): Promise<ForgeProjectDescriptor>;
+  previewCatalogGarbageCollection(): Promise<CatalogMaintenancePreview>;
+  collectCatalogGarbage(confirmationToken: string): Promise<CatalogMaintenancePreview>;
   removeRecentProject(path: string): Promise<ProjectHubState>;
   revealForgeProject(path: string): Promise<void>;
   cancelSetupOperation(): Promise<void>;

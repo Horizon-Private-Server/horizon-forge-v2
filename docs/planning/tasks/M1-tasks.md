@@ -196,3 +196,14 @@ Acceptance:
 
 Verification: missing/moved source fixtures, GC dry-run/apply tests, and Linux to
 Windows portability record.
+
+Implementation: project inspection groups unresolved references by Asset ID with
+kind, entity count, provenance, and a guided repair state. Repair revalidates the
+clean ISO against the project's stored fingerprint and re-imports only affected
+source levels. Selecting a moved copy of the same clean ISO preserves completed
+setup state. Catalog maintenance scans configured/recent projects and recovery
+snapshots, blocks on unreadable known projects, previews counts/bytes by kind, and
+requires an exact state-derived confirmation token before deleting unreferenced
+entries and blobs. Portable-project fixtures resolve after a filesystem move
+against a separately populated matching catalog. The contract is recorded in
+[asset repair and catalog maintenance v0](../../asset-maintenance-v0.md).

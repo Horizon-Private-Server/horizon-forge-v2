@@ -56,6 +56,22 @@ public sealed record UyaProjectPreflightPayload(
 public readonly record struct ProjectInspectRequestPayload(string ProjectPath, string CatalogRootPath);
 public readonly record struct ProjectRenameRequestPayload(string ProjectPath, string CatalogRootPath, string Name);
 public readonly record struct ProjectRecoveryRequestPayload(string ProjectPath, string CatalogRootPath, string RecoveryId);
+public readonly record struct ProjectAssetRepairRequestPayload(string ProjectPath, string CatalogRootPath, string SourceIsoPath);
+public sealed record CatalogMaintenanceRequestPayload(string CatalogRootPath, IReadOnlyList<string> ProjectRoots);
+public sealed record CatalogCollectionRequestPayload(
+    string CatalogRootPath,
+    IReadOnlyList<string> ProjectRoots,
+    string ConfirmationToken);
+public sealed record CatalogMaintenancePayload(
+    uint ProjectCount,
+    uint CatalogAssetCount,
+    uint ProtectedAssetCount,
+    uint CandidateCount,
+    uint CatalogCandidateCount,
+    ulong CandidateBytes,
+    string ConfirmationToken,
+    IReadOnlyList<string> CandidateKinds,
+    IReadOnlyList<string> Blockers);
 public sealed record ProjectRecoverySnapshotPayload(
     string Id,
     ulong CreatedUnixMilliseconds,
@@ -63,6 +79,12 @@ public sealed record ProjectRecoverySnapshotPayload(
     uint EntityCount,
     string Fingerprint,
     ulong Size);
+public sealed record MissingProjectAssetPayload(
+    string Id,
+    string Kind,
+    uint EntityCount,
+    bool Repairable,
+    IReadOnlyList<string> Provenance);
 public sealed record ForgeProjectDescriptorPayload(
     string Path,
     string Name,
@@ -77,4 +99,5 @@ public sealed record ForgeProjectDescriptorPayload(
     bool IsDirty,
     bool MigrationPending,
     IReadOnlyList<string> Warnings,
-    IReadOnlyList<ProjectRecoverySnapshotPayload> Recoveries);
+    IReadOnlyList<ProjectRecoverySnapshotPayload> Recoveries,
+    IReadOnlyList<MissingProjectAssetPayload> MissingAssets);

@@ -24,6 +24,9 @@ public enum BridgeOpcode : ushort
     PreflightUyaProject = 9,
     RestoreForgeProjectRecovery = 10,
     MigrateForgeProject = 11,
+    RepairForgeProjectAssets = 12,
+    PreviewCatalogGarbageCollection = 13,
+    CollectCatalogGarbage = 14,
 }
 
 public enum BridgeErrorCode : ushort

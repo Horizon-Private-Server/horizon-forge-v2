@@ -3,7 +3,7 @@ using static Forge.Host.Bridge.PayloadFormat;
 
 namespace Forge.Host.Bridge;
 
-public static class BridgePayloadCodec
+public static partial class BridgePayloadCodec
 {
     public const uint MaxEchoDelayMs = 60_000;
 
@@ -339,6 +339,16 @@ public static class BridgePayloadCodec
             writer.WriteString(recovery.Fingerprint);
             writer.WriteUInt64(recovery.Size);
         }
+        if (value.MissingAssets.Count > 4_096) Malformed("Missing-asset list exceeds item limit");
+        writer.WriteUInt32((uint)value.MissingAssets.Count);
+        foreach (var missing in value.MissingAssets)
+        {
+            writer.WriteString(missing.Id);
+            writer.WriteString(missing.Kind);
+            writer.WriteUInt32(missing.EntityCount);
+            writer.WriteBoolean(missing.Repairable);
+            writer.WriteStrings(missing.Provenance);
+        }
         return writer.ToArray();
     }
 
@@ -366,9 +376,17 @@ public static class BridgePayloadCodec
             recoveries[index] = new(
                 reader.ReadString(), reader.ReadUInt64(), reader.ReadString(), reader.ReadUInt32(), reader.ReadString(), reader.ReadUInt64());
         }
+        var missingCount = reader.ReadUInt32();
+        if (missingCount > 4_096) Malformed("Missing-asset list exceeds item limit");
+        var missingAssets = new MissingProjectAssetPayload[missingCount];
+        for (var index = 0; index < missingAssets.Length; index++)
+        {
+            missingAssets[index] = new(
+                reader.ReadString(), reader.ReadString(), reader.ReadUInt32(), reader.ReadBoolean(), reader.ReadStrings());
+        }
         var value = new ForgeProjectDescriptorPayload(
             path, name, targetGame, targetRegion, targetRevision, bakeProfile, baseLevel, modified,
-            entityCount, missingAssetCount, isDirty, migrationPending, warnings, recoveries);
+            entityCount, missingAssetCount, isDirty, migrationPending, warnings, recoveries, missingAssets);
         reader.Complete();
         return value;
     }

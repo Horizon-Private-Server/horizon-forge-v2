@@ -2,6 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 
 import type {
   DevelopmentIsoResult,
+  CatalogMaintenancePreview,
   ForgeHostStatus,
   ForgeProjectDescriptor,
   Progress,
@@ -10,6 +11,12 @@ import type {
   UyaProjectOptions,
   UyaProjectPreflight,
 } from '../../types/ForgeApi.js';
+import {
+  decodeCatalogMaintenance,
+  encodeCatalogCollectionRequest,
+  encodeCatalogMaintenanceRequest,
+  encodeProjectAssetRepairRequest,
+} from './MaintenancePayloadCodec.js';
 import {
   BridgeFrameDecoder,
   decodeErrorMessage,
@@ -248,6 +255,43 @@ export class HostClient {
       encodeProjectInspectRequest({ projectPath, catalogRootPath }),
     );
     return { requestId: request.requestId, result: request.result.then(decodeForgeProjectDescriptor) };
+  }
+
+  async repairForgeProjectAssets(
+    projectPath: string,
+    catalogRootPath: string,
+    sourceIsoPath: string,
+    onProgress?: (progress: Progress) => void,
+  ): Promise<HostRequest<ForgeProjectDescriptor>> {
+    const request = await this.#request(
+      BridgeOpcode.RepairForgeProjectAssets,
+      encodeProjectAssetRepairRequest({ projectPath, catalogRootPath, sourceIsoPath }),
+      onProgress,
+    );
+    return { requestId: request.requestId, result: request.result.then(decodeForgeProjectDescriptor) };
+  }
+
+  async previewCatalogGarbageCollection(
+    catalogRootPath: string,
+    projectRoots: string[],
+  ): Promise<HostRequest<CatalogMaintenancePreview>> {
+    const request = await this.#request(
+      BridgeOpcode.PreviewCatalogGarbageCollection,
+      encodeCatalogMaintenanceRequest({ catalogRootPath, projectRoots }),
+    );
+    return { requestId: request.requestId, result: request.result.then(decodeCatalogMaintenance) };
+  }
+
+  async collectCatalogGarbage(
+    catalogRootPath: string,
+    projectRoots: string[],
+    confirmationToken: string,
+  ): Promise<HostRequest<CatalogMaintenancePreview>> {
+    const request = await this.#request(
+      BridgeOpcode.CollectCatalogGarbage,
+      encodeCatalogCollectionRequest({ catalogRootPath, projectRoots, confirmationToken }),
+    );
+    return { requestId: request.requestId, result: request.result.then(decodeCatalogMaintenance) };
   }
 
   async cancel(requestId: number): Promise<void> {

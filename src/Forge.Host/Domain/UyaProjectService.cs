@@ -116,8 +116,8 @@ public static class UyaProjectService
     {
         ArgumentNullException.ThrowIfNull(catalog);
         var workspace = await ForgeProjectWorkspace.OpenAsync(projectPath, cancellationToken);
-        var missing = workspace.Manifest.BaseLevel.MissingAssetCount + workspace.Content.Entities.Count(entity => entity.Asset is not null
-            && workspace.ResolveAssetPath(entity.Asset.Id, catalog) is null);
+        var missingAssets = FindMissingAssets(workspace, catalog);
+        var missing = workspace.Manifest.BaseLevel.MissingAssetCount + missingAssets.Sum(asset => asset.EntityCount);
         var manifestPath = Path.Combine(workspace.RootPath, ForgeProjectWorkspace.ManifestFileName);
         var contentPath = workspace.ContentFilePath;
         var modified = new[] { File.GetLastWriteTimeUtc(manifestPath), File.GetLastWriteTimeUtc(contentPath) }.Max();
@@ -139,7 +139,38 @@ public static class UyaProjectService
             workspace.IsDirty,
             workspace.MigrationPending,
             warnings ?? [],
-            recoveries);
+            recoveries,
+            missingAssets);
+    }
+
+    public static async Task<ForgeProjectDescriptor> RepairMissingAssetsAsync(
+        string projectPath,
+        string catalogRootPath,
+        string sourceIsoPath,
+        string importerVersion,
+        Func<IsoProgress, ValueTask>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        var workspace = await ForgeProjectWorkspace.OpenAsync(projectPath, cancellationToken);
+        var catalog = await AssetCatalogStore.OpenAsync(catalogRootPath, cancellationToken);
+        var missing = FindMissingAssets(workspace, catalog).Where(asset => asset.Repairable).Select(asset => asset.Id).ToHashSet();
+        var levels = workspace.Content.Entities
+            .Where(entity => entity.Asset is not null && missing.Contains(entity.Asset.Id))
+            .Select(entity => entity.Provenance?.Level)
+            .OfType<int>()
+            .Distinct()
+            .Order()
+            .ToArray();
+        if (levels.Length == 0) return await InspectAsync(projectPath, catalog, cancellationToken: cancellationToken);
+
+        await UyaAssetImportService.RepairLevelsAsync(
+            new(sourceIsoPath, catalogRootPath, workspace.Manifest.BaseLevel.SourceFingerprint,
+                workspace.Manifest.BaseLevel.Revision, importerVersion),
+            levels,
+            progress,
+            cancellationToken);
+        catalog = await AssetCatalogStore.OpenAsync(catalogRootPath, cancellationToken);
+        return await InspectAsync(projectPath, catalog, cancellationToken: cancellationToken);
     }
 
     public static async Task<ForgeProjectDescriptor> RenameAsync(
@@ -174,6 +205,35 @@ public static class UyaProjectService
         var workspace = await ForgeProjectWorkspace.OpenAsync(projectPath, cancellationToken);
         if (workspace.MigrationPending) await workspace.SaveAsync(cancellationToken);
         return await InspectAsync(projectPath, catalog, cancellationToken: cancellationToken);
+    }
+
+    private static IReadOnlyList<MissingProjectAsset> FindMissingAssets(
+        ForgeProjectWorkspace workspace,
+        AssetCatalogStore catalog)
+    {
+        var attached = workspace.Content.Assets.Select(asset => asset.Id).ToHashSet();
+        return workspace.Content.Entities
+            .Where(entity => entity.Asset is not null && workspace.ResolveAssetPath(entity.Asset.Id, catalog) is null)
+            .GroupBy(entity => entity.Asset!)
+            .OrderBy(group => group.Key.Id.ToString(), StringComparer.Ordinal)
+            .Select(group =>
+            {
+                var catalogEntry = catalog.Query(new(Id: group.Key.Id)).SingleOrDefault();
+                var provenance = group.Select(entity => entity.Provenance is null
+                        ? "Project entity with no source provenance"
+                        : $"{entity.Provenance.Game} level {entity.Provenance.Level}, {entity.Provenance.Section} #{entity.Provenance.SourceIndex}")
+                    .Concat(catalogEntry?.Sources.Select(source =>
+                        $"{source.Game} {source.Region} {source.Revision}, {source.Level}, {source.Archive} #{source.SourceIndex}") ?? [])
+                    .Distinct(StringComparer.Ordinal)
+                    .Order(StringComparer.Ordinal)
+                    .ToArray();
+                if (provenance.Length > 64)
+                    provenance = [.. provenance.Take(63), $"… {provenance.Length - 63} more provenance records"];
+                var repairable = !attached.Contains(group.Key.Id)
+                    && group.Any(entity => entity.Provenance?.Game == "UYA");
+                return new MissingProjectAsset(group.Key.Id, group.Key.Kind, group.Count(), repairable, provenance);
+            })
+            .ToArray();
     }
 
     private static ProjectEntity? CreateEntity(

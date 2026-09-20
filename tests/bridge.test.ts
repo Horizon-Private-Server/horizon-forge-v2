@@ -51,6 +51,16 @@ import {
   encodeUyaProjectPreflight,
   encodeUyaProjectPreflightRequest,
 } from '../src/main/bridge/PayloadCodec.ts';
+import {
+  decodeCatalogCollectionRequest,
+  decodeCatalogMaintenance,
+  decodeCatalogMaintenanceRequest,
+  decodeProjectAssetRepairRequest,
+  encodeCatalogCollectionRequest,
+  encodeCatalogMaintenance,
+  encodeCatalogMaintenanceRequest,
+  encodeProjectAssetRepairRequest,
+} from '../src/main/bridge/MaintenancePayloadCodec.ts';
 
 interface GoldenFrame {
   name: string;
@@ -211,6 +221,20 @@ test('operation payloads round trip and reject trailing data', () => {
   assert.deepEqual(decodeProjectRenameRequest(encodeProjectRenameRequest(renameProject)), renameProject);
   const recoveryRequest = { ...inspectProject, recoveryId: '1000-0123456789abcdef0123456789abcdef' };
   assert.deepEqual(decodeProjectRecoveryRequest(encodeProjectRecoveryRequest(recoveryRequest)), recoveryRequest);
+  const repairRequest = { ...inspectProject, sourceIsoPath: '/clean.iso' };
+  assert.deepEqual(decodeProjectAssetRepairRequest(encodeProjectAssetRepairRequest(repairRequest)), repairRequest);
+  const maintenanceRequest = { catalogRootPath: '/assets', projectRoots: ['/projects', '/external'] };
+  assert.deepEqual(
+    decodeCatalogMaintenanceRequest(encodeCatalogMaintenanceRequest(maintenanceRequest)), maintenanceRequest,
+  );
+  const collectionRequest = { ...maintenanceRequest, confirmationToken: 'c'.repeat(64) };
+  assert.deepEqual(decodeCatalogCollectionRequest(encodeCatalogCollectionRequest(collectionRequest)), collectionRequest);
+  const maintenance = {
+    projectCount: 2, catalogAssetCount: 500, protectedAssetCount: 450, candidateCount: 50,
+    catalogCandidateCount: 48, candidateBytes: 123_456, confirmationToken: collectionRequest.confirmationToken,
+    candidateKinds: ['Moby: 30', 'Tie: 20'], blockers: [],
+  };
+  assert.deepEqual(decodeCatalogMaintenance(encodeCatalogMaintenance(maintenance)), maintenance);
   const descriptor = {
     path: '/project', name: 'Test', targetGame: 'UYA', targetRegion: 'NTSC-U', targetRevision: '1.00',
     bakeProfile: 'uya-ntsc-u', baseLevel: 3, modifiedUnixMilliseconds: 1000,
@@ -218,6 +242,9 @@ test('operation payloads round trip and reject trailing data', () => {
     recoveries: [{
       id: recoveryRequest.recoveryId, createdUnixMilliseconds: 1000, name: 'Recovered',
       entityCount: 20, fingerprint: 'a'.repeat(64), size: 4096,
+    }],
+    missingAssets: [{
+      id: 'b'.repeat(64), kind: 'Moby', entityCount: 2, repairable: true, provenance: ['UYA level 3'],
     }],
   };
   assert.deepEqual(decodeForgeProjectDescriptor(encodeForgeProjectDescriptor(descriptor)), descriptor);

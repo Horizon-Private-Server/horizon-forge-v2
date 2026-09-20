@@ -361,6 +361,15 @@ export function encodeForgeProjectDescriptor(value: ForgeProjectDescriptor): Buf
     writer.writeString(recovery.fingerprint);
     writer.writeUInt64(recovery.size);
   });
+  if (value.missingAssets.length > 4_096) malformed('Missing-asset list exceeds item limit');
+  writer.writeUInt32(value.missingAssets.length);
+  value.missingAssets.forEach((missing) => {
+    writer.writeString(missing.id);
+    writer.writeString(missing.kind);
+    writer.writeUInt32(missing.entityCount);
+    writer.writeBoolean(missing.repairable);
+    writer.writeStrings(missing.provenance);
+  });
   return writer.toBuffer();
 }
 
@@ -381,6 +390,7 @@ export function decodeForgeProjectDescriptor(payload: Uint8Array): ForgeProjectD
     migrationPending: reader.readBoolean(),
     warnings: reader.readStrings(),
     recoveries: [],
+    missingAssets: [],
   };
   const recoveryCount = reader.readUInt32();
   if (recoveryCount > MAX_LIST_ITEMS) malformed('List exceeds item limit');
@@ -391,6 +401,15 @@ export function decodeForgeProjectDescriptor(payload: Uint8Array): ForgeProjectD
     entityCount: reader.readUInt32(),
     fingerprint: reader.readString(),
     size: reader.readUInt64(),
+  }));
+  const missingCount = reader.readUInt32();
+  if (missingCount > 4_096) malformed('Missing-asset list exceeds item limit');
+  value.missingAssets = Array.from({ length: missingCount }, () => ({
+    id: reader.readString(),
+    kind: reader.readString(),
+    entityCount: reader.readUInt32(),
+    repairable: reader.readBoolean(),
+    provenance: reader.readStrings(),
   }));
   reader.complete();
   return value;

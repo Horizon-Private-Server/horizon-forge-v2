@@ -17,15 +17,18 @@ import { useCallback, useEffect, useState } from 'react';
 
 import type { ForgeHostStatus, ForgeProjectDescriptor, ProjectHubState, UyaProjectPreflight } from '../types/ForgeApi.js';
 import { formatBytes } from '../utils/Format.ts';
+import { CatalogMaintenanceModal } from './CatalogMaintenanceModal.tsx';
+import { MissingAssetsModal } from './MissingAssetsModal.tsx';
 
 interface ProjectHubProps {
   hostStatus?: ForgeHostStatus;
   requestedAction?: { id: number; action: 'newProject' | 'openProject' };
   refreshToken: number;
   onOpen(project: ForgeProjectDescriptor): void;
+  onOpenSetup(): void;
 }
 
-export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen }: ProjectHubProps) {
+export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen, onOpenSetup }: ProjectHubProps) {
   const [hub, setHub] = useState<ProjectHubState>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
@@ -179,6 +182,7 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen }
           <Text c="dimmed" size="sm">Create a UYA project or continue a recent one.</Text>
         </div>
         <Group>
+          <CatalogMaintenanceModal onChanged={() => void refresh()} />
           <Button variant="default" onClick={() => void openPicker()} loading={busy}>Open…</Button>
           <Button onClick={() => setCreateOpened(true)} disabled={!canCreate}>New project</Button>
         </Group>
@@ -222,6 +226,11 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen }
                   </Table.Td>
                   <Table.Td>
                     <Group justify="flex-end" wrap="nowrap">
+                      {project?.missingAssetCount ? <MissingAssetsModal
+                        project={project}
+                        onOpenSetup={onOpenSetup}
+                        onRepaired={() => void refresh()}
+                      /> : null}
                       <Button variant="subtle" onClick={() => void openRecent(recent.path)} disabled={!project || busy}>Open</Button>
                       <Button variant="subtle" onClick={() => {
                         if (!project) return;

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -51,6 +51,17 @@ test('host handshake, echo, progress, cancellation, crash recovery, and concurre
   assert.equal(await realpath((await copy.result).path), await realpath(copyTarget));
   assert.deepEqual(await readFile(copyTarget), copyBytes);
   assert.ok(copyProgress.length > 0);
+
+  const maintenanceRoot = await mkdtemp(path.join(tmpdir(), 'forge-host-maintenance-'));
+  context.after(() => rm(maintenanceRoot, { recursive: true, force: true }));
+  const catalogRoot = path.join(maintenanceRoot, 'catalog');
+  const projectsRoot = path.join(maintenanceRoot, 'projects');
+  await mkdir(projectsRoot);
+  const maintenance = await client.previewCatalogGarbageCollection(catalogRoot, [projectsRoot]);
+  const preview = await maintenance.result;
+  assert.equal(preview.candidateCount, 0);
+  const collection = await client.collectCatalogGarbage(catalogRoot, [projectsRoot], preview.confirmationToken);
+  assert.equal((await collection.result).candidateCount, 0);
 
   const progress = [];
   let slowRequest;

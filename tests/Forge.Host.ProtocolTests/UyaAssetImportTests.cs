@@ -46,9 +46,27 @@ internal static class UyaAssetImportTests
             Equal(1, mobys.Count(entry => entry.Tags.Contains("texture:placeholder")), "placeholder moby count");
             foreach (var entry in mobys) Equal(2, entry.Sources.Count, "moby source appearances");
 
+            var repairTarget = mobys[0];
+            File.Delete(catalog.ResolveBlobPath(repairTarget.Id)!);
+            var repair = await UyaAssetImportService.RepairLevelsValidatedAsync(
+                new MemoryStream(isoBytes, writable: false), request, [1]);
+            Equal(1, repair.CompletedLevels, "level-scoped repair count");
+            catalog = await AssetCatalogStore.OpenAsync(root);
+            Equal(true, catalog.ResolveBlobPath(repairTarget.Id) is not null, "level-scoped repair restores missing blob");
+
             var cached = await UyaAssetImportService.ImportValidatedAsync(new MemoryStream(), request);
             Equal(true, cached.Resumed, "completed import reuse");
             Equal(result.UniqueAssets, cached.UniqueAssets, "completed import asset count");
+
+            catalog = await AssetCatalogStore.OpenAsync(root);
+            var missingAfterCheckpoint = catalog.Query(new(Kind: AssetKind.Tie)).Single();
+            File.Delete(catalog.ResolveBlobPath(missingAfterCheckpoint.Id)!);
+            var repairedCheckpoint = await UyaAssetImportService.ImportValidatedAsync(
+                new MemoryStream(isoBytes, writable: false), request);
+            Equal(false, repairedCheckpoint.Resumed, "incomplete completed-checkpoint rescan");
+            catalog = await AssetCatalogStore.OpenAsync(root);
+            Equal(true, catalog.ResolveBlobPath(missingAfterCheckpoint.Id) is not null,
+                "completed-checkpoint rescan restores missing blob");
 
             var forcedCancellation = new CancellationTokenSource();
             await ThrowsCancelledAsync(() => UyaAssetImportService.ImportValidatedAsync(

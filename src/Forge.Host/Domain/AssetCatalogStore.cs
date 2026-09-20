@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -174,6 +175,74 @@ public sealed class AssetCatalogStore
         if (!_entries.ContainsKey(id.ToString())) return null;
         var path = BlobPath(id);
         return File.Exists(path) ? path : null;
+    }
+
+    public AssetGarbageCollectionPreview PreviewGarbageCollection(IEnumerable<AssetId> referencedAssets)
+    {
+        ArgumentNullException.ThrowIfNull(referencedAssets);
+        var protectedIds = referencedAssets.Select(id => id.ToString()).ToHashSet(StringComparer.Ordinal);
+        if (protectedIds.Any(id => id.Length != AssetId.TextLength))
+            throw new ArgumentException("Referenced Asset IDs cannot be empty.", nameof(referencedAssets));
+        return BuildGarbageCollectionPreview(protectedIds);
+    }
+
+    public async Task<AssetGarbageCollectionPreview> CollectGarbageAsync(
+        IEnumerable<AssetId> referencedAssets,
+        string confirmationToken,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(confirmationToken);
+        var protectedIds = referencedAssets.Select(id => id.ToString()).ToHashSet(StringComparer.Ordinal);
+        await _writes.WaitAsync(cancellationToken);
+        try
+        {
+            var preview = BuildGarbageCollectionPreview(protectedIds);
+            if (!CryptographicOperations.FixedTimeEquals(
+                Encoding.ASCII.GetBytes(preview.ConfirmationToken),
+                Encoding.ASCII.GetBytes(confirmationToken)))
+                throw new IOException("The asset catalog changed after the garbage-collection preview; preview it again.");
+
+            var removedIds = preview.Candidates.Select(candidate => candidate.Id.ToString()).ToHashSet(StringComparer.Ordinal);
+            var next = new Dictionary<string, AssetCatalogEntry>(
+                _entries.Where(pair => !removedIds.Contains(pair.Key)), StringComparer.Ordinal);
+            if (next.Count != _entries.Count) await WriteCatalogAsync(next.Values, cancellationToken);
+            _entries = next;
+            foreach (var candidate in preview.Candidates)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                File.Delete(BlobPath(candidate.Id));
+                _verifiedBlobs.Remove(candidate.Id.ToString());
+            }
+            return preview;
+        }
+        finally
+        {
+            _writes.Release();
+        }
+    }
+
+    private AssetGarbageCollectionPreview BuildGarbageCollectionPreview(IReadOnlySet<string> protectedIds)
+    {
+        var candidates = new Dictionary<string, AssetGarbageCandidate>(StringComparer.Ordinal);
+        foreach (var entry in _entries.Values.Where(entry => !protectedIds.Contains(entry.Id.ToString())))
+        {
+            var path = BlobPath(entry.Id);
+            candidates[entry.Id.ToString()] = new(entry.Id, entry.Kind, File.Exists(path) ? new FileInfo(path).Length : 0, true);
+        }
+        foreach (var path in Directory.EnumerateFiles(BlobRootPath, "*.blob", SearchOption.AllDirectories))
+        {
+            AssetId id;
+            try { id = AssetId.Parse(Path.GetFileNameWithoutExtension(path)); }
+            catch (FormatException) { continue; }
+            var value = id.ToString();
+            if (!protectedIds.Contains(value) && !candidates.ContainsKey(value))
+                candidates[value] = new(id, null, new FileInfo(path).Length, false);
+        }
+        var ordered = candidates.Values.OrderBy(candidate => candidate.Id.ToString(), StringComparer.Ordinal).ToArray();
+        var tokenInput = string.Join('\n', protectedIds.Order(StringComparer.Ordinal)
+            .Concat(ordered.Select(candidate => $"{candidate.Id}:{candidate.Size}:{candidate.Cataloged}")));
+        var token = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(tokenInput))).ToLowerInvariant();
+        return new(_entries.Count, _entries.Count - ordered.Count(candidate => candidate.Cataloged), ordered, token);
     }
 
     private async Task EnsureBlobAsync(

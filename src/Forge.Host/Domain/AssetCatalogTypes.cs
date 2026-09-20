@@ -39,3 +39,23 @@ public sealed record AssetCatalogQuery(
     string? Level = null,
     IReadOnlyCollection<string>? Tags = null,
     int Limit = 100);
+
+public sealed record AssetGarbageCandidate(
+    AssetId Id,
+    AssetKind? Kind,
+    long Size,
+    bool Cataloged);
+
+public sealed record AssetGarbageCollectionPreview(
+    int CatalogAssetCount,
+    int ProtectedAssetCount,
+    IReadOnlyList<AssetGarbageCandidate> Candidates,
+    string ConfirmationToken);
+
+public sealed record AssetCatalogMaintenanceReport(
+    int ProjectCount,
+    int CatalogAssetCount,
+    int ProtectedAssetCount,
+    IReadOnlyList<AssetGarbageCandidate> Candidates,
+    string ConfirmationToken,
+    IReadOnlyList<string> Blockers);

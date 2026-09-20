@@ -10,6 +10,7 @@ internal static class AssetCatalogTests
         {
             await VerifyCatalogAsync(Path.Combine(directory, "catalog"));
             await VerifyTransactionalFailureAsync(Path.Combine(directory, "failure"));
+            await VerifyGarbageCollectionAsync(Path.Combine(directory, "garbage"));
         }
         finally
         {
@@ -104,6 +105,27 @@ internal static class AssetCatalogTests
             Metadata("level09", 4, ["Texture"], ["vanilla"]),
             cancellation.Token));
         Equal(1, reopened.Query(new()).Count, "cancelled insertion has no catalog row");
+    }
+
+    private static async Task VerifyGarbageCollectionAsync(string root)
+    {
+        var store = await AssetCatalogStore.OpenAsync(root);
+        var protectedAsset = await store.PutAsync(AssetKind.Moby, 0, "keep"u8.ToArray(), Metadata("level03", 1, [], []));
+        var unused = await store.PutAsync(AssetKind.Tie, 0, "remove"u8.ToArray(), Metadata("level03", 2, [], []));
+        var preview = store.PreviewGarbageCollection([protectedAsset.Id]);
+        Equal(1, preview.ProtectedAssetCount, "garbage preview protected count");
+        Equal(unused.Id, preview.Candidates.Single().Id, "garbage preview candidate");
+
+        var late = await store.PutAsync(AssetKind.Shrub, 0, "late"u8.ToArray(), Metadata("level03", 3, [], []));
+        await ExpectAsync<IOException>(() => store.CollectGarbageAsync([protectedAsset.Id], preview.ConfirmationToken));
+        Equal(true, File.Exists(store.ResolveBlobPath(late.Id)), "stale garbage preview changes nothing");
+
+        preview = store.PreviewGarbageCollection([protectedAsset.Id]);
+        await store.CollectGarbageAsync([protectedAsset.Id], preview.ConfirmationToken);
+        Equal(true, File.Exists(store.ResolveBlobPath(protectedAsset.Id)), "referenced blob survives garbage collection");
+        Equal(null, store.ResolveBlobPath(unused.Id), "unused blob removed");
+        Equal(null, store.ResolveBlobPath(late.Id), "late unused blob removed");
+        Equal(1, (await AssetCatalogStore.OpenAsync(root)).Query(new()).Count, "garbage catalog committed");
     }
 
     private static AssetImportMetadata Metadata(

@@ -30,7 +30,9 @@ public static class UyaAssetImportService
         ValidateRequest(request);
         var statePath = GetStatePath(request);
         var state = await ReadStateAsync(statePath, request, cancellationToken);
-        if (state?.Complete == true && !request.Force) return Result(state, resumed: true);
+        if (state?.Complete == true && !request.Force
+            && await AssetsAvailableAsync(state, request.CatalogRootPath, cancellationToken))
+            return Result(state, resumed: true);
 
         var identity = await UyaIsoService.ValidateAsync(
             request.SourceIsoPath,
@@ -63,6 +65,8 @@ public static class UyaAssetImportService
         var statePath = GetStatePath(request);
         var state = await ReadStateAsync(statePath, request, cancellationToken);
         if (request.Force && state?.Complete == true) state = null;
+        else if (state?.Complete == true
+            && !await AssetsAvailableAsync(state, request.CatalogRootPath, cancellationToken)) state = null;
         state ??= new ImportState(StateSchemaVersion, request.Fingerprint, request.ImporterVersion, [], [], 0, 0, false);
         if (state.Complete) return Result(state, resumed: true);
 
@@ -106,6 +110,62 @@ public static class UyaAssetImportService
         if (levels.Count == 0)
             throw new InvalidDataException("The UYA ISO does not contain any level WADs.");
         return Result(state, resumed);
+    }
+
+    public static async Task<UyaAssetImportResult> RepairLevelsAsync(
+        UyaAssetImportRequest request,
+        IReadOnlyCollection<int> levels,
+        Func<IsoProgress, ValueTask>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateRequest(request);
+        var identity = await UyaIsoService.ValidateAsync(
+            request.SourceIsoPath,
+            progress is null ? null : value => ReportScaledAsync(progress, value, 0, 2_000),
+            cancellationToken);
+        if (!identity.IsSupported || !identity.Fingerprint.Equals(request.Fingerprint, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("The selected UYA source ISO does not match this project's verified source fingerprint.");
+
+        await using var iso = new FileStream(
+            request.SourceIsoPath, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024,
+            FileOptions.Asynchronous | FileOptions.RandomAccess);
+        return await RepairLevelsValidatedAsync(iso, request, levels, progress, cancellationToken);
+    }
+
+    public static async Task<UyaAssetImportResult> RepairLevelsValidatedAsync(
+        Stream iso,
+        UyaAssetImportRequest request,
+        IReadOnlyCollection<int> levels,
+        Func<IsoProgress, ValueTask>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateRequest(request);
+        ArgumentNullException.ThrowIfNull(iso);
+        ArgumentNullException.ThrowIfNull(levels);
+        if (!iso.CanRead || !iso.CanSeek)
+            throw new ArgumentException("The UYA ISO stream must be readable and seekable.", nameof(iso));
+        var requestedLevels = levels.Distinct().Order().ToArray();
+        if (requestedLevels.Length == 0) return new(0, 0, 0, 0, 0, false);
+        var availableLevels = FindLevels(iso);
+        if (requestedLevels.Any(level => !availableLevels.Contains(level)))
+            throw new InvalidDataException("A repair level is not present in the selected UYA source ISO.");
+        var store = await AssetCatalogStore.OpenAsync(request.CatalogRootPath, cancellationToken);
+        var ids = new HashSet<AssetId>();
+        var appearances = 0;
+        var failures = 0;
+        for (var index = 0; index < requestedLevels.Length; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var levelAssets = ReadAssets(
+                UyaLooseLevelWadExtractor.ExtractPrimary(iso, requestedLevels[index]).Bytes,
+                requestedLevels[index],
+                request);
+            foreach (var entry in await store.PutManyAsync(levelAssets.Assets, cancellationToken)) ids.Add(entry.Id);
+            appearances = checked(appearances + levelAssets.Assets.Count);
+            failures = checked(failures + levelAssets.FailedAssets);
+            await ReportAsync(progress, 2_000 + (index + 1) * 8_000 / requestedLevels.Length, 10_000);
+        }
+        return new(requestedLevels.Length, requestedLevels.Length, appearances, ids.Count, failures, false);
     }
 
     private static LevelAssets ReadAssets(
@@ -325,6 +385,20 @@ public static class UyaAssetImportService
             throw new InvalidDataException("UYA asset import state contains an invalid Asset ID.", exception);
         }
         return state;
+    }
+
+    private static async Task<bool> AssetsAvailableAsync(
+        ImportState state,
+        string catalogRootPath,
+        CancellationToken cancellationToken)
+    {
+        var store = await AssetCatalogStore.OpenAsync(catalogRootPath, cancellationToken);
+        foreach (var value in state.AssetIds)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (store.ResolveBlobPath(AssetId.Parse(value)) is null) return false;
+        }
+        return true;
     }
 
     private static async Task WriteStateAsync(

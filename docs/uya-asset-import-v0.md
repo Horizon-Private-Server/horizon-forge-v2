@@ -26,7 +26,10 @@ batch, then atomically checkpoints that level beneath
 `imports/uya/<iso-fingerprint>/<importer-version-hash>.json`. A cancellation or
 crash can therefore repeat at most the active level; catalog deduplication makes
 that retry safe. A completed checkpoint can be reused without the source ISO being
-present, and imported blobs remain independent of the source path.
+present while every listed blob remains available. If maintenance or external
+deletion removed a blob, the next import revalidates the source and rebuilds the
+catalog rather than trusting the stale completion marker. Imported blobs remain
+independent of the source path.
 
 The importer version is `forge-uya-v1+<pinned-sdk-revision>`. A different source
 fingerprint or importer version receives an independent checkpoint and is scanned
