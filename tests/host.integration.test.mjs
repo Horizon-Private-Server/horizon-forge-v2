@@ -26,6 +26,7 @@ test('host handshake, echo, progress, cancellation, crash recovery, and concurre
   assert.ok(handshake.capabilities.includes('bridge.cancellation'));
   assert.ok(handshake.capabilities.includes('uya.iso.copy'));
   assert.ok(handshake.capabilities.includes('uya.assets.import'));
+  assert.ok(handshake.capabilities.includes('editor.runtime'));
 
   const concurrent = await Promise.all([
     client.echo('alpha'),
@@ -62,6 +63,77 @@ test('host handshake, echo, progress, cancellation, crash recovery, and concurre
   assert.equal(preview.candidateCount, 0);
   const collection = await client.collectCatalogGarbage(catalogRoot, [projectsRoot], preview.confirmationToken);
   assert.equal((await collection.result).candidateCount, 0);
+
+  const editorRoot = await mkdtemp(path.join(tmpdir(), 'forge-host-editor-'));
+  context.after(() => rm(editorRoot, { recursive: true, force: true }));
+  const editorContent = path.join(editorRoot, 'content');
+  await mkdir(editorContent);
+  const projectId = '10000000-0000-4000-8000-000000000001';
+  const entityId = '20000000-0000-4000-8000-000000000002';
+  await writeFile(path.join(editorRoot, 'forge-project.json'), JSON.stringify({
+    schemaVersion: 1,
+    documentType: 'forge-project',
+    projectId,
+    name: 'Bridge project',
+    target: { game: 'UYA', region: 'NTSC-U', revision: '1.00', bakeProfile: 'uya-ntsc-u' },
+    baseLevel: {
+      game: 'UYA', region: 'NTSC-U', revision: '1.00', level: 3,
+      sourceFingerprint: 'a'.repeat(32), missingAssetCount: 0,
+    },
+    content: 'content/project.json',
+  }));
+  await writeFile(path.join(editorContent, 'project.json'), JSON.stringify({
+    schemaVersion: 1,
+    documentType: 'forge-project-content',
+    entities: [{
+      entityId,
+      name: 'Moby',
+      layer: 'mobys',
+      transform: {
+        position: { x: 1, y: 2, z: 3 },
+        rotation: { x: 0, y: 0, z: 0, w: 1 },
+        scale: { x: 1, y: 1, z: 1 },
+      },
+      asset: null,
+      provenance: null,
+    }],
+    assets: [],
+  }));
+  const opened = await (await client.openEditorProject(editorRoot, 0)).result;
+  assert.equal(opened.projectId, projectId);
+  assert.equal(opened.entities[0].id, entityId);
+  const selected = await (await client.executeEditorCommand({
+    id: '30000000-0000-4000-8000-000000000001',
+    kind: 'setSelection',
+    entityIds: [entityId],
+  })).result;
+  assert.deepEqual(selected.selection, [entityId]);
+  const transformed = await (await client.executeEditorCommand({
+    id: '30000000-0000-4000-8000-000000000002',
+    kind: 'updateTransform',
+    entityIds: [entityId],
+    transform: {
+      position: { x: 10.5, y: 20.25, z: -30.75 },
+      rotation: { x: 0, y: 0, z: 0, w: 1 },
+      scale: { x: 1, y: 1, z: 1 },
+    },
+  })).result;
+  assert.deepEqual(transformed.entities[0].transform.position, { x: 10.5, y: 20.25, z: -30.75 });
+  const renamed = await (await client.executeEditorCommand({
+    id: '30000000-0000-4000-8000-000000000003',
+    kind: 'renameProject',
+    entityIds: [],
+    text: 'Renamed over bridge',
+  })).result;
+  assert.equal(renamed.projectName, 'Renamed over bridge');
+  assert.equal(renamed.isDirty, true);
+  const events = await (await client.readEditorEvents(0)).result;
+  assert.deepEqual(events.map((event) => event.kind), [
+    'projectOpened', 'selectionChanged', 'projectChanged', 'projectChanged',
+  ]);
+  assert.equal((await (await client.saveEditorProject()).result).isDirty, false);
+  await (await client.closeEditorProject()).result;
+  assert.equal(JSON.parse(await readFile(path.join(editorRoot, 'forge-project.json'), 'utf8')).name, 'Renamed over bridge');
 
   const progress = [];
   let slowRequest;

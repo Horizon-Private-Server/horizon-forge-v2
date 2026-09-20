@@ -1,7 +1,7 @@
 import { Alert, Modal, Stack, TextInput } from '@mantine/core';
 import { useEffect, useState } from 'react';
 
-import { errorMessage } from '../utils/Errors.ts';
+import { errorMessage } from '../../utils/Errors.ts';
 
 interface SettingsModalProps {
   opened: boolean;

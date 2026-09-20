@@ -3,6 +3,9 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import type {
   DevelopmentIsoResult,
   CatalogMaintenancePreview,
+  EditorCommand,
+  EditorEvent,
+  EditorSnapshot,
   ForgeHostStatus,
   ForgeProjectDescriptor,
   Progress,
@@ -11,6 +14,13 @@ import type {
   UyaProjectOptions,
   UyaProjectPreflight,
 } from '../../types/ForgeApi.js';
+import {
+  decodeEditorEvents,
+  decodeEditorSnapshot,
+  encodeEditorCommand,
+  encodeEditorEventRequest,
+  encodeEditorOpenRequest,
+} from './EditorPayloadCodec.js';
 import {
   decodeCatalogMaintenance,
   encodeCatalogCollectionRequest,
@@ -154,7 +164,7 @@ export class HostClient {
         clearTimeout(timeout);
         resolve();
       });
-      child.kill();
+      child.stdin.end();
     });
   }
 
@@ -292,6 +302,38 @@ export class HostClient {
       encodeCatalogCollectionRequest({ catalogRootPath, projectRoots, confirmationToken }),
     );
     return { requestId: request.requestId, result: request.result.then(decodeCatalogMaintenance) };
+  }
+
+  async openEditorProject(projectPath: string, autosaveSeconds: number): Promise<HostRequest<EditorSnapshot>> {
+    const request = await this.#request(
+      BridgeOpcode.OpenEditorProject, encodeEditorOpenRequest(projectPath, autosaveSeconds));
+    return { requestId: request.requestId, result: request.result.then(decodeEditorSnapshot) };
+  }
+
+  async closeEditorProject(): Promise<HostRequest<string>> {
+    const request = await this.#request(BridgeOpcode.CloseEditorProject, Buffer.alloc(0));
+    return { requestId: request.requestId, result: request.result.then(decodeText) };
+  }
+
+  async getEditorSnapshot(): Promise<HostRequest<EditorSnapshot>> {
+    const request = await this.#request(BridgeOpcode.QueryEditor, Buffer.alloc(0));
+    return { requestId: request.requestId, result: request.result.then(decodeEditorSnapshot) };
+  }
+
+  async executeEditorCommand(command: EditorCommand): Promise<HostRequest<EditorSnapshot>> {
+    const request = await this.#request(BridgeOpcode.ExecuteEditorCommand, encodeEditorCommand(command));
+    return { requestId: request.requestId, result: request.result.then(decodeEditorSnapshot) };
+  }
+
+  async saveEditorProject(): Promise<HostRequest<EditorSnapshot>> {
+    const request = await this.#request(BridgeOpcode.SaveEditorProject, Buffer.alloc(0));
+    return { requestId: request.requestId, result: request.result.then(decodeEditorSnapshot) };
+  }
+
+  async readEditorEvents(afterSequence: number, limit = 100): Promise<HostRequest<EditorEvent[]>> {
+    const request = await this.#request(
+      BridgeOpcode.ReadEditorEvents, encodeEditorEventRequest(afterSequence, limit));
+    return { requestId: request.requestId, result: request.result.then(decodeEditorEvents) };
   }
 
   async cancel(requestId: number): Promise<void> {

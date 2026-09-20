@@ -27,6 +27,12 @@ public enum BridgeOpcode : ushort
     RepairForgeProjectAssets = 12,
     PreviewCatalogGarbageCollection = 13,
     CollectCatalogGarbage = 14,
+    OpenEditorProject = 15,
+    CloseEditorProject = 16,
+    QueryEditor = 17,
+    ExecuteEditorCommand = 18,
+    SaveEditorProject = 19,
+    ReadEditorEvents = 20,
 }
 
 public enum BridgeErrorCode : ushort

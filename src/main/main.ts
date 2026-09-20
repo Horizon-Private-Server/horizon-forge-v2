@@ -31,6 +31,7 @@ const developmentTfragPath = path.resolve(
 const tfragPath = process.env.FORGE_TFRAG_PATH ?? (app.isPackaged ? undefined : developmentTfragPath);
 let mainWindow: BrowserWindow | undefined;
 let tfragUrl: string | undefined;
+let quitting = false;
 
 function createWindow(): void {
   const window = new BrowserWindow({
@@ -87,6 +88,9 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-app.on('before-quit', () => {
-  void host.stop();
+app.on('before-quit', (event) => {
+  if (quitting) return;
+  event.preventDefault();
+  quitting = true;
+  void host.stop().finally(() => app.quit());
 });

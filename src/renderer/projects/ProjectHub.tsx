@@ -15,8 +15,8 @@ import {
 } from '@mantine/core';
 import { useCallback, useEffect, useState } from 'react';
 
-import type { ForgeHostStatus, ForgeProjectDescriptor, ProjectHubState, UyaProjectPreflight } from '../types/ForgeApi.js';
-import { formatBytes } from '../utils/Format.ts';
+import type { ForgeHostStatus, ForgeProjectDescriptor, ProjectHubState, UyaProjectPreflight } from '../../types/ForgeApi.js';
+import { formatBytes } from '../../utils/Format.ts';
 import { CatalogMaintenanceModal } from './CatalogMaintenanceModal.tsx';
 import { MissingAssetsModal } from './MissingAssetsModal.tsx';
 

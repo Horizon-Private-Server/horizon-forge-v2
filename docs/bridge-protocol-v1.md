@@ -55,6 +55,23 @@ request ID of the request they describe.
 | 1 | Echo | Walking-skeleton request used to qualify the bridge |
 | 2 | ValidateUyaIso | Identify and checksum a selected clean UYA ISO |
 | 3 | CreateDevelopmentIso | Create and verify a separate writable ISO copy |
+| 4 | ImportUyaAssets | Import the global UYA asset catalog |
+| 5 | ListUyaProjectLevels | List supported UYA base levels |
+| 6 | CreateUyaProject | Create a project from a UYA base level |
+| 7 | InspectForgeProject | Inspect a project and its asset state |
+| 8 | RenameForgeProject | Rename and save a project |
+| 9 | PreflightUyaProject | Inspect base-level creation requirements |
+| 10 | RestoreForgeProjectRecovery | Restore a chosen recovery snapshot |
+| 11 | MigrateForgeProject | Explicitly save a supported migration |
+| 12 | RepairForgeProjectAssets | Re-import missing project assets |
+| 13 | PreviewCatalogGarbageCollection | Preview unreferenced catalog assets |
+| 14 | CollectCatalogGarbage | Confirm and remove previewed assets |
+| 15 | OpenEditorProject | Open the authoritative editor session |
+| 16 | CloseEditorProject | Flush recovery and close the session |
+| 17 | QueryEditor | Read the current editor snapshot |
+| 18 | ExecuteEditorCommand | Validate and execute one editor command |
+| 19 | SaveEditorProject | Explicitly save the active project |
+| 20 | ReadEditorEvents | Read ordered events after a sequence number |
 
 Handshake frames must use `Control`. Requests, results, progress, and cancellation
 must use a non-control opcode. Error frames may use `Control` when dispatch never
@@ -159,3 +176,7 @@ reserved for frames; diagnostics go to standard error or a log file.
 The shared language-neutral vectors in
 [`tests/fixtures/bridge-v1.json`](../tests/fixtures/bridge-v1.json) are normative
 examples. Both TypeScript and C# tests encode to and decode from those exact bytes.
+
+The editor payload fields and lifecycle are frozen separately in
+[editor runtime v0](editor-runtime-v0.md); they retain this protocol's framing,
+limits, byte order, and error behavior.

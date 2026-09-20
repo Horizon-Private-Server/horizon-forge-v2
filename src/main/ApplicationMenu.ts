@@ -32,6 +32,7 @@ export function installApplicationMenu(runAction: (action: ForgeAction) => void)
       submenu: [
         { label: 'New Project…', accelerator: 'CmdOrCtrl+N', click: () => runAction('newProject') },
         { label: 'Open Project…', accelerator: 'CmdOrCtrl+O', click: () => runAction('openProject') },
+        { label: 'Save', accelerator: 'CmdOrCtrl+S', click: () => runAction('saveProject') },
         { label: 'Project Hub', click: () => runAction('projects') },
         { type: 'separator' },
         { role: process.platform === 'darwin' ? 'close' : 'quit' },
@@ -52,6 +53,17 @@ export function installApplicationMenu(runAction: (action: ForgeAction) => void)
     {
       label: 'View',
       submenu: [
+        {
+          label: 'Panels',
+          submenu: [
+            { label: 'Viewport', click: () => runAction('showViewport') },
+            { label: 'Scene', click: () => runAction('showSceneTree') },
+            { label: 'Properties', click: () => runAction('showProperties') },
+            { label: 'Diagnostics', click: () => runAction('showDiagnostics') },
+          ],
+        },
+        { label: 'Reset Layout', click: () => runAction('resetLayout') },
+        { type: 'separator' },
         { role: 'resetZoom' },
         { role: 'zoomIn' },
         { role: 'zoomOut' },

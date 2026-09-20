@@ -1,3 +1,7 @@
+import type { EditorCommand, EditorEvent, EditorSnapshot } from './EditorRuntime.js';
+
+export type { EditorCommand, EditorEvent, EditorSnapshot } from './EditorRuntime.js';
+
 export interface ForgeHostStatus {
   hostVersion: string;
   sdkRevision: string;
@@ -20,6 +24,7 @@ export interface KnownSettings {
   'sources.uya.serial': string;
   'sources.uya.size': number;
   'targets.uya.developmentIso': string;
+  'ui.editorLayout': string;
 }
 
 export type SettingKey = keyof KnownSettings;
@@ -168,7 +173,11 @@ export interface SetupProgress extends Progress {
 
 export type ForgeDialog = 'setup' | 'settings';
 
-export type ForgeAction = ForgeDialog | 'projects' | 'newProject' | 'openProject';
+export type EditorLayoutAction = 'resetLayout' | 'showViewport' | 'showSceneTree'
+  | 'showProperties' | 'showDiagnostics';
+
+export type ForgeAction = ForgeDialog | EditorLayoutAction
+  | 'projects' | 'newProject' | 'openProject' | 'saveProject';
 
 export interface ForgeApi {
   getHostStatus(): Promise<ForgeHostStatus>;
@@ -196,6 +205,12 @@ export interface ForgeApi {
   collectCatalogGarbage(confirmationToken: string): Promise<CatalogMaintenancePreview>;
   removeRecentProject(path: string): Promise<ProjectHubState>;
   revealForgeProject(path: string): Promise<void>;
+  openEditorProject(path: string): Promise<EditorSnapshot>;
+  closeEditorProject(): Promise<void>;
+  getEditorSnapshot(): Promise<EditorSnapshot>;
+  executeEditorCommand(command: EditorCommand): Promise<EditorSnapshot>;
+  saveEditorProject(): Promise<EditorSnapshot>;
+  readEditorEvents(afterSequence: number, limit?: number): Promise<EditorEvent[]>;
   cancelSetupOperation(): Promise<void>;
   onSetupProgress(listener: (progress: SetupProgress) => void): () => void;
   onForgeAction(listener: (action: ForgeAction) => void): () => void;

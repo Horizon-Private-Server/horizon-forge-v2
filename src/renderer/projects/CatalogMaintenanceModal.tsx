@@ -1,9 +1,9 @@
 import { Alert, Button, Group, Modal, Stack, Text } from '@mantine/core';
 import { useState } from 'react';
 
-import type { CatalogMaintenancePreview } from '../types/ForgeApi.js';
-import { errorMessage } from '../utils/Errors.ts';
-import { formatBytes } from '../utils/Format.ts';
+import type { CatalogMaintenancePreview } from '../../types/ForgeApi.js';
+import { errorMessage } from '../../utils/Errors.ts';
+import { formatBytes } from '../../utils/Format.ts';
 
 interface CatalogMaintenanceModalProps {
   onChanged(): void;

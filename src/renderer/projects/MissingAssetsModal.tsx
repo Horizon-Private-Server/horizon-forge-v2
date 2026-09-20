@@ -1,8 +1,8 @@
 import { Alert, Button, Code, Group, Modal, Stack, Text } from '@mantine/core';
 import { useState } from 'react';
 
-import type { ForgeProjectDescriptor } from '../types/ForgeApi.js';
-import { errorMessage } from '../utils/Errors.ts';
+import type { ForgeProjectDescriptor } from '../../types/ForgeApi.js';
+import { errorMessage } from '../../utils/Errors.ts';
 
 interface MissingAssetsModalProps {
   project: ForgeProjectDescriptor;

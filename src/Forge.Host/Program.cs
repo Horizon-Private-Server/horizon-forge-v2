@@ -26,5 +26,6 @@ return await BridgeHost.RunAsync(
             "bridge.echo", "bridge.progress", "bridge.cancellation", "uya.iso.validate", "uya.iso.copy",
             "uya.assets.import", "uya.assets.import.mobys", "uya.assets.import.ties", "uya.assets.import.shrubs",
             "uya.projects.base.mobys", "projects.inspect", "projects.rename", "projects.recovery", "projects.migrate",
-            "projects.assets.repair", "assets.catalog.gc"
+            "projects.assets.repair", "assets.catalog.gc", "editor.runtime", "editor.commands",
+            "editor.events", "editor.autosave"
         ]));

@@ -1,9 +1,9 @@
 import { Alert, Button, Checkbox, Group, Modal, Progress, Stack, Text, TextInput, Title } from '@mantine/core';
 import { useEffect, useState } from 'react';
 
-import type { SetupProgress, SetupState } from '../types/ForgeApi.js';
-import { errorMessage } from '../utils/Errors.ts';
-import { formatBytes } from '../utils/Format.ts';
+import type { SetupProgress, SetupState } from '../../types/ForgeApi.js';
+import { errorMessage } from '../../utils/Errors.ts';
+import { formatBytes } from '../../utils/Format.ts';
 
 interface SetupWizardProps {
   opened: boolean;

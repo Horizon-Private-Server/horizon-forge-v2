@@ -22,6 +22,15 @@ Acceptance:
 
 Verification: command/query/event contract tests with an in-memory project.
 
+Implementation: `EditorRuntime` is the single long-lived owner of the active
+`ForgeProjectWorkspace`. It validates serializable selection, rename, and transform
+commands before mutation; exposes snapshots, capabilities, tools, diagnostics, and
+ordered events; and performs explicit save, idle recovery, and pre-transition
+recovery flushes. Electron uses only typed binary bridge operations to access it,
+and host shutdown closes stdin gracefully so the runtime can flush dirty state.
+The contract is recorded in [editor runtime v0](../../editor-runtime-v0.md).
+Undo/redo and common edit operations remain scoped to M2-008.
+
 ## M2-002 — Build docking shell and shared Mantine components
 
 Requirements: FR-UI-001, FR-UI-002, NFR-UX-001, NFR-UX-002  
@@ -38,6 +47,15 @@ Acceptance:
 - No custom docking engine is introduced.
 
 Verification: component interaction/accessibility checks and layout round trip.
+
+Implementation: `dockview-react` provides the dock/tab/resize/float engine,
+keyboard navigation, announcements, and serialized layout. Forge supplies four
+initial panels, compact Mantine tree/property/filter/diagnostic/progress/empty/error
+primitives, View-menu reopen/reset actions, and validated debounced persistence in
+the machine-specific `ui.editorLayout` setting. Missing panels remain intentionally
+hidden; stale IDs or component names reset safely. In-window floating groups are
+the supported detachable form for P0. The decision is recorded in
+[ADR-0003](../../adr/0003-dockview-editor-shell.md).
 
 ## M2-003 — Project authoritative state into Three.js
 

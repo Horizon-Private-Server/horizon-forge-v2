@@ -13,6 +13,7 @@ public static class BridgeHost
         CancellationToken cancellationToken = default)
     {
         var writer = new FrameWriter(output);
+        await using var editor = new EditorRuntime();
         var requests = new ConcurrentDictionary<uint, CancellationTokenSource>();
         var tasks = new ConcurrentDictionary<uint, Task>();
 
@@ -56,7 +57,7 @@ public static class BridgeHost
                     }
 
                     var task = HandleRequestAsync(
-                        frame, writer, requests, requestCancellation, diagnostics, handshake, cancellationToken);
+                        frame, writer, requests, requestCancellation, diagnostics, handshake, editor, cancellationToken);
                     tasks[frame.RequestId] = task;
                     _ = task.ContinueWith(
                         _completed => tasks.TryRemove(frame.RequestId, out _),
@@ -98,6 +99,7 @@ public static class BridgeHost
         CancellationTokenSource requestCancellation,
         TextWriter diagnostics,
         HostHandshake handshake,
+        EditorRuntime editor,
         CancellationToken hostCancellation)
     {
         try
@@ -134,6 +136,16 @@ public static class BridgeHost
                             CreateProgressReporter(frame, writer, hostCancellation),
                             requestCancellation.Token)), hostCancellation);
                     break;
+                case BridgeOpcode.OpenEditorProject:
+                case BridgeOpcode.CloseEditorProject:
+                case BridgeOpcode.QueryEditor:
+                case BridgeOpcode.ExecuteEditorCommand:
+                case BridgeOpcode.SaveEditorProject:
+                case BridgeOpcode.ReadEditorEvents:
+                    await writer.WriteAsync(new(
+                        BridgeMessageKind.Result, frame.Opcode, BridgeErrorCode.None, frame.RequestId,
+                        await EditorBridgeHandlers.HandleAsync(frame, editor, requestCancellation.Token)), hostCancellation);
+                    break;
                 default:
                     await WriteErrorAsync(writer, frame.RequestId, BridgeErrorCode.UnknownOpcode,
                         $"Unsupported opcode: {frame.Opcode}", hostCancellation);
@@ -156,6 +168,14 @@ public static class BridgeHost
         catch (InvalidDataException exception)
         {
             await WriteErrorAsync(writer, frame.RequestId, BridgeErrorCode.InvalidInput, exception.Message, hostCancellation);
+        }
+        catch (FormatException exception)
+        {
+            await WriteErrorAsync(writer, frame.RequestId, BridgeErrorCode.InvalidInput, exception.Message, hostCancellation);
+        }
+        catch (InvalidOperationException exception)
+        {
+            await WriteErrorAsync(writer, frame.RequestId, BridgeErrorCode.Conflict, exception.Message, hostCancellation);
         }
         catch (IOException exception)
         {

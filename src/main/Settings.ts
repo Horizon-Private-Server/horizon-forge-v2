@@ -137,6 +137,12 @@ function createDefinitions(paths: ApplicationPaths): SettingDefinition[] {
       validate: (value): value is number => Number.isInteger(value) && Number(value) >= 5 && Number(value) <= 3600,
     },
     {
+      key: 'ui.editorLayout', group: 'Editor', label: 'Editor layout', type: 'text',
+      description: 'Docked panel layout managed by Forge.', defaultValue: '', restartRequired: false, machineSpecific: true,
+      editable: true,
+      validate: (value): value is string => typeof value === 'string' && value.length <= 1024 * 1024,
+    },
+    {
       key: 'imports.uya.enabled', group: 'Imports', label: 'Import UYA assets', type: 'boolean',
       description: 'Import reusable UYA assets after setup.', defaultValue: true, restartRequired: false, machineSpecific: false,
       editable: true,

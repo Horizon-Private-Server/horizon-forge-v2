@@ -26,6 +26,7 @@ internal static class Program
             await AssetMaintenanceTests.RunAsync();
             await UyaAssetImportTests.RunAsync();
             await ForgeProjectTests.RunAsync();
+            await EditorRuntimeTests.RunAsync();
             await UyaProjectTests.RunAsync();
             Console.WriteLine("C# bridge and domain contract checks passed");
             return 0;

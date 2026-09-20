@@ -27,10 +27,12 @@ test('settings validate defaults and preserve unknown keys', async () => {
     assert.match(invalid.diagnostics.join('\n'), /editor\.autosaveSeconds/);
 
     await store.set('paths.projects', '/maps/projects');
+    await store.set('ui.editorLayout', '{"panels":{}}');
     const persisted = JSON.parse(await readFile(paths.settingsFile, 'utf8'));
     assert.deepEqual(persisted['future.setting'], { enabled: true });
     assert.equal(persisted['editor.autosaveSeconds'], 1);
     assert.equal(persisted['paths.projects'], '/maps/projects');
+    assert.equal(persisted['ui.editorLayout'], '{"panels":{}}');
 
     await store.reset('editor.autosaveSeconds');
     const reset = JSON.parse(await readFile(paths.settingsFile, 'utf8'));

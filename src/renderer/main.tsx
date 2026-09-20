@@ -1,4 +1,5 @@
 import '@mantine/core/styles.css';
+import 'dockview-react/dist/styles/dockview.css';
 import './styles.css';
 
 import { MantineProvider } from '@mantine/core';

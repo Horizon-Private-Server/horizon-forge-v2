@@ -25,6 +25,10 @@ roomier defaults common to web applications. The shared Mantine theme in
 
 - Toolbars: compact buttons or action icons, `xs` gaps, no decorative padding.
 - Docked panels: `sm` edge padding; section headers use `Title` order 5 or 6.
+- Docked panel placement belongs to Dockview. Persist its layout through
+  `ui.editorLayout`; never reproduce docking or splitter behavior in local CSS.
+- A closed panel is hidden, not deleted. Keep a View-menu action that can reopen
+  every registered panel and a Reset Layout action for recovery.
 - Forms: `xs` inputs, short descriptions, errors directly below their field.
 - Lists and trees: a single-line primary label, optional muted metadata, and
   selection state that does not change row dimensions.

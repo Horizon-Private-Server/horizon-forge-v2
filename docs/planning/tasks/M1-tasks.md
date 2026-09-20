@@ -173,10 +173,8 @@ and 256 MiB, remain separate from the explicit save, and can be previewed and
 explicitly restored from the project hub. Schema v1 adds document-kind markers;
 v0 projects migrate in memory and are written only after the user accepts the
 upgrade. The contract is recorded in [project format v1](../../project-format-v1.md).
-The idle timer, pre-transition flush, and `Cmd/Ctrl+S` binding attach to the
-long-lived authoritative editor state in M2-001; before that runtime exists,
-polling the clean on-disk project would create false autosaves rather than protect
-unsaved edits.
+The idle timer, pre-transition flush, and `Cmd/Ctrl+S` binding now attach to the
+long-lived authoritative editor state implemented by M2-001.
 
 ## M1-008 — Resolve missing assets and maintain the catalog safely
 

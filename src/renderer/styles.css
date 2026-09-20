@@ -30,6 +30,7 @@ body {
 
 .scene-viewport {
   position: relative;
+  height: 100%;
   min-height: 0;
 }
 
@@ -77,4 +78,100 @@ body {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: var(--mantine-spacing-sm);
   align-items: end;
+}
+
+.editor-workspace {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.editor-workspace > .dockview-theme-abyss {
+  width: 100%;
+  height: 100%;
+  --dv-tabs-and-actions-container-height: 26px;
+  --dv-tabs-and-actions-container-font-size: var(--mantine-font-size-xs);
+  --dv-tab-font-size: var(--mantine-font-size-xs);
+  --dv-tab-close-icon-size: 14px;
+  --dv-color-abyss-dark: #11141a;
+  --dv-color-abyss: #191d24;
+  --dv-color-abyss-light: #20252d;
+  --dv-color-abyss-lighter: #2c3038;
+  --dv-color-abyss-accent: var(--mantine-primary-color-filled);
+  --dv-color-abyss-primary-text: var(--mantine-color-gray-2);
+  --dv-color-abyss-secondary-text: var(--mantine-color-gray-5);
+}
+
+.editor-panel {
+  height: 100%;
+  overflow: auto;
+  padding: var(--mantine-spacing-sm);
+  background: #151922;
+}
+
+.editor-tree {
+  min-width: max-content;
+}
+
+.editor-tree-row {
+  display: grid;
+  grid-template-columns: 0.75rem minmax(0, 1fr);
+  align-items: center;
+  min-height: 24px;
+  padding-inline: var(--mantine-spacing-xs);
+  border-radius: var(--mantine-radius-xs);
+  cursor: default;
+}
+
+.editor-tree-row:hover,
+.editor-tree-row[data-selected] {
+  background: var(--mantine-color-dark-5);
+}
+
+.editor-tree [role="treeitem"]:focus-visible > .editor-tree-row {
+  outline: 2px solid var(--mantine-primary-color-filled);
+  outline-offset: -2px;
+}
+
+.editor-tree-chevron {
+  color: var(--mantine-color-dimmed);
+}
+
+.editor-property-grid {
+  display: grid;
+  grid-template-columns: minmax(5rem, 0.4fr) minmax(0, 1fr);
+  gap: 1px;
+  margin: 0;
+  background: var(--mantine-color-dark-4);
+  border: 1px solid var(--mantine-color-dark-4);
+}
+
+.editor-property-grid dt,
+.editor-property-grid dd {
+  min-width: 0;
+  margin: 0;
+  padding: var(--mantine-spacing-xs);
+  overflow-wrap: anywhere;
+  background: #151922;
+}
+
+.editor-diagnostics {
+  margin: 0;
+  padding-inline-start: 1.25rem;
+}
+
+.editor-empty {
+  display: grid;
+  min-height: 4rem;
+  place-items: center;
+  padding: var(--mantine-spacing-sm);
+  text-align: center;
+}
+
+.editor-layout-error {
+  position: absolute;
+  z-index: 1000;
+  top: var(--mantine-spacing-xs);
+  right: var(--mantine-spacing-xs);
+  max-width: min(30rem, calc(100% - 0.5rem));
 }

@@ -3,7 +3,7 @@ import type { BrowserWindow } from 'electron';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 
-import type { ProjectHubState } from '../types/ForgeApi.js';
+import type { EditorCommand, ProjectHubState } from '../types/ForgeApi.js';
 import { safeProjectDirectoryName } from '../utils/ApplicationPaths.js';
 import { showOpenDialog, showSaveDialog } from '../utils/ElectronDialogs.js';
 import { errorMessage } from '../utils/Errors.js';
@@ -125,6 +125,17 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
       String(values['paths.projects'] ?? ''),
       ...await recentProjects.list(),
     ].filter(Boolean).map((value) => path.resolve(value)))];
+  }
+
+  function assertEditorCommand(value: unknown): asserts value is EditorCommand {
+    if (!value || typeof value !== 'object') throw new TypeError('Editor command is invalid');
+    const command = value as Record<string, unknown>;
+    if (typeof command.id !== 'string'
+      || !['setSelection', 'renameProject', 'updateTransform'].includes(String(command.kind))
+      || !Array.isArray(command.entityIds)
+      || command.entityIds.some((id) => typeof id !== 'string')) {
+      throw new TypeError('Editor command is invalid');
+    }
   }
 
   ipcMain.handle('forge:host-status', async (event) => {
@@ -431,5 +442,37 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
     assertSender(event.sender.id);
     const resolved = await assertRecentProject(projectPath);
     shell.showItemInFolder(path.join(resolved, 'forge-project.json'));
+  });
+  ipcMain.handle('forge:editor-open', async (event, projectPath: unknown) => {
+    assertSender(event.sender.id);
+    const values = await getSettingValues();
+    const autosaveSeconds = Number(values['editor.autosaveSeconds']);
+    return (await host.openEditorProject(
+      await assertRecentProject(projectPath), autosaveSeconds)).result;
+  });
+  ipcMain.handle('forge:editor-close', async (event) => {
+    assertSender(event.sender.id);
+    await (await host.closeEditorProject()).result;
+  });
+  ipcMain.handle('forge:editor-query', async (event) => {
+    assertSender(event.sender.id);
+    return (await host.getEditorSnapshot()).result;
+  });
+  ipcMain.handle('forge:editor-execute', async (event, command: unknown) => {
+    assertSender(event.sender.id);
+    assertEditorCommand(command);
+    return (await host.executeEditorCommand(command)).result;
+  });
+  ipcMain.handle('forge:editor-save', async (event) => {
+    assertSender(event.sender.id);
+    return (await host.saveEditorProject()).result;
+  });
+  ipcMain.handle('forge:editor-events', async (event, afterSequence: unknown, limit: unknown) => {
+    assertSender(event.sender.id);
+    if (!Number.isSafeInteger(afterSequence) || Number(afterSequence) < 0
+      || !Number.isInteger(limit) || Number(limit) < 1 || Number(limit) > 1_024) {
+      throw new TypeError('Editor event range is invalid');
+    }
+    return (await host.readEditorEvents(Number(afterSequence), Number(limit))).result;
   });
 }

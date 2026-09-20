@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { ForgeAction, ForgeApi, SetupProgress } from '../types/ForgeApi.js';
+import type { EditorCommand, ForgeAction, ForgeApi, SetupProgress } from '../types/ForgeApi.js';
 
 const forgeApi = Object.freeze({
   getHostStatus: () => ipcRenderer.invoke('forge:host-status'),
@@ -28,6 +28,13 @@ const forgeApi = Object.freeze({
   collectCatalogGarbage: (confirmationToken: string) => ipcRenderer.invoke('forge:catalog-gc-collect', confirmationToken),
   removeRecentProject: (path: string) => ipcRenderer.invoke('forge:projects-remove-recent', path),
   revealForgeProject: (path: string) => ipcRenderer.invoke('forge:projects-reveal', path),
+  openEditorProject: (path: string) => ipcRenderer.invoke('forge:editor-open', path),
+  closeEditorProject: () => ipcRenderer.invoke('forge:editor-close'),
+  getEditorSnapshot: () => ipcRenderer.invoke('forge:editor-query'),
+  executeEditorCommand: (command: EditorCommand) => ipcRenderer.invoke('forge:editor-execute', command),
+  saveEditorProject: () => ipcRenderer.invoke('forge:editor-save'),
+  readEditorEvents: (afterSequence: number, limit = 100) =>
+    ipcRenderer.invoke('forge:editor-events', afterSequence, limit),
   cancelSetupOperation: () => ipcRenderer.invoke('forge:setup-cancel'),
   onSetupProgress: (listener: (progress: SetupProgress) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, progress: SetupProgress) => listener(progress);

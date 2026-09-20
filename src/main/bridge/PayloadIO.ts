@@ -21,6 +21,12 @@ export class PayloadWriter {
     this.#parts.push(bytes);
   }
 
+  writeFloat32(value: number): void {
+    const bytes = Buffer.allocUnsafe(4);
+    bytes.writeFloatLE(value);
+    this.#parts.push(bytes);
+  }
+
   writeBoolean(value: boolean): void {
     this.#parts.push(Buffer.of(value ? 1 : 0));
   }
@@ -69,6 +75,13 @@ export class PayloadReader {
     const value = Number(this.#bytes.readBigUInt64LE(this.#offset));
     this.#offset += 8;
     if (!Number.isSafeInteger(value)) malformed('64-bit integer exceeds JavaScript safe range');
+    return value;
+  }
+
+  readFloat32(): number {
+    this.#require(4);
+    const value = this.#bytes.readFloatLE(this.#offset);
+    this.#offset += 4;
     return value;
   }
 
