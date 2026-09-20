@@ -146,11 +146,20 @@ internal static class Program
         var renameProject = new ProjectRenameRequestPayload("project", "assets", "Renamed");
         Equal(renameProject, BridgePayloadCodec.DecodeProjectRenameRequest(
             BridgePayloadCodec.EncodeProjectRenameRequest(renameProject)), "project rename payload");
+        var recoveryRequest = new ProjectRecoveryRequestPayload("project", "assets", "1000-0123456789abcdef0123456789abcdef");
+        Equal(recoveryRequest, BridgePayloadCodec.DecodeProjectRecoveryRequest(
+            BridgePayloadCodec.EncodeProjectRecoveryRequest(recoveryRequest)), "project recovery request payload");
+        var recovery = new ProjectRecoverySnapshotPayload(
+            recoveryRequest.RecoveryId, 1000, "Recovered", 20, new string('a', 64), 4096);
         var descriptor = new ForgeProjectDescriptorPayload(
-            "project", "Test", "UYA", "NTSC-U", "1.00", "uya-ntsc-u", 3, 1000, 20, 0, ["partial"]);
+            "project", "Test", "UYA", "NTSC-U", "1.00", "uya-ntsc-u", 3, 1000, 20, 0,
+            false, false, ["partial"], [recovery]);
         var decodedDescriptor = BridgePayloadCodec.DecodeForgeProjectDescriptor(
             BridgePayloadCodec.EncodeForgeProjectDescriptor(descriptor));
-        Equal(descriptor with { Warnings = decodedDescriptor.Warnings }, decodedDescriptor, "project descriptor payload");
+        Equal(true, descriptor.Warnings.SequenceEqual(decodedDescriptor.Warnings), "project descriptor warnings");
+        Equal(true, descriptor.Recoveries.SequenceEqual(decodedDescriptor.Recoveries), "project descriptor recoveries");
+        Equal(descriptor with { Warnings = decodedDescriptor.Warnings, Recoveries = decodedDescriptor.Recoveries },
+            decodedDescriptor, "project descriptor payload");
 
         var trailing = BridgePayloadCodec.EncodeText("x").Append((byte)0).ToArray();
         Expect(BridgeErrorCode.MalformedPayload, () => BridgePayloadCodec.DecodeText(trailing));
@@ -195,7 +204,7 @@ internal static class Program
         {
         }
 
-        var futureBytes = "{\"schemaVersion\":1,\"futureData\":true}"u8.ToArray();
+        var futureBytes = "{\"schemaVersion\":2,\"futureData\":true}"u8.ToArray();
         var checksum = SHA256.HashData(futureBytes);
         try
         {

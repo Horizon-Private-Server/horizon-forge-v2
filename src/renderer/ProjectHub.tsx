@@ -16,6 +16,7 @@ import {
 import { useCallback, useEffect, useState } from 'react';
 
 import type { ForgeHostStatus, ForgeProjectDescriptor, ProjectHubState, UyaProjectPreflight } from '../types/ForgeApi.js';
+import { formatBytes } from '../utils/Format.ts';
 
 interface ProjectHubProps {
   hostStatus?: ForgeHostStatus;
@@ -36,6 +37,17 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen }
   const [preflight, setPreflight] = useState<UyaProjectPreflight>();
   const [preflightBusy, setPreflightBusy] = useState(false);
   const [rename, setRename] = useState('');
+  const [recoveryProject, setRecoveryProject] = useState<ForgeProjectDescriptor>();
+  const [recoveryId, setRecoveryId] = useState<string | null>(null);
+
+  const offerProject = useCallback((project: ForgeProjectDescriptor) => {
+    if (project.recoveries.length === 0 && !project.migrationPending) {
+      onOpen(project);
+      return;
+    }
+    setRecoveryProject(project);
+    setRecoveryId(project.recoveries[0]?.id ?? null);
+  }, [onOpen]);
 
   const refresh = useCallback(async () => {
     try {
@@ -51,13 +63,13 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen }
       setBusy(true);
       setError(undefined);
       const project = await window.forge.openForgeProject();
-      if (project) onOpen(project);
+      if (project) offerProject(project);
     } catch (cause) {
       setError(message(cause));
     } finally {
       setBusy(false);
     }
-  }, [onOpen]);
+  }, [offerProject]);
 
   useEffect(() => { void refresh(); }, [refresh, refreshToken]);
   useEffect(() => {
@@ -84,7 +96,7 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen }
       const project = await window.forge.createUyaProject(name.trim(), Number(level), allowPartial);
       if (project) {
         setCreateOpened(false);
-        onOpen(project);
+        offerProject(project);
       }
     } catch (cause) {
       setError(message(cause));
@@ -97,7 +109,7 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen }
     try {
       setBusy(true);
       setError(undefined);
-      onOpen(await window.forge.openRecentProject(path));
+      offerProject(await window.forge.openRecentProject(path));
     } catch (cause) {
       setError(message(cause));
     } finally {
@@ -120,9 +132,44 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen }
     }
   }
 
+  async function restoreRecovery() {
+    if (!recoveryProject || !recoveryId) return;
+    try {
+      setBusy(true);
+      setError(undefined);
+      const project = await window.forge.restoreForgeProject(recoveryProject.path, recoveryId);
+      setRecoveryProject(undefined);
+      setRecoveryId(null);
+      onOpen(project);
+    } catch (cause) {
+      setError(message(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function openSavedProject() {
+    if (!recoveryProject) return;
+    try {
+      setBusy(true);
+      setError(undefined);
+      const project = recoveryProject.migrationPending
+        ? await window.forge.migrateForgeProject(recoveryProject.path)
+        : recoveryProject;
+      setRecoveryProject(undefined);
+      setRecoveryId(null);
+      onOpen(project);
+    } catch (cause) {
+      setError(message(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const warnings = preflight?.warnings ?? hub?.creation?.warnings ?? [];
   const canCreate = Boolean(hub?.creation?.levels.length)
     && Boolean(hostStatus?.capabilities.includes('uya.projects.base.mobys'));
+  const selectedRecovery = recoveryProject?.recoveries.find((recovery) => recovery.id === recoveryId);
 
   return (
     <section className="project-hub">
@@ -168,6 +215,10 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen }
                     {project && <Badge color={project.missingAssetCount ? 'red' : 'teal'} variant="light">
                       {project.missingAssetCount ? `${project.missingAssetCount} missing` : 'Ready'}
                     </Badge>}
+                    {project && project.recoveries.length > 0 && <Badge color="yellow" variant="light" ml="xs">
+                      Recovery
+                    </Badge>}
+                    {project?.migrationPending && <Badge color="yellow" variant="light" ml="xs">Upgrade</Badge>}
                   </Table.Td>
                   <Table.Td>
                     <Group justify="flex-end" wrap="nowrap">
@@ -176,7 +227,7 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen }
                         if (!project) return;
                         setRenameProject(project);
                         setRename(project.name);
-                      }} disabled={!project || busy}>Rename</Button>
+                      }} disabled={!project || project.migrationPending || busy}>Rename</Button>
                       <Button variant="subtle" onClick={() => void window.forge.revealForgeProject(recent.path)}>Reveal</Button>
                       <Button variant="subtle" color="gray" onClick={async () => {
                         try { setHub(await window.forge.removeRecentProject(recent.path)); }
@@ -250,6 +301,46 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen }
           <Group justify="flex-end">
             <Button variant="default" onClick={() => setRenameProject(undefined)}>Cancel</Button>
             <Button onClick={() => void saveRename()} loading={busy} disabled={!rename.trim()}>Rename</Button>
+          </Group>
+        </Stack>
+      </Modal>
+
+      <Modal
+        opened={Boolean(recoveryProject)}
+        onClose={() => setRecoveryProject(undefined)}
+        title={recoveryProject?.recoveries.length ? 'Unsaved work is available' : 'Project upgrade required'}
+      >
+        <Stack>
+          <Alert color="yellow">
+            {recoveryProject?.recoveries.length
+              ? 'Forge found autosaved work newer than the last explicit save. Review it before choosing which version to open.'
+              : 'This project uses the version-zero format. Forge will preserve the existing files until you explicitly upgrade it.'}
+          </Alert>
+          {Boolean(recoveryProject?.recoveries.length) && <Select
+            label="Recovery snapshot"
+            value={recoveryId}
+            onChange={setRecoveryId}
+            data={(recoveryProject?.recoveries ?? []).map((recovery) => ({
+              value: recovery.id,
+              label: `${new Date(recovery.createdUnixMilliseconds).toLocaleString()} · ${recovery.entityCount} entities`,
+            }))}
+          />}
+          {selectedRecovery && (
+            <Paper withBorder p="sm">
+              <Text size="sm" fw={600}>{selectedRecovery.name}</Text>
+              <Text size="xs" c="dimmed">{selectedRecovery.entityCount} entities · {formatBytes(selectedRecovery.size)}</Text>
+            </Paper>
+          )}
+          <Group justify="flex-end">
+            <Button variant="default" onClick={() => setRecoveryProject(undefined)}>Cancel</Button>
+            {Boolean(recoveryProject?.recoveries.length) && (
+              <Button variant="default" onClick={() => void openSavedProject()} loading={busy}>
+                {recoveryProject?.migrationPending ? 'Upgrade saved project' : 'Open saved project'}
+              </Button>
+            )}
+            {recoveryProject?.recoveries.length
+              ? <Button onClick={() => void restoreRecovery()} loading={busy} disabled={!recoveryId}>Recover autosave</Button>
+              : <Button onClick={() => void openSavedProject()} loading={busy}>Upgrade and open</Button>}
           </Group>
         </Stack>
       </Modal>

@@ -1,31 +1,35 @@
-using System.Text.Json;
-using System.Text.Json.Serialization;
-
 namespace Forge.Host.Domain;
 
 public sealed class ForgeProjectWorkspace
 {
     public const string ManifestFileName = "forge-project.json";
     public const string DefaultContentPath = "content/project.json";
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        WriteIndented = true,
-        MaxDepth = 64,
-        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
-        Converters = { new JsonStringEnumConverter() },
-    };
+    public const string RecoveryDirectoryName = ForgeProjectPersistence.RecoveryDirectoryName;
+    public const int MaxRecoverySnapshots = ForgeProjectPersistence.MaxRecoverySnapshots;
+    public const long MaxRecoveryBytes = ForgeProjectPersistence.MaxRecoveryBytes;
+    private string _savedFingerprint;
+    private bool _migrationPending;
 
-    private ForgeProjectWorkspace(string rootPath, ForgeProjectManifest manifest, ForgeProjectContent content)
+    private ForgeProjectWorkspace(
+        string rootPath,
+        ForgeProjectManifest manifest,
+        ForgeProjectContent content,
+        bool migrationPending = false)
     {
         RootPath = rootPath;
         Manifest = manifest;
         Content = content;
+        _savedFingerprint = ForgeProjectPersistence.Fingerprint(manifest, content);
+        _migrationPending = migrationPending;
     }
 
     public string RootPath { get; }
     public ForgeProjectManifest Manifest { get; private set; }
     public ForgeProjectContent Content { get; private set; }
+    public string ContentFilePath => ForgeProjectPersistence.ResolveRelativePath(RootPath, Manifest.Content);
+    public string CurrentFingerprint => ForgeProjectPersistence.Fingerprint(Manifest, Content);
+    public bool IsDirty => _migrationPending || CurrentFingerprint != _savedFingerprint;
+    public bool MigrationPending => _migrationPending;
 
     public static async Task<ForgeProjectWorkspace> CreateAsync(
         string rootPath,
@@ -43,8 +47,8 @@ public sealed class ForgeProjectWorkspace
         if (File.Exists(manifestPath)) throw new IOException($"A Forge project already exists at {root}.");
         var workspace = new ForgeProjectWorkspace(
             root,
-            new(ProjectSchema.CurrentVersion, EntityId.New(), name, target, baseLevel, DefaultContentPath),
-            new(ProjectSchema.CurrentVersion, entities.ToArray(), []));
+            new(ProjectSchema.CurrentVersion, ProjectSchema.ManifestDocumentType, EntityId.New(), name, target, baseLevel, DefaultContentPath),
+            new(ProjectSchema.CurrentVersion, ProjectSchema.ContentDocumentType, entities.ToArray(), []));
         workspace.Validate();
         await workspace.SaveAsync(cancellationToken);
         return workspace;
@@ -55,14 +59,8 @@ public sealed class ForgeProjectWorkspace
         CancellationToken cancellationToken = default)
     {
         var root = Path.GetFullPath(rootPath);
-        var manifestBytes = await File.ReadAllBytesAsync(Path.Combine(root, ManifestFileName), cancellationToken);
-        using (ProjectSchema.Parse(manifestBytes)) { }
-        var manifest = Deserialize<ForgeProjectManifest>(manifestBytes, "Project manifest");
-        var contentPath = ResolveRelativePath(root, manifest.Content);
-        var contentBytes = await File.ReadAllBytesAsync(contentPath, cancellationToken);
-        using (ProjectSchema.Parse(contentBytes)) { }
-        var content = Deserialize<ForgeProjectContent>(contentBytes, "Project content");
-        var workspace = new ForgeProjectWorkspace(root, manifest, content);
+        var loaded = await ForgeProjectPersistence.LoadAsync(root, cancellationToken);
+        var workspace = new ForgeProjectWorkspace(root, loaded.Manifest, loaded.Content, loaded.Migrated);
         workspace.Validate();
         return workspace;
     }
@@ -70,8 +68,44 @@ public sealed class ForgeProjectWorkspace
     public async Task SaveAsync(CancellationToken cancellationToken = default)
     {
         Validate();
-        await WriteJsonAsync(ResolveRelativePath(RootPath, Manifest.Content), Content, cancellationToken);
-        await WriteJsonAsync(Path.Combine(RootPath, ManifestFileName), Manifest, cancellationToken);
+        await ForgeProjectPersistence.SaveAsync(RootPath, Manifest, Content, cancellationToken);
+        _savedFingerprint = CurrentFingerprint;
+        _migrationPending = false;
+    }
+
+    public async Task<ProjectRecoverySnapshot?> WriteRecoveryAsync(CancellationToken cancellationToken = default)
+    {
+        Validate();
+        return IsDirty
+            ? await ForgeProjectPersistence.WriteRecoveryAsync(RootPath, Manifest, Content, cancellationToken)
+            : null;
+    }
+
+    public Task<IReadOnlyList<ProjectRecoverySnapshot>> ListRecoveriesAsync(CancellationToken cancellationToken = default) =>
+        ForgeProjectPersistence.ListRecoveriesAsync(RootPath, cancellationToken);
+
+    public async Task LoadRecoveryAsync(string recoveryId, CancellationToken cancellationToken = default)
+    {
+        var loaded = await ForgeProjectPersistence.LoadRecoveryAsync(RootPath, recoveryId, cancellationToken);
+        if (loaded.Manifest.ProjectId != Manifest.ProjectId)
+            throw new InvalidDataException("Recovery belongs to a different project.");
+        var previousManifest = Manifest;
+        var previousContent = Content;
+        var previousMigration = _migrationPending;
+        try
+        {
+            Manifest = loaded.Manifest;
+            Content = loaded.Content;
+            _migrationPending = loaded.Migrated;
+            Validate();
+        }
+        catch
+        {
+            Manifest = previousManifest;
+            Content = previousContent;
+            _migrationPending = previousMigration;
+            throw;
+        }
     }
 
     public void UpdateTransform(EntityId entityId, ProjectTransform transform)
@@ -228,6 +262,8 @@ public sealed class ForgeProjectWorkspace
     {
         if (Manifest.SchemaVersion != ProjectSchema.CurrentVersion) throw new UnsupportedProjectSchemaException(Manifest.SchemaVersion);
         if (Content.SchemaVersion != ProjectSchema.CurrentVersion) throw new UnsupportedProjectSchemaException(Content.SchemaVersion);
+        if (Manifest.DocumentType != ProjectSchema.ManifestDocumentType) throw new InvalidDataException("Project manifest document type is invalid.");
+        if (Content.DocumentType != ProjectSchema.ContentDocumentType) throw new InvalidDataException("Project content document type is invalid.");
         if (Manifest.ProjectId.Value == Guid.Empty) throw new InvalidDataException("Project ID cannot be empty.");
         if (Manifest.Target is null || Manifest.BaseLevel is null) throw new InvalidDataException("Project target and base level are required.");
         if (Content.Entities is null || Content.Assets is null) throw new InvalidDataException("Project content lists are required.");
@@ -245,7 +281,7 @@ public sealed class ForgeProjectWorkspace
             || Manifest.BaseLevel.SourceFingerprint.Length != 32
             || !Manifest.BaseLevel.SourceFingerprint.All(Uri.IsHexDigit))
             throw new InvalidDataException("Base-level source fingerprint must be a 32-character MD5 value.");
-        ResolveRelativePath(RootPath, Manifest.Content);
+        _ = ContentFilePath;
 
         if (Content.Entities.Any(entity => entity is null)) throw new InvalidDataException("Project entities cannot contain null entries.");
         if (Content.Entities.Select(entity => entity.EntityId).Distinct().Count() != Content.Entities.Count)
@@ -301,42 +337,10 @@ public sealed class ForgeProjectWorkspace
             throw new InvalidDataException("Entity scale cannot contain zero.");
     }
 
-    private static string ResolveRelativePath(string root, string relativePath)
-    {
-        if (string.IsNullOrWhiteSpace(relativePath) || Path.IsPathRooted(relativePath) || relativePath.Contains('\\'))
-            throw new InvalidDataException("Project content path must be a portable relative path.");
-        var segments = relativePath.Split('/');
-        if (segments.Any(segment => segment is "" or "." or ".."))
-            throw new InvalidDataException("Project content path contains an invalid segment.");
-        var resolved = Path.GetFullPath(Path.Combine(root, Path.Combine(segments)));
-        if (!resolved.StartsWith(Path.GetFullPath(root) + Path.DirectorySeparatorChar, StringComparison.Ordinal))
-            throw new InvalidDataException("Project content path escapes the project root.");
-        return resolved;
-    }
-
     private static void ValidateText(string value, string name)
     {
         if (string.IsNullOrWhiteSpace(value) || value.Length > 256)
             throw new InvalidDataException($"{name} must contain between 1 and 256 characters.");
     }
 
-    private static T Deserialize<T>(byte[] bytes, string description) =>
-        JsonSerializer.Deserialize<T>(bytes, JsonOptions)
-        ?? throw new InvalidDataException($"{description} is empty.");
-
-    private static async Task WriteJsonAsync<T>(string path, T value, CancellationToken cancellationToken)
-    {
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        var bytes = JsonSerializer.SerializeToUtf8Bytes(value, JsonOptions).Append((byte)'\n').ToArray();
-        var temporary = $"{path}.{Guid.NewGuid():N}.partial";
-        try
-        {
-            await File.WriteAllBytesAsync(temporary, bytes, cancellationToken);
-            File.Move(temporary, path, overwrite: true);
-        }
-        finally
-        {
-            File.Delete(temporary);
-        }
-    }
 }

@@ -56,6 +56,7 @@ export function App() {
           <Group>
             {activeProject && <>
               <Text size="sm">{activeProject.name}</Text>
+              {activeProject.isDirty && <Badge color="yellow" variant="light">Unsaved</Badge>}
               <Button variant="default" onClick={() => {
                 setHubAction(undefined);
                 setActiveProject(undefined);

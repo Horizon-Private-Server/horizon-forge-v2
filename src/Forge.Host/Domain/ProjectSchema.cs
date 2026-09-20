@@ -4,7 +4,9 @@ namespace Forge.Host.Domain;
 
 public static class ProjectSchema
 {
-    public const int CurrentVersion = 0;
+    public const int CurrentVersion = 1;
+    public const string ManifestDocumentType = "forge-project";
+    public const string ContentDocumentType = "forge-project-content";
 
     public static JsonDocument Parse(ReadOnlyMemory<byte> utf8Json)
     {
@@ -35,7 +37,7 @@ public static class ProjectSchema
             {
                 throw new JsonException("Project must contain exactly one non-negative integer schemaVersion");
             }
-            if (version != CurrentVersion) throw new UnsupportedProjectSchemaException(version);
+            if (version > CurrentVersion) throw new UnsupportedProjectSchemaException(version);
             return document;
         }
         catch

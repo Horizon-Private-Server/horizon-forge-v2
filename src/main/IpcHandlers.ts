@@ -352,6 +352,23 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
     await recentProjects.add(project.path);
     return project;
   });
+  ipcMain.handle('forge:projects-restore', async (event, projectPath: unknown, recoveryId: unknown) => {
+    assertSender(event.sender.id);
+    const resolved = await assertRecentProject(projectPath);
+    if (typeof recoveryId !== 'string') throw new TypeError('Recovery ID is invalid');
+    const request = await host.restoreForgeProject(resolved, settings.paths.assets, recoveryId);
+    const project = await request.result;
+    await recentProjects.add(project.path);
+    return project;
+  });
+  ipcMain.handle('forge:projects-migrate', async (event, projectPath: unknown) => {
+    assertSender(event.sender.id);
+    const resolved = await assertRecentProject(projectPath);
+    const request = await host.migrateForgeProject(resolved, settings.paths.assets);
+    const project = await request.result;
+    await recentProjects.add(project.path);
+    return project;
+  });
   ipcMain.handle('forge:projects-remove-recent', async (event, projectPath: unknown) => {
     assertSender(event.sender.id);
     await recentProjects.remove(await assertRecentProject(projectPath));

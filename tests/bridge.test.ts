@@ -27,6 +27,7 @@ import {
   decodeUyaIsoValidation,
   decodeForgeProjectDescriptor,
   decodeProjectInspectRequest,
+  decodeProjectRecoveryRequest,
   decodeProjectRenameRequest,
   decodeUyaProjectCreationRequest,
   decodeUyaProjectOptions,
@@ -43,6 +44,7 @@ import {
   encodeUyaIsoValidation,
   encodeForgeProjectDescriptor,
   encodeProjectInspectRequest,
+  encodeProjectRecoveryRequest,
   encodeProjectRenameRequest,
   encodeUyaProjectCreationRequest,
   encodeUyaProjectOptions,
@@ -207,10 +209,16 @@ test('operation payloads round trip and reject trailing data', () => {
   assert.deepEqual(decodeProjectInspectRequest(encodeProjectInspectRequest(inspectProject)), inspectProject);
   const renameProject = { ...inspectProject, name: 'Renamed' };
   assert.deepEqual(decodeProjectRenameRequest(encodeProjectRenameRequest(renameProject)), renameProject);
+  const recoveryRequest = { ...inspectProject, recoveryId: '1000-0123456789abcdef0123456789abcdef' };
+  assert.deepEqual(decodeProjectRecoveryRequest(encodeProjectRecoveryRequest(recoveryRequest)), recoveryRequest);
   const descriptor = {
     path: '/project', name: 'Test', targetGame: 'UYA', targetRegion: 'NTSC-U', targetRevision: '1.00',
     bakeProfile: 'uya-ntsc-u', baseLevel: 3, modifiedUnixMilliseconds: 1000,
-    entityCount: 20, missingAssetCount: 0, warnings: ['partial'],
+    entityCount: 20, missingAssetCount: 0, isDirty: false, migrationPending: false, warnings: ['partial'],
+    recoveries: [{
+      id: recoveryRequest.recoveryId, createdUnixMilliseconds: 1000, name: 'Recovered',
+      entityCount: 20, fingerprint: 'a'.repeat(64), size: 4096,
+    }],
   };
   assert.deepEqual(decodeForgeProjectDescriptor(encodeForgeProjectDescriptor(descriptor)), descriptor);
 

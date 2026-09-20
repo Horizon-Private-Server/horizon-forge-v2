@@ -34,4 +34,7 @@ public sealed record ForgeProjectDescriptor(
     long ModifiedUnixMilliseconds,
     int EntityCount,
     int MissingAssetCount,
-    IReadOnlyList<string> Warnings);
+    bool IsDirty,
+    bool MigrationPending,
+    IReadOnlyList<string> Warnings,
+    IReadOnlyList<ProjectRecoverySnapshot> Recoveries);

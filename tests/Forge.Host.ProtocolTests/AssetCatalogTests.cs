@@ -74,7 +74,7 @@ internal static class AssetCatalogTests
 
         Directory.CreateDirectory(store.CatalogPath);
         var bytes = "complete orphan"u8.ToArray();
-        await ExpectAsync<IOException>(() => store.PutAsync(
+        await ExpectFileSystemFailureAsync(() => store.PutAsync(
             AssetKind.Moby,
             canonicalFormatVersion: 0,
             bytes,
@@ -128,6 +128,13 @@ internal static class AssetCatalogTests
         try { await action(); }
         catch (T) { return; }
         throw new InvalidOperationException($"Expected {typeof(T).Name}");
+    }
+
+    private static async Task ExpectFileSystemFailureAsync(Func<Task> action)
+    {
+        try { await action(); }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { return; }
+        throw new InvalidOperationException("Expected IOException or UnauthorizedAccessException");
     }
 
     private static void Equal<T>(T expected, T actual, string context)

@@ -165,6 +165,19 @@ Acceptance:
 Verification: kill/failure injection, deterministic serialization, migration, and
 recovery-bound tests.
 
+Implementation: `ForgeProjectWorkspace` derives dirty state from deterministic
+state fingerprints and exposes separate explicit-save and recovery-snapshot paths.
+Explicit saves use a two-document rollback journal; startup/open completes rollback
+after an interrupted save. Autosaves are deduplicated and bounded to 10 snapshots
+and 256 MiB, remain separate from the explicit save, and can be previewed and
+explicitly restored from the project hub. Schema v1 adds document-kind markers;
+v0 projects migrate in memory and are written only after the user accepts the
+upgrade. The contract is recorded in [project format v1](../../project-format-v1.md).
+The idle timer, pre-transition flush, and `Cmd/Ctrl+S` binding attach to the
+long-lived authoritative editor state in M2-001; before that runtime exists,
+polling the clean on-disk project would create false autosaves rather than protect
+unsaved edits.
+
 ## M1-008 — Resolve missing assets and maintain the catalog safely
 
 Requirements: FR-ASSET-004, FR-APP-004, NFR-PORT-002, NFR-UX-003  

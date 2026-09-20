@@ -119,8 +119,12 @@ public static class UyaProjectService
         var missing = workspace.Manifest.BaseLevel.MissingAssetCount + workspace.Content.Entities.Count(entity => entity.Asset is not null
             && workspace.ResolveAssetPath(entity.Asset.Id, catalog) is null);
         var manifestPath = Path.Combine(workspace.RootPath, ForgeProjectWorkspace.ManifestFileName);
-        var contentPath = Path.Combine(workspace.RootPath, ForgeProjectWorkspace.DefaultContentPath);
+        var contentPath = workspace.ContentFilePath;
         var modified = new[] { File.GetLastWriteTimeUtc(manifestPath), File.GetLastWriteTimeUtc(contentPath) }.Max();
+        var modifiedUnixMilliseconds = new DateTimeOffset(modified).ToUnixTimeMilliseconds();
+        var recoveries = (await workspace.ListRecoveriesAsync(cancellationToken))
+            .Where(recovery => recovery.CreatedUnixMilliseconds > modifiedUnixMilliseconds)
+            .ToArray();
         return new(
             workspace.RootPath,
             workspace.Manifest.Name,
@@ -129,10 +133,13 @@ public static class UyaProjectService
             workspace.Manifest.Target.Revision,
             workspace.Manifest.Target.BakeProfile,
             workspace.Manifest.BaseLevel.Level,
-            new DateTimeOffset(modified).ToUnixTimeMilliseconds(),
+            modifiedUnixMilliseconds,
             workspace.Content.Entities.Count,
             missing,
-            warnings ?? []);
+            workspace.IsDirty,
+            workspace.MigrationPending,
+            warnings ?? [],
+            recoveries);
     }
 
     public static async Task<ForgeProjectDescriptor> RenameAsync(
@@ -144,6 +151,28 @@ public static class UyaProjectService
         var workspace = await ForgeProjectWorkspace.OpenAsync(projectPath, cancellationToken);
         workspace.Rename(name);
         await workspace.SaveAsync(cancellationToken);
+        return await InspectAsync(projectPath, catalog, cancellationToken: cancellationToken);
+    }
+
+    public static async Task<ForgeProjectDescriptor> RestoreRecoveryAsync(
+        string projectPath,
+        string recoveryId,
+        AssetCatalogStore catalog,
+        CancellationToken cancellationToken = default)
+    {
+        var workspace = await ForgeProjectWorkspace.OpenAsync(projectPath, cancellationToken);
+        await workspace.LoadRecoveryAsync(recoveryId, cancellationToken);
+        await workspace.SaveAsync(cancellationToken);
+        return await InspectAsync(projectPath, catalog, cancellationToken: cancellationToken);
+    }
+
+    public static async Task<ForgeProjectDescriptor> MigrateAsync(
+        string projectPath,
+        AssetCatalogStore catalog,
+        CancellationToken cancellationToken = default)
+    {
+        var workspace = await ForgeProjectWorkspace.OpenAsync(projectPath, cancellationToken);
+        if (workspace.MigrationPending) await workspace.SaveAsync(cancellationToken);
         return await InspectAsync(projectPath, catalog, cancellationToken: cancellationToken);
     }
 

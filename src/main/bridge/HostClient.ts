@@ -32,6 +32,7 @@ import {
   encodeText,
   encodeUyaAssetImportRequest,
   encodeProjectInspectRequest,
+  encodeProjectRecoveryRequest,
   encodeProjectRenameRequest,
   encodeUyaProjectCreationRequest,
   encodeUyaProjectPreflightRequest,
@@ -226,6 +227,26 @@ export class HostClient {
 
   async renameForgeProject(projectPath: string, catalogRootPath: string, name: string): Promise<HostRequest<ForgeProjectDescriptor>> {
     const request = await this.#request(BridgeOpcode.RenameForgeProject, encodeProjectRenameRequest({ projectPath, catalogRootPath, name }));
+    return { requestId: request.requestId, result: request.result.then(decodeForgeProjectDescriptor) };
+  }
+
+  async restoreForgeProject(
+    projectPath: string,
+    catalogRootPath: string,
+    recoveryId: string,
+  ): Promise<HostRequest<ForgeProjectDescriptor>> {
+    const request = await this.#request(
+      BridgeOpcode.RestoreForgeProjectRecovery,
+      encodeProjectRecoveryRequest({ projectPath, catalogRootPath, recoveryId }),
+    );
+    return { requestId: request.requestId, result: request.result.then(decodeForgeProjectDescriptor) };
+  }
+
+  async migrateForgeProject(projectPath: string, catalogRootPath: string): Promise<HostRequest<ForgeProjectDescriptor>> {
+    const request = await this.#request(
+      BridgeOpcode.MigrateForgeProject,
+      encodeProjectInspectRequest({ projectPath, catalogRootPath }),
+    );
     return { requestId: request.requestId, result: request.result.then(decodeForgeProjectDescriptor) };
   }
 

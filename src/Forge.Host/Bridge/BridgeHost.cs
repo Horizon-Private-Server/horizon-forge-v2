@@ -132,6 +132,12 @@ public static class BridgeHost
                 case BridgeOpcode.PreflightUyaProject:
                     await HandlePreflightUyaProjectAsync(frame, writer, requestCancellation.Token, hostCancellation);
                     break;
+                case BridgeOpcode.RestoreForgeProjectRecovery:
+                    await HandleRestoreForgeProjectRecoveryAsync(frame, writer, requestCancellation.Token, hostCancellation);
+                    break;
+                case BridgeOpcode.MigrateForgeProject:
+                    await HandleMigrateForgeProjectAsync(frame, writer, requestCancellation.Token, hostCancellation);
+                    break;
                 default:
                     await WriteErrorAsync(writer, frame.RequestId, BridgeErrorCode.UnknownOpcode,
                         $"Unsupported opcode: {frame.Opcode}", hostCancellation);
@@ -381,6 +387,31 @@ public static class BridgeHost
         await WriteProjectDescriptorAsync(frame, writer, result, hostCancellation);
     }
 
+    private static async Task HandleRestoreForgeProjectRecoveryAsync(
+        BridgeFrame frame,
+        FrameWriter writer,
+        CancellationToken requestCancellation,
+        CancellationToken hostCancellation)
+    {
+        var request = BridgePayloadCodec.DecodeProjectRecoveryRequest(frame.Payload);
+        var catalog = await AssetCatalogStore.OpenAsync(request.CatalogRootPath, requestCancellation);
+        var result = await UyaProjectService.RestoreRecoveryAsync(
+            request.ProjectPath, request.RecoveryId, catalog, requestCancellation);
+        await WriteProjectDescriptorAsync(frame, writer, result, hostCancellation);
+    }
+
+    private static async Task HandleMigrateForgeProjectAsync(
+        BridgeFrame frame,
+        FrameWriter writer,
+        CancellationToken requestCancellation,
+        CancellationToken hostCancellation)
+    {
+        var request = BridgePayloadCodec.DecodeProjectInspectRequest(frame.Payload);
+        var catalog = await AssetCatalogStore.OpenAsync(request.CatalogRootPath, requestCancellation);
+        var result = await UyaProjectService.MigrateAsync(request.ProjectPath, catalog, requestCancellation);
+        await WriteProjectDescriptorAsync(frame, writer, result, hostCancellation);
+    }
+
     private static Task WriteProjectDescriptorAsync(
         BridgeFrame frame,
         FrameWriter writer,
@@ -401,7 +432,16 @@ public static class BridgeHost
                 checked((ulong)result.ModifiedUnixMilliseconds),
                 checked((uint)result.EntityCount),
                 checked((uint)result.MissingAssetCount),
-                result.Warnings))), hostCancellation);
+                result.IsDirty,
+                result.MigrationPending,
+                result.Warnings,
+                result.Recoveries.Select(recovery => new ProjectRecoverySnapshotPayload(
+                    recovery.Id,
+                    checked((ulong)recovery.CreatedUnixMilliseconds),
+                    recovery.Name,
+                    checked((uint)recovery.EntityCount),
+                    recovery.Fingerprint,
+                    checked((ulong)recovery.Size))).ToArray()))), hostCancellation);
 
     private static Func<IsoProgress, ValueTask> CreateProgressReporter(
         BridgeFrame frame,

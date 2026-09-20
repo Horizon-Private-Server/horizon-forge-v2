@@ -9,6 +9,9 @@ Depends on: M1-005
 
 Create one concrete runtime exposing typed commands, queries, Entity-ID selection,
 events, capabilities, and background diagnostics without a generic service locator.
+Own the active `ForgeProjectWorkspace` session here and connect M1-007's manual
+save, configurable idle autosave, and pre-transition recovery flush to its dirty
+state.
 
 Acceptance:
 
@@ -159,4 +162,3 @@ Acceptance:
 - Keybindings persist as user settings without entering project data.
 
 Verification: context/conflict tests and recorded keyboard-only editor walkthrough.
-

@@ -18,6 +18,8 @@ export const BridgeOpcode = {
   InspectForgeProject: 7,
   RenameForgeProject: 8,
   PreflightUyaProject: 9,
+  RestoreForgeProjectRecovery: 10,
+  MigrateForgeProject: 11,
 } as const;
 
 export const BridgeErrorCode = {

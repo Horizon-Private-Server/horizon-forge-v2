@@ -54,6 +54,7 @@ public sealed record ProjectAttachedAsset(
 
 public sealed record ForgeProjectManifest(
     int SchemaVersion,
+    string DocumentType,
     EntityId ProjectId,
     string Name,
     ProjectTargetProfile Target,
@@ -62,8 +63,17 @@ public sealed record ForgeProjectManifest(
 
 public sealed record ForgeProjectContent(
     int SchemaVersion,
+    string DocumentType,
     IReadOnlyList<ProjectEntity> Entities,
     IReadOnlyList<ProjectAttachedAsset> Assets);
+
+public sealed record ProjectRecoverySnapshot(
+    string Id,
+    long CreatedUnixMilliseconds,
+    string Name,
+    int EntityCount,
+    string Fingerprint,
+    long Size);
 
 public sealed record ProjectAssetReferenceChange(
     EntityId EntityId,

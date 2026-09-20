@@ -28,9 +28,9 @@ Entity ID while asset references may remain unchanged.
 
 ## Project schema gate
 
-Every `forge-project.json` contains an integer `schemaVersion`; version zero is
-the only supported value today. Missing, non-integer, and negative versions are
-invalid. Lower versions require an explicit ordered migration. A version greater
-than the application supports must be rejected before any migration or write, so
-unknown future data is never overwritten. The completed layout is frozen in
-[Forge project format v0](project-format-v0.md).
+Every `forge-project.json` contains an integer `schemaVersion`. Missing,
+non-integer, and negative versions are invalid. Version zero remains a frozen
+migration fixture; current behavior is documented in
+[Forge project format v1](project-format-v1.md). A version greater than the
+application supports is rejected before any migration or write, so unknown future
+data is never overwritten.

@@ -100,7 +100,19 @@ export interface ForgeProjectDescriptor {
   modifiedUnixMilliseconds: number;
   entityCount: number;
   missingAssetCount: number;
+  isDirty: boolean;
+  migrationPending: boolean;
   warnings: string[];
+  recoveries: ProjectRecoverySnapshot[];
+}
+
+export interface ProjectRecoverySnapshot {
+  id: string;
+  createdUnixMilliseconds: number;
+  name: string;
+  entityCount: number;
+  fingerprint: string;
+  size: number;
 }
 
 export interface RecentForgeProject {
@@ -156,6 +168,8 @@ export interface ForgeApi {
   openForgeProject(): Promise<ForgeProjectDescriptor | undefined>;
   openRecentProject(path: string): Promise<ForgeProjectDescriptor>;
   renameForgeProject(path: string, name: string): Promise<ForgeProjectDescriptor>;
+  restoreForgeProject(path: string, recoveryId: string): Promise<ForgeProjectDescriptor>;
+  migrateForgeProject(path: string): Promise<ForgeProjectDescriptor>;
   removeRecentProject(path: string): Promise<ProjectHubState>;
   revealForgeProject(path: string): Promise<void>;
   cancelSetupOperation(): Promise<void>;

@@ -22,6 +22,8 @@ public enum BridgeOpcode : ushort
     InspectForgeProject = 7,
     RenameForgeProject = 8,
     PreflightUyaProject = 9,
+    RestoreForgeProjectRecovery = 10,
+    MigrateForgeProject = 11,
 }
 
 public enum BridgeErrorCode : ushort

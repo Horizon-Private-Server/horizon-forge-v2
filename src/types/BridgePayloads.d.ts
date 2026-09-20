@@ -43,3 +43,7 @@ export interface ProjectInspectRequest {
 export interface ProjectRenameRequest extends ProjectInspectRequest {
   name: string;
 }
+
+export interface ProjectRecoveryRequest extends ProjectInspectRequest {
+  recoveryId: string;
+}

@@ -62,7 +62,8 @@ targets the global catalog.
 
 ## Compatibility
 
-Both JSON documents reject missing, malformed, duplicate, or unsupported schema
-versions. Unknown JSON members are rejected so opening and saving cannot silently
-discard data produced by another build. Serialization is deterministic for an
-unchanged in-memory project and emits only forward-slash relative content paths.
+Version zero is frozen as the migration fixture. Current Forge builds read it into
+the [version-one format](project-format-v1.md) in memory and require an explicit
+upgrade before writing it. Malformed and newer unsupported versions remain
+unchanged. Unknown JSON members are rejected so opening and saving cannot silently
+discard data produced by another build.
