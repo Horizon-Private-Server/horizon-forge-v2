@@ -1,0 +1,34 @@
+[
+  {
+    "name": "empty texture v0",
+    "kind": "Texture",
+    "canonicalFormatVersion": 0,
+    "canonicalHex": "",
+    "preimageHex": "484641530000010000000000",
+    "assetId": "d1a364f6dd4eeac89e84459ac0ccb88f393f8359bef255d8527a66c5d444fbd8"
+  },
+  {
+    "name": "empty material v0",
+    "kind": "Material",
+    "canonicalFormatVersion": 0,
+    "canonicalHex": "",
+    "preimageHex": "484641530000020000000000",
+    "assetId": "b5f2036d4ede85e3890bf8bc19dcaa7cdba8a1105fe49693119fc2b97dc2b059"
+  },
+  {
+    "name": "empty texture v1",
+    "kind": "Texture",
+    "canonicalFormatVersion": 1,
+    "canonicalHex": "",
+    "preimageHex": "484641530000010001000000",
+    "assetId": "62ddadd3277d123ed9b22771cc142b00af5fe657186cffd0b5b3a5d05038ff3e"
+  },
+  {
+    "name": "texture v1 bytes",
+    "kind": "Texture",
+    "canonicalFormatVersion": 1,
+    "canonicalHex": "000102ff",
+    "preimageHex": "484641530000010001000000000102ff",
+    "assetId": "724c1e767776c6ec12a7424764c720f61e1ab30a5b28aa6f1256fe05a869d6db"
+  }
+]

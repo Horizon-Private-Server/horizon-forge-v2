@@ -127,6 +127,10 @@ Acceptance:
 
 Verification: reproducible benchmark command, raw results, screenshots, and ADR.
 
+Resolution: [ADR 0002](../../adr/0002-webgl-p0-renderer.md) selects classic
+WebGL for P0. The project owner ended further A/B work after the experimental
+paths proved non-equivalent; the original quantitative comparison is superseded.
+
 ## M0-008 — Package the viewport walking skeleton
 
 Requirements: FR-SCENE-001, FR-SCENE-002, FR-BRIDGE-004, NFR-PERF-005  
@@ -143,6 +147,12 @@ Acceptance:
 - Missing local test data produces a guided empty state, not a crash.
 
 Verification: packaged smoke, repeated-load memory check, and manual visual record.
+
+Resolution: the Linux x64 package embeds the .NET host/runtime, streams a local
+`terrain.gltf` directory through the constrained `forge-asset:` protocol, and
+uses WebGL exclusively. On 2026-09-19 the packaged app completed the host
+handshake, rendered UYA level 3, survived five page reloads at a reported 86.4 MB
+JS heap, and displayed the guided missing-path state without a fixture.
 
 ## M0-009 — Establish continuous integration
 
@@ -161,3 +171,8 @@ Acceptance:
 
 Verification: successful clean workflow plus an intentional failing-branch proof.
 
+Implementation: `.github/workflows/ci.yml` runs locked installs, pinned SDK
+bootstrap, and the full test suite on Ubuntu 24.04 and Windows 2022. Linux also
+builds the self-contained package and runs it under Xvfb. The package smoke
+passes locally; the successful hosted run and intentional failing-branch proof
+remain pending until this work is committed and pushed.

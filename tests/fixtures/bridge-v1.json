@@ -1,0 +1,56 @@
+[
+  {
+    "name": "handshake",
+    "kind": 1,
+    "opcode": 0,
+    "status": 0,
+    "requestId": 0,
+    "payloadHex": "",
+    "frameHex": "484647320100010000000000000000000000000000000000"
+  },
+  {
+    "name": "echo-request",
+    "kind": 2,
+    "opcode": 1,
+    "status": 0,
+    "requestId": 16909060,
+    "payloadHex": "666f726765",
+    "frameHex": "484647320100020001000000040302010500000000000000666f726765"
+  },
+  {
+    "name": "echo-progress",
+    "kind": 4,
+    "opcode": 1,
+    "status": 0,
+    "requestId": 7,
+    "payloadHex": "32",
+    "frameHex": "48464732010004000100000007000000010000000000000032"
+  },
+  {
+    "name": "echo-result",
+    "kind": 3,
+    "opcode": 1,
+    "status": 0,
+    "requestId": 7,
+    "payloadHex": "6f6b",
+    "frameHex": "4846473201000300010000000700000002000000000000006f6b"
+  },
+  {
+    "name": "echo-cancel",
+    "kind": 5,
+    "opcode": 1,
+    "status": 0,
+    "requestId": 9,
+    "payloadHex": "",
+    "frameHex": "484647320100050001000000090000000000000000000000"
+  },
+  {
+    "name": "protocol-error",
+    "kind": 6,
+    "opcode": 0,
+    "status": 5,
+    "requestId": 10,
+    "payloadHex": "03000000626164",
+    "frameHex": "4846473201000600000005000a000000070000000000000003000000626164"
+  }
+]

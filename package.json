@@ -1,0 +1,38 @@
+{
+  "name": "horizon-forge-v2",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist-electron/main/main.js",
+  "scripts": {
+    "bootstrap:sdk": "bash scripts/bootstrap-ratchet-sdk.sh",
+    "package:linux": "bash scripts/package-linux.sh",
+    "dev": "npm run build && electron .",
+    "build": "npm run build:desktop && npm run build:host",
+    "build:desktop": "tsc --noEmit -p tsconfig.renderer.json && tsc -p tsconfig.electron.json && vite build",
+    "build:host": "dotnet build src/Forge.Host/Forge.Host.csproj --configuration Release",
+    "test": "npm run test:bridge:ts && npm run test:bridge:cs && npm run test:host",
+    "test:bridge:ts": "node --experimental-strip-types --test tests/bridge.test.ts",
+    "test:bridge:cs": "dotnet run --project tests/Forge.Host.ProtocolTests/Forge.Host.ProtocolTests.csproj --configuration Release",
+    "test:host": "npm run build:desktop && npm run build:host && node --test tests/host.integration.test.mjs tests/security.test.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.renderer.json && tsc --noEmit -p tsconfig.electron.json",
+    "start": "electron ."
+  },
+  "dependencies": {
+    "@mantine/core": "9.3.2",
+    "@mantine/hooks": "9.3.2",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "three": "0.184.0"
+  },
+  "devDependencies": {
+    "@types/node": "26.0.0",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "@types/three": "0.184.1",
+    "@vitejs/plugin-react": "6.0.2",
+    "electron": "41.10.7",
+    "typescript": "6.0.3",
+    "vite": "8.0.16"
+  }
+}

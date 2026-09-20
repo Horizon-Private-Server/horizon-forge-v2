@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Version>0.1.0</Version>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <ShouldUnsetParentConfigurationAndPlatform>false</ShouldUnsetParentConfigurationAndPlatform>
+    <RatchetSdkRootFile>$(MSBuildThisFileDirectory)../../.dependencies/ratchet-sdk-root</RatchetSdkRootFile>
+    <RatchetSdkRoot Condition="'$(RatchetSdkRoot)' == '' and Exists('$(RatchetSdkRootFile)')">$([System.IO.File]::ReadAllText('$(RatchetSdkRootFile)').Trim())</RatchetSdkRoot>
+    <RatchetSdkRevision>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)../../ratchet-sdk.version').Trim())</RatchetSdkRevision>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(RatchetSdkRoot)' != ''">
+    <ProjectReference Include="$(RatchetSdkRoot)/src/RatchetPs2.Sdk/RatchetPs2.Sdk.csproj" />
+    <AssemblyMetadata Include="RatchetSdkRevision" Value="$(RatchetSdkRevision)" />
+  </ItemGroup>
+
+  <Target Name="ValidateRatchetSdk" BeforeTargets="PrepareForBuild">
+    <Error Condition="'$(RatchetSdkRoot)' == ''"
+           Text="Ratchet SDK is not configured. Run: bash scripts/bootstrap-ratchet-sdk.sh" />
+    <Error Condition="!Exists('$(RatchetSdkRoot)/src/RatchetPs2.Sdk/RatchetPs2.Sdk.csproj')"
+           Text="Ratchet SDK project is missing below configured root: $(RatchetSdkRoot)" />
+  </Target>
+</Project>

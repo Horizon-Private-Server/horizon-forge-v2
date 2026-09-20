@@ -1,0 +1,9 @@
+node_modules/
+.dependencies/
+dist/
+dist-electron/
+artifacts/
+bin/
+obj/
+*.log
+.DS_Store

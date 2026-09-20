@@ -21,7 +21,8 @@ the backend selected by measured WebGL/WebGPU evidence.
 - Repeatable Ratchet SDK bootstrap.
 - Binary protocol, host lifecycle, and secure preload boundary.
 - Version-zero project/entity/asset identity decisions and fixtures.
-- map-o-matic reuse audit and renderer benchmark ADR.
+- [map-o-matic reuse audit](../../adr/0001-map-o-matic-reuse.md) and
+  [WebGL renderer decision](../../adr/0002-webgl-p0-renderer.md).
 - Packaged Linux walking skeleton and Linux/Windows CI checks.
 
 ## Exit gate
@@ -36,4 +37,3 @@ reproducible renderer benchmark report.
 - Electron renderer privilege leakage.
 - Assuming map-o-matic or WebGPU performance without measurement.
 - CI depending on an undeclared sibling checkout.
-

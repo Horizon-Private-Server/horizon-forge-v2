@@ -1,0 +1,51 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, system-ui, sans-serif;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  overflow: hidden;
+}
+
+.app-shell {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  height: 100%;
+  background: #11141a;
+}
+
+.app-header {
+  z-index: 1;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #2c3038;
+  background: #191d24;
+}
+
+.scene-viewport {
+  position: relative;
+  min-height: 0;
+}
+
+.scene-canvas {
+  position: absolute;
+  inset: 0;
+}
+
+.scene-viewport canvas {
+  display: block;
+}
+
+.scene-status {
+  position: absolute;
+  z-index: 1;
+  inset: 50% auto auto 50%;
+  transform: translate(-50%, -50%);
+  color: #aab1bf;
+}
