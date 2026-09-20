@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -48,7 +48,7 @@ test('host handshake, echo, progress, cancellation, crash recovery, and concurre
     false,
     (value) => copyProgress.push(value),
   );
-  assert.equal((await copy.result).path, copyTarget);
+  assert.equal(await realpath((await copy.result).path), await realpath(copyTarget));
   assert.deepEqual(await readFile(copyTarget), copyBytes);
   assert.ok(copyProgress.length > 0);
 
