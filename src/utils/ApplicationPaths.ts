@@ -1,0 +1,15 @@
+import path from 'node:path';
+
+import type { ApplicationPaths } from '../types/Settings.js';
+
+export function createApplicationPaths(userData: string, documents: string, logs = path.join(userData, 'logs')): ApplicationPaths {
+  const data = path.resolve(userData);
+  return {
+    data,
+    settingsFile: path.join(data, 'settings.json'),
+    assets: path.join(data, 'assets'),
+    logs: path.resolve(logs),
+    defaultProjects: path.resolve(documents, 'Horizon Forge Projects'),
+    defaultDevelopmentIsos: path.resolve(documents, 'Horizon Forge Development ISOs'),
+  };
+}

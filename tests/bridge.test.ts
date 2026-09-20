@@ -5,23 +5,31 @@ import test from 'node:test';
 import {
   BRIDGE_HEADER_SIZE,
   BRIDGE_MAX_PAYLOAD_LENGTH,
-  BridgeErrorCode,
   BridgeFrameDecoder,
-  BridgeMessageKind,
-  BridgeProtocolError,
   decodeErrorMessage,
   encodeFrame,
-  type BridgeFrame,
 } from '../src/main/bridge/FrameCodec.ts';
 import {
+  BridgeErrorCode,
+  BridgeMessageKind,
+  BridgeProtocolError,
+  type BridgeFrame,
+} from '../src/main/bridge/BridgeProtocol.ts';
+import {
   decodeEchoRequest,
+  decodeDevelopmentIso,
+  decodeDevelopmentIsoRequest,
   decodeHandshake,
   decodeProgress,
   decodeText,
+  decodeUyaIsoValidation,
+  encodeDevelopmentIso,
+  encodeDevelopmentIsoRequest,
   encodeEchoRequest,
   encodeHandshake,
   encodeProgress,
   encodeText,
+  encodeUyaIsoValidation,
 } from '../src/main/bridge/PayloadCodec.ts';
 
 interface GoldenFrame {
@@ -134,6 +142,23 @@ test('operation payloads round trip and reject trailing data', () => {
   assert.deepEqual(decodeEchoRequest(encodeEchoRequest('hello', 50)), { message: 'hello', delayMs: 50 });
   assert.equal(decodeText(encodeText('result')), 'result');
   assert.deepEqual(decodeProgress(encodeProgress(2, 10)), { completed: 2, total: 10 });
+  const iso = {
+    isSupported: true,
+    game: 'UYA',
+    region: 'NTSC-U',
+    revision: '1.00',
+    serial: 'SCUS-97353',
+    size: 4_379_377_664,
+    fingerprint: 'ba9f2b38c7346e7b6e5b8e87717d5893',
+    diagnostic: 'verified',
+  };
+  assert.deepEqual(decodeUyaIsoValidation(encodeUyaIsoValidation(iso)), iso);
+  const copyRequest = {
+    sourcePath: '/clean.iso', targetPath: '/development.iso', fingerprint: iso.fingerprint, overwrite: true,
+  };
+  assert.deepEqual(decodeDevelopmentIsoRequest(encodeDevelopmentIsoRequest(copyRequest)), copyRequest);
+  const copyResult = { path: copyRequest.targetPath, size: iso.size, fingerprint: iso.fingerprint };
+  assert.deepEqual(decodeDevelopmentIso(encodeDevelopmentIso(copyResult)), copyResult);
 
   expectProtocolError(BridgeErrorCode.MalformedPayload, () => decodeText(Buffer.concat([encodeText('x'), Buffer.of(0)])));
 });

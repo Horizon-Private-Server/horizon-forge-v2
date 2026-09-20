@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Forge.Host.Domain;
 
 namespace Forge.Host.Bridge;
 
@@ -104,6 +105,12 @@ public static class BridgeHost
                 case BridgeOpcode.Echo:
                     await HandleEchoAsync(frame, writer, requestCancellation.Token, hostCancellation);
                     break;
+                case BridgeOpcode.ValidateUyaIso:
+                    await HandleValidateUyaIsoAsync(frame, writer, requestCancellation.Token, hostCancellation);
+                    break;
+                case BridgeOpcode.CreateDevelopmentIso:
+                    await HandleCreateDevelopmentIsoAsync(frame, writer, requestCancellation.Token, hostCancellation);
+                    break;
                 default:
                     await WriteErrorAsync(writer, frame.RequestId, BridgeErrorCode.UnknownOpcode,
                         $"Unsupported opcode: {frame.Opcode}", hostCancellation);
@@ -118,6 +125,25 @@ public static class BridgeHost
         catch (BridgeProtocolException exception)
         {
             await WriteErrorAsync(writer, frame.RequestId, exception.Code, exception.Message, hostCancellation);
+        }
+        catch (ArgumentException exception)
+        {
+            await WriteErrorAsync(writer, frame.RequestId, BridgeErrorCode.InvalidInput, exception.Message, hostCancellation);
+        }
+        catch (InvalidDataException exception)
+        {
+            await WriteErrorAsync(writer, frame.RequestId, BridgeErrorCode.InvalidInput, exception.Message, hostCancellation);
+        }
+        catch (IOException exception)
+        {
+            var code = exception.Message.StartsWith("Not enough free space", StringComparison.Ordinal)
+                ? BridgeErrorCode.InsufficientSpace
+                : BridgeErrorCode.Conflict;
+            await WriteErrorAsync(writer, frame.RequestId, code, exception.Message, hostCancellation);
+        }
+        catch (UnauthorizedAccessException exception)
+        {
+            await WriteErrorAsync(writer, frame.RequestId, BridgeErrorCode.Conflict, exception.Message, hostCancellation);
         }
         catch (Exception exception)
         {
@@ -162,6 +188,79 @@ public static class BridgeHost
             BridgeErrorCode.None,
             frame.RequestId,
             BridgePayloadCodec.EncodeText(request.Message)), hostCancellation);
+    }
+
+    private static async Task HandleValidateUyaIsoAsync(
+        BridgeFrame frame,
+        FrameWriter writer,
+        CancellationToken requestCancellation,
+        CancellationToken hostCancellation)
+    {
+        var identity = await UyaIsoService.ValidateAsync(
+            BridgePayloadCodec.DecodeText(frame.Payload),
+            CreateProgressReporter(frame, writer, hostCancellation),
+            requestCancellation);
+        await writer.WriteAsync(new(
+            BridgeMessageKind.Result,
+            frame.Opcode,
+            BridgeErrorCode.None,
+            frame.RequestId,
+            BridgePayloadCodec.EncodeUyaIsoValidation(new(
+                identity.IsSupported,
+                identity.Game,
+                identity.Region,
+                identity.Revision,
+                identity.Serial,
+                checked((ulong)identity.Size),
+                identity.Fingerprint,
+                identity.Diagnostic))), hostCancellation);
+    }
+
+    private static async Task HandleCreateDevelopmentIsoAsync(
+        BridgeFrame frame,
+        FrameWriter writer,
+        CancellationToken requestCancellation,
+        CancellationToken hostCancellation)
+    {
+        var request = BridgePayloadCodec.DecodeDevelopmentIsoRequest(frame.Payload);
+        var result = await UyaIsoService.CreateDevelopmentCopyAsync(
+            request.SourcePath,
+            request.TargetPath,
+            request.Fingerprint,
+            request.Overwrite,
+            CreateProgressReporter(frame, writer, hostCancellation),
+            requestCancellation);
+        await writer.WriteAsync(new(
+            BridgeMessageKind.Result,
+            frame.Opcode,
+            BridgeErrorCode.None,
+            frame.RequestId,
+            BridgePayloadCodec.EncodeDevelopmentIso(new(
+                result.Path,
+                checked((ulong)result.Size),
+                result.Fingerprint))), hostCancellation);
+    }
+
+    private static Func<IsoProgress, ValueTask> CreateProgressReporter(
+        BridgeFrame frame,
+        FrameWriter writer,
+        CancellationToken hostCancellation)
+    {
+        uint last = 0;
+        return async progress =>
+        {
+            var completed = progress.Total <= 0
+                ? 0u
+                : checked((uint)Math.Min(10_000, progress.Completed * 10_000 / progress.Total));
+            if (completed < 10_000 && completed - last < 25) return;
+            last = completed;
+            await writer.WriteAsync(new(
+                BridgeMessageKind.Progress,
+                frame.Opcode,
+                BridgeErrorCode.None,
+                frame.RequestId,
+                BridgePayloadCodec.EncodeProgress(completed, 10_000)), hostCancellation);
+        };
     }
 
     private static Task WriteErrorAsync(

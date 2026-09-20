@@ -3,15 +3,6 @@ using System.Text;
 
 namespace Forge.Host.Bridge;
 
-public sealed record HostHandshake(
-    string HostVersion,
-    string SdkRevision,
-    IReadOnlyList<string> SupportedGames,
-    IReadOnlyList<string> Capabilities);
-
-public readonly record struct EchoRequest(string Message, uint DelayMs);
-public readonly record struct BridgeProgress(uint Completed, uint Total);
-
 public static class BridgePayloadCodec
 {
     public const uint MaxEchoDelayMs = 60_000;
@@ -93,6 +84,66 @@ public static class BridgePayloadCodec
         return new(completed, total);
     }
 
+    public static byte[] EncodeUyaIsoValidation(UyaIsoValidationPayload value)
+    {
+        var writer = new PayloadWriter();
+        writer.WriteBoolean(value.IsSupported);
+        writer.WriteString(value.Game);
+        writer.WriteString(value.Region);
+        writer.WriteString(value.Revision);
+        writer.WriteString(value.Serial);
+        writer.WriteUInt64(value.Size);
+        writer.WriteString(value.Fingerprint);
+        writer.WriteString(value.Diagnostic);
+        return writer.ToArray();
+    }
+
+    public static UyaIsoValidationPayload DecodeUyaIsoValidation(ReadOnlySpan<byte> payload)
+    {
+        var reader = new PayloadReader(payload);
+        var value = new UyaIsoValidationPayload(
+            reader.ReadBoolean(), reader.ReadString(), reader.ReadString(), reader.ReadString(),
+            reader.ReadString(), reader.ReadUInt64(), reader.ReadString(), reader.ReadString());
+        reader.Complete();
+        return value;
+    }
+
+    public static byte[] EncodeDevelopmentIsoRequest(DevelopmentIsoRequest value)
+    {
+        var writer = new PayloadWriter();
+        writer.WriteString(value.SourcePath);
+        writer.WriteString(value.TargetPath);
+        writer.WriteString(value.Fingerprint);
+        writer.WriteBoolean(value.Overwrite);
+        return writer.ToArray();
+    }
+
+    public static DevelopmentIsoRequest DecodeDevelopmentIsoRequest(ReadOnlySpan<byte> payload)
+    {
+        var reader = new PayloadReader(payload);
+        var value = new DevelopmentIsoRequest(
+            reader.ReadString(), reader.ReadString(), reader.ReadString(), reader.ReadBoolean());
+        reader.Complete();
+        return value;
+    }
+
+    public static byte[] EncodeDevelopmentIso(DevelopmentIsoPayload value)
+    {
+        var writer = new PayloadWriter();
+        writer.WriteString(value.Path);
+        writer.WriteUInt64(value.Size);
+        writer.WriteString(value.Fingerprint);
+        return writer.ToArray();
+    }
+
+    public static DevelopmentIsoPayload DecodeDevelopmentIso(ReadOnlySpan<byte> payload)
+    {
+        var reader = new PayloadReader(payload);
+        var value = new DevelopmentIsoPayload(reader.ReadString(), reader.ReadUInt64(), reader.ReadString());
+        reader.Complete();
+        return value;
+    }
+
     private static void Malformed(string message) =>
         throw new BridgeProtocolException(BridgeErrorCode.MalformedPayload, message);
 
@@ -106,6 +157,15 @@ public static class BridgePayloadCodec
             BinaryPrimitives.WriteUInt32LittleEndian(bytes, value);
             _stream.Write(bytes);
         }
+
+        public void WriteUInt64(ulong value)
+        {
+            Span<byte> bytes = stackalloc byte[8];
+            BinaryPrimitives.WriteUInt64LittleEndian(bytes, value);
+            _stream.Write(bytes);
+        }
+
+        public void WriteBoolean(bool value) => _stream.WriteByte(value ? (byte)1 : (byte)0);
 
         public void WriteString(string value)
         {
@@ -137,6 +197,25 @@ public static class BridgePayloadCodec
             var value = BinaryPrimitives.ReadUInt32LittleEndian(_payload[_offset..]);
             _offset += 4;
             return value;
+        }
+
+        public ulong ReadUInt64()
+        {
+            Require(8);
+            var value = BinaryPrimitives.ReadUInt64LittleEndian(_payload[_offset..]);
+            _offset += 8;
+            return value;
+        }
+
+        public bool ReadBoolean()
+        {
+            Require(1);
+            return _payload[_offset++] switch
+            {
+                0 => false,
+                1 => true,
+                _ => throw new BridgeProtocolException(BridgeErrorCode.MalformedPayload, "Boolean field must be zero or one"),
+            };
         }
 
         public string ReadString()

@@ -23,7 +23,7 @@ body {
 
 .app-header {
   z-index: 1;
-  padding: 0.75rem 1rem;
+  padding: var(--mantine-spacing-sm) var(--mantine-spacing-md);
   border-bottom: 1px solid #2c3038;
   background: #191d24;
 }
@@ -48,4 +48,11 @@ body {
   inset: 50% auto auto 50%;
   transform: translate(-50%, -50%);
   color: #aab1bf;
+}
+
+.setting-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--mantine-spacing-sm);
+  align-items: end;
 }

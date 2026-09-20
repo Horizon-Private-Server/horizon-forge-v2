@@ -8,7 +8,7 @@ import {
   isAllowedNavigation,
   isPathInside,
   isTrustedSender,
-} from '../dist-electron/main/Security.js';
+} from '../dist-electron/utils/Security.js';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 

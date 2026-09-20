@@ -12,5 +12,5 @@
     "strict": true,
     "skipLibCheck": true
   },
-  "include": ["src/renderer"]
+  "include": ["src/renderer", "src/types/Renderer.d.ts"]
 }

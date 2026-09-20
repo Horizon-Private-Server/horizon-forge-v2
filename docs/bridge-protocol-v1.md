@@ -53,6 +53,8 @@ request ID of the request they describe.
 | ---: | --- | --- |
 | 0 | Control | Handshake and protocol-level errors |
 | 1 | Echo | Walking-skeleton request used to qualify the bridge |
+| 2 | ValidateUyaIso | Identify and checksum a selected clean UYA ISO |
+| 3 | CreateDevelopmentIso | Create and verify a separate writable ISO copy |
 
 Handshake frames must use `Control`. Requests, results, progress, and cancellation
 must use a non-control opcode. Error frames may use `Control` when dispatch never
@@ -77,6 +79,9 @@ Non-error frames have status `0`. Error frames use one of these stable codes:
 | 10 | MalformedPayload |
 | 11 | Cancelled |
 | 12 | InternalError |
+| 13 | InvalidInput |
+| 14 | Conflict |
+| 15 | InsufficientSpace |
 
 Errors detected before a trustworthy request ID is available terminate the
 connection. Otherwise the receiver may return an `Error` frame and then decide
@@ -112,7 +117,8 @@ string[capabilityCount] capabilities
 
 Each `string` is a `uint32` UTF-8 byte length followed by those bytes. Counts are
 limited to 64 and strings to 1 MiB. The initial host advertises game `UYA` and
-capabilities `bridge.echo`, `bridge.progress`, and `bridge.cancellation`.
+capabilities `bridge.echo`, `bridge.progress`, `bridge.cancellation`,
+`uya.iso.validate`, and `uya.iso.copy`.
 
 ### Echo payloads
 
@@ -126,6 +132,23 @@ Result:   string message
 
 Delay is limited to 60 seconds. A zero delay completes immediately. Cancellation
 has no payload and a cancelled operation terminates with error code `Cancelled`.
+
+### UYA ISO payloads
+
+`bool` is one byte (`0` or `1`), and `uint64` is unsigned little-endian.
+
+```text
+Validate request: string sourcePath
+Validate result: bool supported, string game, string region, string revision,
+                 string serial, uint64 size, string md5, string diagnostic
+
+Create request:   string sourcePath, string targetPath, string md5, bool overwrite
+Create result:    string targetPath, uint64 size, string md5
+Progress:         uint32 completedBasisPoints, uint32 totalBasisPoints
+```
+
+Progress uses `10,000` total basis points so DVD-sized byte counts never overflow
+the v1 32-bit progress fields. ISO bytes remain on disk and never enter a frame.
 
 ## Stream behavior
 

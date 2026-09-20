@@ -22,4 +22,4 @@ return await BridgeHost.RunAsync(
         hostVersion,
         revision,
         ["UYA"],
-        ["bridge.echo", "bridge.progress", "bridge.cancellation"]));
+        ["bridge.echo", "bridge.progress", "bridge.cancellation", "uya.iso.validate", "uya.iso.copy"]));

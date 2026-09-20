@@ -6,7 +6,7 @@ using Forge.Host.Domain;
 
 internal static class Program
 {
-    public static int Main()
+    public static async Task<int> Main()
     {
         try
         {
@@ -21,6 +21,7 @@ internal static class Program
             VerifyInvalidInput(vectors);
             VerifyPayloads();
             VerifyIdentityAndSchema();
+            await UyaIsoSetupTests.RunAsync();
             Console.WriteLine("C# bridge and domain contract checks passed");
             return 0;
         }
@@ -103,6 +104,16 @@ internal static class Program
         Equal("result", BridgePayloadCodec.DecodeText(BridgePayloadCodec.EncodeText("result")), "text payload");
         Equal(new BridgeProgress(2, 10), BridgePayloadCodec.DecodeProgress(
             BridgePayloadCodec.EncodeProgress(2, 10)), "progress payload");
+        var iso = new UyaIsoValidationPayload(true, "UYA", "NTSC-U", "1.00", "SCUS-97353", 4_379_377_664,
+            UyaIsoService.SupportedMd5, "verified");
+        Equal(iso, BridgePayloadCodec.DecodeUyaIsoValidation(
+            BridgePayloadCodec.EncodeUyaIsoValidation(iso)), "ISO validation payload");
+        var copyRequest = new DevelopmentIsoRequest("source.iso", "target.iso", UyaIsoService.SupportedMd5, true);
+        Equal(copyRequest, BridgePayloadCodec.DecodeDevelopmentIsoRequest(
+            BridgePayloadCodec.EncodeDevelopmentIsoRequest(copyRequest)), "development ISO request payload");
+        var copyResult = new DevelopmentIsoPayload("target.iso", 4_379_377_664, UyaIsoService.SupportedMd5);
+        Equal(copyResult, BridgePayloadCodec.DecodeDevelopmentIso(
+            BridgePayloadCodec.EncodeDevelopmentIso(copyResult)), "development ISO result payload");
 
         var trailing = BridgePayloadCodec.EncodeText("x").Append((byte)0).ToArray();
         Expect(BridgeErrorCode.MalformedPayload, () => BridgePayloadCodec.DecodeText(trailing));

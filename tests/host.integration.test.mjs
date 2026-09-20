@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -8,7 +10,7 @@ import {
   HostClient,
   HostOperationError,
 } from '../dist-electron/main/bridge/HostClient.js';
-import { BridgeErrorCode } from '../dist-electron/main/bridge/FrameCodec.js';
+import { BridgeErrorCode } from '../dist-electron/main/bridge/BridgeProtocol.js';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const hostDll = path.join(projectRoot, 'src/Forge.Host/bin/Release/net10.0/Forge.Host.dll');
@@ -22,6 +24,7 @@ test('host handshake, echo, progress, cancellation, crash recovery, and concurre
   assert.equal(handshake.sdkRevision, expectedRevision);
   assert.deepEqual(handshake.supportedGames, ['UYA']);
   assert.ok(handshake.capabilities.includes('bridge.cancellation'));
+  assert.ok(handshake.capabilities.includes('uya.iso.copy'));
 
   const concurrent = await Promise.all([
     client.echo('alpha'),
@@ -29,6 +32,24 @@ test('host handshake, echo, progress, cancellation, crash recovery, and concurre
     client.echo('gamma'),
   ]);
   assert.deepEqual(await Promise.all(concurrent.map((request) => request.result)), ['alpha', 'beta', 'gamma']);
+
+  const copyDirectory = await mkdtemp(path.join(tmpdir(), 'forge-host-copy-'));
+  context.after(() => rm(copyDirectory, { recursive: true, force: true }));
+  const copySource = path.join(copyDirectory, 'source.iso');
+  const copyTarget = path.join(copyDirectory, 'target.iso');
+  const copyBytes = Buffer.from('synthetic development ISO');
+  await writeFile(copySource, copyBytes);
+  const copyProgress = [];
+  const copy = await client.createDevelopmentIso(
+    copySource,
+    copyTarget,
+    createHash('md5').update(copyBytes).digest('hex'),
+    false,
+    (value) => copyProgress.push(value),
+  );
+  assert.equal((await copy.result).path, copyTarget);
+  assert.deepEqual(await readFile(copyTarget), copyBytes);
+  assert.ok(copyProgress.length > 0);
 
   const progress = [];
   let slowRequest;

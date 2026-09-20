@@ -1,29 +1,14 @@
 import { Buffer } from 'node:buffer';
 
-import { BridgeErrorCode, BridgeProtocolError } from './FrameCodec.ts';
+import type { DevelopmentIsoResult, ForgeHostStatus, Progress, UyaIsoIdentity } from '../../types/ForgeApi.js';
+import { BridgeErrorCode, BridgeProtocolError } from './BridgeProtocol.ts';
+import type { DevelopmentIsoRequest, EchoRequest } from '../../types/BridgePayloads.js';
 
 export const MAX_ECHO_DELAY_MS = 60_000;
 const MAX_TEXT_BYTES = 1024 * 1024;
 const MAX_LIST_ITEMS = 64;
 
-export interface HostHandshake {
-  hostVersion: string;
-  sdkRevision: string;
-  supportedGames: string[];
-  capabilities: string[];
-}
-
-export interface EchoRequest {
-  message: string;
-  delayMs: number;
-}
-
-export interface BridgeProgress {
-  completed: number;
-  total: number;
-}
-
-export function encodeHandshake(value: HostHandshake): Buffer {
+export function encodeHandshake(value: ForgeHostStatus): Buffer {
   const writer = new PayloadWriter();
   writer.writeString(value.hostVersion);
   writer.writeString(value.sdkRevision);
@@ -32,7 +17,7 @@ export function encodeHandshake(value: HostHandshake): Buffer {
   return writer.toBuffer();
 }
 
-export function decodeHandshake(payload: Uint8Array): HostHandshake {
+export function decodeHandshake(payload: Uint8Array): ForgeHostStatus {
   const reader = new PayloadReader(payload);
   const value = {
     hostVersion: reader.readString(),
@@ -84,13 +69,78 @@ export function encodeProgress(completed: number, total: number): Buffer {
   return payload;
 }
 
-export function decodeProgress(payload: Uint8Array): BridgeProgress {
+export function decodeProgress(payload: Uint8Array): Progress {
   if (payload.length !== 8) malformed('Progress payload must contain eight bytes');
   const bytes = Buffer.from(payload.buffer, payload.byteOffset, payload.byteLength);
   const completed = bytes.readUInt32LE(0);
   const total = bytes.readUInt32LE(4);
   if (total === 0 || completed > total) malformed('Invalid progress values');
   return { completed, total };
+}
+
+export function encodeUyaIsoValidation(value: UyaIsoIdentity): Buffer {
+  const writer = new PayloadWriter();
+  writer.writeBoolean(value.isSupported);
+  writer.writeString(value.game);
+  writer.writeString(value.region);
+  writer.writeString(value.revision);
+  writer.writeString(value.serial);
+  writer.writeUInt64(value.size);
+  writer.writeString(value.fingerprint);
+  writer.writeString(value.diagnostic);
+  return writer.toBuffer();
+}
+
+export function decodeUyaIsoValidation(payload: Uint8Array): UyaIsoIdentity {
+  const reader = new PayloadReader(payload);
+  const value = {
+    isSupported: reader.readBoolean(),
+    game: reader.readString(),
+    region: reader.readString(),
+    revision: reader.readString(),
+    serial: reader.readString(),
+    size: reader.readUInt64(),
+    fingerprint: reader.readString(),
+    diagnostic: reader.readString(),
+  };
+  reader.complete();
+  return value;
+}
+
+export function encodeDevelopmentIsoRequest(value: DevelopmentIsoRequest): Buffer {
+  const writer = new PayloadWriter();
+  writer.writeString(value.sourcePath);
+  writer.writeString(value.targetPath);
+  writer.writeString(value.fingerprint);
+  writer.writeBoolean(value.overwrite);
+  return writer.toBuffer();
+}
+
+export function decodeDevelopmentIsoRequest(payload: Uint8Array): DevelopmentIsoRequest {
+  const reader = new PayloadReader(payload);
+  const value = {
+    sourcePath: reader.readString(),
+    targetPath: reader.readString(),
+    fingerprint: reader.readString(),
+    overwrite: reader.readBoolean(),
+  };
+  reader.complete();
+  return value;
+}
+
+export function encodeDevelopmentIso(value: DevelopmentIsoResult): Buffer {
+  const writer = new PayloadWriter();
+  writer.writeString(value.path);
+  writer.writeUInt64(value.size);
+  writer.writeString(value.fingerprint);
+  return writer.toBuffer();
+}
+
+export function decodeDevelopmentIso(payload: Uint8Array): DevelopmentIsoResult {
+  const reader = new PayloadReader(payload);
+  const value = { path: reader.readString(), size: reader.readUInt64(), fingerprint: reader.readString() };
+  reader.complete();
+  return value;
 }
 
 class PayloadWriter {
@@ -100,6 +150,17 @@ class PayloadWriter {
     const bytes = Buffer.allocUnsafe(4);
     bytes.writeUInt32LE(value);
     this.#parts.push(bytes);
+  }
+
+  writeUInt64(value: number): void {
+    if (!Number.isSafeInteger(value) || value < 0) malformed('Invalid 64-bit integer');
+    const bytes = Buffer.allocUnsafe(8);
+    bytes.writeBigUInt64LE(BigInt(value));
+    this.#parts.push(bytes);
+  }
+
+  writeBoolean(value: boolean): void {
+    this.#parts.push(Buffer.of(value ? 1 : 0));
   }
 
   writeString(value: string): void {
@@ -133,6 +194,21 @@ class PayloadReader {
     const value = this.#bytes.readUInt32LE(this.#offset);
     this.#offset += 4;
     return value;
+  }
+
+  readUInt64(): number {
+    this.#require(8);
+    const value = Number(this.#bytes.readBigUInt64LE(this.#offset));
+    this.#offset += 8;
+    if (!Number.isSafeInteger(value)) malformed('64-bit integer exceeds JavaScript safe range');
+    return value;
+  }
+
+  readBoolean(): boolean {
+    this.#require(1);
+    const value = this.#bytes[this.#offset++];
+    if (value > 1) malformed('Boolean field must be zero or one');
+    return value === 1;
   }
 
   readString(): string {

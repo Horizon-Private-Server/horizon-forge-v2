@@ -1,39 +1,34 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 
+import type { DevelopmentIsoResult, ForgeHostStatus, Progress, UyaIsoIdentity } from '../../types/ForgeApi.js';
 import {
-  BridgeErrorCode,
   BridgeFrameDecoder,
-  BridgeMessageKind,
-  BridgeOpcode,
-  BridgeProtocolError,
   decodeErrorMessage,
   encodeFrame,
-  type BridgeFrame,
 } from './FrameCodec.js';
+import type { BridgeFrame, HostRequest } from './BridgeProtocol.js';
+import { BridgeErrorCode, BridgeMessageKind, BridgeOpcode, BridgeProtocolError } from './BridgeProtocol.js';
 import {
   decodeHandshake,
+  decodeDevelopmentIso,
   decodeProgress,
   decodeText,
+  decodeUyaIsoValidation,
+  encodeDevelopmentIsoRequest,
   encodeEchoRequest,
-  type BridgeProgress,
-  type HostHandshake,
+  encodeText,
 } from './PayloadCodec.js';
-
-export interface HostRequest<T> {
-  requestId: number;
-  result: Promise<T>;
-}
 
 interface PendingRequest {
   opcode: BridgeOpcode;
   resolve: (payload: Buffer) => void;
   reject: (error: Error) => void;
-  onProgress?: (progress: BridgeProgress) => void;
+  onProgress?: (progress: Progress) => void;
 }
 
 interface ReadyWaiter {
-  promise: Promise<HostHandshake>;
-  resolve: (handshake: HostHandshake) => void;
+  promise: Promise<ForgeHostStatus>;
+  resolve: (handshake: ForgeHostStatus) => void;
   reject: (error: Error) => void;
   timer: NodeJS.Timeout;
 }
@@ -51,7 +46,7 @@ export class HostClient {
   readonly #restartDelayMs: number;
   #child: ChildProcessWithoutNullStreams | undefined;
   #decoder = new BridgeFrameDecoder();
-  #handshake: HostHandshake | undefined;
+  #handshake: ForgeHostStatus | undefined;
   #ready: ReadyWaiter | undefined;
   #pending = new Map<number, PendingRequest>();
   #nextRequestId = 1;
@@ -69,7 +64,7 @@ export class HostClient {
     return this.#child?.pid;
   }
 
-  async start(): Promise<HostHandshake> {
+  async start(): Promise<ForgeHostStatus> {
     this.#shouldRun = true;
     if (this.#handshake) return this.#handshake;
     if (this.#ready) return this.#ready.promise;
@@ -85,9 +80,9 @@ export class HostClient {
     this.#child = child;
     this.#decoder = new BridgeFrameDecoder();
 
-    let resolve!: (handshake: HostHandshake) => void;
+    let resolve!: (handshake: ForgeHostStatus) => void;
     let reject!: (error: Error) => void;
-    const promise = new Promise<HostHandshake>((resolvePromise, rejectPromise) => {
+    const promise = new Promise<ForgeHostStatus>((resolvePromise, rejectPromise) => {
       resolve = resolvePromise;
       reject = rejectPromise;
     });
@@ -140,10 +135,31 @@ export class HostClient {
   async echo(
     message: string,
     delayMs = 0,
-    onProgress?: (progress: BridgeProgress) => void,
+    onProgress?: (progress: Progress) => void,
   ): Promise<HostRequest<string>> {
     const request = await this.#request(BridgeOpcode.Echo, encodeEchoRequest(message, delayMs), onProgress);
     return { requestId: request.requestId, result: request.result.then(decodeText) };
+  }
+
+  async validateUyaIso(
+    path: string,
+    onProgress?: (progress: Progress) => void,
+  ): Promise<HostRequest<UyaIsoIdentity>> {
+    const request = await this.#request(BridgeOpcode.ValidateUyaIso, encodeText(path), onProgress);
+    return { requestId: request.requestId, result: request.result.then(decodeUyaIsoValidation) };
+  }
+
+  async createDevelopmentIso(
+    sourcePath: string,
+    targetPath: string,
+    fingerprint: string,
+    overwrite: boolean,
+    onProgress?: (progress: Progress) => void,
+  ): Promise<HostRequest<DevelopmentIsoResult>> {
+    const request = await this.#request(BridgeOpcode.CreateDevelopmentIso, encodeDevelopmentIsoRequest({
+      sourcePath, targetPath, fingerprint, overwrite,
+    }), onProgress);
+    return { requestId: request.requestId, result: request.result.then(decodeDevelopmentIso) };
   }
 
   async cancel(requestId: number): Promise<void> {
@@ -161,7 +177,7 @@ export class HostClient {
   async #request(
     opcode: BridgeOpcode,
     payload: Uint8Array,
-    onProgress?: (progress: BridgeProgress) => void,
+    onProgress?: (progress: Progress) => void,
   ): Promise<HostRequest<Buffer>> {
     await this.start();
     const requestId = this.#allocateRequestId();

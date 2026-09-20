@@ -1,69 +1,22 @@
 import { Buffer } from 'node:buffer';
 
+import {
+  BridgeErrorCode,
+  BridgeMessageKind,
+  BridgeOpcode,
+  BridgeProtocolError,
+  type BridgeFrame,
+  type DecodedHeader,
+} from './BridgeProtocol.ts';
+
 export const BRIDGE_HEADER_SIZE = 24;
 export const BRIDGE_MAX_PAYLOAD_LENGTH = 64 * 1024 * 1024;
 export const BRIDGE_PROTOCOL_VERSION = 1;
-
-export const BridgeMessageKind = {
-  Handshake: 1,
-  Request: 2,
-  Result: 3,
-  Progress: 4,
-  Cancel: 5,
-  Error: 6,
-} as const;
-
-export const BridgeOpcode = {
-  Control: 0,
-  Echo: 1,
-} as const;
-
-export const BridgeErrorCode = {
-  None: 0,
-  InvalidMagic: 1,
-  UnsupportedVersion: 2,
-  InvalidMessageKind: 3,
-  InvalidFlags: 4,
-  UnknownOpcode: 5,
-  InvalidStatus: 6,
-  InvalidRequestId: 7,
-  PayloadTooLarge: 8,
-  InvalidHeader: 9,
-  MalformedPayload: 10,
-  Cancelled: 11,
-  InternalError: 12,
-} as const;
-
-export type BridgeMessageKind = typeof BridgeMessageKind[keyof typeof BridgeMessageKind];
-export type BridgeOpcode = typeof BridgeOpcode[keyof typeof BridgeOpcode];
-export type BridgeErrorCode = typeof BridgeErrorCode[keyof typeof BridgeErrorCode];
-
-export interface BridgeFrame {
-  kind: BridgeMessageKind;
-  opcode: BridgeOpcode;
-  status: BridgeErrorCode;
-  requestId: number;
-  payload: Uint8Array;
-}
-
-interface DecodedHeader extends Omit<BridgeFrame, 'payload'> {
-  payloadLength: number;
-}
 
 const magic = Buffer.from('HFG2', 'ascii');
 const validKinds = new Set<number>(Object.values(BridgeMessageKind));
 const validOpcodes = new Set<number>(Object.values(BridgeOpcode));
 const validErrorCodes = new Set<number>(Object.values(BridgeErrorCode).filter((value) => value !== 0));
-
-export class BridgeProtocolError extends Error {
-  readonly code: BridgeErrorCode;
-
-  constructor(code: BridgeErrorCode, message: string) {
-    super(message);
-    this.name = 'BridgeProtocolError';
-    this.code = code;
-  }
-}
 
 export function encodeErrorMessage(message: string): Buffer {
   const bytes = Buffer.from(message, 'utf8');
