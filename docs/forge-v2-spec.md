@@ -1033,7 +1033,7 @@ NuGet-published Ratchet package, moving branch, or unverified cached checkout.
 
 Every successful commit pushed to `main` MUST publish Linux and Windows nightly
 packages. Each package gets a unique SemVer-compatible prerelease version such as
-`0.1.0-nightly.20260919.123`, plus the full source commit in its metadata. Nightly
+`2.0.0-nightly.123.a1b2c3d4`, plus the full source commit in its metadata. Nightly
 packages MUST be clearly labeled prerelease/unsupported, publish nightly-channel
 update metadata, and remain isolated from stable users.
 

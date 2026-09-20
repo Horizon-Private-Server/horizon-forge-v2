@@ -15,8 +15,9 @@ const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const applicationPath = path.join(currentDirectory, '../../dist/index.html');
 const applicationUrl = pathToFileURL(applicationPath).href;
 const developmentHostPath = path.join(app.getAppPath(), 'src/Forge.Host/bin/Release/net10.0/Forge.Host.dll');
+const packagedHostName = process.platform === 'win32' ? 'Forge.Host.exe' : 'Forge.Host';
 const hostPath = app.isPackaged
-  ? path.join(process.resourcesPath, 'host/Forge.Host')
+  ? path.join(process.resourcesPath, 'host', packagedHostName)
   : process.env.FORGE_HOST_PATH ?? developmentHostPath;
 const host = app.isPackaged ? new HostClient(hostPath, []) : new HostClient('dotnet', [hostPath]);
 let mainWindow: BrowserWindow | undefined;

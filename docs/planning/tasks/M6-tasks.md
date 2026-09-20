@@ -36,6 +36,12 @@ Acceptance:
 
 Verification: dry-run branch/main workflows and metadata inspection of a published nightly.
 
+Implementation: successful `main` pushes build self-contained Linux and Windows
+archives, assign `2.0.0-nightly.<run>.<short-sha>`, embed channel/commit/SDK/protocol
+metadata, publish checksums as a GitHub prerelease, and retain intermediate Actions
+artifacts for 14 days. Pull requests and non-main branches package for validation
+without receiving a release version or publication credentials.
+
 ## M6-003 — Publish stable tagged releases
 
 Requirements: FR-RELENG-003, FR-RELENG-004, NFR-SEC-004, NFR-SEC-005
