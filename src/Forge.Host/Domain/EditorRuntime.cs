@@ -7,7 +7,7 @@ public sealed class EditorRuntime : IAsyncDisposable
     private static readonly string[] RuntimeCapabilities =
     [
         "editor.query", "editor.selection", "editor.project.rename", "editor.transform.update",
-        "editor.save", "editor.recovery",
+        "editor.entity.rename", "editor.entity.layer", "editor.entity.state", "editor.save", "editor.recovery",
     ];
     private static readonly EditorTool[] RuntimeTools =
     [
@@ -18,6 +18,8 @@ public sealed class EditorRuntime : IAsyncDisposable
     private readonly List<EditorEvent> _events = [];
     private readonly List<EditorDiagnostic> _diagnostics = [];
     private ForgeProjectWorkspace? _workspace;
+    private HashSet<EntityId> _missingAssets = [];
+    private Dictionary<EntityId, ProjectEntity> _savedEntities = [];
     private EntityId[] _selection = [];
     private TimeSpan _autosaveDelay;
     private CancellationTokenSource? _autosaveCancellation;
@@ -29,6 +31,13 @@ public sealed class EditorRuntime : IAsyncDisposable
     public async Task<EditorSnapshot> OpenAsync(
         string projectPath,
         TimeSpan autosaveDelay,
+        CancellationToken cancellationToken = default) =>
+        await OpenAsync(projectPath, null, autosaveDelay, cancellationToken);
+
+    public async Task<EditorSnapshot> OpenAsync(
+        string projectPath,
+        string? catalogRootPath,
+        TimeSpan autosaveDelay,
         CancellationToken cancellationToken = default)
     {
         if (autosaveDelay < TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(autosaveDelay));
@@ -37,8 +46,13 @@ public sealed class EditorRuntime : IAsyncDisposable
         {
             ThrowIfDisposed();
             var workspace = await ForgeProjectWorkspace.OpenAsync(projectPath, cancellationToken);
+            var missingAssets = catalogRootPath is null
+                ? []
+                : FindMissingAssets(workspace, await AssetCatalogStore.OpenAsync(catalogRootPath, cancellationToken));
             await CloseCoreAsync(cancellationToken);
             _workspace = workspace;
+            _savedEntities = workspace.Content.Entities.ToDictionary(entity => entity.EntityId);
+            _missingAssets = missingAssets;
             _autosaveDelay = autosaveDelay;
             _selection = [];
             _diagnostics.Clear();
@@ -92,6 +106,21 @@ public sealed class EditorRuntime : IAsyncDisposable
                     AddEvent(EditorEventKind.ProjectChanged, command.Id, command.EntityIds, "Transform updated");
                     ScheduleAutosave();
                     break;
+                case EditorCommandKind.RenameEntity:
+                    workspace.RenameEntity(command.EntityIds[0], command.Text!);
+                    AddEvent(EditorEventKind.ProjectChanged, command.Id, command.EntityIds, "Entity renamed");
+                    ScheduleAutosave();
+                    break;
+                case EditorCommandKind.SetEntityLayer:
+                    workspace.SetEntityLayer(command.EntityIds, command.Text!);
+                    AddEvent(EditorEventKind.ProjectChanged, command.Id, command.EntityIds, "Entity layer updated");
+                    ScheduleAutosave();
+                    break;
+                case EditorCommandKind.SetEntityState:
+                    workspace.SetEntityState(command.EntityIds, command.State!.Hidden, command.State.Disabled, command.State.Locked);
+                    AddEvent(EditorEventKind.ProjectChanged, command.Id, command.EntityIds, "Entity state updated");
+                    ScheduleAutosave();
+                    break;
                 default:
                     throw new ArgumentOutOfRangeException(nameof(command), command.Kind, "Unknown editor command");
             }
@@ -112,6 +141,7 @@ public sealed class EditorRuntime : IAsyncDisposable
             CancelAutosave();
             var workspace = RequireWorkspace();
             await workspace.SaveAsync(cancellationToken);
+            _savedEntities = workspace.Content.Entities.ToDictionary(entity => entity.EntityId);
             AddEvent(EditorEventKind.ProjectSaved, null, [], null);
             return Snapshot();
         }
@@ -178,6 +208,8 @@ public sealed class EditorRuntime : IAsyncDisposable
         await WriteRecoveryCoreAsync(cancellationToken);
         AddEvent(EditorEventKind.ProjectClosed, null, [], path);
         _workspace = null;
+        _missingAssets = [];
+        _savedEntities = [];
         _selection = [];
     }
 
@@ -253,7 +285,19 @@ public sealed class EditorRuntime : IAsyncDisposable
             workspace.Manifest.Name,
             workspace.Manifest.Target,
             workspace.Manifest.BaseLevel,
-            workspace.Content.Entities.ToArray(),
+            workspace.Content.Entities.Select(entity =>
+            {
+                var state = entity.State ?? new();
+                return new EditorEntitySnapshot(
+                    entity.EntityId,
+                    entity.Name,
+                    entity.Layer,
+                    entity.Transform,
+                    entity.Asset,
+                    entity.Provenance,
+                    new(!_savedEntities.TryGetValue(entity.EntityId, out var saved) || saved != entity,
+                        state.Hidden, state.Disabled, state.Locked, false, _missingAssets.Contains(entity.EntityId)));
+            }).ToArray(),
             _selection.ToArray(),
             workspace.IsDirty,
             workspace.MigrationPending,
@@ -277,16 +321,34 @@ public sealed class EditorRuntime : IAsyncDisposable
             throw new ArgumentException("Command references an entity that is not present in the active project.", nameof(command));
         switch (command.Kind)
         {
-            case EditorCommandKind.SetSelection when command.Transform is not null || command.Text is not null:
+            case EditorCommandKind.SetSelection when command.Transform is not null || command.Text is not null || command.State is not null:
                 throw new ArgumentException("Selection commands cannot contain mutation data.", nameof(command));
             case EditorCommandKind.RenameProject when command.EntityIds.Count != 0 || command.Transform is not null
-                || string.IsNullOrWhiteSpace(command.Text):
+                || string.IsNullOrWhiteSpace(command.Text) || command.State is not null:
                 throw new ArgumentException("Rename commands require only a project name.", nameof(command));
             case EditorCommandKind.UpdateTransform when command.EntityIds.Count != 1 || command.Transform is null
-                || command.Text is not null:
+                || command.Text is not null || command.State is not null:
                 throw new ArgumentException("Transform commands require one entity and a transform.", nameof(command));
+            case EditorCommandKind.RenameEntity when command.EntityIds.Count != 1 || command.Transform is not null
+                || string.IsNullOrWhiteSpace(command.Text) || command.State is not null:
+                throw new ArgumentException("Entity rename commands require one entity and a name.", nameof(command));
+            case EditorCommandKind.SetEntityLayer when command.EntityIds.Count == 0 || command.Transform is not null
+                || string.IsNullOrWhiteSpace(command.Text) || command.State is not null:
+                throw new ArgumentException("Layer commands require entities and a layer.", nameof(command));
+            case EditorCommandKind.SetEntityState when command.EntityIds.Count == 0 || command.Transform is not null
+                || command.Text is not null || command.State is null
+                || (command.State.Hidden is null && command.State.Disabled is null && command.State.Locked is null):
+                throw new ArgumentException("State commands require entities and at least one state change.", nameof(command));
         }
     }
+
+    private static HashSet<EntityId> FindMissingAssets(ForgeProjectWorkspace workspace, AssetCatalogStore catalog) =>
+        workspace.Content.Entities
+            .Where(entity => entity.Asset is not null)
+            .GroupBy(entity => entity.Asset!.Id)
+            .Where(group => workspace.ResolveAssetPath(group.Key, catalog) is null)
+            .SelectMany(group => group.Select(entity => entity.EntityId))
+            .ToHashSet();
 
     private void AddEvent(
         EditorEventKind kind,

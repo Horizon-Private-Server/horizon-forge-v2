@@ -5,6 +5,9 @@ public enum EditorCommandKind : byte
     SetSelection = 1,
     RenameProject = 2,
     UpdateTransform = 3,
+    RenameEntity = 4,
+    SetEntityLayer = 5,
+    SetEntityState = 6,
 }
 
 public enum EditorEventKind : byte
@@ -30,7 +33,30 @@ public sealed record EditorCommand(
     EditorCommandKind Kind,
     IReadOnlyList<EntityId> EntityIds,
     ProjectTransform? Transform = null,
-    string? Text = null);
+    string? Text = null,
+    EditorEntityStateChange? State = null);
+
+public sealed record EditorEntityStateChange(
+    bool? Hidden = null,
+    bool? Disabled = null,
+    bool? Locked = null);
+
+public sealed record EditorEntityStatus(
+    bool Dirty,
+    bool Hidden,
+    bool Disabled,
+    bool Locked,
+    bool Invalid,
+    bool MissingAsset);
+
+public sealed record EditorEntitySnapshot(
+    EntityId EntityId,
+    string Name,
+    string Layer,
+    ProjectTransform Transform,
+    ProjectAssetReference? Asset,
+    ProjectEntityProvenance? Provenance,
+    EditorEntityStatus State);
 
 public sealed record EditorEvent(
     long Sequence,
@@ -56,7 +82,7 @@ public sealed record EditorSnapshot(
     string ProjectName,
     ProjectTargetProfile Target,
     ProjectBaseLevel BaseLevel,
-    IReadOnlyList<ProjectEntity> Entities,
+    IReadOnlyList<EditorEntitySnapshot> Entities,
     IReadOnlyList<EntityId> Selection,
     bool IsDirty,
     bool MigrationPending,

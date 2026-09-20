@@ -37,13 +37,19 @@ public sealed record ProjectEntityProvenance(
     string Section,
     int SourceIndex);
 
+public sealed record ProjectEntityState(
+    bool Hidden = false,
+    bool Disabled = false,
+    bool Locked = false);
+
 public sealed record ProjectEntity(
     EntityId EntityId,
     string Name,
     string Layer,
     ProjectTransform Transform,
     ProjectAssetReference? Asset,
-    ProjectEntityProvenance? Provenance = null);
+    ProjectEntityProvenance? Provenance = null,
+    ProjectEntityState? State = null);
 
 public sealed record ProjectAttachedAsset(
     AssetId Id,

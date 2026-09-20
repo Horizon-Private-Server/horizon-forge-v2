@@ -25,7 +25,7 @@ internal static class EditorBridgeHandlers
     {
         var request = EditorPayloadCodec.DecodeOpenRequest(payload);
         return EditorPayloadCodec.EncodeSnapshot(await runtime.OpenAsync(
-            request.ProjectPath, TimeSpan.FromSeconds(request.AutosaveSeconds), cancellationToken));
+            request.ProjectPath, request.CatalogRootPath, TimeSpan.FromSeconds(request.AutosaveSeconds), cancellationToken));
     }
 
     private static async Task<byte[]> CloseAsync(

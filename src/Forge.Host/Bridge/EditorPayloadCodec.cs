@@ -2,7 +2,7 @@ using Forge.Host.Domain;
 
 namespace Forge.Host.Bridge;
 
-internal readonly record struct EditorOpenRequest(string ProjectPath, uint AutosaveSeconds);
+internal readonly record struct EditorOpenRequest(string ProjectPath, string CatalogRootPath, uint AutosaveSeconds);
 internal readonly record struct EditorEventRequest(ulong AfterSequence, uint Limit);
 
 internal static class EditorPayloadCodec
@@ -13,7 +13,7 @@ internal static class EditorPayloadCodec
     public static EditorOpenRequest DecodeOpenRequest(ReadOnlySpan<byte> payload)
     {
         var reader = new PayloadReader(payload);
-        var value = new EditorOpenRequest(reader.ReadString(), reader.ReadUInt32());
+        var value = new EditorOpenRequest(reader.ReadString(), reader.ReadString(), reader.ReadUInt32());
         reader.Complete();
         return value;
     }
@@ -36,8 +36,9 @@ internal static class EditorPayloadCodec
         var entities = ReadEntityIds(ref reader);
         var transform = reader.ReadBoolean() ? ReadTransform(ref reader) : null;
         var text = reader.ReadBoolean() ? reader.ReadString() : null;
+        var state = reader.ReadBoolean() ? ReadStateChange(ref reader) : null;
         reader.Complete();
-        return new(id, kind, entities, transform, text);
+        return new(id, kind, entities, transform, text, state);
     }
 
     public static byte[] EncodeSnapshot(EditorSnapshot value)
@@ -110,7 +111,7 @@ internal static class EditorPayloadCodec
         writer.WriteUInt32(checked((uint)value.MissingAssetCount));
     }
 
-    private static void WriteEntity(PayloadWriter writer, ProjectEntity value)
+    private static void WriteEntity(PayloadWriter writer, EditorEntitySnapshot value)
     {
         writer.WriteString(value.EntityId.ToString());
         writer.WriteString(value.Name);
@@ -130,7 +131,18 @@ internal static class EditorPayloadCodec
             writer.WriteString(value.Provenance.Section);
             writer.WriteUInt32(checked((uint)value.Provenance.SourceIndex));
         }
+        writer.WriteBoolean(value.State.Dirty);
+        writer.WriteBoolean(value.State.Hidden);
+        writer.WriteBoolean(value.State.Disabled);
+        writer.WriteBoolean(value.State.Locked);
+        writer.WriteBoolean(value.State.Invalid);
+        writer.WriteBoolean(value.State.MissingAsset);
     }
+
+    private static EditorEntityStateChange ReadStateChange(ref PayloadReader reader) => new(
+        reader.ReadBoolean() ? reader.ReadBoolean() : null,
+        reader.ReadBoolean() ? reader.ReadBoolean() : null,
+        reader.ReadBoolean() ? reader.ReadBoolean() : null);
 
     private static void WriteTransform(PayloadWriter writer, ProjectTransform value)
     {

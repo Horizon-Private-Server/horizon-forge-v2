@@ -48,6 +48,20 @@ internal static class EditorRuntimeTests
             Equal(new ProjectVector3(10, 20, 30),
                 snapshot.Entities.Single(entity => entity.EntityId == firstId).Transform.Position,
                 "runtime transform mutation");
+            Equal(true, snapshot.Entities.Single(entity => entity.EntityId == firstId).State.Dirty,
+                "mutated entity dirty state");
+            snapshot = await runtime.ExecuteAsync(new(
+                Guid.NewGuid().ToString("D"), EditorCommandKind.RenameEntity, [firstId], Text: "Renamed entity"));
+            snapshot = await runtime.ExecuteAsync(new(
+                Guid.NewGuid().ToString("D"), EditorCommandKind.SetEntityLayer, [firstId, secondId], Text: "gameplay"));
+            snapshot = await runtime.ExecuteAsync(new(
+                Guid.NewGuid().ToString("D"), EditorCommandKind.SetEntityState, [firstId, secondId],
+                State: new(Hidden: true, Locked: true)));
+            Equal("Renamed entity", snapshot.Entities.Single(entity => entity.EntityId == firstId).Name,
+                "entity rename command");
+            Equal(true, snapshot.Entities.All(entity => entity.Layer == "gameplay"), "multi-entity layer command");
+            Equal(true, snapshot.Entities.All(entity => entity.State is { Hidden: true, Locked: true }),
+                "multi-entity state command");
             await WaitForAsync(async () => (await runtime.ReadEventsAsync(0, EditorRuntimeEventLimit))
                 .Any(value => value.Kind == EditorEventKind.RecoveryWritten));
             var firstWorkspace = await ForgeProjectWorkspace.OpenAsync(firstPath);
@@ -55,6 +69,7 @@ internal static class EditorRuntimeTests
 
             snapshot = await runtime.SaveAsync();
             Equal(false, snapshot.IsDirty, "manual save marks runtime clean");
+            Equal(true, snapshot.Entities.All(entity => !entity.State.Dirty), "save clears entity dirty state");
             snapshot = await runtime.ExecuteAsync(new(
                 Guid.NewGuid().ToString("D"), EditorCommandKind.RenameProject, [], Text: "Renamed"));
             Equal("Renamed", snapshot.ProjectName, "rename command");

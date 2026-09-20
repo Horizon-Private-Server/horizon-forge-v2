@@ -18,13 +18,12 @@ interface IpcHandlersOptions {
   recentProjects: RecentProjects;
   settings: SettingsStore;
   getMainWindow: () => BrowserWindow | undefined;
-  getTfragUrl: () => string | undefined;
 }
 
 const uyaImportVersion = 1;
 
 export function registerIpcHandlers(options: IpcHandlersOptions): void {
-  const { host, recentProjects, settings, getMainWindow, getTfragUrl } = options;
+  const { host, recentProjects, settings, getMainWindow } = options;
   let activeSetupRequestId: number | undefined;
 
   function assertSender(senderId: number): void {
@@ -131,7 +130,9 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
     if (!value || typeof value !== 'object') throw new TypeError('Editor command is invalid');
     const command = value as Record<string, unknown>;
     if (typeof command.id !== 'string'
-      || !['setSelection', 'renameProject', 'updateTransform'].includes(String(command.kind))
+      || ![
+        'setSelection', 'renameProject', 'updateTransform', 'renameEntity', 'setEntityLayer', 'setEntityState',
+      ].includes(String(command.kind))
       || !Array.isArray(command.entityIds)
       || command.entityIds.some((id) => typeof id !== 'string')) {
       throw new TypeError('Editor command is invalid');
@@ -147,10 +148,6 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
     if (typeof message !== 'string') throw new TypeError('Echo message must be a string');
     const request = await host.echo(message);
     return request.result;
-  });
-  ipcMain.handle('forge:tfrag-url', (event) => {
-    assertSender(event.sender.id);
-    return getTfragUrl();
   });
   ipcMain.handle('forge:settings-get', (event) => {
     assertSender(event.sender.id);
@@ -443,12 +440,18 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
     const resolved = await assertRecentProject(projectPath);
     shell.showItemInFolder(path.join(resolved, 'forge-project.json'));
   });
+  ipcMain.handle('forge:logs-reveal', async (event) => {
+    assertSender(event.sender.id);
+    await mkdir(settings.paths.logs, { recursive: true });
+    const message = await shell.openPath(settings.paths.logs);
+    if (message) throw new Error(message);
+  });
   ipcMain.handle('forge:editor-open', async (event, projectPath: unknown) => {
     assertSender(event.sender.id);
     const values = await getSettingValues();
     const autosaveSeconds = Number(values['editor.autosaveSeconds']);
     return (await host.openEditorProject(
-      await assertRecentProject(projectPath), autosaveSeconds)).result;
+      await assertRecentProject(projectPath), settings.paths.assets, autosaveSeconds)).result;
   });
   ipcMain.handle('forge:editor-close', async (event) => {
     assertSender(event.sender.id);

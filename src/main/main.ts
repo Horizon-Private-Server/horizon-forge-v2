@@ -1,4 +1,4 @@
-import { app, BrowserWindow, protocol, session } from 'electron';
+import { app, BrowserWindow, session } from 'electron';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -8,13 +8,7 @@ import { installApplicationMenu } from './ApplicationMenu.js';
 import { registerIpcHandlers } from './IpcHandlers.js';
 import { RecentProjects } from './RecentProjects.js';
 import { SettingsStore } from './Settings.js';
-import { registerTfragProtocol } from './TfragProtocol.js';
 import { HostClient } from './bridge/HostClient.js';
-
-protocol.registerSchemesAsPrivileged([{
-  scheme: 'forge-asset',
-  privileges: { secure: true, standard: true, supportFetchAPI: true, corsEnabled: true },
-}]);
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const applicationPath = path.join(currentDirectory, '../../dist/index.html');
@@ -24,13 +18,7 @@ const hostPath = app.isPackaged
   ? path.join(process.resourcesPath, 'host/Forge.Host')
   : process.env.FORGE_HOST_PATH ?? developmentHostPath;
 const host = app.isPackaged ? new HostClient(hostPath, []) : new HostClient('dotnet', [hostPath]);
-const developmentTfragPath = path.resolve(
-  app.getAppPath(),
-  '../ratchet-ps2-cli/test-assets/tfrags/_viewer/UYA/level3/terrain/terrain.gltf',
-);
-const tfragPath = process.env.FORGE_TFRAG_PATH ?? (app.isPackaged ? undefined : developmentTfragPath);
 let mainWindow: BrowserWindow | undefined;
-let tfragUrl: string | undefined;
 let quitting = false;
 
 function createWindow(): void {
@@ -73,10 +61,9 @@ app.whenReady().then(async () => {
     recentProjects,
     settings,
     getMainWindow: () => mainWindow,
-    getTfragUrl: () => tfragUrl,
   });
   installApplicationMenu((action) => mainWindow?.webContents.send('forge:action', action));
-  void registerTfragProtocol(tfragPath).then((url) => { tfragUrl = url; }).finally(createWindow);
+  createWindow();
   void host.start().catch((error) => console.error('Forge host failed to start', error));
 
   app.on('activate', () => {

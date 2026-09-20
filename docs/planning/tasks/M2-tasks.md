@@ -74,6 +74,14 @@ Acceptance:
 
 Verification: projection diff tests and repeated-load memory/resource soak.
 
+Implementation: `SceneProjection` incrementally creates, updates, and removes one
+lightweight render proxy per authoritative project entity. Proxies retain only the
+Entity ID needed to resolve interactions; transforms and display state are always
+re-applied from runtime snapshots after conversion from PS2 Z-up coordinates to
+the Three.js Y-up scene basis. Shared proxy resources have explicit, idempotent
+disposal. Vanilla asset geometry replaces these proxies when the versioned
+render-package path exposes it.
+
 ## M2-004 — Implement scene tree, properties, status, and diagnostics
 
 Requirements: FR-UI-003, FR-UI-004, FR-UI-005  
@@ -90,6 +98,14 @@ Acceptance:
 - Large trees remain interactive on representative fixtures.
 
 Verification: component/state tests and large-tree interaction profile.
+
+Implementation: the scene tree groups and filters authoritative entities, caps
+unfiltered rendering at 1,000 rows, synchronizes multi-selection through runtime
+commands, and exposes contextual hidden/disabled/locked actions. Properties issue
+validated rename, layer, state, and transform commands with compatible multi-edit.
+Snapshots derive exact per-entity dirty and missing-asset states; the status bar
+keeps host, target, selection, layer, bake, task, and diagnostic state visible.
+Diagnostics include corrective save guidance and access to the detailed log folder.
 
 ## M2-005 — Implement picking, selection, and entity states
 

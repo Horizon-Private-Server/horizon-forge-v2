@@ -1,9 +1,10 @@
 import { DockviewReact, themeAbyss } from 'dockview-react';
 import type { DockviewApi, DockviewReadyEvent } from 'dockview-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import type { EditorSnapshot } from '../../types/EditorRuntime.js';
-import type { EditorLayoutAction } from '../../types/ForgeApi.js';
+import type { EditorCommand } from '../../types/EditorRuntime.js';
+import type { EditorLayoutAction, ForgeHostStatus } from '../../types/ForgeApi.js';
 import { errorMessage } from '../../utils/Errors.ts';
 import { EditorContext } from './EditorContext.ts';
 import {
@@ -20,10 +21,13 @@ import {
   ViewportPanel,
 } from './EditorPanels.tsx';
 import { EditorErrorState } from './EditorPrimitives.tsx';
+import { EditorStatusBar } from './EditorStatusBar.tsx';
 
 interface EditorWorkspaceProps {
   project: EditorSnapshot;
+  hostStatus?: ForgeHostStatus;
   layoutAction?: { id: number; action: EditorLayoutAction };
+  onProjectChange(project: EditorSnapshot): void;
 }
 
 const components = {
@@ -33,10 +37,11 @@ const components = {
   diagnostics: DiagnosticsPanel,
 };
 
-export function EditorWorkspace({ project, layoutAction }: EditorWorkspaceProps) {
+export function EditorWorkspace({ project, hostStatus, layoutAction, onProjectChange }: EditorWorkspaceProps) {
   const [api, setApi] = useState<DockviewApi>();
   const [initialized, setInitialized] = useState(false);
   const [error, setError] = useState<string>();
+  const [busy, setBusy] = useState(false);
   const onReady = useCallback((event: DockviewReadyEvent) => setApi(event.api), []);
 
   useEffect(() => {
@@ -91,7 +96,26 @@ export function EditorWorkspace({ project, layoutAction }: EditorWorkspaceProps)
     else showEditorPanel(api, panelForAction(layoutAction.action));
   }, [api, initialized, layoutAction]);
 
-  return <EditorContext.Provider value={project}>
+  const context = useMemo(() => ({
+    project,
+    busy,
+    execute: async (command: EditorCommand) => {
+      setBusy(true);
+      setError(undefined);
+      try { onProjectChange(await window.forge.executeEditorCommand(command)); }
+      catch (cause) { setError(errorMessage(cause)); }
+      finally { setBusy(false); }
+    },
+    save: async () => {
+      setBusy(true);
+      setError(undefined);
+      try { onProjectChange(await window.forge.saveEditorProject()); }
+      catch (cause) { setError(errorMessage(cause)); }
+      finally { setBusy(false); }
+    },
+  }), [busy, onProjectChange, project]);
+
+  return <EditorContext.Provider value={context}>
     <div className="editor-workspace">
       {error && <div className="editor-layout-error">
         <EditorErrorState message={error} onClose={() => setError(undefined)} />
@@ -103,6 +127,7 @@ export function EditorWorkspace({ project, layoutAction }: EditorWorkspaceProps)
         theme={themeAbyss}
         watermarkComponent={EditorWatermark}
       />
+      <EditorStatusBar hostStatus={hostStatus} />
     </div>
   </EditorContext.Provider>;
 }

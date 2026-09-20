@@ -1,11 +1,22 @@
 import { createContext, useContext } from 'react';
 
-import type { EditorSnapshot } from '../../types/EditorRuntime.js';
+import type { EditorCommand, EditorSnapshot } from '../../types/EditorRuntime.js';
 
-export const EditorContext = createContext<EditorSnapshot | undefined>(undefined);
+export interface EditorContextValue {
+  project: EditorSnapshot;
+  busy: boolean;
+  execute(command: EditorCommand): Promise<void>;
+  save(): Promise<void>;
+}
 
-export function useEditorSnapshot(): EditorSnapshot {
+export const EditorContext = createContext<EditorContextValue | undefined>(undefined);
+
+export function useEditor(): EditorContextValue {
   const value = useContext(EditorContext);
   if (!value) throw new Error('Editor panel rendered outside an editor session');
   return value;
+}
+
+export function useEditorSnapshot(): EditorSnapshot {
+  return useEditor().project;
 }

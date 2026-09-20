@@ -9,7 +9,10 @@ import {
   useTree,
 } from '@mantine/core';
 import type { TreeNodeData } from '@mantine/core';
-import type { ReactNode } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
+import type { KeyboardEvent, MouseEvent, ReactNode } from 'react';
+
+import { nextTreeSelection } from './EditorPanelState.ts';
 
 interface EditorPanelProps {
   label: string;
@@ -45,21 +48,66 @@ interface EditorTreeProps {
 
 export function EditorTree({ label, nodes, selected = [], multiple = false, onSelectionChange }: EditorTreeProps) {
   const tree = useTree({ selectedState: selected, multiple, onSelectedStateChange: onSelectionChange });
+  const values = useMemo(() => selectableTreeValues(nodes), [nodes]);
+  const valueSet = useMemo(() => new Set(values), [values]);
+  const anchor = useRef<string | undefined>(undefined);
+
+  useEffect(() => {
+    if (!selected.length) anchor.current = undefined;
+  }, [selected]);
+
+  const select = (value: string, event: MouseEvent | KeyboardEvent) => {
+    if (!onSelectionChange) return;
+    if (!multiple) {
+      anchor.current = value;
+      onSelectionChange([value]);
+      return;
+    }
+    const next = nextTreeSelection(selected, value, values, anchor.current, {
+      toggle: event.ctrlKey || event.metaKey,
+      range: event.shiftKey,
+    });
+    anchor.current = next.anchor;
+    onSelectionChange(next.selected);
+  };
+
   return <Tree
     aria-label={label}
+    allowRangeSelection={false}
     className="editor-tree"
     data={nodes}
     levelOffset="sm"
-    selectOnClick={Boolean(onSelectionChange)}
+    selectOnClick={false}
     tree={tree}
-    renderNode={({ node, expanded, hasChildren, elementProps }) => <div
+    onClick={(event) => {
+      if (event.target === event.currentTarget && onSelectionChange) onSelectionChange([]);
+    }}
+    onKeyDownCapture={(event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      const value = (event.target as HTMLElement).closest<HTMLElement>('[role="treeitem"]')?.dataset.value;
+      if (!value || !valueSet.has(value)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      select(value, event);
+    }}
+    renderNode={({ node, expanded, hasChildren, elementProps, tree: controller }) => <div
       {...elementProps}
       className={`${elementProps.className} editor-tree-row`}
+      onClick={(event) => {
+        event.stopPropagation();
+        if (hasChildren) controller.toggleExpanded(node.value);
+        else select(node.value, event);
+        event.currentTarget.closest<HTMLElement>('[role="treeitem"]')?.focus();
+      }}
     >
       <span aria-hidden="true" className="editor-tree-chevron">{hasChildren ? (expanded ? '▾' : '▸') : ''}</span>
       <span>{node.label}</span>
     </div>}
   />;
+}
+
+function selectableTreeValues(nodes: TreeNodeData[]): string[] {
+  return nodes.flatMap((node) => node.children?.length ? selectableTreeValues(node.children) : [node.value]);
 }
 
 export function EditorPropertyGrid({ children }: { children: ReactNode }) {

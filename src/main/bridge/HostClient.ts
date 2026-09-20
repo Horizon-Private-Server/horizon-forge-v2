@@ -304,9 +304,13 @@ export class HostClient {
     return { requestId: request.requestId, result: request.result.then(decodeCatalogMaintenance) };
   }
 
-  async openEditorProject(projectPath: string, autosaveSeconds: number): Promise<HostRequest<EditorSnapshot>> {
+  async openEditorProject(
+    projectPath: string,
+    catalogRootPath: string,
+    autosaveSeconds: number,
+  ): Promise<HostRequest<EditorSnapshot>> {
     const request = await this.#request(
-      BridgeOpcode.OpenEditorProject, encodeEditorOpenRequest(projectPath, autosaveSeconds));
+      BridgeOpcode.OpenEditorProject, encodeEditorOpenRequest(projectPath, catalogRootPath, autosaveSeconds));
     return { requestId: request.requestId, result: request.result.then(decodeEditorSnapshot) };
   }
 

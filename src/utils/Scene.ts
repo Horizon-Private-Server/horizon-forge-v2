@@ -11,11 +11,3 @@ export function frameObject(camera: THREE.PerspectiveCamera, controls: OrbitCont
   camera.updateProjectionMatrix();
   controls.update();
 }
-
-export function disposeObject(root: THREE.Object3D): void {
-  root.traverse((object) => {
-    if (!(object instanceof THREE.Mesh)) return;
-    object.geometry.dispose();
-    for (const material of Array.isArray(object.material) ? object.material : [object.material]) material.dispose();
-  });
-}

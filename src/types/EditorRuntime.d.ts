@@ -21,12 +21,28 @@ export interface EditorEntity {
   transform: ProjectTransform;
   asset?: { id: string; kind: string };
   provenance?: { game: string; level: number; section: string; sourceIndex: number };
+  state: {
+    dirty: boolean;
+    hidden: boolean;
+    disabled: boolean;
+    locked: boolean;
+    invalid: boolean;
+    missingAsset: boolean;
+  };
 }
 
 export type EditorCommand =
   | { id: string; kind: 'setSelection'; entityIds: string[] }
   | { id: string; kind: 'renameProject'; entityIds: []; text: string }
-  | { id: string; kind: 'updateTransform'; entityIds: [string]; transform: ProjectTransform };
+  | { id: string; kind: 'updateTransform'; entityIds: [string]; transform: ProjectTransform }
+  | { id: string; kind: 'renameEntity'; entityIds: [string]; text: string }
+  | { id: string; kind: 'setEntityLayer'; entityIds: string[]; text: string }
+  | {
+    id: string;
+    kind: 'setEntityState';
+    entityIds: string[];
+    state: { hidden?: boolean; disabled?: boolean; locked?: boolean };
+  };
 
 export interface EditorEvent {
   sequence: number;

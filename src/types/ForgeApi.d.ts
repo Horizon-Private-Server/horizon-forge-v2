@@ -181,7 +181,6 @@ export type ForgeAction = ForgeDialog | EditorLayoutAction
 
 export interface ForgeApi {
   getHostStatus(): Promise<ForgeHostStatus>;
-  getTfragUrl(): Promise<string | undefined>;
   echo(message: string): Promise<string>;
   getSettings(): Promise<SettingsSnapshot>;
   setSetting(key: string, value: unknown): Promise<SettingsSnapshot>;
@@ -205,6 +204,7 @@ export interface ForgeApi {
   collectCatalogGarbage(confirmationToken: string): Promise<CatalogMaintenancePreview>;
   removeRecentProject(path: string): Promise<ProjectHubState>;
   revealForgeProject(path: string): Promise<void>;
+  revealLogs(): Promise<void>;
   openEditorProject(path: string): Promise<EditorSnapshot>;
   closeEditorProject(): Promise<void>;
   getEditorSnapshot(): Promise<EditorSnapshot>;

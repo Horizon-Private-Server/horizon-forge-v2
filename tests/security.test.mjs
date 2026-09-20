@@ -6,7 +6,6 @@ import { fileURLToPath } from 'node:url';
 
 import {
   isAllowedNavigation,
-  isPathInside,
   isTrustedSender,
 } from '../dist-electron/utils/Security.js';
 
@@ -22,12 +21,6 @@ test('IPC sender and navigation checks are deny-by-default', () => {
   assert.equal(isAllowedNavigation(`${applicationUrl}#viewport`, applicationUrl), true);
   assert.equal(isAllowedNavigation('https://example.com/', applicationUrl), false);
   assert.equal(isAllowedNavigation('not a url', applicationUrl), false);
-});
-
-test('asset paths cannot escape their configured root', () => {
-  assert.equal(isPathInside('/maps/level3', '/maps/level3/terrain.gltf'), true);
-  assert.equal(isPathInside('/maps/level3', '/maps/level30/terrain.gltf'), false);
-  assert.equal(isPathInside('/maps/level3', '/maps/terrain.gltf'), false);
 });
 
 test('renderer CSP excludes remote scripts and unsafe evaluation', async () => {

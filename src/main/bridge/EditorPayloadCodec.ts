@@ -10,7 +10,14 @@ import { PayloadReader, PayloadWriter, malformed } from './PayloadIO.js';
 
 const MAX_ENTITIES = 100_000;
 const MAX_EVENTS = 1_024;
-const commandKinds = { setSelection: 1, renameProject: 2, updateTransform: 3 } as const;
+const commandKinds = {
+  setSelection: 1,
+  renameProject: 2,
+  updateTransform: 3,
+  renameEntity: 4,
+  setEntityLayer: 5,
+  setEntityState: 6,
+} as const;
 const eventKinds: Record<number, EditorEvent['kind']> = {
   1: 'projectOpened', 2: 'projectChanged', 3: 'selectionChanged', 4: 'projectSaved',
   5: 'recoveryWritten', 6: 'diagnosticRaised', 7: 'projectClosed',
@@ -19,9 +26,10 @@ const severities: Record<number, EditorSnapshot['diagnostics'][number]['severity
   1: 'info', 2: 'warning', 3: 'error',
 };
 
-export function encodeEditorOpenRequest(projectPath: string, autosaveSeconds: number): Buffer {
+export function encodeEditorOpenRequest(projectPath: string, catalogRootPath: string, autosaveSeconds: number): Buffer {
   const writer = new PayloadWriter();
   writer.writeString(projectPath);
+  writer.writeString(catalogRootPath);
   writer.writeUInt32(autosaveSeconds);
   return writer.toBuffer();
 }
@@ -33,8 +41,15 @@ export function encodeEditorCommand(value: EditorCommand): Buffer {
   writeStrings(writer, value.entityIds);
   writer.writeBoolean(value.kind === 'updateTransform');
   if (value.kind === 'updateTransform') writeTransform(writer, value.transform);
-  writer.writeBoolean(value.kind === 'renameProject');
-  if (value.kind === 'renameProject') writer.writeString(value.text);
+  const hasText = value.kind === 'renameProject' || value.kind === 'renameEntity' || value.kind === 'setEntityLayer';
+  writer.writeBoolean(hasText);
+  if (hasText) writer.writeString(value.text);
+  writer.writeBoolean(value.kind === 'setEntityState');
+  if (value.kind === 'setEntityState') {
+    writeOptionalBoolean(writer, value.state.hidden);
+    writeOptionalBoolean(writer, value.state.disabled);
+    writeOptionalBoolean(writer, value.state.locked);
+  }
   return writer.toBuffer();
 }
 
@@ -95,12 +110,26 @@ export function decodeEditorEvents(payload: Uint8Array): EditorEvent[] {
 function readEntity(reader: PayloadReader): EditorEntity {
   const value: EditorEntity = {
     id: reader.readString(), name: reader.readString(), layer: reader.readString(), transform: readTransform(reader),
+    state: { dirty: false, hidden: false, disabled: false, locked: false, invalid: false, missingAsset: false },
   };
   if (reader.readBoolean()) value.asset = { id: reader.readString(), kind: reader.readString() };
   if (reader.readBoolean()) value.provenance = {
     game: reader.readString(), level: reader.readUInt32(), section: reader.readString(), sourceIndex: reader.readUInt32(),
   };
+  value.state = {
+    dirty: reader.readBoolean(),
+    hidden: reader.readBoolean(),
+    disabled: reader.readBoolean(),
+    locked: reader.readBoolean(),
+    invalid: reader.readBoolean(),
+    missingAsset: reader.readBoolean(),
+  };
   return value;
+}
+
+function writeOptionalBoolean(writer: PayloadWriter, value: boolean | undefined): void {
+  writer.writeBoolean(value !== undefined);
+  if (value !== undefined) writer.writeBoolean(value);
 }
 
 function writeTransform(writer: PayloadWriter, value: ProjectTransform): void {

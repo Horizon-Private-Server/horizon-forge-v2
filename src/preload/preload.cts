@@ -3,7 +3,6 @@ import type { EditorCommand, ForgeAction, ForgeApi, SetupProgress } from '../typ
 
 const forgeApi = Object.freeze({
   getHostStatus: () => ipcRenderer.invoke('forge:host-status'),
-  getTfragUrl: () => ipcRenderer.invoke('forge:tfrag-url'),
   echo: (message: string) => ipcRenderer.invoke('forge:echo', message),
   getSettings: () => ipcRenderer.invoke('forge:settings-get'),
   setSetting: (key: string, value: unknown) => ipcRenderer.invoke('forge:settings-set', key, value),
@@ -28,6 +27,7 @@ const forgeApi = Object.freeze({
   collectCatalogGarbage: (confirmationToken: string) => ipcRenderer.invoke('forge:catalog-gc-collect', confirmationToken),
   removeRecentProject: (path: string) => ipcRenderer.invoke('forge:projects-remove-recent', path),
   revealForgeProject: (path: string) => ipcRenderer.invoke('forge:projects-reveal', path),
+  revealLogs: () => ipcRenderer.invoke('forge:logs-reveal'),
   openEditorProject: (path: string) => ipcRenderer.invoke('forge:editor-open', path),
   closeEditorProject: () => ipcRenderer.invoke('forge:editor-close'),
   getEditorSnapshot: () => ipcRenderer.invoke('forge:editor-query'),

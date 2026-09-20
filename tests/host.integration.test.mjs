@@ -99,7 +99,7 @@ test('host handshake, echo, progress, cancellation, crash recovery, and concurre
     }],
     assets: [],
   }));
-  const opened = await (await client.openEditorProject(editorRoot, 0)).result;
+  const opened = await (await client.openEditorProject(editorRoot, catalogRoot, 0)).result;
   assert.equal(opened.projectId, projectId);
   assert.equal(opened.entities[0].id, entityId);
   const selected = await (await client.executeEditorCommand({
@@ -119,6 +119,22 @@ test('host handshake, echo, progress, cancellation, crash recovery, and concurre
     },
   })).result;
   assert.deepEqual(transformed.entities[0].transform.position, { x: 10.5, y: 20.25, z: -30.75 });
+  assert.equal(transformed.entities[0].state.dirty, true);
+  const updatedEntity = await (await client.executeEditorCommand({
+    id: '30000000-0000-4000-8000-000000000004',
+    kind: 'renameEntity',
+    entityIds: [entityId],
+    text: 'Renamed moby',
+  })).result;
+  assert.equal(updatedEntity.entities[0].name, 'Renamed moby');
+  const updatedState = await (await client.executeEditorCommand({
+    id: '30000000-0000-4000-8000-000000000005',
+    kind: 'setEntityState',
+    entityIds: [entityId],
+    state: { hidden: true, locked: true },
+  })).result;
+  assert.equal(updatedState.entities[0].state.hidden, true);
+  assert.equal(updatedState.entities[0].state.locked, true);
   const renamed = await (await client.executeEditorCommand({
     id: '30000000-0000-4000-8000-000000000003',
     kind: 'renameProject',
@@ -129,9 +145,11 @@ test('host handshake, echo, progress, cancellation, crash recovery, and concurre
   assert.equal(renamed.isDirty, true);
   const events = await (await client.readEditorEvents(0)).result;
   assert.deepEqual(events.map((event) => event.kind), [
-    'projectOpened', 'selectionChanged', 'projectChanged', 'projectChanged',
+    'projectOpened', 'selectionChanged', 'projectChanged', 'projectChanged', 'projectChanged', 'projectChanged',
   ]);
-  assert.equal((await (await client.saveEditorProject()).result).isDirty, false);
+  const saved = await (await client.saveEditorProject()).result;
+  assert.equal(saved.isDirty, false);
+  assert.equal(saved.entities[0].state.dirty, false);
   await (await client.closeEditorProject()).result;
   assert.equal(JSON.parse(await readFile(path.join(editorRoot, 'forge-project.json'), 'utf8')).name, 'Renamed over bridge');
 

@@ -95,7 +95,12 @@ export function App() {
       </header>
       {editorError && <Alert color="red" withCloseButton onClose={() => setEditorError(undefined)}>{editorError}</Alert>}
       {activeProject
-        ? <EditorWorkspace project={activeProject} layoutAction={layoutAction} />
+        ? <EditorWorkspace
+          project={activeProject}
+          hostStatus={hostStatus}
+          layoutAction={layoutAction}
+          onProjectChange={setActiveProject}
+        />
         : <ProjectHub
           hostStatus={hostStatus}
           requestedAction={hubAction}

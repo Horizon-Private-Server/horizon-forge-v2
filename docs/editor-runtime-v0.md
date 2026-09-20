@@ -31,6 +31,9 @@ event is produced.
 | `setSelection` | zero or more Entity IDs | Replaces shared selection; not dirty |
 | `renameProject` | nonblank name | Renames the manifest and marks dirty |
 | `updateTransform` | one Entity ID and finite transform | Updates one entity and marks dirty |
+| `renameEntity` | one Entity ID and nonblank name | Renames one entity and marks it dirty |
+| `setEntityLayer` | one or more Entity IDs and nonblank layer | Reparents entities to a layer |
+| `setEntityState` | one or more Entity IDs and a partial state | Changes hidden, disabled, or locked state |
 
 Commands and their fields use the binary bridge codec. JSON serialization in the
 domain contract test proves that command values are data, not executable UI
@@ -40,8 +43,9 @@ callbacks; JSON is not used on the Electron/.NET wire.
 
 The snapshot includes project identity and target, complete entities, shared
 selection, dirty/migration state, last event sequence, capabilities, tools, and
-bounded background diagnostics. Three.js objects are projections keyed by Entity
-ID and are never returned as authoritative state.
+bounded background diagnostics. Entity snapshots include persisted state plus
+derived dirty, invalid, and missing-asset flags. Three.js objects are projections
+keyed by Entity ID and are never returned as authoritative state.
 
 Events have a monotonically increasing sequence, Unix-millisecond timestamp,
 kind, optional originating command UUID, affected Entity IDs, and optional

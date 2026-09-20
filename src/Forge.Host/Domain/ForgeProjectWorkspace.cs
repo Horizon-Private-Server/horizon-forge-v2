@@ -117,6 +117,36 @@ public sealed class ForgeProjectWorkspace
         Content = Content with { Entities = entities };
     }
 
+    public void RenameEntity(EntityId entityId, string name)
+    {
+        ValidateText(name, nameof(name));
+        UpdateEntities([entityId], entity => entity with { Name = name.Trim() });
+    }
+
+    public void SetEntityLayer(IReadOnlyList<EntityId> entityIds, string layer)
+    {
+        ValidateText(layer, nameof(layer));
+        UpdateEntities(entityIds, entity => entity with { Layer = layer.Trim() });
+    }
+
+    public void SetEntityState(
+        IReadOnlyList<EntityId> entityIds,
+        bool? hidden,
+        bool? disabled,
+        bool? locked) => UpdateEntities(entityIds, entity =>
+    {
+        var state = entity.State ?? new();
+        return entity with
+        {
+            State = state with
+            {
+                Hidden = hidden ?? state.Hidden,
+                Disabled = disabled ?? state.Disabled,
+                Locked = locked ?? state.Locked,
+            },
+        };
+    });
+
     public ProjectEntity RemoveEntity(EntityId entityId)
     {
         var index = FindEntityIndex(entityId);
@@ -256,6 +286,20 @@ public sealed class ForgeProjectWorkspace
         for (var index = 0; index < Content.Entities.Count; index++)
             if (Content.Entities[index].EntityId == id) return index;
         throw new KeyNotFoundException($"Entity {id} is not present in the project.");
+    }
+
+    private void UpdateEntities(IReadOnlyList<EntityId> entityIds, Func<ProjectEntity, ProjectEntity> update)
+    {
+        ArgumentNullException.ThrowIfNull(entityIds);
+        ArgumentNullException.ThrowIfNull(update);
+        var ids = entityIds.ToHashSet();
+        if (ids.Count != entityIds.Count || ids.Count == 0)
+            throw new ArgumentException("Entity IDs must be non-empty and unique.", nameof(entityIds));
+        foreach (var id in ids) _ = FindEntityIndex(id);
+        Content = Content with
+        {
+            Entities = Content.Entities.Select(entity => ids.Contains(entity.EntityId) ? update(entity) : entity).ToArray(),
+        };
     }
 
     private void Validate()
