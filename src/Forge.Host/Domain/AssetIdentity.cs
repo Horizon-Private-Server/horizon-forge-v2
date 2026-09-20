@@ -1,5 +1,7 @@
 using System.Buffers.Binary;
 using System.Security.Cryptography;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Forge.Host.Domain;
 
@@ -17,6 +19,7 @@ public enum AssetKind : ushort
     Gameplay = 10,
 }
 
+[JsonConverter(typeof(AssetIdJsonConverter))]
 public readonly record struct AssetId
 {
     public const int ByteLength = 32;
@@ -49,6 +52,31 @@ public readonly record struct AssetId
     }
 
     public override string ToString() => _value ?? string.Empty;
+}
+
+public sealed class AssetIdJsonConverter : JsonConverter<AssetId>
+{
+    public override AssetId Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String) throw new JsonException("Asset ID must be a SHA-256 string");
+        var value = reader.GetString()!;
+        try
+        {
+            var id = AssetId.Parse(value);
+            if (id.ToString() != value) throw new FormatException();
+            return id;
+        }
+        catch (Exception exception) when (exception is FormatException or ArgumentException)
+        {
+            throw new JsonException("Asset ID must be lowercase 64-character hexadecimal SHA-256", exception);
+        }
+    }
+
+    public override void Write(Utf8JsonWriter writer, AssetId value, JsonSerializerOptions options)
+    {
+        if (value.ToString().Length != AssetId.TextLength) throw new JsonException("Asset ID cannot be empty");
+        writer.WriteStringValue(value.ToString());
+    }
 }
 
 public static class AssetIdentity

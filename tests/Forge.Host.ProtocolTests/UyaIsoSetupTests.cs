@@ -124,8 +124,11 @@ internal static class UyaIsoSetupTests
         name.CopyTo(destination[33..]);
     }
 
-    private static async Task<string> HashFileAsync(string path) =>
-        Convert.ToHexString(await MD5.HashDataAsync(File.OpenRead(path))).ToLowerInvariant();
+    private static async Task<string> HashFileAsync(string path)
+    {
+        await using var stream = File.OpenRead(path);
+        return Convert.ToHexString(await MD5.HashDataAsync(stream)).ToLowerInvariant();
+    }
 
     private static void CreateHardLink(string path, string existingPath)
     {

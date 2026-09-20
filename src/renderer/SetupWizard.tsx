@@ -15,6 +15,7 @@ export function SetupWizard({ opened, onClose }: SetupWizardProps) {
   const [progress, setProgress] = useState<SetupProgress>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  const [notice, setNotice] = useState<string>();
 
   useEffect(() => window.forge.onSetupProgress(setProgress), []);
   useEffect(() => {
@@ -55,13 +56,21 @@ export function SetupWizard({ opened, onClose }: SetupWizardProps) {
     }
   }
 
-  async function createDevelopmentIso(): Promise<void> {
+  async function finishSetup(): Promise<void> {
     setBusy(true);
     setError(undefined);
-    setProgress({ operation: 'copy', completed: 0, total: 1 });
     try {
-      const result = await window.forge.createDevelopmentIso();
-      if (result && !(await refresh()).required) onClose();
+      let next = await refresh();
+      if (!next.developmentIsoReady) {
+        setProgress({ operation: 'copy', completed: 0, total: 1 });
+        if (!await window.forge.createDevelopmentIso()) return;
+        next = await refresh();
+      }
+      if (next.importUyaAssets && !next.assetImportComplete) {
+        setProgress({ operation: 'import', completed: 0, total: 1 });
+        await window.forge.importUyaAssets();
+      }
+      if (!(await refresh()).required) onClose();
     } catch (reason) {
       showError(reason);
     } finally {
@@ -70,9 +79,26 @@ export function SetupWizard({ opened, onClose }: SetupWizardProps) {
     }
   }
 
-  const insufficientSpace = Boolean(state?.source?.size && state.availableBytes !== undefined
+  async function reimportAssets(): Promise<void> {
+    setBusy(true);
+    setError(undefined);
+    setNotice(undefined);
+    setProgress({ operation: 'import', completed: 0, total: 1 });
+    try {
+      const result = await window.forge.importUyaAssets(true);
+      setNotice(`Re-imported ${result.assetAppearances.toLocaleString()} asset appearances across ${result.completedLevels} levels.`);
+      await refresh();
+    } catch (reason) {
+      showError(reason);
+    } finally {
+      setBusy(false);
+      setProgress(undefined);
+    }
+  }
+
+  const insufficientSpace = Boolean(!state?.developmentIsoReady && state?.source?.size && state.availableBytes !== undefined
     && state.availableBytes < state.source.size);
-  const canCreate = Boolean(state?.source?.fingerprint && state.developmentIsoDirectory && !insufficientSpace && !busy);
+  const canFinish = Boolean(state?.source?.fingerprint && state.developmentIsoDirectory && !insufficientSpace && !busy);
   const setupRequired = state?.required ?? true;
 
   return (
@@ -88,6 +114,7 @@ export function SetupWizard({ opened, onClose }: SetupWizardProps) {
       <Stack>
         <Text c="dimmed">Forge keeps the clean source read-only and creates a separate development ISO for patching.</Text>
         {error && <Alert color="red" title="Setup could not continue">{error}</Alert>}
+        {notice && <Alert color="teal" title="Asset import complete">{notice}</Alert>}
 
         <Title order={5}>Locations</Title>
         <PathRow label="Projects directory" value={state?.projectsDirectory ?? ''} onChoose={() => void chooseDirectory('projects')} disabled={busy} />
@@ -117,14 +144,25 @@ export function SetupWizard({ opened, onClose }: SetupWizardProps) {
         )}
         {progress && (
           <Stack gap={2}>
-            <Text size="xs">{progress.operation === 'validate' ? 'Verifying clean ISO…' : 'Creating and verifying development ISO…'}</Text>
+            <Text size="xs">{{
+              validate: 'Verifying clean ISO…',
+              copy: 'Creating and verifying development ISO…',
+              import: 'Importing reusable UYA assets…',
+            }[progress.operation]}</Text>
             <Progress value={progress.completed / progress.total * 100} animated />
           </Stack>
         )}
 
         <Group justify="flex-end">
           {busy && <Button variant="default" onClick={() => void window.forge.cancelSetupOperation()}>Cancel operation</Button>}
-          <Button disabled={!canCreate} onClick={() => void createDevelopmentIso()}>Create development ISO</Button>
+          {state?.assetImportComplete && !busy && (
+            <Button variant="default" onClick={() => void reimportAssets()}>Re-import UYA assets</Button>
+          )}
+          <Button disabled={!canFinish} onClick={() => void finishSetup()}>
+            {state?.developmentIsoReady && state.importUyaAssets && !state.assetImportComplete
+              ? 'Resume asset import'
+              : 'Finish setup'}
+          </Button>
         </Group>
       </Stack>
     </Modal>

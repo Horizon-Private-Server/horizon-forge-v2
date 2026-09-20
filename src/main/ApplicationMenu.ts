@@ -1,13 +1,13 @@
 import { app, Menu, type MenuItemConstructorOptions } from 'electron';
 
-import type { ForgeDialog } from '../types/ForgeApi.js';
+import type { ForgeAction } from '../types/ForgeApi.js';
 
-export function installApplicationMenu(openDialog: (dialog: ForgeDialog) => void): void {
-  const setup: MenuItemConstructorOptions = { label: 'Setup…', click: () => openDialog('setup') };
+export function installApplicationMenu(runAction: (action: ForgeAction) => void): void {
+  const setup: MenuItemConstructorOptions = { label: 'Setup…', click: () => runAction('setup') };
   const settings: MenuItemConstructorOptions = {
     label: 'Settings…',
     accelerator: 'CmdOrCtrl+,',
-    click: () => openDialog('settings'),
+    click: () => runAction('settings'),
   };
   const forgeMenu: MenuItemConstructorOptions[] = process.platform === 'darwin'
     ? [
@@ -27,7 +27,16 @@ export function installApplicationMenu(openDialog: (dialog: ForgeDialog) => void
     : [setup, settings];
 
   Menu.setApplicationMenu(Menu.buildFromTemplate([
-    { label: 'File', submenu: [{ role: process.platform === 'darwin' ? 'close' : 'quit' }] },
+    {
+      label: 'File',
+      submenu: [
+        { label: 'New Project…', accelerator: 'CmdOrCtrl+N', click: () => runAction('newProject') },
+        { label: 'Open Project…', accelerator: 'CmdOrCtrl+O', click: () => runAction('openProject') },
+        { label: 'Project Hub', click: () => runAction('projects') },
+        { type: 'separator' },
+        { role: process.platform === 'darwin' ? 'close' : 'quit' },
+      ],
+    },
     {
       label: 'Edit',
       submenu: [

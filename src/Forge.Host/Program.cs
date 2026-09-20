@@ -22,4 +22,8 @@ return await BridgeHost.RunAsync(
         hostVersion,
         revision,
         ["UYA"],
-        ["bridge.echo", "bridge.progress", "bridge.cancellation", "uya.iso.validate", "uya.iso.copy"]));
+        [
+            "bridge.echo", "bridge.progress", "bridge.cancellation", "uya.iso.validate", "uya.iso.copy",
+            "uya.assets.import", "uya.assets.import.mobys", "uya.assets.import.ties", "uya.assets.import.shrubs",
+            "uya.projects.base.mobys", "projects.inspect", "projects.rename"
+        ]));

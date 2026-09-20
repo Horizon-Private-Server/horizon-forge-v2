@@ -13,3 +13,7 @@ export function createApplicationPaths(userData: string, documents: string, logs
     defaultDevelopmentIsos: path.resolve(documents, 'Horizon Forge Development ISOs'),
   };
 }
+
+export function safeProjectDirectoryName(name: string): string {
+  return name.trim().replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-').replace(/[. ]+$/g, '') || 'New Project';
+}

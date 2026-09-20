@@ -1,8 +1,20 @@
 {
   "schemaVersion": 0,
-  "entities": [
-    {
-      "entityId": "5d5bd42b-0135-4d31-a839-18e893ab17f2"
-    }
-  ]
+  "projectId": "5d5bd42b-0135-4d31-a839-18e893ab17f2",
+  "name": "Fixture project",
+  "target": {
+    "game": "UYA",
+    "region": "NTSC-U",
+    "revision": "1.00",
+    "bakeProfile": "uya-ntsc-u"
+  },
+  "baseLevel": {
+    "game": "UYA",
+    "region": "NTSC-U",
+    "revision": "1.00",
+    "level": 3,
+    "sourceFingerprint": "ba9f2b38c7346e7b6e5b8e87717d5893",
+    "missingAssetCount": 0
+  },
+  "content": "content/project.json"
 }

@@ -22,14 +22,32 @@ import {
   decodeHandshake,
   decodeProgress,
   decodeText,
+  decodeUyaAssetImportRequest,
+  decodeUyaAssetImportResult,
   decodeUyaIsoValidation,
+  decodeForgeProjectDescriptor,
+  decodeProjectInspectRequest,
+  decodeProjectRenameRequest,
+  decodeUyaProjectCreationRequest,
+  decodeUyaProjectOptions,
+  decodeUyaProjectPreflight,
+  decodeUyaProjectPreflightRequest,
   encodeDevelopmentIso,
   encodeDevelopmentIsoRequest,
   encodeEchoRequest,
   encodeHandshake,
   encodeProgress,
   encodeText,
+  encodeUyaAssetImportRequest,
+  encodeUyaAssetImportResult,
   encodeUyaIsoValidation,
+  encodeForgeProjectDescriptor,
+  encodeProjectInspectRequest,
+  encodeProjectRenameRequest,
+  encodeUyaProjectCreationRequest,
+  encodeUyaProjectOptions,
+  encodeUyaProjectPreflight,
+  encodeUyaProjectPreflightRequest,
 } from '../src/main/bridge/PayloadCodec.ts';
 
 interface GoldenFrame {
@@ -159,6 +177,42 @@ test('operation payloads round trip and reject trailing data', () => {
   assert.deepEqual(decodeDevelopmentIsoRequest(encodeDevelopmentIsoRequest(copyRequest)), copyRequest);
   const copyResult = { path: copyRequest.targetPath, size: iso.size, fingerprint: iso.fingerprint };
   assert.deepEqual(decodeDevelopmentIso(encodeDevelopmentIso(copyResult)), copyResult);
+  const importRequest = {
+    sourceIsoPath: copyRequest.sourcePath,
+    catalogRootPath: '/assets',
+    fingerprint: iso.fingerprint,
+    revision: iso.revision,
+    force: true,
+  };
+  assert.deepEqual(decodeUyaAssetImportRequest(encodeUyaAssetImportRequest(importRequest)), importRequest);
+  const importResult = {
+    completedLevels: 40, totalLevels: 40, assetAppearances: 900, uniqueAssets: 500, failedAssets: 2, resumed: true,
+  };
+  assert.deepEqual(decodeUyaAssetImportResult(encodeUyaAssetImportResult(importResult)), importResult);
+  const projectOptions = { levels: [1, 3, 5], warnings: ['partial'] };
+  assert.deepEqual(decodeUyaProjectOptions(encodeUyaProjectOptions(projectOptions)), projectOptions);
+  const createProject = {
+    sourceIsoPath: '/clean.iso', catalogRootPath: '/assets', projectPath: '/project', name: 'Test',
+    fingerprint: iso.fingerprint, revision: '1.00', level: 3, allowPartial: true,
+  };
+  assert.deepEqual(decodeUyaProjectCreationRequest(encodeUyaProjectCreationRequest(createProject)), createProject);
+  const preflightRequest = { sourceIsoPath: '/clean.iso', catalogRootPath: '/assets', level: 3 };
+  assert.deepEqual(decodeUyaProjectPreflightRequest(encodeUyaProjectPreflightRequest(preflightRequest)), preflightRequest);
+  const preflight = {
+    level: 3, sourceInstanceCount: 422, renderableInstanceCount: 378, modelLessInstanceCount: 44,
+    missingAssetInstanceCount: 0, missingClassCount: 0, warnings: ['partial'],
+  };
+  assert.deepEqual(decodeUyaProjectPreflight(encodeUyaProjectPreflight(preflight)), preflight);
+  const inspectProject = { projectPath: '/project', catalogRootPath: '/assets' };
+  assert.deepEqual(decodeProjectInspectRequest(encodeProjectInspectRequest(inspectProject)), inspectProject);
+  const renameProject = { ...inspectProject, name: 'Renamed' };
+  assert.deepEqual(decodeProjectRenameRequest(encodeProjectRenameRequest(renameProject)), renameProject);
+  const descriptor = {
+    path: '/project', name: 'Test', targetGame: 'UYA', targetRegion: 'NTSC-U', targetRevision: '1.00',
+    bakeProfile: 'uya-ntsc-u', baseLevel: 3, modifiedUnixMilliseconds: 1000,
+    entityCount: 20, missingAssetCount: 0, warnings: ['partial'],
+  };
+  assert.deepEqual(decodeForgeProjectDescriptor(encodeForgeProjectDescriptor(descriptor)), descriptor);
 
   expectProtocolError(BridgeErrorCode.MalformedPayload, () => decodeText(Buffer.concat([encodeText('x'), Buffer.of(0)])));
 });

@@ -22,6 +22,10 @@ internal static class Program
             VerifyPayloads();
             VerifyIdentityAndSchema();
             await UyaIsoSetupTests.RunAsync();
+            await AssetCatalogTests.RunAsync();
+            await UyaAssetImportTests.RunAsync();
+            await ForgeProjectTests.RunAsync();
+            await UyaProjectTests.RunAsync();
             Console.WriteLine("C# bridge and domain contract checks passed");
             return 0;
         }
@@ -114,6 +118,39 @@ internal static class Program
         var copyResult = new DevelopmentIsoPayload("target.iso", 4_379_377_664, UyaIsoService.SupportedMd5);
         Equal(copyResult, BridgePayloadCodec.DecodeDevelopmentIso(
             BridgePayloadCodec.EncodeDevelopmentIso(copyResult)), "development ISO result payload");
+        var importRequest = new UyaAssetImportRequestPayload(
+            "source.iso", "assets", UyaIsoService.SupportedMd5, "1.00", true);
+        Equal(importRequest, BridgePayloadCodec.DecodeUyaAssetImportRequest(
+            BridgePayloadCodec.EncodeUyaAssetImportRequest(importRequest)), "asset import request payload");
+        var importResult = new UyaAssetImportResultPayload(40, 40, 900, 500, 2, true);
+        Equal(importResult, BridgePayloadCodec.DecodeUyaAssetImportResult(
+            BridgePayloadCodec.EncodeUyaAssetImportResult(importResult)), "asset import result payload");
+        var options = new UyaProjectOptionsPayload([1, 3, 5], ["partial"]);
+        var decodedOptions = BridgePayloadCodec.DecodeUyaProjectOptions(BridgePayloadCodec.EncodeUyaProjectOptions(options));
+        Equal(true, options.Levels.SequenceEqual(decodedOptions.Levels), "project option levels");
+        Equal(true, options.Warnings.SequenceEqual(decodedOptions.Warnings), "project option warnings");
+        var createProject = new UyaProjectCreationRequestPayload(
+            "source.iso", "assets", "project", "Test", UyaIsoService.SupportedMd5, "1.00", 3, true);
+        Equal(createProject, BridgePayloadCodec.DecodeUyaProjectCreationRequest(
+            BridgePayloadCodec.EncodeUyaProjectCreationRequest(createProject)), "project creation payload");
+        var preflightRequest = new UyaProjectPreflightRequestPayload("source.iso", "assets", 3);
+        Equal(preflightRequest, BridgePayloadCodec.DecodeUyaProjectPreflightRequest(
+            BridgePayloadCodec.EncodeUyaProjectPreflightRequest(preflightRequest)), "project preflight request payload");
+        var preflight = new UyaProjectPreflightPayload(3, 422, 378, 44, 0, 0, ["partial"]);
+        var decodedPreflight = BridgePayloadCodec.DecodeUyaProjectPreflight(
+            BridgePayloadCodec.EncodeUyaProjectPreflight(preflight));
+        Equal(preflight with { Warnings = decodedPreflight.Warnings }, decodedPreflight, "project preflight payload");
+        var inspectProject = new ProjectInspectRequestPayload("project", "assets");
+        Equal(inspectProject, BridgePayloadCodec.DecodeProjectInspectRequest(
+            BridgePayloadCodec.EncodeProjectInspectRequest(inspectProject)), "project inspect payload");
+        var renameProject = new ProjectRenameRequestPayload("project", "assets", "Renamed");
+        Equal(renameProject, BridgePayloadCodec.DecodeProjectRenameRequest(
+            BridgePayloadCodec.EncodeProjectRenameRequest(renameProject)), "project rename payload");
+        var descriptor = new ForgeProjectDescriptorPayload(
+            "project", "Test", "UYA", "NTSC-U", "1.00", "uya-ntsc-u", 3, 1000, 20, 0, ["partial"]);
+        var decodedDescriptor = BridgePayloadCodec.DecodeForgeProjectDescriptor(
+            BridgePayloadCodec.EncodeForgeProjectDescriptor(descriptor));
+        Equal(descriptor with { Warnings = decodedDescriptor.Warnings }, decodedDescriptor, "project descriptor payload");
 
         var trailing = BridgePayloadCodec.EncodeText("x").Append((byte)0).ToArray();
         Expect(BridgeErrorCode.MalformedPayload, () => BridgePayloadCodec.DecodeText(trailing));
@@ -143,7 +180,7 @@ internal static class Program
 
         var projectBytes = File.ReadAllBytes(Path.Combine(fixturePath, "project-v0.json"));
         using var project = ProjectSchema.Parse(projectBytes);
-        var entityJson = project.RootElement.GetProperty("entities")[0].GetProperty("entityId").GetRawText();
+        var entityJson = project.RootElement.GetProperty("projectId").GetRawText();
         var entityId = JsonSerializer.Deserialize<EntityId>(entityJson);
         Equal(entityJson, JsonSerializer.Serialize(entityId), "entity ID serialization");
         var duplicate = entityId.Duplicate();

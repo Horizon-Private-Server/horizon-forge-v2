@@ -50,6 +50,28 @@ body {
   color: #aab1bf;
 }
 
+.project-hub {
+  min-height: 0;
+  overflow: auto;
+  padding: var(--mantine-spacing-lg);
+}
+
+.project-list {
+  margin-block: var(--mantine-spacing-md) var(--mantine-spacing-xs);
+  overflow-x: auto;
+}
+
+.project-list table {
+  min-width: 800px;
+}
+
+.project-path {
+  max-width: 30rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .setting-item {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

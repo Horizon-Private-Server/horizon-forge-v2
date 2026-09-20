@@ -16,6 +16,12 @@ public enum BridgeOpcode : ushort
     Echo = 1,
     ValidateUyaIso = 2,
     CreateDevelopmentIso = 3,
+    ImportUyaAssets = 4,
+    ListUyaProjectLevels = 5,
+    CreateUyaProject = 6,
+    InspectForgeProject = 7,
+    RenameForgeProject = 8,
+    PreflightUyaProject = 9,
 }
 
 public enum BridgeErrorCode : ushort

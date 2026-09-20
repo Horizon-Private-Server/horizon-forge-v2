@@ -144,6 +144,187 @@ public static class BridgePayloadCodec
         return value;
     }
 
+    public static byte[] EncodeUyaAssetImportRequest(UyaAssetImportRequestPayload value)
+    {
+        var writer = new PayloadWriter();
+        writer.WriteString(value.SourceIsoPath);
+        writer.WriteString(value.CatalogRootPath);
+        writer.WriteString(value.Fingerprint);
+        writer.WriteString(value.Revision);
+        writer.WriteBoolean(value.Force);
+        return writer.ToArray();
+    }
+
+    public static UyaAssetImportRequestPayload DecodeUyaAssetImportRequest(ReadOnlySpan<byte> payload)
+    {
+        var reader = new PayloadReader(payload);
+        var value = new UyaAssetImportRequestPayload(
+            reader.ReadString(), reader.ReadString(), reader.ReadString(), reader.ReadString(), reader.ReadBoolean());
+        reader.Complete();
+        return value;
+    }
+
+    public static byte[] EncodeUyaAssetImportResult(UyaAssetImportResultPayload value)
+    {
+        var writer = new PayloadWriter();
+        writer.WriteUInt32(value.CompletedLevels);
+        writer.WriteUInt32(value.TotalLevels);
+        writer.WriteUInt32(value.AssetAppearances);
+        writer.WriteUInt32(value.UniqueAssets);
+        writer.WriteUInt32(value.FailedAssets);
+        writer.WriteBoolean(value.Resumed);
+        return writer.ToArray();
+    }
+
+    public static UyaAssetImportResultPayload DecodeUyaAssetImportResult(ReadOnlySpan<byte> payload)
+    {
+        var reader = new PayloadReader(payload);
+        var value = new UyaAssetImportResultPayload(
+            reader.ReadUInt32(), reader.ReadUInt32(), reader.ReadUInt32(), reader.ReadUInt32(), reader.ReadUInt32(), reader.ReadBoolean());
+        reader.Complete();
+        return value;
+    }
+
+    public static byte[] EncodeUyaProjectOptions(UyaProjectOptionsPayload value)
+    {
+        var writer = new PayloadWriter();
+        writer.WriteUInt32s(value.Levels);
+        writer.WriteStrings(value.Warnings);
+        return writer.ToArray();
+    }
+
+    public static UyaProjectOptionsPayload DecodeUyaProjectOptions(ReadOnlySpan<byte> payload)
+    {
+        var reader = new PayloadReader(payload);
+        var value = new UyaProjectOptionsPayload(reader.ReadUInt32s(), reader.ReadStrings());
+        reader.Complete();
+        return value;
+    }
+
+    public static byte[] EncodeUyaProjectCreationRequest(UyaProjectCreationRequestPayload value)
+    {
+        var writer = new PayloadWriter();
+        writer.WriteString(value.SourceIsoPath);
+        writer.WriteString(value.CatalogRootPath);
+        writer.WriteString(value.ProjectPath);
+        writer.WriteString(value.Name);
+        writer.WriteString(value.Fingerprint);
+        writer.WriteString(value.Revision);
+        writer.WriteUInt32(value.Level);
+        writer.WriteBoolean(value.AllowPartial);
+        return writer.ToArray();
+    }
+
+    public static UyaProjectCreationRequestPayload DecodeUyaProjectCreationRequest(ReadOnlySpan<byte> payload)
+    {
+        var reader = new PayloadReader(payload);
+        var value = new UyaProjectCreationRequestPayload(
+            reader.ReadString(), reader.ReadString(), reader.ReadString(), reader.ReadString(),
+            reader.ReadString(), reader.ReadString(), reader.ReadUInt32(), reader.ReadBoolean());
+        reader.Complete();
+        return value;
+    }
+
+    public static byte[] EncodeUyaProjectPreflightRequest(UyaProjectPreflightRequestPayload value)
+    {
+        var writer = new PayloadWriter();
+        writer.WriteString(value.SourceIsoPath);
+        writer.WriteString(value.CatalogRootPath);
+        writer.WriteUInt32(value.Level);
+        return writer.ToArray();
+    }
+
+    public static UyaProjectPreflightRequestPayload DecodeUyaProjectPreflightRequest(ReadOnlySpan<byte> payload)
+    {
+        var reader = new PayloadReader(payload);
+        var value = new UyaProjectPreflightRequestPayload(reader.ReadString(), reader.ReadString(), reader.ReadUInt32());
+        reader.Complete();
+        return value;
+    }
+
+    public static byte[] EncodeUyaProjectPreflight(UyaProjectPreflightPayload value)
+    {
+        var writer = new PayloadWriter();
+        writer.WriteUInt32(value.Level);
+        writer.WriteUInt32(value.SourceInstanceCount);
+        writer.WriteUInt32(value.RenderableInstanceCount);
+        writer.WriteUInt32(value.ModelLessInstanceCount);
+        writer.WriteUInt32(value.MissingAssetInstanceCount);
+        writer.WriteUInt32(value.MissingClassCount);
+        writer.WriteStrings(value.Warnings);
+        return writer.ToArray();
+    }
+
+    public static UyaProjectPreflightPayload DecodeUyaProjectPreflight(ReadOnlySpan<byte> payload)
+    {
+        var reader = new PayloadReader(payload);
+        var value = new UyaProjectPreflightPayload(
+            reader.ReadUInt32(), reader.ReadUInt32(), reader.ReadUInt32(), reader.ReadUInt32(), reader.ReadUInt32(),
+            reader.ReadUInt32(), reader.ReadStrings());
+        reader.Complete();
+        return value;
+    }
+
+    public static byte[] EncodeProjectInspectRequest(ProjectInspectRequestPayload value)
+    {
+        var writer = new PayloadWriter();
+        writer.WriteString(value.ProjectPath);
+        writer.WriteString(value.CatalogRootPath);
+        return writer.ToArray();
+    }
+
+    public static ProjectInspectRequestPayload DecodeProjectInspectRequest(ReadOnlySpan<byte> payload)
+    {
+        var reader = new PayloadReader(payload);
+        var value = new ProjectInspectRequestPayload(reader.ReadString(), reader.ReadString());
+        reader.Complete();
+        return value;
+    }
+
+    public static byte[] EncodeProjectRenameRequest(ProjectRenameRequestPayload value)
+    {
+        var writer = new PayloadWriter();
+        writer.WriteString(value.ProjectPath);
+        writer.WriteString(value.CatalogRootPath);
+        writer.WriteString(value.Name);
+        return writer.ToArray();
+    }
+
+    public static ProjectRenameRequestPayload DecodeProjectRenameRequest(ReadOnlySpan<byte> payload)
+    {
+        var reader = new PayloadReader(payload);
+        var value = new ProjectRenameRequestPayload(reader.ReadString(), reader.ReadString(), reader.ReadString());
+        reader.Complete();
+        return value;
+    }
+
+    public static byte[] EncodeForgeProjectDescriptor(ForgeProjectDescriptorPayload value)
+    {
+        var writer = new PayloadWriter();
+        writer.WriteString(value.Path);
+        writer.WriteString(value.Name);
+        writer.WriteString(value.TargetGame);
+        writer.WriteString(value.TargetRegion);
+        writer.WriteString(value.TargetRevision);
+        writer.WriteString(value.BakeProfile);
+        writer.WriteUInt32(value.BaseLevel);
+        writer.WriteUInt64(value.ModifiedUnixMilliseconds);
+        writer.WriteUInt32(value.EntityCount);
+        writer.WriteUInt32(value.MissingAssetCount);
+        writer.WriteStrings(value.Warnings);
+        return writer.ToArray();
+    }
+
+    public static ForgeProjectDescriptorPayload DecodeForgeProjectDescriptor(ReadOnlySpan<byte> payload)
+    {
+        var reader = new PayloadReader(payload);
+        var value = new ForgeProjectDescriptorPayload(
+            reader.ReadString(), reader.ReadString(), reader.ReadString(), reader.ReadString(), reader.ReadString(),
+            reader.ReadString(), reader.ReadUInt32(), reader.ReadUInt64(), reader.ReadUInt32(), reader.ReadUInt32(), reader.ReadStrings());
+        reader.Complete();
+        return value;
+    }
+
     private static void Malformed(string message) =>
         throw new BridgeProtocolException(BridgeErrorCode.MalformedPayload, message);
 
@@ -181,6 +362,13 @@ public static class BridgePayloadCodec
             if (values.Count > MaxListItems) Malformed("List exceeds item limit");
             WriteUInt32((uint)values.Count);
             foreach (var value in values) WriteString(value);
+        }
+
+        public void WriteUInt32s(IReadOnlyList<uint> values)
+        {
+            if (values.Count > MaxListItems) Malformed("List exceeds item limit");
+            WriteUInt32((uint)values.Count);
+            foreach (var value in values) WriteUInt32(value);
         }
 
         public byte[] ToArray() => _stream.ToArray();
@@ -241,6 +429,15 @@ public static class BridgePayloadCodec
             if (count > MaxListItems) Malformed("List exceeds item limit");
             var values = new string[count];
             for (var index = 0; index < values.Length; index++) values[index] = ReadString();
+            return values;
+        }
+
+        public uint[] ReadUInt32s()
+        {
+            var count = ReadUInt32();
+            if (count > MaxListItems) Malformed("List exceeds item limit");
+            var values = new uint[count];
+            for (var index = 0; index < values.Length; index++) values[index] = ReadUInt32();
             return values;
         }
 

@@ -56,6 +56,13 @@ Acceptance:
 Verification: deduplication, many-to-many tags, transactional failure, and catalog
 reopen tests using authored fixtures.
 
+Implementation: `AssetCatalogStore` persists immutable canonical blobs beneath
+two-character Asset-ID prefixes and atomically replaces a deterministic v0 JSON
+catalog. Metadata-only updates preserve blobs; exact-match queries are sorted and
+bounded. Authored tests cover deduplication, merged source/tag metadata, reopen,
+cancellation, complete-orphan reuse, and catalog commit failure. The frozen layout
+is recorded in [asset catalog v0](../../asset-catalog-v0.md).
+
 ## M1-004 — Import the global UYA asset catalog
 
 Requirements: FR-APP-005, FR-ASSET-003, DR-002, NFR-PERF-004  
@@ -73,6 +80,15 @@ Acceptance:
 - Heavy work does not block Electron main/renderer.
 
 Verification: authored/synthetic catalog fixtures plus local full-UYA import report.
+
+Implementation: `UyaAssetImportService` scans populated UYA level-table entries
+through the pinned SDK, imports deterministic model-plus-texture bundles in
+per-level catalog batches, and atomically checkpoints by ISO fingerprint and
+importer version. Setup drives the host operation with progress/cancellation and
+resumes incomplete imports. The frozen representation is recorded in
+[UYA global asset import v0](../../uya-asset-import-v0.md).
+The representative clean-disc run is recorded in the
+[M1-004 import report](../../m1-004-uya-import-report.md).
 
 ## M1-005 — Implement project format and isolated overrides
 
@@ -92,6 +108,16 @@ Acceptance:
 Verification: round-trip, move-directory, copy-on-write, undo, and cross-project
 isolation fixtures.
 
+Implementation: `ForgeProjectWorkspace` persists the version-zero manifest and
+content documents, validates portable relative paths, resolves project assets
+before the global catalog, and stores derived immutable blobs by Asset ID. Resource
+edits return reversible reference changes; shared edits redirect matching project
+references while **Make unique** redirects only the selected entity. Authored tests
+cover deterministic round-trip, directory moves, transform-only edits,
+copy-on-write, undo cleanup eligibility, future-schema rejection, and cross-project
+isolation. The frozen layout is recorded in
+[Forge project format v0](../../project-format-v0.md).
+
 ## M1-006 — Build project hub and base-level creation
 
 Requirements: FR-PROJ-001, FR-PROJ-002, FR-XLT-003, NFR-UX-003  
@@ -108,6 +134,18 @@ Acceptance:
 - Deleting/editing base content changes only the project.
 
 Verification: project lifecycle UI tests and a local representative base-level run.
+
+Implementation: the project hub manages a bounded recent-project list and supports
+create, open, rename, remove-from-recents, and reveal actions. UYA creation lists
+populated levels through the host, requires acknowledgement of capability gaps,
+and creates stable moby entities with source-instance provenance. Renderable mobys
+reference the global catalog; intentional model-less/controller mobys remain
+editable entities without a false missing-asset warning. The pinned SDK does not
+yet expose UYA tie or shrub instance
+transforms, so those scene entities are explicitly reported as unavailable rather
+than silently approximated; their base-WAD content remains the later bake source.
+The representative disc check is recorded in the
+[M1-006 UYA base-project report](../../m1-006-uya-base-project-report.md).
 
 ## M1-007 — Add safe save, migration, autosave, and recovery
 
@@ -145,4 +183,3 @@ Acceptance:
 
 Verification: missing/moved source fixtures, GC dry-run/apply tests, and Linux to
 Windows portability record.
-

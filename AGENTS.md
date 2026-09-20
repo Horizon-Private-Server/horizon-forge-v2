@@ -27,6 +27,16 @@ These rules apply to the entire repository unless a more specific `AGENTS.md` ov
 - When moving runtime modules, update compiled-path imports in integration tests as well as source imports.
 - Preserve unrelated worktree changes.
 
+## Implementation constraints
+
+- Keep classes and modules focused and ideally below 500 logical lines. Treat the limit as a signal to separate responsibilities, not a reason to create one-use abstractions or fragment cohesive code (NFR-MAINT-002).
+- Preserve the dependency direction: parsing and transformation belong in the Ratchet PS2 SDK, desktop orchestration in `Forge.Host`, lifecycle and privileged integration in Electron, and presentation in React/Three.js (NFR-MAINT-001).
+- Prefer the platform, standard library, existing SDK, and installed dependencies before adding packages. New runtime dependencies require a concrete current use (NFR-MAINT-003).
+- Keep import, bake, hash, pack, and patch work off the Electron main and renderer loops. Long operations need progress and cancellation at safe checkpoints (NFR-PERF-004, NFR-REL-003).
+- Preserve the last known-good user state. Generated files and manifests must be validated before atomic replacement, and failures must remain actionable (NFR-REL-001, NFR-REL-002).
+- Treat IPC payloads, paths, projects, archives, and model data as untrusted. Validate at the boundary and keep Electron context isolation, sandboxing, and navigation restrictions intact (NFR-SEC-001 through NFR-SEC-003).
+- Keep interactive UI keyboard accessible, visibly focused, usable with display scaling, and understandable without color alone (NFR-UX-001, NFR-UX-002).
+
 ## Verification
 
 - Run `npm run typecheck` after TypeScript or declaration changes.

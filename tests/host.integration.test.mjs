@@ -25,6 +25,7 @@ test('host handshake, echo, progress, cancellation, crash recovery, and concurre
   assert.deepEqual(handshake.supportedGames, ['UYA']);
   assert.ok(handshake.capabilities.includes('bridge.cancellation'));
   assert.ok(handshake.capabilities.includes('uya.iso.copy'));
+  assert.ok(handshake.capabilities.includes('uya.assets.import'));
 
   const concurrent = await Promise.all([
     client.echo('alpha'),

@@ -1,6 +1,15 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 
-import type { DevelopmentIsoResult, ForgeHostStatus, Progress, UyaIsoIdentity } from '../../types/ForgeApi.js';
+import type {
+  DevelopmentIsoResult,
+  ForgeHostStatus,
+  ForgeProjectDescriptor,
+  Progress,
+  UyaAssetImportResult,
+  UyaIsoIdentity,
+  UyaProjectOptions,
+  UyaProjectPreflight,
+} from '../../types/ForgeApi.js';
 import {
   BridgeFrameDecoder,
   decodeErrorMessage,
@@ -13,10 +22,19 @@ import {
   decodeDevelopmentIso,
   decodeProgress,
   decodeText,
+  decodeUyaAssetImportResult,
   decodeUyaIsoValidation,
+  decodeForgeProjectDescriptor,
+  decodeUyaProjectOptions,
+  decodeUyaProjectPreflight,
   encodeDevelopmentIsoRequest,
   encodeEchoRequest,
   encodeText,
+  encodeUyaAssetImportRequest,
+  encodeProjectInspectRequest,
+  encodeProjectRenameRequest,
+  encodeUyaProjectCreationRequest,
+  encodeUyaProjectPreflightRequest,
 } from './PayloadCodec.js';
 
 interface PendingRequest {
@@ -160,6 +178,55 @@ export class HostClient {
       sourcePath, targetPath, fingerprint, overwrite,
     }), onProgress);
     return { requestId: request.requestId, result: request.result.then(decodeDevelopmentIso) };
+  }
+
+  async importUyaAssets(
+    sourceIsoPath: string,
+    catalogRootPath: string,
+    fingerprint: string,
+    revision: string,
+    onProgress?: (progress: Progress) => void,
+    force = false,
+  ): Promise<HostRequest<UyaAssetImportResult>> {
+    const request = await this.#request(BridgeOpcode.ImportUyaAssets, encodeUyaAssetImportRequest({
+      sourceIsoPath, catalogRootPath, fingerprint, revision, force,
+    }), onProgress);
+    return { requestId: request.requestId, result: request.result.then(decodeUyaAssetImportResult) };
+  }
+
+  async listUyaProjectLevels(sourceIsoPath: string): Promise<HostRequest<UyaProjectOptions>> {
+    const request = await this.#request(BridgeOpcode.ListUyaProjectLevels, encodeText(sourceIsoPath));
+    return { requestId: request.requestId, result: request.result.then(decodeUyaProjectOptions) };
+  }
+
+  async createUyaProject(
+    value: Parameters<typeof encodeUyaProjectCreationRequest>[0],
+    onProgress?: (progress: Progress) => void,
+  ): Promise<HostRequest<ForgeProjectDescriptor>> {
+    const request = await this.#request(BridgeOpcode.CreateUyaProject, encodeUyaProjectCreationRequest(value), onProgress);
+    return { requestId: request.requestId, result: request.result.then(decodeForgeProjectDescriptor) };
+  }
+
+  async preflightUyaProject(
+    sourceIsoPath: string,
+    catalogRootPath: string,
+    level: number,
+  ): Promise<HostRequest<UyaProjectPreflight>> {
+    const request = await this.#request(
+      BridgeOpcode.PreflightUyaProject,
+      encodeUyaProjectPreflightRequest({ sourceIsoPath, catalogRootPath, level }),
+    );
+    return { requestId: request.requestId, result: request.result.then(decodeUyaProjectPreflight) };
+  }
+
+  async inspectForgeProject(projectPath: string, catalogRootPath: string): Promise<HostRequest<ForgeProjectDescriptor>> {
+    const request = await this.#request(BridgeOpcode.InspectForgeProject, encodeProjectInspectRequest({ projectPath, catalogRootPath }));
+    return { requestId: request.requestId, result: request.result.then(decodeForgeProjectDescriptor) };
+  }
+
+  async renameForgeProject(projectPath: string, catalogRootPath: string, name: string): Promise<HostRequest<ForgeProjectDescriptor>> {
+    const request = await this.#request(BridgeOpcode.RenameForgeProject, encodeProjectRenameRequest({ projectPath, catalogRootPath, name }));
+    return { requestId: request.requestId, result: request.result.then(decodeForgeProjectDescriptor) };
   }
 
   async cancel(requestId: number): Promise<void> {

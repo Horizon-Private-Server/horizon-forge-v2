@@ -143,6 +143,18 @@ function createDefinitions(paths: ApplicationPaths): SettingDefinition[] {
       validate: (value): value is boolean => typeof value === 'boolean',
     },
     {
+      key: 'imports.uya.completedFingerprint', group: 'Imports', label: 'Imported UYA source', type: 'text',
+      description: 'Fingerprint of the UYA source whose global import completed.', defaultValue: '', restartRequired: false, machineSpecific: true,
+      editable: false,
+      validate: (value): value is string => typeof value === 'string' && (value === '' || /^[0-9a-f]{32}$/i.test(value)),
+    },
+    {
+      key: 'imports.uya.completedVersion', group: 'Imports', label: 'UYA import version', type: 'number',
+      description: 'Version of the completed UYA global import.', defaultValue: 0, restartRequired: false, machineSpecific: true,
+      editable: false,
+      validate: (value): value is number => Number.isSafeInteger(value) && Number(value) >= 0,
+    },
+    {
       key: 'paths.projects', group: 'Paths', label: 'Projects directory', type: 'path',
       description: 'Default location for Forge projects.', defaultValue: paths.defaultProjects, restartRequired: false, machineSpecific: true,
       editable: true,

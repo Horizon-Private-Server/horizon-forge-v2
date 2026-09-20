@@ -8,6 +8,8 @@ export interface ForgeHostStatus {
 export interface KnownSettings {
   'editor.autosaveSeconds': number;
   'imports.uya.enabled': boolean;
+  'imports.uya.completedFingerprint': string;
+  'imports.uya.completedVersion': number;
   'paths.projects': string;
   'paths.developmentIsos': string;
   'sources.uya.fingerprint': string;
@@ -63,22 +65,77 @@ export interface DevelopmentIsoResult {
   fingerprint: string;
 }
 
+export interface UyaAssetImportResult {
+  completedLevels: number;
+  totalLevels: number;
+  assetAppearances: number;
+  uniqueAssets: number;
+  failedAssets: number;
+  resumed: boolean;
+}
+
+export interface UyaProjectOptions {
+  levels: number[];
+  warnings: string[];
+}
+
+export interface UyaProjectPreflight {
+  level: number;
+  sourceInstanceCount: number;
+  renderableInstanceCount: number;
+  modelLessInstanceCount: number;
+  missingAssetInstanceCount: number;
+  missingClassCount: number;
+  warnings: string[];
+}
+
+export interface ForgeProjectDescriptor {
+  path: string;
+  name: string;
+  targetGame: string;
+  targetRegion: string;
+  targetRevision: string;
+  bakeProfile: string;
+  baseLevel: number;
+  modifiedUnixMilliseconds: number;
+  entityCount: number;
+  missingAssetCount: number;
+  warnings: string[];
+}
+
+export interface RecentForgeProject {
+  path: string;
+  project?: ForgeProjectDescriptor;
+  error?: string;
+}
+
+export interface ProjectHubState {
+  projectsDirectory: string;
+  creation?: UyaProjectOptions;
+  recentProjects: RecentForgeProject[];
+  diagnostic?: string;
+}
+
 export interface SetupState {
   required: boolean;
   projectsDirectory: string;
   developmentIsoDirectory: string;
   sourceIso: string;
   developmentIso: string;
+  developmentIsoReady: boolean;
   importUyaAssets: boolean;
+  assetImportComplete: boolean;
   source?: Omit<UyaIsoIdentity, 'isSupported' | 'diagnostic'>;
   availableBytes?: number;
 }
 
 export interface SetupProgress extends Progress {
-  operation: 'validate' | 'copy';
+  operation: 'validate' | 'copy' | 'import';
 }
 
 export type ForgeDialog = 'setup' | 'settings';
+
+export type ForgeAction = ForgeDialog | 'projects' | 'newProject' | 'openProject';
 
 export interface ForgeApi {
   getHostStatus(): Promise<ForgeHostStatus>;
@@ -92,7 +149,16 @@ export interface ForgeApi {
   chooseSetupDirectory(kind: 'projects' | 'developmentIsos'): Promise<SetupState>;
   chooseUyaSource(): Promise<{ path: string; identity: UyaIsoIdentity } | undefined>;
   createDevelopmentIso(): Promise<DevelopmentIsoResult | undefined>;
+  importUyaAssets(force?: boolean): Promise<UyaAssetImportResult>;
+  getProjectHub(): Promise<ProjectHubState>;
+  preflightUyaProject(level: number): Promise<UyaProjectPreflight>;
+  createUyaProject(name: string, level: number, allowPartial: boolean): Promise<ForgeProjectDescriptor | undefined>;
+  openForgeProject(): Promise<ForgeProjectDescriptor | undefined>;
+  openRecentProject(path: string): Promise<ForgeProjectDescriptor>;
+  renameForgeProject(path: string, name: string): Promise<ForgeProjectDescriptor>;
+  removeRecentProject(path: string): Promise<ProjectHubState>;
+  revealForgeProject(path: string): Promise<void>;
   cancelSetupOperation(): Promise<void>;
   onSetupProgress(listener: (progress: SetupProgress) => void): () => void;
-  onOpenDialog(listener: (dialog: ForgeDialog) => void): () => void;
+  onForgeAction(listener: (action: ForgeAction) => void): () => void;
 }

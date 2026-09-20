@@ -32,5 +32,5 @@ Every `forge-project.json` contains an integer `schemaVersion`; version zero is
 the only supported value today. Missing, non-integer, and negative versions are
 invalid. Lower versions require an explicit ordered migration. A version greater
 than the application supports must be rejected before any migration or write, so
-unknown future data is never overwritten. The rest of the manifest/content shape
-is intentionally left to M1-005.
+unknown future data is never overwritten. The completed layout is frozen in
+[Forge project format v0](project-format-v0.md).

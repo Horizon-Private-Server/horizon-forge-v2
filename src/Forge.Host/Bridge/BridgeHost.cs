@@ -55,7 +55,8 @@ public static class BridgeHost
                         continue;
                     }
 
-                    var task = HandleRequestAsync(frame, writer, requests, requestCancellation, diagnostics, cancellationToken);
+                    var task = HandleRequestAsync(
+                        frame, writer, requests, requestCancellation, diagnostics, handshake, cancellationToken);
                     tasks[frame.RequestId] = task;
                     _ = task.ContinueWith(
                         _completed => tasks.TryRemove(frame.RequestId, out _),
@@ -96,6 +97,7 @@ public static class BridgeHost
         ConcurrentDictionary<uint, CancellationTokenSource> requests,
         CancellationTokenSource requestCancellation,
         TextWriter diagnostics,
+        HostHandshake handshake,
         CancellationToken hostCancellation)
     {
         try
@@ -110,6 +112,25 @@ public static class BridgeHost
                     break;
                 case BridgeOpcode.CreateDevelopmentIso:
                     await HandleCreateDevelopmentIsoAsync(frame, writer, requestCancellation.Token, hostCancellation);
+                    break;
+                case BridgeOpcode.ImportUyaAssets:
+                    await HandleImportUyaAssetsAsync(
+                        frame, writer, handshake.SdkRevision, requestCancellation.Token, hostCancellation);
+                    break;
+                case BridgeOpcode.ListUyaProjectLevels:
+                    await HandleListUyaProjectLevelsAsync(frame, writer, requestCancellation.Token, hostCancellation);
+                    break;
+                case BridgeOpcode.CreateUyaProject:
+                    await HandleCreateUyaProjectAsync(frame, writer, requestCancellation.Token, hostCancellation);
+                    break;
+                case BridgeOpcode.InspectForgeProject:
+                    await HandleInspectForgeProjectAsync(frame, writer, requestCancellation.Token, hostCancellation);
+                    break;
+                case BridgeOpcode.RenameForgeProject:
+                    await HandleRenameForgeProjectAsync(frame, writer, requestCancellation.Token, hostCancellation);
+                    break;
+                case BridgeOpcode.PreflightUyaProject:
+                    await HandlePreflightUyaProjectAsync(frame, writer, requestCancellation.Token, hostCancellation);
                     break;
                 default:
                     await WriteErrorAsync(writer, frame.RequestId, BridgeErrorCode.UnknownOpcode,
@@ -240,6 +261,147 @@ public static class BridgeHost
                 checked((ulong)result.Size),
                 result.Fingerprint))), hostCancellation);
     }
+
+    private static async Task HandleImportUyaAssetsAsync(
+        BridgeFrame frame,
+        FrameWriter writer,
+        string sdkRevision,
+        CancellationToken requestCancellation,
+        CancellationToken hostCancellation)
+    {
+        var request = BridgePayloadCodec.DecodeUyaAssetImportRequest(frame.Payload);
+        var result = await UyaAssetImportService.ImportAsync(
+            new(
+                request.SourceIsoPath,
+                request.CatalogRootPath,
+                request.Fingerprint,
+                request.Revision,
+                $"forge-uya-v1+{sdkRevision}",
+                request.Force),
+            CreateProgressReporter(frame, writer, hostCancellation),
+            requestCancellation);
+        await writer.WriteAsync(new(
+            BridgeMessageKind.Result,
+            frame.Opcode,
+            BridgeErrorCode.None,
+            frame.RequestId,
+            BridgePayloadCodec.EncodeUyaAssetImportResult(new(
+                checked((uint)result.CompletedLevels),
+                checked((uint)result.TotalLevels),
+                checked((uint)result.AssetAppearances),
+                checked((uint)result.UniqueAssets),
+                checked((uint)result.FailedAssets),
+                result.Resumed))), hostCancellation);
+    }
+
+    private static async Task HandleListUyaProjectLevelsAsync(
+        BridgeFrame frame,
+        FrameWriter writer,
+        CancellationToken requestCancellation,
+        CancellationToken hostCancellation)
+    {
+        var result = await UyaProjectService.GetCreationOptionsAsync(
+            BridgePayloadCodec.DecodeText(frame.Payload), requestCancellation);
+        await writer.WriteAsync(new(
+            BridgeMessageKind.Result,
+            frame.Opcode,
+            BridgeErrorCode.None,
+            frame.RequestId,
+            BridgePayloadCodec.EncodeUyaProjectOptions(new(
+                result.Levels.Select(level => checked((uint)level)).ToArray(), result.Warnings))), hostCancellation);
+    }
+
+    private static async Task HandleCreateUyaProjectAsync(
+        BridgeFrame frame,
+        FrameWriter writer,
+        CancellationToken requestCancellation,
+        CancellationToken hostCancellation)
+    {
+        var request = BridgePayloadCodec.DecodeUyaProjectCreationRequest(frame.Payload);
+        var result = await UyaProjectService.CreateAsync(
+            new(
+                request.SourceIsoPath,
+                request.CatalogRootPath,
+                request.ProjectPath,
+                request.Name,
+                request.Fingerprint,
+                request.Revision,
+                checked((int)request.Level),
+                request.AllowPartial),
+            CreateProgressReporter(frame, writer, hostCancellation),
+            requestCancellation);
+        await WriteProjectDescriptorAsync(frame, writer, result, hostCancellation);
+    }
+
+    private static async Task HandlePreflightUyaProjectAsync(
+        BridgeFrame frame,
+        FrameWriter writer,
+        CancellationToken requestCancellation,
+        CancellationToken hostCancellation)
+    {
+        var request = BridgePayloadCodec.DecodeUyaProjectPreflightRequest(frame.Payload);
+        var result = await UyaProjectService.PreflightAsync(
+            request.SourceIsoPath, request.CatalogRootPath, checked((int)request.Level), requestCancellation);
+        await writer.WriteAsync(new(
+            BridgeMessageKind.Result,
+            frame.Opcode,
+            BridgeErrorCode.None,
+            frame.RequestId,
+            BridgePayloadCodec.EncodeUyaProjectPreflight(new(
+                checked((uint)result.Level),
+                checked((uint)result.SourceInstanceCount),
+                checked((uint)result.RenderableInstanceCount),
+                checked((uint)result.ModelLessInstanceCount),
+                checked((uint)result.MissingAssetInstanceCount),
+                checked((uint)result.MissingClassCount),
+                result.Warnings))), hostCancellation);
+    }
+
+    private static async Task HandleInspectForgeProjectAsync(
+        BridgeFrame frame,
+        FrameWriter writer,
+        CancellationToken requestCancellation,
+        CancellationToken hostCancellation)
+    {
+        var request = BridgePayloadCodec.DecodeProjectInspectRequest(frame.Payload);
+        var catalog = await AssetCatalogStore.OpenAsync(request.CatalogRootPath, requestCancellation);
+        var result = await UyaProjectService.InspectAsync(request.ProjectPath, catalog, cancellationToken: requestCancellation);
+        await WriteProjectDescriptorAsync(frame, writer, result, hostCancellation);
+    }
+
+    private static async Task HandleRenameForgeProjectAsync(
+        BridgeFrame frame,
+        FrameWriter writer,
+        CancellationToken requestCancellation,
+        CancellationToken hostCancellation)
+    {
+        var request = BridgePayloadCodec.DecodeProjectRenameRequest(frame.Payload);
+        var catalog = await AssetCatalogStore.OpenAsync(request.CatalogRootPath, requestCancellation);
+        var result = await UyaProjectService.RenameAsync(request.ProjectPath, request.Name, catalog, requestCancellation);
+        await WriteProjectDescriptorAsync(frame, writer, result, hostCancellation);
+    }
+
+    private static Task WriteProjectDescriptorAsync(
+        BridgeFrame frame,
+        FrameWriter writer,
+        ForgeProjectDescriptor result,
+        CancellationToken hostCancellation) => writer.WriteAsync(new(
+            BridgeMessageKind.Result,
+            frame.Opcode,
+            BridgeErrorCode.None,
+            frame.RequestId,
+            BridgePayloadCodec.EncodeForgeProjectDescriptor(new(
+                result.Path,
+                result.Name,
+                result.TargetGame,
+                result.TargetRegion,
+                result.TargetRevision,
+                result.BakeProfile,
+                checked((uint)result.BaseLevel),
+                checked((ulong)result.ModifiedUnixMilliseconds),
+                checked((uint)result.EntityCount),
+                checked((uint)result.MissingAssetCount),
+                result.Warnings))), hostCancellation);
 
     private static Func<IsoProgress, ValueTask> CreateProgressReporter(
         BridgeFrame frame,
