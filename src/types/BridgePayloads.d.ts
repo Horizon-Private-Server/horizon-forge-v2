@@ -60,3 +60,17 @@ export interface CatalogMaintenanceRequest {
 export interface CatalogCollectionRequest extends CatalogMaintenanceRequest {
   confirmationToken: string;
 }
+
+export interface UyaRenderPackageRequest {
+  sourceIsoPath: string;
+  cacheRootPath: string;
+  fingerprint: string;
+  level: number;
+}
+
+export interface UyaRenderPackageResult {
+  rootPath: string;
+  cacheKey: string;
+  terrainPaths: string[];
+  cacheHit: boolean;
+}

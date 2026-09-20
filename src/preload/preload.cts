@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { EditorCommand, ForgeAction, ForgeApi, SetupProgress } from '../types/ForgeApi.js';
+import type { EditorCommand, ForgeAction, ForgeApi, Progress, SetupProgress } from '../types/ForgeApi.js';
 
 const forgeApi = Object.freeze({
   getHostStatus: () => ipcRenderer.invoke('forge:host-status'),
@@ -35,11 +35,18 @@ const forgeApi = Object.freeze({
   saveEditorProject: () => ipcRenderer.invoke('forge:editor-save'),
   readEditorEvents: (afterSequence: number, limit = 100) =>
     ipcRenderer.invoke('forge:editor-events', afterSequence, limit),
+  getEditorTerrain: () => ipcRenderer.invoke('forge:editor-terrain'),
+  cancelEditorTerrain: () => ipcRenderer.invoke('forge:editor-terrain-cancel'),
   cancelSetupOperation: () => ipcRenderer.invoke('forge:setup-cancel'),
   onSetupProgress: (listener: (progress: SetupProgress) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, progress: SetupProgress) => listener(progress);
     ipcRenderer.on('forge:setup-progress', handler);
     return () => ipcRenderer.removeListener('forge:setup-progress', handler);
+  },
+  onEditorTerrainProgress: (listener: (progress: Progress) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, progress: Progress) => listener(progress);
+    ipcRenderer.on('forge:editor-terrain-progress', handler);
+    return () => ipcRenderer.removeListener('forge:editor-terrain-progress', handler);
   },
   onForgeAction: (listener: (action: ForgeAction) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, action: ForgeAction) => listener(action);

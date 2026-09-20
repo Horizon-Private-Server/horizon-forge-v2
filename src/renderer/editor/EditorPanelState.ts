@@ -7,6 +7,15 @@ export interface SceneEntityGroup {
   entities: EditorEntity[];
 }
 
+export function buildTerrainTreeItems(urls: readonly string[], filter: string): { value: string; label: string }[] {
+  const query = filter.trim().toLocaleLowerCase();
+  return urls.map((value) => {
+    const path = decodeURIComponent(new URL(value).pathname);
+    const chunk = path.match(/\/chunks\/chunk([^/]+)\/tfrag\.gltf$/i)?.[1];
+    return { value, label: chunk ? `Chunk ${chunk} tfrag` : 'Primary tfrag' };
+  }).filter((item) => !query || `${item.label} tfrags terrain`.toLocaleLowerCase().includes(query));
+}
+
 export function nextTreeSelection(
   selected: readonly string[],
   value: string,

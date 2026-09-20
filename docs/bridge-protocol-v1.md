@@ -72,6 +72,7 @@ request ID of the request they describe.
 | 18 | ExecuteEditorCommand | Validate and execute one editor command |
 | 19 | SaveEditorProject | Explicitly save the active project |
 | 20 | ReadEditorEvents | Read ordered events after a sequence number |
+| 21 | PrepareUyaRenderPackage | Build or open cached UYA viewport assets |
 
 Handshake frames must use `Control`. Requests, results, progress, and cancellation
 must use a non-control opcode. Error frames may use `Control` when dispatch never
@@ -166,6 +167,21 @@ Progress:         uint32 completedBasisPoints, uint32 totalBasisPoints
 
 Progress uses `10,000` total basis points so DVD-sized byte counts never overflow
 the v1 32-bit progress fields. ISO bytes remain on disk and never enter a frame.
+
+### UYA render-package payloads
+
+```text
+Request:  string sourceIsoPath, string cacheRootPath, string sourceMd5,
+          uint32 level
+Result:   string rootPath, string cacheKey, uint32 terrainPathCount,
+          string[terrainPathCount] terrainPaths, bool cacheHit
+Progress: uint32 completedBasisPoints, uint32 totalBasisPoints
+```
+
+The host validates the ISO on a cache miss and writes the SDK render package to
+the app-owned cache atomically. A valid cache does not require the source ISO.
+Only validated cache paths cross the bridge; model, texture, WAD, and ISO bytes do
+not. Electron exposes returned files through the restricted `forge-asset` scheme.
 
 ## Stream behavior
 

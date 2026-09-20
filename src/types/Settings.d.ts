@@ -4,6 +4,7 @@ export interface ApplicationPaths {
   data: string;
   settingsFile: string;
   assets: string;
+  renderCache: string;
   logs: string;
   defaultProjects: string;
   defaultDevelopmentIsos: string;

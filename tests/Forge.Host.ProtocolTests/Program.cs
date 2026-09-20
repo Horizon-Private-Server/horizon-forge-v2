@@ -28,6 +28,7 @@ internal static class Program
             await ForgeProjectTests.RunAsync();
             await EditorRuntimeTests.RunAsync();
             await UyaProjectTests.RunAsync();
+            await UyaRenderPackageTests.RunAsync();
             Console.WriteLine("C# bridge and domain contract checks passed");
             return 0;
         }
@@ -194,6 +195,19 @@ internal static class Program
                 MissingAssets = decodedDescriptor.MissingAssets,
             },
             decodedDescriptor, "project descriptor payload");
+
+        var renderRequest = new UyaRenderPackageRequestPayload(
+            "source.iso", "render-cache", UyaIsoService.SupportedMd5, 3);
+        Equal(renderRequest, BridgePayloadCodec.DecodeUyaRenderPackageRequest(
+            BridgePayloadCodec.EncodeUyaRenderPackageRequest(renderRequest)), "render-package request payload");
+        var renderResult = new UyaRenderPackageResultPayload(
+            "render-cache/key", "key", ["tfrag/tfrag.gltf", "tfrag/chunks/chunk1/tfrag.gltf"], true);
+        var decodedRenderResult = BridgePayloadCodec.DecodeUyaRenderPackageResult(
+            BridgePayloadCodec.EncodeUyaRenderPackageResult(renderResult));
+        Equal(renderResult with { TerrainPaths = decodedRenderResult.TerrainPaths },
+            decodedRenderResult, "render-package result payload");
+        Equal(true, renderResult.TerrainPaths.SequenceEqual(decodedRenderResult.TerrainPaths),
+            "render-package terrain paths");
 
         var trailing = BridgePayloadCodec.EncodeText("x").Append((byte)0).ToArray();
         Expect(BridgeErrorCode.MalformedPayload, () => BridgePayloadCodec.DecodeText(trailing));

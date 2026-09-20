@@ -1,4 +1,4 @@
-import { app, BrowserWindow, session } from 'electron';
+import { app, BrowserWindow, protocol, session } from 'electron';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -7,6 +7,7 @@ import { isAllowedNavigation } from '../utils/Security.js';
 import { installApplicationMenu } from './ApplicationMenu.js';
 import { registerIpcHandlers } from './IpcHandlers.js';
 import { RecentProjects } from './RecentProjects.js';
+import { RenderAssetProtocol } from './RenderAssetProtocol.js';
 import { SettingsStore } from './Settings.js';
 import { HostClient } from './bridge/HostClient.js';
 
@@ -20,6 +21,11 @@ const hostPath = app.isPackaged
 const host = app.isPackaged ? new HostClient(hostPath, []) : new HostClient('dotnet', [hostPath]);
 let mainWindow: BrowserWindow | undefined;
 let quitting = false;
+
+protocol.registerSchemesAsPrivileged([{
+  scheme: 'forge-asset',
+  privileges: { secure: true, standard: true, supportFetchAPI: true, corsEnabled: true },
+}]);
 
 function createWindow(): void {
   const window = new BrowserWindow({
@@ -56,9 +62,12 @@ app.whenReady().then(async () => {
   ));
   await settings.ensureFile().catch((error) => console.error('Could not initialize Forge settings', error));
   const recentProjects = new RecentProjects(path.join(settings.paths.data, 'recent-projects.json'));
+  const renderAssets = new RenderAssetProtocol(settings.paths.renderCache);
+  renderAssets.register();
   registerIpcHandlers({
     host,
     recentProjects,
+    renderAssets,
     settings,
     getMainWindow: () => mainWindow,
   });

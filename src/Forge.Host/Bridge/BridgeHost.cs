@@ -146,6 +146,15 @@ public static class BridgeHost
                         BridgeMessageKind.Result, frame.Opcode, BridgeErrorCode.None, frame.RequestId,
                         await EditorBridgeHandlers.HandleAsync(frame, editor, requestCancellation.Token)), hostCancellation);
                     break;
+                case BridgeOpcode.PrepareUyaRenderPackage:
+                    await writer.WriteAsync(new(
+                        BridgeMessageKind.Result, frame.Opcode, BridgeErrorCode.None, frame.RequestId,
+                        await RenderBridgeHandlers.PrepareUyaAsync(
+                            frame.Payload,
+                            handshake.SdkRevision,
+                            CreateProgressReporter(frame, writer, hostCancellation),
+                            requestCancellation.Token)), hostCancellation);
+                    break;
                 default:
                     await WriteErrorAsync(writer, frame.RequestId, BridgeErrorCode.UnknownOpcode,
                         $"Unsupported opcode: {frame.Opcode}", hostCancellation);

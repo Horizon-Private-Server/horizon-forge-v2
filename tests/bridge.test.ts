@@ -61,6 +61,12 @@ import {
   encodeCatalogMaintenanceRequest,
   encodeProjectAssetRepairRequest,
 } from '../src/main/bridge/MaintenancePayloadCodec.ts';
+import {
+  decodeUyaRenderPackageRequest,
+  decodeUyaRenderPackageResult,
+  encodeUyaRenderPackageRequest,
+  encodeUyaRenderPackageResult,
+} from '../src/main/bridge/RenderPayloadCodec.ts';
 
 interface GoldenFrame {
   name: string;
@@ -248,6 +254,15 @@ test('operation payloads round trip and reject trailing data', () => {
     }],
   };
   assert.deepEqual(decodeForgeProjectDescriptor(encodeForgeProjectDescriptor(descriptor)), descriptor);
+  const renderRequest = {
+    sourceIsoPath: '/clean.iso', cacheRootPath: '/cache', fingerprint: iso.fingerprint, level: 3,
+  };
+  assert.deepEqual(decodeUyaRenderPackageRequest(encodeUyaRenderPackageRequest(renderRequest)), renderRequest);
+  const renderResult = {
+    rootPath: '/cache/key', cacheKey: 'key',
+    terrainPaths: ['tfrag/tfrag.gltf', 'tfrag/chunks/chunk1/tfrag.gltf'], cacheHit: true,
+  };
+  assert.deepEqual(decodeUyaRenderPackageResult(encodeUyaRenderPackageResult(renderResult)), renderResult);
 
   expectProtocolError(BridgeErrorCode.MalformedPayload, () => decodeText(Buffer.concat([encodeText('x'), Buffer.of(0)])));
 });

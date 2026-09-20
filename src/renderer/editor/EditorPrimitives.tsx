@@ -57,7 +57,7 @@ export function EditorTree({ label, nodes, selected = [], multiple = false, onSe
   }, [selected]);
 
   const select = (value: string, event: MouseEvent | KeyboardEvent) => {
-    if (!onSelectionChange) return;
+    if (!onSelectionChange || !valueSet.has(value)) return;
     if (!multiple) {
       anchor.current = value;
       onSelectionChange([value]);
@@ -107,7 +107,9 @@ export function EditorTree({ label, nodes, selected = [], multiple = false, onSe
 }
 
 function selectableTreeValues(nodes: TreeNodeData[]): string[] {
-  return nodes.flatMap((node) => node.children?.length ? selectableTreeValues(node.children) : [node.value]);
+  return nodes.flatMap((node) => node.children?.length
+    ? selectableTreeValues(node.children)
+    : node.nodeProps?.selectable === false ? [] : [node.value]);
 }
 
 export function EditorPropertyGrid({ children }: { children: ReactNode }) {

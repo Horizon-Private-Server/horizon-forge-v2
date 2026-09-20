@@ -2,6 +2,10 @@
 
 Milestone: [M2 — Editor core](../milestones/M2-editor-core.md)
 
+Execution pivot: after M2-005, complete M2-010 through M2-013 before returning to
+M2-006. Task IDs remain stable; transforms and snapping should be built against the
+real map projection rather than temporary proxy geometry.
+
 ## M2-001 — Implement the typed editor runtime
 
 Requirements: section 6.4, FR-EDIT-001, FR-COLLAB-001, FR-PLUGIN-001  
@@ -79,8 +83,8 @@ lightweight render proxy per authoritative project entity. Proxies retain only t
 Entity ID needed to resolve interactions; transforms and display state are always
 re-applied from runtime snapshots after conversion from PS2 Z-up coordinates to
 the Three.js Y-up scene basis. Shared proxy resources have explicit, idempotent
-disposal. Vanilla asset geometry replaces these proxies when the versioned
-render-package path exposes it.
+disposal. M2-012 replaces renderable proxies with vanilla asset geometry while
+retaining proxies for intentional meshless or failed assets.
 
 ## M2-004 — Implement scene tree, properties, status, and diagnostics
 
@@ -137,7 +141,7 @@ M2-008, which owns delete commands.
 ## M2-006 — Add transform manipulation modes
 
 Requirements: FR-SCENE-005, FR-SCENE-006, FR-SCENE-008  
-Depends on: M2-003, M2-005
+Depends on: M2-003, M2-005, M2-012
 
 Implement select/translate/rotate/scale modes, tool overlay scene, world/local
 orientation, pivots, numeric entry, multi-selection, and cancel/commit.
@@ -154,7 +158,7 @@ Verification: transform math, multi-selection, cancel/commit, and overlay exclus
 ## M2-007 — Add snapping and Page Down placement
 
 Requirements: FR-SCENE-009, FR-SCENE-010, DR-009, NFR-PERF-002  
-Depends on: M2-006
+Depends on: M2-006, M2-010, M2-012
 
 Implement grid/increment, bounds-center, accelerated vertex-to-vertex, surface,
 rotation/scale snapping, temporary inversion, and downward placement.
@@ -205,3 +209,116 @@ Acceptance:
 - Keybindings persist as user settings without entering project data.
 
 Verification: context/conflict tests and recorded keyboard-only editor walkthrough.
+
+## M2-010 — Render cached UYA tfrags in the editor
+
+Requirements: FR-SCENE-001, FR-SCENE-002, FR-SCENE-011, FR-BRIDGE-004,
+NFR-PERF-004, NFR-PERF-005
+Depends on: M0-008, M1-006, M2-003
+
+Use the pinned SDK's UYA frontend package builder to materialize a versioned render
+package for the project's base level in an app-owned cache. Expose only validated
+files from that cache to the sandboxed renderer and load primary and chunk tfrags
+into the existing WebGL scene.
+
+Acceptance:
+
+- The host builds from the verified source ISO; the renderer never reads or parses
+  the ISO, WAD, or game binary structures.
+- Cache identity includes source fingerprint, level, SDK revision, and package
+  schema; writes are atomic, progress-reporting, and cancellable.
+- A valid cache loads while the source ISO is unavailable; a missing cache/source
+  produces a corrective diagnostic instead of a blank viewport.
+- Primary and chunk tfrags render with their exported textures/materials, coexist
+  with project entities, frame correctly, and dispose on project close/reload.
+- No hard-coded development asset path or duplicate render-data bridge copy is
+  introduced.
+
+Verification: package identity/validation fixtures, interrupted-build recovery,
+multi-level visual checks, and repeated open/close resource counts.
+
+Implementation: the host uses the pinned SDK's terrain-only frontend package,
+keys its atomic cache by source MD5, level, schema, and SDK revision, and returns
+only validated relative tfrag routes. Electron serves those files through a
+cache-confined `forge-asset` protocol; the sandboxed renderer loads their glTF,
+buffers, materials, and textures directly into the existing WebGL scene. Primary
+and chunk render sections also appear as read-only items in the scene tree. Cache
+hits work without reopening the source ISO, failures remain visible in the
+viewport, and loaded GPU resources are disposed with the viewport.
+
+## M2-011 — Add tie and shrub entities to base projects
+
+Requirements: FR-PROJ-001, FR-PROJ-002, FR-SCENE-002, FR-SCENE-011,
+NFR-REL-004
+Depends on: M1-004, M1-005, M1-006
+
+Add typed UYA tie/shrub instance decoding to the pinned SDK where required, then
+project every supported base instance into Forge with a stable Entity ID,
+transform, Asset-ID reference, layer, and source provenance. Keep raw record data
+needed for lossless bake without making the renderer authoritative.
+
+Acceptance:
+
+- New base projects include mobys, ties, and shrubs with catalog references and
+  source counts checked against the level data.
+- The host owns binary parsing and reports unsupported records/classes explicitly;
+  no game parser is added to TypeScript.
+- Projects created before this capability receive a one-time schema-aware backfill
+  that cannot later resurrect user-deleted base entities.
+- Missing catalog assets retain valid entities with placeholders/diagnostics rather
+  than silently removing instances.
+- Save, reopen, recovery, and project moves preserve IDs and instance data.
+
+Verification: authored instance fixtures, representative level counts, old-project
+upgrade, deletion/reopen, and cross-platform serialization tests.
+
+## M2-012 — Replace entity proxies with vanilla asset meshes
+
+Requirements: FR-SCENE-002, FR-SCENE-003, FR-SCENE-004, FR-SCENE-007,
+FR-SCENE-011, NFR-PERF-001, NFR-PERF-003, NFR-PERF-005
+Depends on: M2-005, M2-010, M2-011
+
+Resolve tie, shrub, and moby Asset IDs through the project/global stores, convert
+their canonical blobs to cached render payloads in the host, and project actual
+meshes in Three.js. Share immutable class geometry/material resources and retain
+per-instance Entity-ID picking and project-driven transforms/states.
+
+Acceptance:
+
+- Renderable mobys no longer use boxes; ties and shrubs render at their project
+  transforms with exported vanilla textures/materials.
+- Geometry/material data is loaded once per Asset ID and reused across instances;
+  the renderer does not duplicate game parsing or one full mesh per instance.
+- Ray hits resolve the exact Entity ID, including instanced meshes, and existing
+  hidden/disabled/locked/selection behavior remains unchanged.
+- Intentional meshless mobys keep a distinct editor-only marker; missing/failed
+  assets use a visibly different placeholder and actionable diagnostic.
+- One failed asset or family does not blank the rest of the map, and all owned GPU
+  resources are released on replacement or close.
+
+Verification: shared-resource counts, instanced-picking fixtures, state matrix,
+representative dense-level frame profile, and repeated-load resource soak.
+
+## M2-013 — Add sky and viewport map-fidelity controls
+
+Requirements: FR-SCENE-001, FR-SCENE-011, NFR-PERF-001, NFR-UX-002
+Depends on: M2-010, M2-012
+
+Load the UYA sky export from the same package and add compact viewport controls for
+terrain, ties, shrubs, mobys, sky, and editor markers. Apply only the UYA fog,
+alpha, ambient/vertex-color, and render-order behavior required for a faithful
+editing view; keep bake state separate from temporary viewport visibility.
+
+Acceptance:
+
+- A representative level visually contains terrain, sky, ties, shrubs, and mobys
+  with correct coordinate basis and recognizable material/alpha behavior.
+- Family visibility is session UI state and does not mutate project hidden or
+  disabled flags.
+- Loading/progress/failure state identifies the affected family and partial scenes
+  remain usable.
+- Optional statistics expose draw calls, triangles, and frame time without being
+  enabled by default.
+
+Verification: representative screenshots, family-failure fixtures, layer-toggle
+checks, and light/heavy level performance records.

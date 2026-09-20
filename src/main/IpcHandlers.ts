@@ -10,6 +10,8 @@ import { errorMessage } from '../utils/Errors.js';
 import { availableBytes, fileExists, writeJsonSafely } from '../utils/FileSystem.js';
 import { isTrustedSender } from '../utils/Security.js';
 import type { RecentProjects } from './RecentProjects.js';
+import type { RenderAssetProtocol } from './RenderAssetProtocol.js';
+import { registerRenderIpcHandlers } from './RenderIpcHandlers.js';
 import type { SettingsStore } from './Settings.js';
 import type { HostClient } from './bridge/HostClient.js';
 
@@ -17,18 +19,21 @@ interface IpcHandlersOptions {
   host: HostClient;
   recentProjects: RecentProjects;
   settings: SettingsStore;
+  renderAssets: RenderAssetProtocol;
   getMainWindow: () => BrowserWindow | undefined;
 }
 
 const uyaImportVersion = 1;
 
 export function registerIpcHandlers(options: IpcHandlersOptions): void {
-  const { host, recentProjects, settings, getMainWindow } = options;
+  const { host, recentProjects, settings, renderAssets, getMainWindow } = options;
   let activeSetupRequestId: number | undefined;
 
   function assertSender(senderId: number): void {
     if (!isTrustedSender(senderId, getMainWindow()?.webContents.id)) throw new Error('Untrusted IPC sender');
   }
+
+  registerRenderIpcHandlers({ host, settings, renderAssets, assertSender });
 
   async function getSettingValues(): Promise<Record<string, string | number | boolean>> {
     const snapshot = await settings.getSnapshot();

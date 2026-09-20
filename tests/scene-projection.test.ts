@@ -4,6 +4,7 @@ import * as THREE from 'three';
 
 import { SceneProjection } from '../src/renderer/editor/SceneProjection.ts';
 import type { EditorEntity } from '../src/types/EditorRuntime.js';
+import { disposeObject } from '../src/utils/Scene.ts';
 
 function entity(id: string, x = 0, asset = true, state: Partial<EditorEntity['state']> = {}): EditorEntity {
   return {
@@ -100,4 +101,19 @@ test('projection and scene resources dispose once across repeated loads', () => 
     assert.equal(materialDisposals, 1);
     assert.equal(projection.root.children.length, 0);
   }
+});
+
+test('scene disposal releases shared geometry, materials, and textures once', () => {
+  const root = new THREE.Group();
+  const geometry = new THREE.BoxGeometry();
+  const texture = new THREE.Texture();
+  const material = new THREE.MeshBasicMaterial({ map: texture });
+  root.add(new THREE.Mesh(geometry, material), new THREE.Mesh(geometry, material));
+  const disposals = { geometry: 0, material: 0, texture: 0 };
+  geometry.addEventListener('dispose', () => { disposals.geometry += 1; });
+  material.addEventListener('dispose', () => { disposals.material += 1; });
+  texture.addEventListener('dispose', () => { disposals.texture += 1; });
+  disposeObject(root);
+  assert.deepEqual(disposals, { geometry: 1, material: 1, texture: 1 });
+  assert.equal(root.children.length, 0);
 });

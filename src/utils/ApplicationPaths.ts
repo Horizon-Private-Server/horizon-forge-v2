@@ -8,6 +8,7 @@ export function createApplicationPaths(userData: string, documents: string, logs
     data,
     settingsFile: path.join(data, 'settings.json'),
     assets: path.join(data, 'assets'),
+    renderCache: path.join(data, 'render-cache'),
     logs: path.resolve(logs),
     defaultProjects: path.resolve(documents, 'Horizon Forge Projects'),
     defaultDevelopmentIsos: path.resolve(documents, 'Horizon Forge Development ISOs'),

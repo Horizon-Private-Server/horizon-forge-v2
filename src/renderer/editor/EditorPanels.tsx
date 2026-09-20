@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 
 import type { EditorEntity, ProjectQuaternion, ProjectTransform, ProjectVector3 } from '../../types/EditorRuntime.js';
 import { useEditor } from './EditorContext.ts';
-import { buildSceneEntityGroups, entityStateLabel } from './EditorPanelState.ts';
+import { buildSceneEntityGroups, buildTerrainTreeItems, entityStateLabel } from './EditorPanelState.ts';
 import {
   EditorEmptyState,
   EditorFilter,
@@ -16,10 +16,12 @@ import {
 import { SceneViewport } from './SceneViewport.tsx';
 
 export function ViewportPanel() {
-  const { project, execute } = useEditor();
+  const { project, terrain, terrainStatus, execute } = useEditor();
   return <SceneViewport
     entities={project.entities}
     selection={project.selection}
+    terrain={terrain}
+    terrainStatus={terrainStatus}
     onSelectionChange={(entityIds) => void execute({
       id: crypto.randomUUID(), kind: 'setSelection', entityIds,
     })}
@@ -27,22 +29,31 @@ export function ViewportPanel() {
 }
 
 export function SceneTreePanel() {
-  const { project, execute, busy } = useEditor();
+  const { project, terrain, execute, busy } = useEditor();
   const [filter, setFilter] = useState('');
   const model = useMemo(() => buildSceneEntityGroups(project.entities, filter), [filter, project.entities]);
+  const tfrags = useMemo(() => buildTerrainTreeItems(terrain?.urls ?? [], filter), [filter, terrain]);
   const entityIds = useMemo(() => new Set(project.entities.map((entity) => entity.id)), [project.entities]);
   const selected = project.entities.filter((entity) => project.selection.includes(entity.id));
-  const nodes: TreeNodeData[] = model.groups.map((group) => ({
+  const nodes: TreeNodeData[] = [
+    ...(tfrags.length ? [{
+      value: 'render:tfrags',
+      label: `tfrags (${tfrags.length})`,
+      children: tfrags.map((item) => ({ ...item, nodeProps: { selectable: false } })),
+    }] : []),
+    ...model.groups.map((group) => ({
     value: `layer:${group.layer}`,
     label: `${group.layer} (${group.entities.length})`,
     children: group.entities.map((entity) => ({ value: entity.id, label: entityStateLabel(entity) })),
-  }));
+    })),
+  ];
+  const matched = model.matched + tfrags.length;
 
   return <EditorPanel label="Scene hierarchy">
     <Stack>
       <Group justify="space-between">
         <Text size="xs" c={project.isDirty ? 'yellow' : 'dimmed'}>{project.isDirty ? 'Unsaved changes' : 'Saved'}</Text>
-        <Text size="xs" c="dimmed">{model.matched} matches</Text>
+        <Text size="xs" c="dimmed">{matched} matches</Text>
       </Group>
       <EditorFilter label="Filter scene hierarchy" value={filter} onChange={setFilter} />
       {selected.length > 0 && <EntityStateControls entities={selected} disabled={busy} />}
@@ -59,8 +70,8 @@ export function SceneTreePanel() {
           })}
         />
         : <EditorEmptyState message="No matching scene objects." />}
-      {model.shown < model.matched && <Text c="yellow" size="xs">
-        Showing {model.shown} of {model.matched} matches. Refine the filter to see the remainder.
+      {model.shown + tfrags.length < matched && <Text c="yellow" size="xs">
+        Showing {model.shown + tfrags.length} of {matched} matches. Refine the filter to see the remainder.
       </Text>}
     </Stack>
   </EditorPanel>;

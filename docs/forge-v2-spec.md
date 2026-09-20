@@ -629,6 +629,27 @@ object immediately beneath it. It MUST:
 - perform no mutation and show a brief status when no surface is found; and
 - remain rebindable through the normal keybinding system.
 
+#### FR-SCENE-011: Complete map representation
+
+The editor viewport MUST represent the selected UYA base level with actual vanilla
+geometry and materials rather than permanent proxy boxes. P0 coverage includes the
+primary and chunk tfrags, tie instances, shrub instances, renderable moby instances,
+and sky. Tie, shrub, and moby render objects retain a reversible mapping to their
+stable project Entity IDs so picking and project state use the same authority.
+
+The .NET host uses the pinned SDK to produce versioned render data. The renderer
+MUST NOT parse game archives or read the clean ISO. Large immutable render files are
+served from an app-owned cache keyed by source fingerprint, level, SDK revision,
+and render-package schema, without copying them through JSON or into each project.
+Cache writes are atomic and cancellable; a valid cache remains usable if the source
+ISO is temporarily unavailable.
+
+Project transforms and entity states override package instance records after base
+creation. Renderable assets use their actual meshes; intentional meshless mobys use
+a distinct editor-only marker, and missing or failed assets use an explicit
+placeholder plus a diagnostic. Failure in one content family MUST NOT prevent other
+valid families from rendering.
+
 #### FR-EDIT-001: Undo/redo
 
 - Every project mutation uses an editor command except documented UI-only state.
@@ -1314,6 +1335,8 @@ assets into the project.
 
 - Docked workspace, tree, properties, diagnostics.
 - Entity IDs and synchronized selection.
+- Cached host-generated render packages and a complete UYA map viewport with
+  tfrags, ties, shrubs, mobys, and sky.
 - Picking, camera, transforms, tools, and entity states.
 - Translate/rotate/scale modes, snapping controls, and Page Down ground snapping.
 - Commands, undo/redo, keybindings, delete/duplicate, and layer dirtiness.

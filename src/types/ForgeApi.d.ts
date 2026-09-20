@@ -171,6 +171,11 @@ export interface SetupProgress extends Progress {
   operation: 'validate' | 'copy' | 'import';
 }
 
+export interface EditorTerrainSource {
+  urls: string[];
+  cacheHit: boolean;
+}
+
 export type ForgeDialog = 'setup' | 'settings';
 
 export type EditorLayoutAction = 'resetLayout' | 'showViewport' | 'showSceneTree'
@@ -211,7 +216,10 @@ export interface ForgeApi {
   executeEditorCommand(command: EditorCommand): Promise<EditorSnapshot>;
   saveEditorProject(): Promise<EditorSnapshot>;
   readEditorEvents(afterSequence: number, limit?: number): Promise<EditorEvent[]>;
+  getEditorTerrain(): Promise<EditorTerrainSource>;
+  cancelEditorTerrain(): Promise<void>;
   cancelSetupOperation(): Promise<void>;
+  onEditorTerrainProgress(listener: (progress: Progress) => void): () => void;
   onSetupProgress(listener: (progress: SetupProgress) => void): () => void;
   onForgeAction(listener: (action: ForgeAction) => void): () => void;
 }

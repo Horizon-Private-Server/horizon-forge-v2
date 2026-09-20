@@ -29,6 +29,7 @@ export const BridgeOpcode = {
   ExecuteEditorCommand: 18,
   SaveEditorProject: 19,
   ReadEditorEvents: 20,
+  PrepareUyaRenderPackage: 21,
 } as const;
 
 export const BridgeErrorCode = {

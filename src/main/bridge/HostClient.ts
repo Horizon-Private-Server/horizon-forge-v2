@@ -14,6 +14,7 @@ import type {
   UyaProjectOptions,
   UyaProjectPreflight,
 } from '../../types/ForgeApi.js';
+import type { UyaRenderPackageRequest, UyaRenderPackageResult } from '../../types/BridgePayloads.js';
 import {
   decodeEditorEvents,
   decodeEditorSnapshot,
@@ -54,6 +55,7 @@ import {
   encodeUyaProjectCreationRequest,
   encodeUyaProjectPreflightRequest,
 } from './PayloadCodec.js';
+import { decodeUyaRenderPackageResult, encodeUyaRenderPackageRequest } from './RenderPayloadCodec.js';
 
 interface PendingRequest {
   opcode: BridgeOpcode;
@@ -338,6 +340,15 @@ export class HostClient {
     const request = await this.#request(
       BridgeOpcode.ReadEditorEvents, encodeEditorEventRequest(afterSequence, limit));
     return { requestId: request.requestId, result: request.result.then(decodeEditorEvents) };
+  }
+
+  async prepareUyaRenderPackage(
+    value: UyaRenderPackageRequest,
+    onProgress?: (progress: Progress) => void,
+  ): Promise<HostRequest<UyaRenderPackageResult>> {
+    const request = await this.#request(
+      BridgeOpcode.PrepareUyaRenderPackage, encodeUyaRenderPackageRequest(value), onProgress);
+    return { requestId: request.requestId, result: request.result.then(decodeUyaRenderPackageResult) };
   }
 
   async cancel(requestId: number): Promise<void> {

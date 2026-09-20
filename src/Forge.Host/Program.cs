@@ -27,5 +27,5 @@ return await BridgeHost.RunAsync(
             "uya.assets.import", "uya.assets.import.mobys", "uya.assets.import.ties", "uya.assets.import.shrubs",
             "uya.projects.base.mobys", "projects.inspect", "projects.rename", "projects.recovery", "projects.migrate",
             "projects.assets.repair", "assets.catalog.gc", "editor.runtime", "editor.commands",
-            "editor.events", "editor.autosave"
+            "editor.events", "editor.autosave", "uya.render.terrain"
         ]));

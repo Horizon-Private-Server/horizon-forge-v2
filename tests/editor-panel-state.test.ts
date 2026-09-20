@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   buildSceneEntityGroups,
+  buildTerrainTreeItems,
   entityStateLabel,
   nextTreeSelection,
   nextViewportSelection,
@@ -45,6 +46,20 @@ test('scene tree grouping filters, labels states, and caps large results', () =>
   assert.ok(filtered.matched > 0);
   assert.ok(filtered.groups.flatMap((group) => group.entities).every((value) => value.name.includes('42')));
   assert.equal(entityStateLabel(entity(42)), 'Moby 42 [dirty, locked, missing asset]');
+});
+
+test('terrain package sections become filterable scene-tree items', () => {
+  const urls = [
+    'forge-asset://key/assets/tfrag/tfrag.gltf',
+    'forge-asset://key/assets/tfrag/chunks/chunk2/tfrag.gltf',
+  ];
+  assert.deepEqual(buildTerrainTreeItems(urls, ''), [
+    { value: urls[0], label: 'Primary tfrag' },
+    { value: urls[1], label: 'Chunk 2 tfrag' },
+  ]);
+  assert.deepEqual(buildTerrainTreeItems(urls, 'chunk 2'), [
+    { value: urls[1], label: 'Chunk 2 tfrag' },
+  ]);
 });
 
 test('tree selection follows desktop replace, toggle, and range conventions', () => {

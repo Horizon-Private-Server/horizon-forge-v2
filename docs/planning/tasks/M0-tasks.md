@@ -152,7 +152,9 @@ Resolution: the Linux x64 package embeds the .NET host/runtime, streams a local
 `terrain.gltf` directory through the constrained `forge-asset:` protocol, and
 uses WebGL exclusively. On 2026-09-19 the packaged app completed the host
 handshake, rendered UYA level 3, survived five page reloads at a reported 86.4 MB
-JS heap, and displayed the guided missing-path state without a fixture.
+JS heap, and displayed the guided missing-path state without a fixture. That
+diagnostic terrain path was later removed when the editor scene was rebuilt around
+authoritative project entities; its production replacement is M2-010.
 
 ## M0-009 — Establish continuous integration
 

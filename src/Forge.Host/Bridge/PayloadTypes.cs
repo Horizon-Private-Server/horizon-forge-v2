@@ -62,6 +62,16 @@ public sealed record CatalogCollectionRequestPayload(
     string CatalogRootPath,
     IReadOnlyList<string> ProjectRoots,
     string ConfirmationToken);
+public sealed record UyaRenderPackageRequestPayload(
+    string SourceIsoPath,
+    string CacheRootPath,
+    string Fingerprint,
+    uint Level);
+public sealed record UyaRenderPackageResultPayload(
+    string RootPath,
+    string CacheKey,
+    IReadOnlyList<string> TerrainPaths,
+    bool CacheHit);
 public sealed record CatalogMaintenancePayload(
     uint ProjectCount,
     uint CatalogAssetCount,
