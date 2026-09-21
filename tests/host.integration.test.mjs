@@ -120,6 +120,20 @@ test('host handshake, echo, progress, cancellation, crash recovery, and concurre
   })).result;
   assert.deepEqual(transformed.entities[0].transform.position, { x: 10.5, y: 20.25, z: -30.75 });
   assert.equal(transformed.entities[0].state.dirty, true);
+  const batchTransformed = await (await client.executeEditorCommand({
+    id: '30000000-0000-4000-8000-000000000006',
+    kind: 'updateTransforms',
+    entityIds: [entityId],
+    transforms: [{
+      entityId,
+      transform: {
+        position: { x: 11, y: 22, z: 33 },
+        rotation: { x: 0, y: 0, z: 0, w: 1 },
+        scale: { x: 1, y: 1, z: 1 },
+      },
+    }],
+  })).result;
+  assert.deepEqual(batchTransformed.entities[0].transform.position, { x: 11, y: 22, z: 33 });
   const updatedEntity = await (await client.executeEditorCommand({
     id: '30000000-0000-4000-8000-000000000004',
     kind: 'renameEntity',
@@ -146,6 +160,7 @@ test('host handshake, echo, progress, cancellation, crash recovery, and concurre
   const events = await (await client.readEditorEvents(0)).result;
   assert.deepEqual(events.map((event) => event.kind), [
     'projectOpened', 'selectionChanged', 'projectChanged', 'projectChanged', 'projectChanged', 'projectChanged',
+    'projectChanged',
   ]);
   const saved = await (await client.saveEditorProject()).result;
   assert.equal(saved.isDirty, false);

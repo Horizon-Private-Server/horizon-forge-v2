@@ -52,11 +52,22 @@ body {
   position: absolute;
   z-index: 1;
   top: var(--mantine-spacing-xs);
-  left: var(--mantine-spacing-xs);
+  right: var(--mantine-spacing-xs);
   padding: 0.25rem 0.4rem;
   border: 1px solid var(--mantine-color-dark-4);
   border-radius: var(--mantine-radius-xs);
   background: rgb(17 20 26 / 88%);
+}
+
+.scene-stats {
+  position: absolute;
+  z-index: 1;
+  right: 0;
+  bottom: 0;
+  padding: 0.125rem 0.25rem;
+  background: rgb(17 20 26 / 80%);
+  font-size: 0.625rem;
+  line-height: 1.1;
 }
 
 .project-hub {

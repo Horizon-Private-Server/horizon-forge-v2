@@ -12,6 +12,9 @@ public sealed class EditorRuntime : IAsyncDisposable
     private static readonly EditorTool[] RuntimeTools =
     [
         new("select", "Select", "editor.selection"),
+        new("translate", "Move", "editor.transform.update"),
+        new("rotate", "Rotate", "editor.transform.update"),
+        new("scale", "Scale", "editor.transform.update"),
     ];
 
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -104,6 +107,11 @@ public sealed class EditorRuntime : IAsyncDisposable
                 case EditorCommandKind.UpdateTransform:
                     workspace.UpdateTransform(command.EntityIds[0], command.Transform!);
                     AddEvent(EditorEventKind.ProjectChanged, command.Id, command.EntityIds, "Transform updated");
+                    ScheduleAutosave();
+                    break;
+                case EditorCommandKind.UpdateTransforms:
+                    workspace.UpdateTransforms(command.Transforms!);
+                    AddEvent(EditorEventKind.ProjectChanged, command.Id, command.EntityIds, "Transforms updated");
                     ScheduleAutosave();
                     break;
                 case EditorCommandKind.RenameEntity:
@@ -295,6 +303,7 @@ public sealed class EditorRuntime : IAsyncDisposable
                     entity.Transform,
                     entity.Asset,
                     entity.Provenance,
+                    entity.Source?.ClassId,
                     new(!_savedEntities.TryGetValue(entity.EntityId, out var saved) || saved != entity,
                         state.Hidden, state.Disabled, state.Locked, false, _missingAssets.Contains(entity.EntityId)));
             }).ToArray(),
@@ -324,7 +333,7 @@ public sealed class EditorRuntime : IAsyncDisposable
             .Select(entity => entity.EntityId)
             .ToHashSet();
         if (command.EntityIds.Any(locked.Contains)
-            && command.Kind is EditorCommandKind.UpdateTransform
+            && command.Kind is EditorCommandKind.UpdateTransform or EditorCommandKind.UpdateTransforms
                 or EditorCommandKind.RenameEntity
                 or EditorCommandKind.SetEntityLayer)
             throw new ArgumentException("Locked entities cannot be modified.", nameof(command));
@@ -340,8 +349,13 @@ public sealed class EditorRuntime : IAsyncDisposable
                 || string.IsNullOrWhiteSpace(command.Text) || command.State is not null:
                 throw new ArgumentException("Rename commands require only a project name.", nameof(command));
             case EditorCommandKind.UpdateTransform when command.EntityIds.Count != 1 || command.Transform is null
-                || command.Text is not null || command.State is not null:
+                || command.Text is not null || command.State is not null || command.Transforms?.Count > 0:
                 throw new ArgumentException("Transform commands require one entity and a transform.", nameof(command));
+            case EditorCommandKind.UpdateTransforms when command.EntityIds.Count == 0 || command.Transform is not null
+                || command.Text is not null || command.State is not null || command.Transforms is null
+                || command.Transforms.Count != command.EntityIds.Count
+                || !command.Transforms.Select(update => update.EntityId).SequenceEqual(command.EntityIds):
+                throw new ArgumentException("Batch transform commands require one transform per entity in command order.", nameof(command));
             case EditorCommandKind.RenameEntity when command.EntityIds.Count != 1 || command.Transform is not null
                 || string.IsNullOrWhiteSpace(command.Text) || command.State is not null:
                 throw new ArgumentException("Entity rename commands require one entity and a name.", nameof(command));

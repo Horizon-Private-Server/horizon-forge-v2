@@ -1,21 +1,27 @@
 import * as THREE from 'three';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-import type { EditorTerrainSource } from '../types/ForgeApi.js';
+import type { EditorEntity } from '../types/EditorRuntime.js';
+import type { EditorSceneEnvironment } from '../types/ForgeApi.js';
+import { projectTransformToSceneMatrix } from './Transforms.ts';
 
 const cameraMovement = new THREE.Vector3();
 const cameraForward = new THREE.Vector3();
 const cameraRight = new THREE.Vector3();
 const cameraEuler = new THREE.Euler(0, 0, 0, 'YXZ');
 const frameOffset = new THREE.Vector3();
+const spawnMatrix = new THREE.Matrix4();
+const spawnPosition = new THREE.Vector3();
+const spawnRotation = new THREE.Quaternion();
+const spawnScale = new THREE.Vector3();
+const spawnRotationCorrection = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -Math.PI / 2);
+const preferredMobyClasses = [0x0000, 0x0057, 0x1c31];
 
 interface Vector3Like {
   x: number;
   y: number;
   z: number;
 }
-
-type SceneEnvironment = NonNullable<EditorTerrainSource['environment']>;
 
 export interface CameraFlight {
   cameraStart: THREE.Vector3;
@@ -37,9 +43,27 @@ export function frameObject(camera: THREE.PerspectiveCamera, controls: OrbitCont
   controls.update();
 }
 
+export function positionCameraAtPreferredMoby(
+  camera: THREE.PerspectiveCamera,
+  controls: OrbitControls,
+  entities: readonly EditorEntity[],
+): boolean {
+  const entity = preferredMobyClasses
+    .map((classId) => entities.find((value) => value.layer === 'mobys' && value.sourceClassId === classId))
+    .find(Boolean);
+  if (!entity) return false;
+  projectTransformToSceneMatrix(entity.transform, spawnMatrix).decompose(spawnPosition, spawnRotation, spawnScale);
+  camera.position.copy(spawnPosition).addScaledVector(camera.up, 2);
+  camera.quaternion.copy(spawnRotation).premultiply(spawnRotationCorrection);
+  camera.getWorldDirection(cameraForward);
+  controls.target.copy(camera.position).addScaledVector(cameraForward, 10);
+  controls.update();
+  return true;
+}
+
 export function applySceneEnvironment(
   scene: THREE.Scene,
-  environment?: SceneEnvironment,
+  environment?: EditorSceneEnvironment,
   backgroundScene: THREE.Scene = scene,
 ): void {
   backgroundScene.background = environment
@@ -167,16 +191,14 @@ export function ps2PositionToScene(position: Vector3Like, target = new THREE.Vec
   return target.set(position.x, position.z, -position.y);
 }
 
-function createSceneFog(environment: SceneEnvironment): THREE.Fog | null {
-  const near = environment.fogNearDistance;
-  const far = environment.fogFarDistance;
+function createSceneFog(environment: EditorSceneEnvironment): THREE.Fog | null {
+  const near = environment.fogNearDistance * 0.9;
+  const far = environment.fogFarDistance * 0.9;
   const nearAmount = fogAmount(environment.fogNearIntensity);
   const farAmount = fogAmount(environment.fogFarIntensity);
-  if (!Number.isFinite(near) || !Number.isFinite(far) || far <= near || farAmount <= nearAmount) return null;
-  const slope = (farAmount - nearAmount) / (far - near);
-  const effectiveNear = Math.max(0, near - nearAmount / slope);
-  const effectiveFar = near + (1 - nearAmount) / slope;
-  return new THREE.Fog(colorFromRgb(environment.fogColor), effectiveNear, effectiveFar);
+  if (!Number.isFinite(near) || !Number.isFinite(far) || far <= near
+    || Math.max(nearAmount, farAmount) <= 0) return null;
+  return new THREE.Fog(colorFromRgb(environment.fogColor), Math.max(0, near), far);
 }
 
 function colorFromRgb([red, green, blue]: readonly number[]): THREE.Color {
@@ -188,7 +210,7 @@ function colorFromRgb([red, green, blue]: readonly number[]): THREE.Color {
   );
 }
 
-function fogAmount(value: number): number {
+export function fogAmount(value: number): number {
   return 1 - THREE.MathUtils.clamp(Number.isFinite(value) ? value / 255 : 1, 0, 1) * (255 / 256);
 }
 

@@ -9,11 +9,17 @@ import {
   configureSkybox,
   disposeObject,
   framePs2Positions,
+  positionCameraAtPreferredMoby,
   rotateCamera,
   updateCameraFlight,
   updateCameraMovement,
 } from '../src/utils/Scene.ts';
-import { configurePs2MaterialAlpha, createPs2OpaquePassMaterial } from '../src/utils/Ps2Materials.ts';
+import {
+  configurePs2MaterialAlpha,
+  configurePs2MaterialFog,
+  createPs2OpaquePassMaterial,
+} from '../src/utils/Ps2Materials.ts';
+import { projectTransformToSceneMatrix, sceneMatrixToProjectTransform } from '../src/utils/Transforms.ts';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 function entity(id: string, x = 0, asset = true, state: Partial<EditorEntity['state']> = {}): EditorEntity {
@@ -70,6 +76,25 @@ test('scene projection converts PS2 Z-up transforms to Three.js Y-up', () => {
   assert.ok(rotatedX.distanceTo(new THREE.Vector3(0, 0, -1)) < 1e-6);
   assert.deepEqual(object.scale.toArray(), [2, 4, 3]);
   projection.dispose();
+});
+
+test('project transforms round-trip through scene coordinates', () => {
+  const value = entity('round-trip').transform;
+  value.position = { x: 12, y: -34, z: 56 };
+  value.rotation = { x: 0.2, y: -0.3, z: 0.1, w: 0.92 };
+  value.scale = { x: -2, y: 3, z: 4 };
+  const result = sceneMatrixToProjectTransform(projectTransformToSceneMatrix(value));
+  assert.ok(new THREE.Vector3(result.position.x, result.position.y, result.position.z)
+    .distanceTo(new THREE.Vector3(value.position.x, value.position.y, value.position.z)) < 1e-5);
+  assert.ok(Math.abs(result.scale.x * result.scale.y * result.scale.z
+    - value.scale.x * value.scale.y * value.scale.z) < 1e-5);
+  const expectedRotation = new THREE.Quaternion(
+    value.rotation.x, value.rotation.y, value.rotation.z, value.rotation.w,
+  ).normalize();
+  const actualRotation = new THREE.Quaternion(
+    result.rotation.x, result.rotation.y, result.rotation.z, result.rotation.w,
+  );
+  assert.ok(Math.abs(expectedRotation.dot(actualRotation)) > 0.99999);
 });
 
 test('scene projection applies entity states and picks the nearest eligible entity', () => {
@@ -169,7 +194,8 @@ test('scene environment and sky configure WebGL fidelity defaults', () => {
   assert.equal(scene.background, null);
   assert.ok(backgroundScene.background instanceof THREE.Color);
   assert.ok(scene.fog instanceof THREE.Fog);
-  assert.ok(scene.fog.near < 10 && scene.fog.far >= 175);
+  assert.equal(scene.fog.near, 9);
+  assert.equal(scene.fog.far, 157.5);
 
   const material = new THREE.MeshBasicMaterial();
   const sky = new THREE.Mesh(new THREE.BoxGeometry(10, 10, 10), material);
@@ -184,6 +210,21 @@ test('scene environment and sky configure WebGL fidelity defaults', () => {
   assert.equal(material.fog, false);
   assert.equal(material.blending, THREE.AdditiveBlending);
   disposeObject(sky);
+});
+
+test('PS2 fog clamps to the game far intensity instead of increasing to full fog', () => {
+  const material = new THREE.MeshBasicMaterial();
+  const root = new THREE.Mesh(new THREE.BoxGeometry(), material);
+  configurePs2MaterialFog(root, {
+    backgroundColor: [0, 0, 0], fogColor: [40, 50, 40],
+    fogNearDistance: 10, fogFarDistance: 175, fogNearIntensity: 255, fogFarIntensity: 128,
+  });
+  const shader = { fragmentShader: '#include <fog_fragment>' };
+  material.onBeforeCompile(shader as never, {} as never);
+  assert.doesNotMatch(shader.fragmentShader, /#include <fog_fragment>/);
+  assert.match(shader.fragmentShader, /vFogDepth - 9\.00000000/);
+  assert.match(shader.fragmentShader, /mix\(0\.00390625, 0\.50000000/);
+  disposeObject(root);
 });
 
 test('PS2 blend materials normalize byte 127 to full opacity', () => {
@@ -220,6 +261,25 @@ test('mixed-alpha entity materials create opaque and translucent instance passes
   assert.equal(meshes.length, 2);
   assert.ok(meshes.some((mesh) => !(mesh.material as THREE.Material).transparent));
   assert.ok(meshes.some((mesh) => (mesh.material as THREE.Material).transparent));
+  projection.dispose();
+  disposeObject(template);
+});
+
+test('unsupported moby metal overlays do not obscure the textured base mesh', () => {
+  const template = new THREE.Group();
+  const baseMaterial = new THREE.MeshBasicMaterial({ transparent: true });
+  template.add(new THREE.Mesh(new THREE.BoxGeometry(), baseMaterial));
+  const metals = new THREE.Group();
+  metals.name = 'metals';
+  metals.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial()));
+  template.add(metals);
+  const projection = new SceneProjection();
+  projection.setAssetTemplates(new Map([['asset', template]]));
+  projection.sync([entity('moby')]);
+  const meshes: THREE.InstancedMesh[] = [];
+  projection.root.traverse((object) => { if (object instanceof THREE.InstancedMesh) meshes.push(object); });
+  assert.equal(meshes.length, 1);
+  assert.equal((meshes[0].material as THREE.Material).transparent, true);
   projection.dispose();
   disposeObject(template);
 });
@@ -294,4 +354,32 @@ test('camera framing ignores distant entity outliers', () => {
   assert.ok(controls.target.x < 20);
   assert.ok(camera.position.distanceTo(controls.target) < 50);
   assert.ok(camera.far > 19_000);
+});
+
+test('camera spawn prefers Ratchet, then Clank, then the fallback moby', () => {
+  const camera = new THREE.PerspectiveCamera();
+  const controls = { target: new THREE.Vector3(), update() {} } as unknown as OrbitControls;
+  const fallback = entity('fallback');
+  fallback.sourceClassId = 0x1c31;
+  fallback.transform.position = { x: 100, y: 200, z: 300 };
+  const clank = entity('clank');
+  clank.sourceClassId = 0x0057;
+  clank.transform.position = { x: 10, y: 20, z: 30 };
+  const ratchet = entity('ratchet');
+  ratchet.sourceClassId = 0x0000;
+  ratchet.transform.position = { x: 1, y: 2, z: 3 };
+  const rotation = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI / 2);
+  ratchet.transform.rotation = { x: rotation.x, y: rotation.y, z: rotation.z, w: rotation.w };
+
+  assert.equal(positionCameraAtPreferredMoby(camera, controls, [fallback, clank, ratchet]), true);
+  const expectedPosition = new THREE.Vector3();
+  const expectedRotation = new THREE.Quaternion();
+  projectTransformToSceneMatrix(ratchet.transform).decompose(
+    expectedPosition, expectedRotation, new THREE.Vector3(),
+  );
+  expectedPosition.y += 2;
+  expectedRotation.premultiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -Math.PI / 2));
+  assert.ok(camera.position.distanceTo(expectedPosition) < 1e-6);
+  assert.ok(Math.abs(camera.quaternion.dot(expectedRotation)) > 0.99999);
+  assert.equal(positionCameraAtPreferredMoby(camera, controls, [entity('none')]), false);
 });

@@ -136,7 +136,8 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
     const command = value as Record<string, unknown>;
     if (typeof command.id !== 'string'
       || ![
-        'setSelection', 'renameProject', 'updateTransform', 'renameEntity', 'setEntityLayer', 'setEntityState',
+        'setSelection', 'renameProject', 'updateTransform', 'updateTransforms',
+        'renameEntity', 'setEntityLayer', 'setEntityState',
       ].includes(String(command.kind))
       || !Array.isArray(command.entityIds)
       || command.entityIds.some((id) => typeof id !== 'string')) {

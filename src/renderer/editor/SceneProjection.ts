@@ -321,7 +321,8 @@ function createInstancedAsset(
   const materials = new Set<THREE.Material>();
   const buckets = new Map<THREE.Material | THREE.Material[], Map<string, THREE.BufferGeometry[]>>();
   template.traverse((object) => {
-    if (!(object instanceof THREE.Mesh) || object.name === 'shrub_billboard') return;
+    // Moby metal overlays intentionally stay disabled until the map chrome texture is extracted and applied.
+    if (!(object instanceof THREE.Mesh) || object.name === 'shrub_billboard' || isMobyMetalObject(object)) return;
     const geometry = object.geometry.clone();
     geometry.deleteAttribute('skinIndex');
     geometry.deleteAttribute('skinWeight');
@@ -348,6 +349,12 @@ function createInstancedAsset(
     }
   }
   return { root, meshes, geometries, materials, capacity, hasNormal, hasMirrored };
+}
+
+function isMobyMetalObject(object: THREE.Object3D): boolean {
+  for (let current: THREE.Object3D | null = object; current; current = current.parent)
+    if (current.name === 'metals') return true;
+  return false;
 }
 
 function geometrySignature(geometry: THREE.BufferGeometry): string {

@@ -14,6 +14,11 @@ export interface ProjectTransform {
   scale: ProjectVector3;
 }
 
+export interface EditorTransformUpdate {
+  entityId: string;
+  transform: ProjectTransform;
+}
+
 export interface EditorEntity {
   id: string;
   name: string;
@@ -21,6 +26,7 @@ export interface EditorEntity {
   transform: ProjectTransform;
   asset?: { id: string; kind: string };
   provenance?: { game: string; level: number; section: string; sourceIndex: number };
+  sourceClassId?: number;
   state: {
     dirty: boolean;
     hidden: boolean;
@@ -35,6 +41,7 @@ export type EditorCommand =
   | { id: string; kind: 'setSelection'; entityIds: string[] }
   | { id: string; kind: 'renameProject'; entityIds: []; text: string }
   | { id: string; kind: 'updateTransform'; entityIds: [string]; transform: ProjectTransform }
+  | { id: string; kind: 'updateTransforms'; entityIds: string[]; transforms: EditorTransformUpdate[] }
   | { id: string; kind: 'renameEntity'; entityIds: [string]; text: string }
   | { id: string; kind: 'setEntityLayer'; entityIds: string[]; text: string }
   | {

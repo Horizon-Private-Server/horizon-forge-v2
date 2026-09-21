@@ -1,11 +1,15 @@
 import * as THREE from 'three';
 
+import type { EditorSceneEnvironment } from '../types/ForgeApi.js';
+import { fogAmount } from './Scene.ts';
+
 export type Ps2MaterialFamily = 'tfrag' | 'tie' | 'shrub' | 'moby' | 'sky';
 
 const DEFAULT_FULL_OPACITY_BYTE = 127;
 const ALPHA_PATCH_KEY = 'forgePs2FullOpacityAlpha';
 const ALPHA_SPLIT_KEY = 'forgePs2AlphaSplit';
 const TRANSLUCENT_PASS_KEY = 'forgePs2TranslucentPass';
+const FOG_PATCH_KEY = 'forgePs2Fog';
 const OPAQUE_ALPHA_CUTOFF = 254 / 255;
 const alphaCompile = new WeakMap<THREE.Material, THREE.Material['onBeforeCompile']>();
 const alphaCacheKey = new WeakMap<THREE.Material, THREE.Material['customProgramCacheKey']>();
@@ -17,6 +21,40 @@ export function configurePs2MaterialAlpha(root: THREE.Object3D, family: Ps2Mater
     for (const material of Array.isArray(object.material) ? object.material : [object.material]) materials.add(material);
   });
   materials.forEach((material) => configureMaterial(material, family));
+}
+
+export function configurePs2MaterialFog(root: THREE.Object3D, environment?: EditorSceneEnvironment): void {
+  if (!environment) return;
+  const near = environment.fogNearDistance * 0.9;
+  const far = environment.fogFarDistance * 0.9;
+  const nearAmount = fogAmount(environment.fogNearIntensity);
+  const farAmount = fogAmount(environment.fogFarIntensity);
+  if (![near, far, nearAmount, farAmount].every(Number.isFinite) || far <= near) return;
+  const signature = `${near}:${far}:${nearAmount}:${farAmount}`;
+  const materials = new Set<THREE.Material>();
+  root.traverse((object) => {
+    if (!(object instanceof THREE.Mesh)) return;
+    for (const material of Array.isArray(object.material) ? object.material : [object.material]) materials.add(material);
+  });
+  materials.forEach((material) => {
+    if (material.userData[FOG_PATCH_KEY] === signature) return;
+    const previousCompile = material.onBeforeCompile.bind(material);
+    const previousCacheKey = material.customProgramCacheKey.bind(material);
+    material.onBeforeCompile = (shader, renderer) => {
+      previousCompile(shader, renderer);
+      shader.fragmentShader = shader.fragmentShader.replace('#include <fog_fragment>', `
+#ifdef USE_FOG
+  float forgeFogDistanceMix = clamp((vFogDepth - ${near.toFixed(8)}) / ${(far - near).toFixed(8)}, 0.0, 1.0);
+  float forgeFogFactor = clamp(mix(${nearAmount.toFixed(8)}, ${farAmount.toFixed(8)}, forgeFogDistanceMix), 0.0, 1.0);
+  gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, forgeFogFactor);
+#endif`);
+    };
+    material.customProgramCacheKey = () => `${previousCacheKey()}-forge-ps2-fog-${signature}`;
+    material.userData[FOG_PATCH_KEY] = signature;
+    material.needsUpdate = true;
+    alphaCompile.set(material, material.onBeforeCompile);
+    alphaCacheKey.set(material, material.customProgramCacheKey);
+  });
 }
 
 function configureMaterial(material: THREE.Material, family: Ps2MaterialFamily): void {

@@ -35,10 +35,15 @@ internal static class EditorPayloadCodec
         var kind = (EditorCommandKind)reader.ReadUInt32();
         var entities = ReadEntityIds(ref reader);
         var transform = reader.ReadBoolean() ? ReadTransform(ref reader) : null;
+        var transformCount = reader.ReadUInt32();
+        if (transformCount > MaxEntities) PayloadFormat.Malformed("Transform list exceeds item limit");
+        var transforms = new EditorTransformUpdate[transformCount];
+        for (var index = 0; index < transforms.Length; index++)
+            transforms[index] = new(EntityId.Parse(reader.ReadString()), ReadTransform(ref reader));
         var text = reader.ReadBoolean() ? reader.ReadString() : null;
         var state = reader.ReadBoolean() ? ReadStateChange(ref reader) : null;
         reader.Complete();
-        return new(id, kind, entities, transform, text, state);
+        return new(id, kind, entities, transform, text, state, transforms);
     }
 
     public static byte[] EncodeSnapshot(EditorSnapshot value)
@@ -131,6 +136,8 @@ internal static class EditorPayloadCodec
             writer.WriteString(value.Provenance.Section);
             writer.WriteUInt32(checked((uint)value.Provenance.SourceIndex));
         }
+        writer.WriteBoolean(value.SourceClassId is not null);
+        if (value.SourceClassId is not null) writer.WriteUInt32(checked((uint)value.SourceClassId));
         writer.WriteBoolean(value.State.Dirty);
         writer.WriteBoolean(value.State.Hidden);
         writer.WriteBoolean(value.State.Disabled);

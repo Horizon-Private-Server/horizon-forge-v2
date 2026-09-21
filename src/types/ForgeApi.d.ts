@@ -25,6 +25,7 @@ export interface KnownSettings {
   'sources.uya.size': number;
   'targets.uya.developmentIso': string;
   'ui.editorLayout': string;
+  'ui.showViewportStats': boolean;
 }
 
 export type SettingKey = keyof KnownSettings;
@@ -176,17 +177,19 @@ export interface SetupProgress extends Progress {
   operation: 'validate' | 'copy' | 'import';
 }
 
+export interface EditorSceneEnvironment {
+  backgroundColor: [number, number, number];
+  fogColor: [number, number, number];
+  fogNearDistance: number;
+  fogFarDistance: number;
+  fogNearIntensity: number;
+  fogFarIntensity: number;
+}
+
 export interface EditorTerrainSource {
   urls: string[];
   skyUrl?: string;
-  environment?: {
-    backgroundColor: [number, number, number];
-    fogColor: [number, number, number];
-    fogNearDistance: number;
-    fogFarDistance: number;
-    fogNearIntensity: number;
-    fogFarIntensity: number;
-  };
+  environment?: EditorSceneEnvironment;
   assets: { assetId: string; kind: 'moby' | 'tie' | 'shrub'; url?: string; error?: string }[];
   cacheHit: boolean;
 }

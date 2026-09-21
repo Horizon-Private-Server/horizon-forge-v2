@@ -155,6 +155,14 @@ Acceptance:
 
 Verification: transform math, multi-selection, cancel/commit, and overlay exclusion.
 
+Implementation: Three.js `TransformControls` renders against a dedicated overlay
+scene and manipulates an editor-only bounds-center pivot. World/local move, rotate,
+and scale preview selected unlocked entities without mutating project state, then
+commit one validated binary batch-transform command on release; Escape restores
+the authoritative snapshot. Existing property inputs provide numeric entry. All
+current UYA P0 entity records support scale; future unsupported kinds must disable
+that mode. Rebindable mode shortcuts remain owned by M2-009's keybinding system.
+
 ## M2-007 — Add snapping and Page Down placement
 
 Requirements: FR-SCENE-009, FR-SCENE-010, DR-009, NFR-PERF-002  

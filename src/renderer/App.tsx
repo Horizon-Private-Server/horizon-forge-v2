@@ -11,6 +11,7 @@ import { SetupWizard } from './setup/SetupWizard.tsx';
 export function App() {
   const [hostStatus, setHostStatus] = useState<ForgeHostStatus>();
   const [settingsOpened, setSettingsOpened] = useState(false);
+  const [showViewportStats, setShowViewportStats] = useState(true);
   const [setupOpened, setSetupOpened] = useState(false);
   const [activeProject, setActiveProject] = useState<EditorSnapshot>();
   const [editorError, setEditorError] = useState<string>();
@@ -30,6 +31,12 @@ export function App() {
     return () => {
       mounted = false;
     };
+  }, []);
+
+  useEffect(() => {
+    void window.forge.getSettings().then((snapshot) => {
+      setShowViewportStats(snapshot.entries.find((entry) => entry.key === 'ui.showViewportStats')?.value === true);
+    }).catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -99,6 +106,7 @@ export function App() {
           project={activeProject}
           hostStatus={hostStatus}
           layoutAction={layoutAction}
+          showViewportStats={showViewportStats}
           onProjectChange={setActiveProject}
         />
         : <ProjectHub
@@ -113,7 +121,11 @@ export function App() {
           }).catch((error) => setEditorError(errorMessage(error)))}
           onOpenSetup={() => setSetupOpened(true)}
         />}
-      <SettingsModal opened={settingsOpened} onClose={() => setSettingsOpened(false)} />
+      <SettingsModal
+        opened={settingsOpened}
+        onClose={() => setSettingsOpened(false)}
+        onViewportStatsChange={setShowViewportStats}
+      />
       <SetupWizard opened={setupOpened} onClose={() => {
         setSetupOpened(false);
         setHubRefresh((value) => value + 1);

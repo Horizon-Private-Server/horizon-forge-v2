@@ -143,6 +143,12 @@ function createDefinitions(paths: ApplicationPaths): SettingDefinition[] {
       validate: (value): value is string => typeof value === 'string' && value.length <= 1024 * 1024,
     },
     {
+      key: 'ui.showViewportStats', group: 'Editor', label: 'Viewport statistics', type: 'boolean',
+      description: 'Show rendering performance in the viewport.', defaultValue: true, restartRequired: false,
+      machineSpecific: false, editable: true,
+      validate: (value): value is boolean => typeof value === 'boolean',
+    },
+    {
       key: 'imports.uya.enabled', group: 'Imports', label: 'Import UYA assets', type: 'boolean',
       description: 'Import reusable UYA assets after setup.', defaultValue: true, restartRequired: false, machineSpecific: false,
       editable: true,

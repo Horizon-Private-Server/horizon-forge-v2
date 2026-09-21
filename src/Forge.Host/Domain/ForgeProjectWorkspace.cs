@@ -118,6 +118,23 @@ public sealed class ForgeProjectWorkspace
         Content = Content with { Entities = entities };
     }
 
+    public void UpdateTransforms(IReadOnlyList<EditorTransformUpdate> updates)
+    {
+        ArgumentNullException.ThrowIfNull(updates);
+        foreach (var update in updates)
+        {
+            ValidateTransform(update.Transform);
+            FindEntityIndex(update.EntityId);
+        }
+        var transforms = updates.ToDictionary(update => update.EntityId, update => update.Transform);
+        Content = Content with
+        {
+            Entities = Content.Entities.Select(entity => transforms.TryGetValue(entity.EntityId, out var transform)
+                ? entity with { Transform = transform }
+                : entity).ToArray(),
+        };
+    }
+
     public void RenameEntity(EntityId entityId, string name)
     {
         ValidateText(name, nameof(name));

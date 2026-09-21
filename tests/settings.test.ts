@@ -24,15 +24,18 @@ test('settings validate defaults and preserve unknown keys', async () => {
 
     const invalid = await store.getSnapshot();
     assert.equal(invalid.entries.find((entry) => entry.key === 'editor.autosaveSeconds')?.value, 30);
+    assert.equal(invalid.entries.find((entry) => entry.key === 'ui.showViewportStats')?.value, true);
     assert.match(invalid.diagnostics.join('\n'), /editor\.autosaveSeconds/);
 
     await store.set('paths.projects', '/maps/projects');
     await store.set('ui.editorLayout', '{"panels":{}}');
+    await store.set('ui.showViewportStats', true);
     const persisted = JSON.parse(await readFile(paths.settingsFile, 'utf8'));
     assert.deepEqual(persisted['future.setting'], { enabled: true });
     assert.equal(persisted['editor.autosaveSeconds'], 1);
     assert.equal(persisted['paths.projects'], '/maps/projects');
     assert.equal(persisted['ui.editorLayout'], '{"panels":{}}');
+    assert.equal(persisted['ui.showViewportStats'], true);
 
     await store.reset('editor.autosaveSeconds');
     const reset = JSON.parse(await readFile(paths.settingsFile, 'utf8'));
@@ -42,6 +45,7 @@ test('settings validate defaults and preserve unknown keys', async () => {
     assert.deepEqual(await store.export(false), {
       'editor.autosaveSeconds': 30,
       'imports.uya.enabled': true,
+      'ui.showViewportStats': true,
     });
     await store.reset();
     assert.deepEqual(JSON.parse(await readFile(paths.settingsFile, 'utf8')), { 'future.setting': { enabled: true } });

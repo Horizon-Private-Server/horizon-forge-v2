@@ -1,10 +1,9 @@
-import { Checkbox, Group, Text } from '@mantine/core';
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-import type { EditorEntity } from '../../types/EditorRuntime.js';
+import type { EditorEntity, EditorTransformUpdate } from '../../types/EditorRuntime.js';
 import type { EditorLoadProgress, EditorTerrainSource } from '../../types/ForgeApi.js';
 import {
   disposeObject,
@@ -12,25 +11,32 @@ import {
   configureSkybox,
   frameObject,
   framePs2Positions,
+  positionCameraAtPreferredMoby,
   ps2PositionToScene,
   rotateCamera,
   updateCameraFlight,
   updateCameraMovement,
 } from '../../utils/Scene.ts';
 import type { CameraFlight } from '../../utils/Scene.ts';
-import { configurePs2MaterialAlpha } from '../../utils/Ps2Materials.ts';
+import { configurePs2MaterialAlpha, configurePs2MaterialFog } from '../../utils/Ps2Materials.ts';
 import { nextViewportSelection } from './EditorPanelState.ts';
 import { SceneProjection } from './SceneProjection.ts';
+import { TransformTool } from './TransformTool.ts';
+import type { EditorTransformMode, EditorTransformSpace } from './TransformTool.ts';
+import { ViewportToolbar } from './ViewportToolbar.tsx';
 
 interface SceneViewportProps {
   entities: readonly EditorEntity[];
   focusEntityId?: string;
   selection: readonly string[];
   terrain?: EditorTerrainSource;
+  disabled: boolean;
+  showStats: boolean;
   onFocusHandled(): void;
   onLoadProgress(progress?: EditorLoadProgress): void;
   onSkyPiecesChange(values: string[]): void;
   onSelectionChange(values: string[]): void;
+  onTransformsCommit(values: EditorTransformUpdate[]): Promise<boolean>;
 }
 
 export function SceneViewport({
@@ -38,32 +44,40 @@ export function SceneViewport({
   focusEntityId,
   selection,
   terrain: terrainSource,
+  disabled,
+  showStats,
   onFocusHandled,
   onLoadProgress,
   onSkyPiecesChange,
   onSelectionChange,
+  onTransformsCommit,
 }: SceneViewportProps) {
   const container = useRef<HTMLDivElement>(null);
-  const [visibility, setVisibility] = useState(DEFAULT_VISIBILITY);
-  const [stats, setStats] = useState<ViewportStats>();
-  const currentVisibility = useRef(visibility);
+  const [mode, setMode] = useState<EditorTransformMode>('select');
+  const [space, setSpace] = useState<EditorTransformSpace>('world');
+  const [stats, setStats] = useState<{ fps: number; calls: number; triangles: number }>();
+  const currentShowStats = useRef(showStats);
   const currentSelection = useRef(selection);
   const currentEntities = useRef(entities);
   const focusHandled = useRef(onFocusHandled);
   const loadProgressChanged = useRef(onLoadProgress);
   const selectionChanged = useRef(onSelectionChange);
+  const transformsCommitted = useRef(onTransformsCommit);
   currentSelection.current = selection;
   currentEntities.current = entities;
-  currentVisibility.current = visibility;
+  currentShowStats.current = showStats;
   focusHandled.current = onFocusHandled;
   loadProgressChanged.current = onLoadProgress;
   selectionChanged.current = onSelectionChange;
+  transformsCommitted.current = onTransformsCommit;
   const viewport = useRef<{
     projection: SceneProjection;
     scene: THREE.Scene;
     skyScene: THREE.Scene;
+    toolScene: THREE.Scene;
     camera: THREE.PerspectiveCamera;
     controls: OrbitControls;
+    transformTool: TransformTool;
     content: THREE.Group;
     terrain: THREE.Group;
     sky: THREE.Group;
@@ -79,6 +93,7 @@ export function SceneViewport({
 
     const scene = new THREE.Scene();
     const skyScene = new THREE.Scene();
+    const toolScene = new THREE.Scene();
     applySceneEnvironment(scene, undefined, skyScene);
     scene.add(new THREE.HemisphereLight(0xffffff, 0x5c6370, 2));
     const content = new THREE.Group();
@@ -110,12 +125,33 @@ export function SceneViewport({
     let cameraInputActive = false;
     camera.position.set(0, 150, 300);
     controls.update();
+    const transformTool = new TransformTool(camera, renderer.domElement, toolScene, {
+      preview: (preview) => currentProjection.sync(
+        preview ?? currentEntities.current,
+        currentSelection.current,
+      ),
+      commit: (updates) => {
+        void transformsCommitted.current(updates).then((committed) => {
+          if (committed) return;
+          requestAnimationFrame(() => {
+            if (viewport.current?.projection !== currentProjection) return;
+            currentProjection.sync(
+              currentEntities.current,
+              currentSelection.current,
+            );
+            transformTool.sync(currentEntities.current, currentSelection.current, currentProjection);
+          });
+        });
+      },
+    });
     viewport.current = {
       projection: currentProjection,
       scene,
       skyScene,
+      toolScene,
       camera,
       controls,
+      transformTool,
       content,
       terrain,
       sky,
@@ -125,7 +161,12 @@ export function SceneViewport({
     };
 
     const keyDown = (event: KeyboardEvent) => {
+      if (event.code === 'Escape' && transformTool.cancel()) {
+        event.preventDefault();
+        return;
+      }
       if (!cameraInputActive || !MOVEMENT_KEYS.has(event.code)) return;
+      if (transformTool.isInteracting) return;
       if (viewport.current) viewport.current.flight = undefined;
       movement.add(event.code);
       event.preventDefault();
@@ -151,6 +192,7 @@ export function SceneViewport({
     let lookPointerId: number | undefined;
     let lookPosition: { x: number; y: number } | undefined;
     const pointerDown = (event: PointerEvent) => {
+      if (transformTool.isInteracting) return;
       if (viewport.current) viewport.current.flight = undefined;
       renderer.domElement.focus({ preventScroll: true });
       if (event.button === 0) {
@@ -161,11 +203,13 @@ export function SceneViewport({
       }
     };
     const pointerMove = (event: PointerEvent) => {
+      if (transformTool.isInteracting) return;
       if (event.pointerId !== lookPointerId || !lookPosition) return;
       rotateCamera(camera, controls.target, event.clientX - lookPosition.x, event.clientY - lookPosition.y);
       lookPosition = { x: event.clientX, y: event.clientY };
     };
     const pointerUp = (event: PointerEvent) => {
+      if (transformTool.isInteracting) return;
       if (event.button !== 0 || !pointerStart) return;
       lookPointerId = undefined;
       lookPosition = undefined;
@@ -190,6 +234,7 @@ export function SceneViewport({
       selectionChanged.current(next);
     };
     const pointerCancel = (event: PointerEvent) => {
+      if (transformTool.isInteracting) return;
       if (event.pointerId !== lookPointerId) return;
       pointerStart = undefined;
       lookPointerId = undefined;
@@ -228,8 +273,10 @@ export function SceneViewport({
       renderer.render(skyScene, camera);
       renderer.clearDepth();
       renderer.render(scene, camera);
+      renderer.clearDepth();
+      renderer.render(toolScene, camera);
       const now = performance.now();
-      if (currentVisibility.current.stats) {
+      if (currentShowStats.current) {
         statsFrames += 1;
         if (now - statsStarted >= 500) {
           setStats({
@@ -261,6 +308,7 @@ export function SceneViewport({
       renderer.domElement.removeEventListener('focus', activateCameraInput);
       renderer.domElement.removeEventListener('blur', deactivateCameraInput);
       renderer.setAnimationLoop(null);
+      transformTool.dispose();
       controls.dispose();
       sky.removeFromParent();
       sky.clear();
@@ -314,6 +362,7 @@ export function SceneViewport({
         ?? new Error('Could not load terrain');
       for (const scene of loaded) {
         configurePs2MaterialAlpha(scene, 'tfrag');
+        configurePs2MaterialFog(scene, terrainSource.environment);
         scene.traverse((object) => { if (/^lod_[1-9]/i.test(object.name)) object.visible = false; });
         viewport.current.terrain.add(scene);
         loadedScenes.push(scene);
@@ -325,7 +374,6 @@ export function SceneViewport({
         viewport.current.skyEye.copy(sky.eye);
         onSkyPiecesChange(sky.pieces);
         viewport.current.sky.add(skyScene);
-        viewport.current.sky.visible = currentVisibility.current.sky;
         loadedScenes.push(skyScene);
       }
       const templates = new Map<string, THREE.Object3D>();
@@ -334,6 +382,7 @@ export function SceneViewport({
         const asset = terrainSource.assets[index];
         if (result.status === 'fulfilled') {
           configurePs2MaterialAlpha(result.value.scene, asset.kind);
+          configurePs2MaterialFog(result.value.scene, terrainSource.environment);
           templates.set(asset.assetId, result.value.scene);
           loadedScenes.push(result.value.scene);
         } else {
@@ -344,12 +393,15 @@ export function SceneViewport({
       viewport.current.projection.sync(
         currentEntities.current,
         currentSelection.current,
-        visibleEntityLayers(currentEntities.current, currentVisibility.current),
-        currentVisibility.current.markers,
       );
-      if (!frameEntities(viewport.current.camera, viewport.current.controls, currentEntities.current))
-        frameObject(viewport.current.camera, viewport.current.controls, viewport.current.content);
-      viewport.current.framed = true;
+      viewport.current.transformTool.sync(currentEntities.current, currentSelection.current, viewport.current.projection);
+      if (!viewport.current.framed) {
+        if (!positionCameraAtPreferredMoby(
+          viewport.current.camera, viewport.current.controls, currentEntities.current,
+        ) && !frameEntities(viewport.current.camera, viewport.current.controls, currentEntities.current))
+          frameObject(viewport.current.camera, viewport.current.controls, viewport.current.content);
+        viewport.current.framed = true;
+      }
       const terrainFailures = terrainResults.length - loaded.length;
       const skyFailures = skyResults.filter((result) => result.status === 'rejected').length;
       const firstAssetFailure = assetResults.findIndex((result) => result.status === 'rejected');
@@ -387,28 +439,20 @@ export function SceneViewport({
     current.projection.sync(
       entities,
       selection,
-      visibleEntityLayers(entities, currentVisibility.current),
-      currentVisibility.current.markers,
     );
+    current.transformTool.sync(entities, selection, current.projection);
     if (!current.framed && entities.length) {
-      frameEntities(current.camera, current.controls, entities);
+      if (!positionCameraAtPreferredMoby(current.camera, current.controls, entities))
+        frameEntities(current.camera, current.controls, entities);
       current.framed = true;
     }
   }, [entities, selection]);
 
-  useEffect(() => {
-    const current = viewport.current;
-    if (!current) return;
-    current.terrain.visible = visibility.terrain;
-    current.sky.visible = visibility.sky;
-    current.projection.sync(
-      currentEntities.current,
-      currentSelection.current,
-      visibleEntityLayers(currentEntities.current, visibility),
-      visibility.markers,
-    );
-    if (!visibility.stats) setStats(undefined);
-  }, [visibility]);
+  useEffect(() => { if (!showStats) setStats(undefined); }, [showStats]);
+
+  useEffect(() => viewport.current?.transformTool.setMode(mode), [mode]);
+  useEffect(() => viewport.current?.transformTool.setSpace(space), [space]);
+  useEffect(() => viewport.current?.transformTool.setEnabled(!disabled), [disabled]);
 
   useEffect(() => {
     if (!focusEntityId) return;
@@ -435,49 +479,21 @@ export function SceneViewport({
   return (
     <div aria-label="3D scene viewport" className="scene-viewport">
       <div className="scene-canvas" ref={container} />
-      <Group aria-label="Viewport visibility" className="scene-toolbar" gap="xs" role="group">
-        {VISIBILITY_CONTROLS.map(([key, label]) => <Checkbox
-          checked={visibility[key]}
-          key={key}
-          label={label}
-          size="xs"
-          onChange={(event) => setVisibility((value) => ({ ...value, [key]: event.currentTarget.checked }))}
-        />)}
-        {visibility.stats && <Text c="dimmed" size="xs">
-          {stats ? `${stats.fps} FPS · ${stats.calls} calls · ${stats.triangles.toLocaleString()} tris` : 'Measuring…'}
-        </Text>}
-      </Group>
+      <ViewportToolbar
+        mode={mode}
+        space={space}
+        onModeChange={setMode}
+        onSpaceChange={setSpace}
+      />
+      {showStats && <div className="scene-stats">
+        {stats ? `${stats.fps} FPS · ${stats.calls} calls · ${stats.triangles.toLocaleString()} tris` : 'Measuring…'}
+      </div>}
     </div>
   );
 }
 
 const MOVEMENT_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'Space', 'ShiftLeft', 'ShiftRight']);
 const ZERO_VECTOR = new THREE.Vector3();
-
-interface ViewportVisibility {
-  terrain: boolean;
-  ties: boolean;
-  shrubs: boolean;
-  mobys: boolean;
-  sky: boolean;
-  markers: boolean;
-  stats: boolean;
-}
-
-interface ViewportStats {
-  fps: number;
-  calls: number;
-  triangles: number;
-}
-
-const DEFAULT_VISIBILITY: ViewportVisibility = {
-  terrain: true, ties: true, shrubs: true, mobys: true, sky: true, markers: true, stats: false,
-};
-
-const VISIBILITY_CONTROLS = [
-  ['terrain', 'Terrain'], ['ties', 'Ties'], ['shrubs', 'Shrubs'], ['mobys', 'Mobys'],
-  ['sky', 'Sky'], ['markers', 'Markers'], ['stats', 'Stats'],
-] as const;
 
 function preventDefault(event: Event): void {
   event.preventDefault();
@@ -489,17 +505,6 @@ function frameEntities(camera: THREE.PerspectiveCamera, controls: OrbitControls,
     controls,
     entities.filter((entity) => !entity.state.hidden && !entity.state.disabled).map((entity) => entity.transform.position),
   );
-}
-
-function visibleEntityLayers(
-  entities: readonly EditorEntity[],
-  visibility: ViewportVisibility,
-): ReadonlySet<string> {
-  const layers = new Set(entities.map((entity) => entity.layer));
-  if (!visibility.ties) layers.delete('ties');
-  if (!visibility.shrubs) layers.delete('shrubs');
-  if (!visibility.mobys) layers.delete('mobys');
-  return layers;
 }
 
 function failedAssetFamilies(

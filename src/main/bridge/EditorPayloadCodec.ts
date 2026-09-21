@@ -17,6 +17,7 @@ const commandKinds = {
   renameEntity: 4,
   setEntityLayer: 5,
   setEntityState: 6,
+  updateTransforms: 7,
 } as const;
 const eventKinds: Record<number, EditorEvent['kind']> = {
   1: 'projectOpened', 2: 'projectChanged', 3: 'selectionChanged', 4: 'projectSaved',
@@ -41,6 +42,12 @@ export function encodeEditorCommand(value: EditorCommand): Buffer {
   writeStrings(writer, value.entityIds);
   writer.writeBoolean(value.kind === 'updateTransform');
   if (value.kind === 'updateTransform') writeTransform(writer, value.transform);
+  const transforms = value.kind === 'updateTransforms' ? value.transforms : [];
+  writer.writeUInt32(transforms.length);
+  transforms.forEach((update) => {
+    writer.writeString(update.entityId);
+    writeTransform(writer, update.transform);
+  });
   const hasText = value.kind === 'renameProject' || value.kind === 'renameEntity' || value.kind === 'setEntityLayer';
   writer.writeBoolean(hasText);
   if (hasText) writer.writeString(value.text);
@@ -116,6 +123,7 @@ function readEntity(reader: PayloadReader): EditorEntity {
   if (reader.readBoolean()) value.provenance = {
     game: reader.readString(), level: reader.readUInt32(), section: reader.readString(), sourceIndex: reader.readUInt32(),
   };
+  if (reader.readBoolean()) value.sourceClassId = reader.readUInt32();
   value.state = {
     dirty: reader.readBoolean(),
     hidden: reader.readBoolean(),

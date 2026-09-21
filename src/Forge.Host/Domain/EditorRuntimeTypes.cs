@@ -8,6 +8,7 @@ public enum EditorCommandKind : byte
     RenameEntity = 4,
     SetEntityLayer = 5,
     SetEntityState = 6,
+    UpdateTransforms = 7,
 }
 
 public enum EditorEventKind : byte
@@ -34,7 +35,10 @@ public sealed record EditorCommand(
     IReadOnlyList<EntityId> EntityIds,
     ProjectTransform? Transform = null,
     string? Text = null,
-    EditorEntityStateChange? State = null);
+    EditorEntityStateChange? State = null,
+    IReadOnlyList<EditorTransformUpdate>? Transforms = null);
+
+public sealed record EditorTransformUpdate(EntityId EntityId, ProjectTransform Transform);
 
 public sealed record EditorEntityStateChange(
     bool? Hidden = null,
@@ -56,6 +60,7 @@ public sealed record EditorEntitySnapshot(
     ProjectTransform Transform,
     ProjectAssetReference? Asset,
     ProjectEntityProvenance? Provenance,
+    int? SourceClassId,
     EditorEntityStatus State);
 
 public sealed record EditorEvent(

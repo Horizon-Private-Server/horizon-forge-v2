@@ -27,6 +27,7 @@ interface EditorWorkspaceProps {
   project: EditorSnapshot;
   hostStatus?: ForgeHostStatus;
   layoutAction?: { id: number; action: EditorLayoutAction };
+  showViewportStats: boolean;
   onProjectChange(project: EditorSnapshot): void;
 }
 
@@ -37,7 +38,13 @@ const components = {
   diagnostics: DiagnosticsPanel,
 };
 
-export function EditorWorkspace({ project, hostStatus, layoutAction, onProjectChange }: EditorWorkspaceProps) {
+export function EditorWorkspace({
+  project,
+  hostStatus,
+  layoutAction,
+  showViewportStats,
+  onProjectChange,
+}: EditorWorkspaceProps) {
   const [api, setApi] = useState<DockviewApi>();
   const [initialized, setInitialized] = useState(false);
   const [error, setError] = useState<string>();
@@ -139,13 +146,18 @@ export function EditorWorkspace({ project, hostStatus, layoutAction, onProjectCh
     setSkyPieces,
     cameraFocus,
     setCameraFocus,
+    showViewportStats,
     busy,
     execute: async (command: EditorCommand) => {
-      setBusy(true);
       setError(undefined);
-      try { onProjectChange(await window.forge.executeEditorCommand(command)); }
-      catch (cause) { setError(errorMessage(cause)); }
-      finally { setBusy(false); }
+      try {
+        onProjectChange(await window.forge.executeEditorCommand(command));
+        return true;
+      }
+      catch (cause) {
+        setError(errorMessage(cause));
+        return false;
+      }
     },
     save: async () => {
       setBusy(true);
@@ -154,7 +166,7 @@ export function EditorWorkspace({ project, hostStatus, layoutAction, onProjectCh
       catch (cause) { setError(errorMessage(cause)); }
       finally { setBusy(false); }
     },
-  }), [busy, cameraFocus, onProjectChange, project, sceneLoad, skyPieces, terrain]);
+  }), [busy, cameraFocus, onProjectChange, project, sceneLoad, showViewportStats, skyPieces, terrain]);
 
   return <EditorContext.Provider value={context}>
     <div className="editor-workspace">

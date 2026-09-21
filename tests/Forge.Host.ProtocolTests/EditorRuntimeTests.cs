@@ -26,7 +26,8 @@ internal static class EditorRuntimeTests
             var snapshot = await runtime.OpenAsync(firstPath, TimeSpan.FromMilliseconds(25));
             Equal(false, snapshot.IsDirty, "opened runtime clean state");
             Equal(true, runtime.HasCapability("editor.transform.update"), "runtime capability");
-            Equal("select", snapshot.Tools.Single().Id, "registered select tool");
+            Equal(true, snapshot.Tools.Select(tool => tool.Id).SequenceEqual(["select", "translate", "rotate", "scale"]),
+                "registered transform tools");
 
             var selection = Command(EditorCommandKind.SetSelection, [firstId, secondId]);
             var serialized = JsonSerializer.Serialize(selection);
@@ -50,6 +51,13 @@ internal static class EditorRuntimeTests
             Equal(new ProjectVector3(10, 20, 30),
                 snapshot.Entities.Single(entity => entity.EntityId == firstId).Transform.Position,
                 "runtime transform mutation");
+            var secondTransform = ProjectTransform.Identity with { Position = new(40, 50, 60) };
+            snapshot = await runtime.ExecuteAsync(new(
+                Guid.NewGuid().ToString("D"), EditorCommandKind.UpdateTransforms, [firstId, secondId],
+                Transforms: [new(firstId, transform), new(secondId, secondTransform)]));
+            Equal(secondTransform.Position,
+                snapshot.Entities.Single(entity => entity.EntityId == secondId).Transform.Position,
+                "runtime batch transform mutation");
             Equal(true, snapshot.Entities.Single(entity => entity.EntityId == firstId).State.Dirty,
                 "mutated entity dirty state");
             snapshot = await runtime.ExecuteAsync(new(

@@ -1,6 +1,6 @@
 import { Alert, Button, Checkbox, Code, Group, NumberInput, Stack, Text, TextInput } from '@mantine/core';
 import type { TreeNodeData } from '@mantine/core';
-import { useMemo, useState } from 'react';
+import { useLayoutEffect, useMemo, useState } from 'react';
 
 import type { EditorEntity, ProjectQuaternion, ProjectTransform, ProjectVector3 } from '../../types/EditorRuntime.js';
 import { useEditor } from './EditorContext.ts';
@@ -17,17 +17,26 @@ import {
 import { SceneViewport } from './SceneViewport.tsx';
 
 export function ViewportPanel() {
-  const { project, terrain, cameraFocus, setCameraFocus, setSceneLoad, setSkyPieces, execute } = useEditor();
+  const {
+    project, terrain, cameraFocus, setCameraFocus, setSceneLoad, setSkyPieces,
+    execute, busy, showViewportStats,
+  } = useEditor();
   return <SceneViewport
+    disabled={busy}
     entities={project.entities}
     focusEntityId={cameraFocus?.entityId}
     selection={project.selection}
+    showStats={showViewportStats}
     terrain={terrain}
     onFocusHandled={() => setCameraFocus(undefined)}
     onLoadProgress={setSceneLoad}
     onSkyPiecesChange={setSkyPieces}
     onSelectionChange={(entityIds) => void execute({
       id: crypto.randomUUID(), kind: 'setSelection', entityIds,
+    })}
+    onTransformsCommit={(transforms) => execute({
+      id: crypto.randomUUID(), kind: 'updateTransforms',
+      entityIds: transforms.map((value) => value.entityId), transforms,
     })}
   />;
 }
@@ -97,7 +106,7 @@ export function PropertiesPanel() {
 
   return <EditorPanel label="Properties">
     {entities.length === 1
-      ? <SingleEntityProperties key={entities[0].id} entity={entities[0]} />
+      ? <SingleEntityProperties entity={entities[0]} />
       : entities.length > 1
         ? <MultiEntityProperties entities={entities} />
         : <EditorEmptyState message="Select an object to inspect its properties." />}
@@ -109,14 +118,14 @@ function SingleEntityProperties({ entity }: { entity: EditorEntity }) {
   const locked = entity.state.locked;
   return <Stack>
     <EntityTextEditor
-      key={`name:${entity.name}`}
+      identity={entity.id}
       label="Name"
       value={entity.name}
       disabled={busy || locked}
       onApply={(text) => execute({ id: crypto.randomUUID(), kind: 'renameEntity', entityIds: [entity.id], text })}
     />
     <EntityTextEditor
-      key={`layer:${entity.layer}`}
+      identity={entity.id}
       label="Layer"
       value={entity.layer}
       disabled={busy || locked}
@@ -124,7 +133,7 @@ function SingleEntityProperties({ entity }: { entity: EditorEntity }) {
     />
     <EntityStateControls entities={[entity]} disabled={busy} />
     {locked && <Text size="xs" c="yellow">Unlock this entity to edit its properties.</Text>}
-    <TransformEditor key={JSON.stringify(entity.transform)} entity={entity} disabled={busy || locked} />
+    <TransformEditor entity={entity} disabled={busy || locked} />
     <EditorPropertyGrid>
       <EditorProperty label="Entity ID"><Code>{entity.id}</Code></EditorProperty>
       <EditorProperty label="Type">{entity.asset?.kind ?? 'model-less moby'}</EditorProperty>
@@ -144,7 +153,7 @@ function MultiEntityProperties({ entities }: { entities: EditorEntity[] }) {
   return <Stack>
     <Text size="sm">{entities.length} objects selected</Text>
     <EntityTextEditor
-      key={`layer:${layer}:${ids.join()}`}
+      identity={ids.join()}
       label="Shared layer"
       value={layer}
       placeholder={layer ? undefined : 'Multiple values'}
@@ -156,14 +165,16 @@ function MultiEntityProperties({ entities }: { entities: EditorEntity[] }) {
   </Stack>;
 }
 
-function EntityTextEditor({ label, value, placeholder, disabled, onApply }: {
+function EntityTextEditor({ identity, label, value, placeholder, disabled, onApply }: {
+  identity: string;
   label: string;
   value: string;
   placeholder?: string;
   disabled: boolean;
-  onApply(value: string): Promise<void>;
+  onApply(value: string): Promise<unknown>;
 }) {
   const [text, setText] = useState(value);
+  useLayoutEffect(() => setText(value), [identity, value]);
   const trimmed = text.trim();
   const error = !trimmed ? `${label} is required` : trimmed.length > 256 ? `${label} is too long` : undefined;
   return <Group align="flex-end" wrap="nowrap">
@@ -205,6 +216,8 @@ function EntityStateControls({ entities, disabled }: { entities: EditorEntity[];
 function TransformEditor({ entity, disabled }: { entity: EditorEntity; disabled: boolean }) {
   const { execute } = useEditor();
   const [transform, setTransform] = useState<ProjectTransform>(() => cloneTransform(entity.transform));
+  const sourceTransform = JSON.stringify(entity.transform);
+  useLayoutEffect(() => setTransform(cloneTransform(entity.transform)), [entity.id, sourceTransform]);
   const values = [
     ...Object.values(transform.position),
     ...Object.values(transform.rotation),
