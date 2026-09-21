@@ -20,7 +20,14 @@ internal static class RenderBridgeHandlers
             request.CatalogRootPath), sdkRevision, progress, cancellationToken);
         return BridgePayloadCodec.EncodeUyaRenderPackageResult(new(
             result.RootPath, result.CacheKey, result.TerrainPaths,
-            result.Assets.Select(asset => new UyaRenderAssetPayload(asset.AssetId, asset.Path, asset.Error)).ToArray(),
+            result.SkyPath,
+            result.Environment is { } environment ? new(
+                environment.BackgroundRed, environment.BackgroundGreen, environment.BackgroundBlue,
+                environment.FogRed, environment.FogGreen, environment.FogBlue,
+                environment.FogNearDistance, environment.FogFarDistance,
+                environment.FogNearIntensity, environment.FogFarIntensity) : null,
+            result.Assets.Select(asset => new UyaRenderAssetPayload(
+                asset.AssetId, asset.Kind, asset.Path, asset.Error)).ToArray(),
             result.CacheHit));
     }
 }

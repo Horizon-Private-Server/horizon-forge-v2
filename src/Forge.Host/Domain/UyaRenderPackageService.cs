@@ -11,7 +11,7 @@ namespace Forge.Host.Domain;
 
 public static class UyaRenderPackageService
 {
-    public const int SchemaVersion = 2;
+    public const int SchemaVersion = 3;
     private const long MaxAssetBytes = 256L * 1024 * 1024;
     private const string MarkerName = ".forge-render-package.json";
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
@@ -52,14 +52,16 @@ public static class UyaRenderPackageService
             cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         await ReportAsync(progress, 3_000, 10_000);
-        var package = await Task.Run(
-            () => UyaFrontendMapPackageBuilder.BuildLevelWadPart(levelWad, DlLevelAssetGroup.Terrain),
-            cancellationToken);
+        var packages = await Task.Run(() => (
+            Terrain: UyaFrontendMapPackageBuilder.BuildLevelWadPart(levelWad, DlLevelAssetGroup.Terrain),
+            Sky: UyaFrontendMapPackageBuilder.BuildLevelWadPart(levelWad, DlLevelAssetGroup.Common),
+            Environment: UyaRenderEnvironmentReader.Read(levelWad)), cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         await ReportAsync(progress, 5_000, 10_000);
         var renderedAssets = await BuildAssetsAsync(assets, progress, cancellationToken);
         return await MaterializeAsync(
-            request, sdkRevision, cacheKey, package, renderedAssets, progress, cancellationToken);
+            request, sdkRevision, cacheKey, packages.Terrain, packages.Sky, packages.Environment,
+            renderedAssets, progress, cancellationToken);
     }
 
     public static async Task<UyaRenderPackageResult> MaterializeAsync(
@@ -72,14 +74,36 @@ public static class UyaRenderPackageService
         Validate(request, sdkRevision);
         ArgumentNullException.ThrowIfNull(package);
         var cacheKey = CreateCacheKey(request, sdkRevision);
-        return await MaterializeAsync(request, sdkRevision, cacheKey, package, [], progress, cancellationToken);
+        return await MaterializeAsync(
+            request, sdkRevision, cacheKey, package, null, null, [], progress, cancellationToken);
+    }
+
+    public static async Task<UyaRenderPackageResult> MaterializeAsync(
+        UyaRenderPackageRequest request,
+        string sdkRevision,
+        PackedFilePackage terrainPackage,
+        PackedFilePackage skyPackage,
+        UyaRenderEnvironmentResult environment,
+        Func<IsoProgress, ValueTask>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        Validate(request, sdkRevision);
+        ArgumentNullException.ThrowIfNull(terrainPackage);
+        ArgumentNullException.ThrowIfNull(skyPackage);
+        ArgumentNullException.ThrowIfNull(environment);
+        var cacheKey = CreateCacheKey(request, sdkRevision);
+        return await MaterializeAsync(
+            request, sdkRevision, cacheKey, terrainPackage, skyPackage, environment, [],
+            progress, cancellationToken);
     }
 
     private static async Task<UyaRenderPackageResult> MaterializeAsync(
         UyaRenderPackageRequest request,
         string sdkRevision,
         string cacheKey,
-        PackedFilePackage package,
+        PackedFilePackage terrainPackage,
+        PackedFilePackage? skyPackage,
+        UyaRenderEnvironmentResult? environment,
         IReadOnlyList<BuiltAsset> assets,
         Func<IsoProgress, ValueTask>? progress,
         CancellationToken cancellationToken)
@@ -89,10 +113,10 @@ public static class UyaRenderPackageService
         var cached = await TryOpenAsync(target, request, sdkRevision, cancellationToken);
         if (cached is not null) return cached with { CacheHit = true };
 
-        var files = ValidateEntries(package)
+        var files = ValidateEntries(terrainPackage)
             .Select(entry => new MaterialFile(
                 entry.Path,
-                package.PackedBytes.AsMemory(entry.Offset, entry.Length)))
+                terrainPackage.PackedBytes.AsMemory(entry.Offset, entry.Length)))
             .ToList();
         var terrainPaths = files.Select(entry => entry.Path)
             .Where(path => (path.StartsWith("tfrag/", StringComparison.Ordinal)
@@ -101,12 +125,27 @@ public static class UyaRenderPackageService
             .Order(StringComparer.Ordinal)
             .ToArray();
         if (terrainPaths.Length == 0) throw new InvalidDataException("The SDK render package contains no tfrag glTF files.");
+        string? skyPath = null;
+        if (skyPackage is not null)
+        {
+            var skyEntries = ValidateEntries(skyPackage)
+                .Where(entry => entry.Path.StartsWith("assets/skybox/", StringComparison.Ordinal))
+                .ToArray();
+            foreach (var entry in skyEntries)
+                files.Add(new(entry.Path, skyPackage.PackedBytes.AsMemory(entry.Offset, entry.Length)));
+            var skyPaths = skyEntries.Select(entry => entry.Path)
+                .Where(path => path.EndsWith("/skybox.gltf", StringComparison.Ordinal))
+                .ToArray();
+            if (skyPaths.Length > 1) throw new InvalidDataException("The SDK render package contains multiple sky glTF files.");
+            skyPath = skyPaths.SingleOrDefault();
+        }
         var assetResults = new List<UyaRenderAssetResult>(assets.Count);
         foreach (var asset in assets)
         {
+            var kind = asset.Kind.ToString().ToLowerInvariant();
             if (asset.Package is null)
             {
-                assetResults.Add(new(asset.Id.ToString(), null, asset.Error ?? "Asset export failed."));
+                assetResults.Add(new(asset.Id.ToString(), kind, null, asset.Error ?? "Asset export failed."));
                 continue;
             }
             var prefix = $"entities/{asset.Id}/";
@@ -114,7 +153,7 @@ public static class UyaRenderPackageService
                 files.Add(new(
                     prefix + entry.Path,
                     asset.Package.PackedBytes.AsMemory(entry.Offset, entry.Length)));
-            assetResults.Add(new(asset.Id.ToString(), prefix + "model.gltf", null));
+            assetResults.Add(new(asset.Id.ToString(), kind, prefix + "model.gltf", null));
         }
         if (files.Select(file => file.Path).Distinct(StringComparer.Ordinal).Count() != files.Count)
             throw new InvalidDataException("The SDK render package contains duplicate paths.");
@@ -148,6 +187,8 @@ public static class UyaRenderPackageService
                 sdkRevision,
                 files.Select(entry => new CacheFile(entry.Path, entry.Bytes.Length)).ToArray(),
                 terrainPaths,
+                skyPath,
+                environment,
                 assetResults);
             await File.WriteAllBytesAsync(
                 Path.Combine(partial, MarkerName),
@@ -157,7 +198,7 @@ public static class UyaRenderPackageService
             if (Directory.Exists(target)) Directory.Delete(target, recursive: true);
             Directory.Move(partial, target);
             await ReportAsync(progress, 10_000, 10_000);
-            return new(target, cacheKey, terrainPaths, assetResults, false);
+            return new(target, cacheKey, terrainPaths, skyPath, environment, assetResults, false);
         }
         catch
         {
@@ -222,6 +263,7 @@ public static class UyaRenderPackageService
             }
             foreach (var terrainPath in marker.TerrainPaths)
                 if (!files.ContainsKey(NormalizeEntryPath(terrainPath))) return null;
+            if (marker.SkyPath is not null && !files.ContainsKey(NormalizeEntryPath(marker.SkyPath))) return null;
             foreach (var asset in marker.Assets)
                 if (asset.Path is not null && !files.ContainsKey(NormalizeEntryPath(asset.Path))) return null;
         }
@@ -233,7 +275,7 @@ public static class UyaRenderPackageService
         {
             return null;
         }
-        return new(root, marker.CacheKey, marker.TerrainPaths, marker.Assets, true);
+        return new(root, marker.CacheKey, marker.TerrainPaths, marker.SkyPath, marker.Environment, marker.Assets, true);
     }
 
     private static IReadOnlyList<PackedFileEntry> ValidateEntries(PackedFilePackage package)
@@ -331,7 +373,7 @@ public static class UyaRenderPackageService
                 var package = await Task.Run(
                     () => UyaFrontendAssetPackageBuilder.Build(kind, canonical.ModelBytes, canonical.Textures),
                     cancellationToken);
-                result.Add(new(asset.Id, package, null));
+                result.Add(new(asset.Id, asset.Kind, package, null));
             }
             catch (Exception exception) when (exception is ArgumentException
                 or InvalidDataException
@@ -339,7 +381,7 @@ public static class UyaRenderPackageService
                 or NotSupportedException
                 or OverflowException)
             {
-                result.Add(new(asset.Id, null, exception.Message));
+                result.Add(new(asset.Id, asset.Kind, null, exception.Message));
             }
             await ReportAsync(progress, 5_000 + (index + 1L) * 3_000 / Math.Max(1, assets.Count), 10_000);
         }
@@ -433,6 +475,8 @@ public static class UyaRenderPackageService
         string SdkRevision,
         IReadOnlyList<CacheFile> Files,
         IReadOnlyList<string> TerrainPaths,
+        string? SkyPath,
+        UyaRenderEnvironmentResult? Environment,
         IReadOnlyList<UyaRenderAssetResult> Assets);
 
     private sealed record CacheFile(string Path, long Length);
@@ -444,6 +488,6 @@ public static class UyaRenderPackageService
         long Size,
         string? Path,
         string? Error);
-    private sealed record BuiltAsset(AssetId Id, PackedFilePackage? Package, string? Error);
+    private sealed record BuiltAsset(AssetId Id, AssetKind Kind, PackedFilePackage? Package, string? Error);
     private sealed record CanonicalAsset(byte[] ModelBytes, IReadOnlyList<UyaFrontendAssetTexture> Textures);
 }

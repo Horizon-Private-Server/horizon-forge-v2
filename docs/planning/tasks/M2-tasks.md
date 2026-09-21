@@ -343,3 +343,12 @@ Acceptance:
 
 Verification: representative screenshots, family-failure fixtures, layer-toggle
 checks, and light/heavy level performance records.
+
+Implementation: the versioned host render package now includes the UYA sky export
+and level-settings environment data alongside terrain and entity assets. The WebGL
+viewport applies the exported background, fog, alpha, vertex-color, and source
+render-order metadata, while keeping the sky centered on the camera. Compact
+session-only controls toggle terrain, ties, shrubs, mobys, sky, and editor markers;
+optional FPS, draw-call, and triangle statistics remain off by default. Loading and
+failure reporting identify terrain, sky, and affected asset families without
+preventing the rest of the scene from rendering.

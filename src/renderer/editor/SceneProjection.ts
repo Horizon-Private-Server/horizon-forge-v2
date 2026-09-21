@@ -2,21 +2,27 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 import type { EditorEntity } from '../../types/EditorRuntime.js';
+import { createPs2OpaquePassMaterial } from '../../utils/Ps2Materials.ts';
 import { ps2PositionToScene } from '../../utils/Scene.ts';
 
 const ENTITY_ID_KEY = 'forgeEntityId';
 const INSTANCE_IDS_KEY = 'forgeInstanceIds';
+const MIRRORED_BATCH_KEY = 'forgeMirroredBatch';
 const PROJECTION_KEY = 'forgeProjectionKey';
 const PS2_TO_SCENE_ROTATION = new THREE.Quaternion(-Math.SQRT1_2, 0, 0, Math.SQRT1_2);
 const SCENE_TO_PS2_ROTATION = PS2_TO_SCENE_ROTATION.clone().invert();
 const NORMAL_COLOR = new THREE.Color(0xffffff);
 const SELECTED_COLOR = new THREE.Color(0x22d3ee);
+const INSTANCE_MIRROR = new THREE.Matrix4().makeScale(-1, 1, 1);
 
 interface InstancedAsset {
   root: THREE.Group;
   meshes: THREE.InstancedMesh[];
-  geometries: THREE.BufferGeometry[];
+  geometries: Set<THREE.BufferGeometry>;
+  materials: Set<THREE.Material>;
   capacity: number;
+  hasNormal: boolean;
+  hasMirrored: boolean;
 }
 
 export class SceneProjection {
@@ -56,7 +62,12 @@ export class SceneProjection {
     failedAssets.forEach((id) => this.failedAssets.add(id));
   }
 
-  sync(entities: readonly EditorEntity[], selection: readonly string[] = []) {
+  sync(
+    entities: readonly EditorEntity[],
+    selection: readonly string[] = [],
+    visibleLayers?: ReadonlySet<string>,
+    showMarkers = true,
+  ) {
     if (this.disposed) throw new Error('Scene projection is disposed');
     const selected = new Set(selection);
     const staticGroups = new Map<string, EditorEntity[]>();
@@ -64,8 +75,9 @@ export class SceneProjection {
     this.pickable.clear();
 
     for (const entity of entities) {
-      if (!entity.state.hidden && !entity.state.disabled && !entity.state.locked) this.pickable.add(entity.id);
       const template = entity.asset && this.templates.get(entity.asset.id);
+      const visible = this.isVisible(entity, Boolean(template), visibleLayers, showMarkers);
+      if (visible && !entity.state.locked) this.pickable.add(entity.id);
       if (entity.asset && template) {
         const group = staticGroups.get(entity.asset.id);
         if (group) group.push(entity);
@@ -90,7 +102,12 @@ export class SceneProjection {
         created += 1;
         isNew = true;
       }
-      if (this.updateObject(object, entity, selected.has(entity.id)) && !isNew) updated += 1;
+      if (this.updateObject(
+        object,
+        entity,
+        selected.has(entity.id),
+        this.isVisible(entity, false, visibleLayers, showMarkers),
+      ) && !isNew) updated += 1;
     }
 
     for (const [assetId, group] of this.instances) {
@@ -102,17 +119,20 @@ export class SceneProjection {
     }
     for (const [assetId, group] of staticGroups) {
       const template = this.templates.get(assetId)!;
+      const hasNormal = group.some((entity) => !isMirrored(entity));
+      const hasMirrored = group.some(isMirrored);
       let projection = this.instances.get(assetId);
-      if (!projection || projection.capacity < group.length) {
+      if (!projection || projection.capacity < group.length
+        || projection.hasNormal !== hasNormal || projection.hasMirrored !== hasMirrored) {
         if (projection) {
           projection.root.removeFromParent();
           disposeInstancedAsset(projection);
         }
-        projection = createInstancedAsset(template, group.length);
+        projection = createInstancedAsset(template, group.length, hasNormal, hasMirrored);
         this.instances.set(assetId, projection);
         this.root.add(projection.root);
       }
-      this.updateInstances(projection, group, selected);
+      this.updateInstances(projection, group, selected, visibleLayers);
     }
 
     return { created, updated, removed };
@@ -138,7 +158,8 @@ export class SceneProjection {
         if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
         if (!mesh.geometry.boundingBox) continue;
         mesh.getMatrixAt(index, this.instanceMatrix);
-        target.union(this.instanceBounds.copy(mesh.geometry.boundingBox).applyMatrix4(this.instanceMatrix));
+        target.union(this.instanceBounds.copy(mesh.geometry.boundingBox)
+          .applyMatrix4(this.instanceMatrix).applyMatrix4(mesh.matrix));
       }
     }
     return target.isEmpty() ? undefined : target;
@@ -195,8 +216,7 @@ export class SceneProjection {
     return object;
   }
 
-  private updateObject(object: THREE.Object3D, entity: EditorEntity, selected: boolean): boolean {
-    const visible = !entity.state.hidden && !entity.state.disabled;
+  private updateObject(object: THREE.Object3D, entity: EditorEntity, selected: boolean, visible: boolean): boolean {
     this.projectedMatrix(entity);
     const marker = object.children.find((child) => child.userData.selectionMarker);
     const material = !marker && object instanceof THREE.Mesh ? this.materialFor(entity, selected) : undefined;
@@ -218,14 +238,21 @@ export class SceneProjection {
     return changed;
   }
 
-  private updateInstances(projection: InstancedAsset, entities: readonly EditorEntity[], selected: ReadonlySet<string>): void {
-    const visible = entities.filter((entity) => !entity.state.hidden && !entity.state.disabled);
-    const ids = visible.map((entity) => entity.id);
+  private updateInstances(
+    projection: InstancedAsset,
+    entities: readonly EditorEntity[],
+    selected: ReadonlySet<string>,
+    visibleLayers?: ReadonlySet<string>,
+  ): void {
+    const visible = entities.filter((entity) => this.isVisible(entity, true, visibleLayers, true));
     projection.meshes.forEach((mesh) => {
-      mesh.count = visible.length;
-      mesh.userData[INSTANCE_IDS_KEY] = ids;
-      visible.forEach((entity, index) => {
+      const mirrored = mesh.userData[MIRRORED_BATCH_KEY] === true;
+      const batch = visible.filter((entity) => isMirrored(entity) === mirrored);
+      mesh.count = batch.length;
+      mesh.userData[INSTANCE_IDS_KEY] = batch.map((entity) => entity.id);
+      batch.forEach((entity, index) => {
         this.instanceMatrix.copy(this.projectedMatrix(entity));
+        if (mirrored) this.instanceMatrix.premultiply(INSTANCE_MIRROR);
         mesh.setMatrixAt(index, this.instanceMatrix);
         mesh.setColorAt(index, selected.has(entity.id) ? SELECTED_COLOR : NORMAL_COLOR);
       });
@@ -244,6 +271,18 @@ export class SceneProjection {
     ps2PositionToScene(position, this.position);
     this.scale.set(scale.x, scale.z, scale.y);
     return this.entityMatrix.compose(this.position, this.projectedRotation, this.scale);
+  }
+
+  private isVisible(
+    entity: EditorEntity,
+    hasTemplate: boolean,
+    visibleLayers?: ReadonlySet<string>,
+    showMarkers = true,
+  ): boolean {
+    return !entity.state.hidden
+      && !entity.state.disabled
+      && (visibleLayers?.has(entity.layer) ?? true)
+      && (hasTemplate || showMarkers);
   }
 
   private projectionKey(entity: EditorEntity): string {
@@ -270,10 +309,16 @@ export class SceneProjection {
   }
 }
 
-function createInstancedAsset(template: THREE.Object3D, capacity: number): InstancedAsset {
+function createInstancedAsset(
+  template: THREE.Object3D,
+  capacity: number,
+  hasNormal: boolean,
+  hasMirrored: boolean,
+): InstancedAsset {
   const root = new THREE.Group();
   const meshes: THREE.InstancedMesh[] = [];
-  const geometries: THREE.BufferGeometry[] = [];
+  const geometries = new Set<THREE.BufferGeometry>();
+  const materials = new Set<THREE.Material>();
   const buckets = new Map<THREE.Material | THREE.Material[], Map<string, THREE.BufferGeometry[]>>();
   template.traverse((object) => {
     if (!(object instanceof THREE.Mesh) || object.name === 'shrub_billboard') return;
@@ -294,13 +339,15 @@ function createInstancedAsset(template: THREE.Object3D, capacity: number): Insta
       const geometry = parts.length === 1 ? parts[0] : mergeGeometries(parts);
       if (geometry) {
         if (parts.length > 1) parts.forEach((part) => part.dispose());
-        addInstancedMesh(root, meshes, geometries, geometry, material, capacity);
+        addInstancedMesh(root, meshes, geometries, materials, geometry, material, capacity, hasNormal, hasMirrored);
       } else {
-        parts.forEach((part) => addInstancedMesh(root, meshes, geometries, part, material, capacity));
+        parts.forEach((part) => addInstancedMesh(
+          root, meshes, geometries, materials, part, material, capacity, hasNormal, hasMirrored,
+        ));
       }
     }
   }
-  return { root, meshes, geometries, capacity };
+  return { root, meshes, geometries, materials, capacity, hasNormal, hasMirrored };
 }
 
 function geometrySignature(geometry: THREE.BufferGeometry): string {
@@ -312,18 +359,56 @@ function geometrySignature(geometry: THREE.BufferGeometry): string {
 function addInstancedMesh(
   root: THREE.Group,
   meshes: THREE.InstancedMesh[],
-  geometries: THREE.BufferGeometry[],
+  geometries: Set<THREE.BufferGeometry>,
+  materials: Set<THREE.Material>,
   geometry: THREE.BufferGeometry,
   material: THREE.Material | THREE.Material[],
   capacity: number,
+  hasNormal: boolean,
+  hasMirrored: boolean,
+): void {
+  const renderMaterials: (THREE.Material | THREE.Material[])[] = [];
+  if (!Array.isArray(material)) {
+    const opaqueMaterial = createPs2OpaquePassMaterial(material);
+    if (opaqueMaterial) {
+      materials.add(opaqueMaterial);
+      renderMaterials.push(opaqueMaterial);
+    }
+  }
+  renderMaterials.push(material);
+  for (const renderMaterial of renderMaterials) {
+    if (hasNormal) addMesh(root, meshes, geometry, renderMaterial, capacity, false);
+    if (hasMirrored) addMesh(root, meshes, geometry, renderMaterial, capacity, true);
+  }
+  geometries.add(geometry);
+}
+
+function addMesh(
+  root: THREE.Group,
+  meshes: THREE.InstancedMesh[],
+  geometry: THREE.BufferGeometry,
+  material: THREE.Material | THREE.Material[],
+  capacity: number,
+  mirrored: boolean,
 ): void {
   const mesh = new THREE.InstancedMesh(geometry, material, capacity);
+  mesh.userData[MIRRORED_BATCH_KEY] = mirrored;
+  if (mirrored) {
+    mesh.matrix.copy(INSTANCE_MIRROR);
+    mesh.matrixAutoUpdate = false;
+    mesh.matrixWorldNeedsUpdate = true;
+  }
   root.add(mesh);
   meshes.push(mesh);
-  geometries.push(geometry);
+}
+
+function isMirrored(entity: EditorEntity): boolean {
+  const { x, y, z } = entity.transform.scale;
+  return x * y * z < 0;
 }
 
 function disposeInstancedAsset(asset: InstancedAsset): void {
   asset.meshes.forEach((mesh) => mesh.dispose());
   asset.geometries.forEach((geometry) => geometry.dispose());
+  asset.materials.forEach((material) => material.dispose());
 }

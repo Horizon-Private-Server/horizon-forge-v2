@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   buildSceneEntityGroups,
+  buildSkyTreeItems,
   buildTerrainTreeItems,
   entityStateLabel,
   nextTreeSelection,
@@ -69,6 +70,16 @@ test('terrain package sections become filterable scene-tree items', () => {
   ]);
   assert.deepEqual(buildTerrainTreeItems(urls, 'chunk 2'), [
     { value: urls[1], label: 'Chunk 2 tfrag' },
+  ]);
+});
+
+test('sky meshes become filterable scene-tree items', () => {
+  assert.deepEqual(buildSkyTreeItems(['skybox_shell_00', 'clouds'], ''), [
+    { value: 'render:sky:0', label: 'Sky shell 0' },
+    { value: 'render:sky:1', label: 'clouds' },
+  ]);
+  assert.deepEqual(buildSkyTreeItems(['skybox_shell_00', 'clouds'], 'shell'), [
+    { value: 'render:sky:0', label: 'Sky shell 0' },
   ]);
 });
 

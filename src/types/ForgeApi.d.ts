@@ -178,7 +178,16 @@ export interface SetupProgress extends Progress {
 
 export interface EditorTerrainSource {
   urls: string[];
-  assets: { assetId: string; url?: string; error?: string }[];
+  skyUrl?: string;
+  environment?: {
+    backgroundColor: [number, number, number];
+    fogColor: [number, number, number];
+    fogNearDistance: number;
+    fogFarDistance: number;
+    fogNearIntensity: number;
+    fogFarIntensity: number;
+  };
+  assets: { assetId: string; kind: 'moby' | 'tie' | 'shrub'; url?: string; error?: string }[];
   cacheHit: boolean;
 }
 

@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
+import type { EditorTerrainSource } from '../types/ForgeApi.js';
+
 const cameraMovement = new THREE.Vector3();
 const cameraForward = new THREE.Vector3();
 const cameraRight = new THREE.Vector3();
@@ -12,6 +14,8 @@ interface Vector3Like {
   y: number;
   z: number;
 }
+
+type SceneEnvironment = NonNullable<EditorTerrainSource['environment']>;
 
 export interface CameraFlight {
   cameraStart: THREE.Vector3;
@@ -31,6 +35,51 @@ export function frameObject(camera: THREE.PerspectiveCamera, controls: OrbitCont
   camera.far = radius * 10;
   camera.updateProjectionMatrix();
   controls.update();
+}
+
+export function applySceneEnvironment(
+  scene: THREE.Scene,
+  environment?: SceneEnvironment,
+  backgroundScene: THREE.Scene = scene,
+): void {
+  backgroundScene.background = environment
+    ? colorFromRgb(environment.backgroundColor)
+    : new THREE.Color(0x151922);
+  if (backgroundScene !== scene) scene.background = null;
+  scene.fog = environment ? createSceneFog(environment) : null;
+}
+
+export function configureSkybox(root: THREE.Object3D): { eye: THREE.Vector3; pieces: string[] } {
+  root.updateMatrixWorld(true);
+  const bounds = new THREE.Box3().setFromObject(root);
+  const center = bounds.getCenter(new THREE.Vector3());
+  const size = bounds.getSize(new THREE.Vector3());
+  const maxDimension = Math.max(size.x, size.y, size.z, 1);
+  const eye = new THREE.Vector3(
+    center.x,
+    bounds.min.y <= 0 && bounds.max.y >= 0 ? maxDimension / 10_000 : bounds.min.y,
+    center.z,
+  );
+  const pieces: string[] = [];
+  root.traverse((object) => {
+    object.frustumCulled = false;
+    if (!(object instanceof THREE.Mesh)) return;
+    pieces.push(object.name || `Sky piece ${pieces.length + 1}`);
+    const metadata = { ...object.userData, ...object.geometry.userData };
+    const order = Number(metadata.SkyboxDrawOrder ?? metadata.SkyboxSourceDrawOrder ?? 0);
+    object.renderOrder = -1_000 + (Number.isFinite(order) ? order : 0);
+    const blendMode = String(metadata.SkyboxDrawBlendMode ?? '');
+    for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
+      material.side = THREE.DoubleSide;
+      material.depthTest = false;
+      material.depthWrite = false;
+      material.fog = false;
+      material.toneMapped = false;
+      if (blendMode === 'Bloom') material.blending = THREE.AdditiveBlending;
+      material.needsUpdate = true;
+    }
+  });
+  return { eye, pieces };
 }
 
 export function framePs2Positions(
@@ -116,6 +165,31 @@ export function rotateCamera(
 
 export function ps2PositionToScene(position: Vector3Like, target = new THREE.Vector3()): THREE.Vector3 {
   return target.set(position.x, position.z, -position.y);
+}
+
+function createSceneFog(environment: SceneEnvironment): THREE.Fog | null {
+  const near = environment.fogNearDistance;
+  const far = environment.fogFarDistance;
+  const nearAmount = fogAmount(environment.fogNearIntensity);
+  const farAmount = fogAmount(environment.fogFarIntensity);
+  if (!Number.isFinite(near) || !Number.isFinite(far) || far <= near || farAmount <= nearAmount) return null;
+  const slope = (farAmount - nearAmount) / (far - near);
+  const effectiveNear = Math.max(0, near - nearAmount / slope);
+  const effectiveFar = near + (1 - nearAmount) / slope;
+  return new THREE.Fog(colorFromRgb(environment.fogColor), effectiveNear, effectiveFar);
+}
+
+function colorFromRgb([red, green, blue]: readonly number[]): THREE.Color {
+  return new THREE.Color().setRGB(
+    THREE.MathUtils.clamp(red / 255, 0, 1),
+    THREE.MathUtils.clamp(green / 255, 0, 1),
+    THREE.MathUtils.clamp(blue / 255, 0, 1),
+    THREE.SRGBColorSpace,
+  );
+}
+
+function fogAmount(value: number): number {
+  return 1 - THREE.MathUtils.clamp(Number.isFinite(value) ? value / 255 : 1, 0, 1) * (255 / 256);
 }
 
 function median(values: number[]): number {

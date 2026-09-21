@@ -262,9 +262,18 @@ test('operation payloads round trip and reject trailing data', () => {
   const renderResult = {
     rootPath: '/cache/key', cacheKey: 'key',
     terrainPaths: ['tfrag/tfrag.gltf', 'tfrag/chunks/chunk1/tfrag.gltf'],
+    skyPath: 'assets/skybox/skybox.gltf',
+    environment: {
+      backgroundColor: [57, 65, 50] as [number, number, number],
+      fogColor: [40, 50, 40] as [number, number, number],
+      fogNearDistance: 10,
+      fogFarDistance: 175,
+      fogNearIntensity: 255,
+      fogFarIntensity: 0,
+    },
     assets: [
-      { assetId: 'a'.repeat(64), path: 'entities/a/model.gltf' },
-      { assetId: 'b'.repeat(64), error: 'missing asset' },
+      { assetId: 'a'.repeat(64), kind: 'moby' as const, path: 'entities/a/model.gltf' },
+      { assetId: 'b'.repeat(64), kind: 'tie' as const, error: 'missing asset' },
     ],
     cacheHit: true,
   };

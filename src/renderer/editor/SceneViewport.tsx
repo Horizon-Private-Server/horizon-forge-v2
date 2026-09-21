@@ -1,4 +1,5 @@
-import { useEffect, useRef } from 'react';
+import { Checkbox, Group, Text } from '@mantine/core';
+import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -7,6 +8,8 @@ import type { EditorEntity } from '../../types/EditorRuntime.js';
 import type { EditorLoadProgress, EditorTerrainSource } from '../../types/ForgeApi.js';
 import {
   disposeObject,
+  applySceneEnvironment,
+  configureSkybox,
   frameObject,
   framePs2Positions,
   ps2PositionToScene,
@@ -15,6 +18,7 @@ import {
   updateCameraMovement,
 } from '../../utils/Scene.ts';
 import type { CameraFlight } from '../../utils/Scene.ts';
+import { configurePs2MaterialAlpha } from '../../utils/Ps2Materials.ts';
 import { nextViewportSelection } from './EditorPanelState.ts';
 import { SceneProjection } from './SceneProjection.ts';
 
@@ -25,6 +29,7 @@ interface SceneViewportProps {
   terrain?: EditorTerrainSource;
   onFocusHandled(): void;
   onLoadProgress(progress?: EditorLoadProgress): void;
+  onSkyPiecesChange(values: string[]): void;
   onSelectionChange(values: string[]): void;
 }
 
@@ -35,9 +40,13 @@ export function SceneViewport({
   terrain: terrainSource,
   onFocusHandled,
   onLoadProgress,
+  onSkyPiecesChange,
   onSelectionChange,
 }: SceneViewportProps) {
   const container = useRef<HTMLDivElement>(null);
+  const [visibility, setVisibility] = useState(DEFAULT_VISIBILITY);
+  const [stats, setStats] = useState<ViewportStats>();
+  const currentVisibility = useRef(visibility);
   const currentSelection = useRef(selection);
   const currentEntities = useRef(entities);
   const focusHandled = useRef(onFocusHandled);
@@ -45,15 +54,20 @@ export function SceneViewport({
   const selectionChanged = useRef(onSelectionChange);
   currentSelection.current = selection;
   currentEntities.current = entities;
+  currentVisibility.current = visibility;
   focusHandled.current = onFocusHandled;
   loadProgressChanged.current = onLoadProgress;
   selectionChanged.current = onSelectionChange;
   const viewport = useRef<{
     projection: SceneProjection;
+    scene: THREE.Scene;
+    skyScene: THREE.Scene;
     camera: THREE.PerspectiveCamera;
     controls: OrbitControls;
     content: THREE.Group;
     terrain: THREE.Group;
+    sky: THREE.Group;
+    skyEye: THREE.Vector3;
     velocity: THREE.Vector3;
     flight?: CameraFlight;
     framed: boolean;
@@ -64,19 +78,25 @@ export function SceneViewport({
     if (!element) return;
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x151922);
+    const skyScene = new THREE.Scene();
+    applySceneEnvironment(scene, undefined, skyScene);
     scene.add(new THREE.HemisphereLight(0xffffff, 0x5c6370, 2));
     const content = new THREE.Group();
     content.name = 'Forge scene content';
     const terrain = new THREE.Group();
     terrain.name = 'UYA terrain';
+    const sky = new THREE.Group();
+    sky.name = 'UYA sky';
     const currentProjection = new SceneProjection();
     content.add(terrain, currentProjection.root);
+    skyScene.add(sky);
     scene.add(content);
 
     const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 80_000);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.autoClear = false;
+    renderer.info.autoReset = false;
     renderer.setPixelRatio(1);
     element.append(renderer.domElement);
 
@@ -90,7 +110,19 @@ export function SceneViewport({
     let cameraInputActive = false;
     camera.position.set(0, 150, 300);
     controls.update();
-    viewport.current = { projection: currentProjection, camera, controls, content, terrain, velocity, framed: false };
+    viewport.current = {
+      projection: currentProjection,
+      scene,
+      skyScene,
+      camera,
+      controls,
+      content,
+      terrain,
+      sky,
+      skyEye: new THREE.Vector3(),
+      velocity,
+      framed: false,
+    };
 
     const keyDown = (event: KeyboardEvent) => {
       if (!cameraInputActive || !MOVEMENT_KEYS.has(event.code)) return;
@@ -181,14 +213,37 @@ export function SceneViewport({
     observer.observe(element);
     resize();
 
+    let statsStarted = performance.now();
+    let statsFrames = 0;
     renderer.setAnimationLoop(() => {
       const delta = Math.min(clock.getDelta(), 0.05);
       updateCameraMovement(camera, controls.target, movement, velocity, delta);
       const flight = viewport.current?.flight;
       if (flight && updateCameraFlight(camera.position, controls.target, flight, delta) && viewport.current)
         viewport.current.flight = undefined;
+      sky.position.copy(camera.position).sub(viewport.current?.skyEye ?? ZERO_VECTOR);
       controls.update();
+      renderer.info.reset();
+      renderer.clear();
+      renderer.render(skyScene, camera);
+      renderer.clearDepth();
       renderer.render(scene, camera);
+      const now = performance.now();
+      if (currentVisibility.current.stats) {
+        statsFrames += 1;
+        if (now - statsStarted >= 500) {
+          setStats({
+            fps: Math.round(statsFrames * 1_000 / (now - statsStarted)),
+            calls: renderer.info.render.calls,
+            triangles: renderer.info.render.triangles,
+          });
+          statsFrames = 0;
+          statsStarted = now;
+        }
+      } else {
+        statsFrames = 0;
+        statsStarted = now;
+      }
     });
 
     return () => {
@@ -207,6 +262,8 @@ export function SceneViewport({
       renderer.domElement.removeEventListener('blur', deactivateCameraInput);
       renderer.setAnimationLoop(null);
       controls.dispose();
+      sky.removeFromParent();
+      sky.clear();
       terrain.removeFromParent();
       terrain.clear();
       currentProjection.dispose();
@@ -219,46 +276,64 @@ export function SceneViewport({
 
   useEffect(() => {
     if (!terrainSource) return;
+    onSkyPiecesChange([]);
     let disposed = false;
     const loadedScenes: THREE.Object3D[] = [];
-    const total = terrainSource.urls.length + terrainSource.assets.length;
+    const total = terrainSource.urls.length + terrainSource.assets.length + (terrainSource.skyUrl ? 1 : 0);
     let completed = 0;
     const reportLoaded = () => {
       completed += 1;
       if (!disposed) loadProgressChanged.current({
-        status: 'loading', label: 'Loading terrain and entity meshes…', completed, total,
+        status: 'loading', label: 'Loading terrain, sky, and entity meshes…', completed, total,
       });
     };
     loadProgressChanged.current({
-      status: 'loading', label: 'Loading terrain and entity meshes…', completed, total,
+      status: 'loading', label: 'Loading terrain, sky, and entity meshes…', completed, total,
     });
+    applySceneEnvironment(viewport.current!.scene, terrainSource.environment, viewport.current!.skyScene);
     void Promise.resolve().then(async () => {
       if (!terrainSource.urls.length) throw new Error('The render package contains no terrain');
       const loader = new GLTFLoader();
-      const [terrainResults, assetResults] = await Promise.all([
+      const [terrainResults, assetResults, skyResults] = await Promise.all([
         Promise.allSettled(terrainSource.urls.map((url) => loader.loadAsync(url).finally(reportLoaded))),
         Promise.allSettled(terrainSource.assets.map((asset) =>
           (asset.url ? loader.loadAsync(asset.url) : Promise.reject(new Error(asset.error ?? 'Asset has no render payload')))
             .finally(reportLoaded))),
+        Promise.allSettled(terrainSource.skyUrl
+          ? [loader.loadAsync(terrainSource.skyUrl).finally(reportLoaded)]
+          : []),
       ]);
       const loaded = terrainResults.flatMap((result) => result.status === 'fulfilled' ? [result.value.scene] : []);
       if (disposed || !viewport.current) {
         for (const scene of loaded) disposeObject(scene);
         for (const result of assetResults) if (result.status === 'fulfilled') disposeObject(result.value.scene);
+        for (const result of skyResults) if (result.status === 'fulfilled') disposeObject(result.value.scene);
         return;
       }
       if (!loaded.length) throw terrainResults.find((result) => result.status === 'rejected')?.reason
         ?? new Error('Could not load terrain');
       for (const scene of loaded) {
+        configurePs2MaterialAlpha(scene, 'tfrag');
         scene.traverse((object) => { if (/^lod_[1-9]/i.test(object.name)) object.visible = false; });
         viewport.current.terrain.add(scene);
         loadedScenes.push(scene);
+      }
+      if (skyResults[0]?.status === 'fulfilled') {
+        const skyScene = skyResults[0].value.scene;
+        configurePs2MaterialAlpha(skyScene, 'sky');
+        const sky = configureSkybox(skyScene);
+        viewport.current.skyEye.copy(sky.eye);
+        onSkyPiecesChange(sky.pieces);
+        viewport.current.sky.add(skyScene);
+        viewport.current.sky.visible = currentVisibility.current.sky;
+        loadedScenes.push(skyScene);
       }
       const templates = new Map<string, THREE.Object3D>();
       const failedAssets = new Set<string>();
       assetResults.forEach((result, index) => {
         const asset = terrainSource.assets[index];
         if (result.status === 'fulfilled') {
+          configurePs2MaterialAlpha(result.value.scene, asset.kind);
           templates.set(asset.assetId, result.value.scene);
           loadedScenes.push(result.value.scene);
         } else {
@@ -266,18 +341,24 @@ export function SceneViewport({
         }
       });
       viewport.current.projection.setAssetTemplates(templates, failedAssets);
-      viewport.current.projection.sync(currentEntities.current, currentSelection.current);
+      viewport.current.projection.sync(
+        currentEntities.current,
+        currentSelection.current,
+        visibleEntityLayers(currentEntities.current, currentVisibility.current),
+        currentVisibility.current.markers,
+      );
       if (!frameEntities(viewport.current.camera, viewport.current.controls, currentEntities.current))
         frameObject(viewport.current.camera, viewport.current.controls, viewport.current.content);
       viewport.current.framed = true;
       const terrainFailures = terrainResults.length - loaded.length;
-      const assetFailures = failedAssets.size;
+      const skyFailures = skyResults.filter((result) => result.status === 'rejected').length;
       const firstAssetFailure = assetResults.findIndex((result) => result.status === 'rejected');
       const firstAssetError = firstAssetFailure < 0 ? '' : terrainSource.assets[firstAssetFailure].error
         ?? String((assetResults[firstAssetFailure] as PromiseRejectedResult).reason);
       const failures = [
         terrainFailures && `${terrainFailures} terrain section${terrainFailures === 1 ? '' : 's'}`,
-        assetFailures && `${assetFailures} asset${assetFailures === 1 ? '' : 's'}`,
+        skyFailures && 'sky',
+        ...failedAssetFamilies(terrainSource, assetResults),
       ].filter(Boolean);
       loadProgressChanged.current(failures.length ? {
         status: 'error', completed, total,
@@ -292,19 +373,42 @@ export function SceneViewport({
     return () => {
       disposed = true;
       viewport.current?.projection.setAssetTemplates(new Map());
+      if (viewport.current) {
+        viewport.current.skyEye.set(0, 0, 0);
+        applySceneEnvironment(viewport.current.scene, undefined, viewport.current.skyScene);
+      }
       for (const scene of loadedScenes) disposeObject(scene);
     };
-  }, [terrainSource]);
+  }, [onSkyPiecesChange, terrainSource]);
 
   useEffect(() => {
     const current = viewport.current;
     if (!current) return;
-    current.projection.sync(entities, selection);
+    current.projection.sync(
+      entities,
+      selection,
+      visibleEntityLayers(entities, currentVisibility.current),
+      currentVisibility.current.markers,
+    );
     if (!current.framed && entities.length) {
       frameEntities(current.camera, current.controls, entities);
       current.framed = true;
     }
   }, [entities, selection]);
+
+  useEffect(() => {
+    const current = viewport.current;
+    if (!current) return;
+    current.terrain.visible = visibility.terrain;
+    current.sky.visible = visibility.sky;
+    current.projection.sync(
+      currentEntities.current,
+      currentSelection.current,
+      visibleEntityLayers(currentEntities.current, visibility),
+      visibility.markers,
+    );
+    if (!visibility.stats) setStats(undefined);
+  }, [visibility]);
 
   useEffect(() => {
     if (!focusEntityId) return;
@@ -331,11 +435,49 @@ export function SceneViewport({
   return (
     <div aria-label="3D scene viewport" className="scene-viewport">
       <div className="scene-canvas" ref={container} />
+      <Group aria-label="Viewport visibility" className="scene-toolbar" gap="xs" role="group">
+        {VISIBILITY_CONTROLS.map(([key, label]) => <Checkbox
+          checked={visibility[key]}
+          key={key}
+          label={label}
+          size="xs"
+          onChange={(event) => setVisibility((value) => ({ ...value, [key]: event.currentTarget.checked }))}
+        />)}
+        {visibility.stats && <Text c="dimmed" size="xs">
+          {stats ? `${stats.fps} FPS · ${stats.calls} calls · ${stats.triangles.toLocaleString()} tris` : 'Measuring…'}
+        </Text>}
+      </Group>
     </div>
   );
 }
 
 const MOVEMENT_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'Space', 'ShiftLeft', 'ShiftRight']);
+const ZERO_VECTOR = new THREE.Vector3();
+
+interface ViewportVisibility {
+  terrain: boolean;
+  ties: boolean;
+  shrubs: boolean;
+  mobys: boolean;
+  sky: boolean;
+  markers: boolean;
+  stats: boolean;
+}
+
+interface ViewportStats {
+  fps: number;
+  calls: number;
+  triangles: number;
+}
+
+const DEFAULT_VISIBILITY: ViewportVisibility = {
+  terrain: true, ties: true, shrubs: true, mobys: true, sky: true, markers: true, stats: false,
+};
+
+const VISIBILITY_CONTROLS = [
+  ['terrain', 'Terrain'], ['ties', 'Ties'], ['shrubs', 'Shrubs'], ['mobys', 'Mobys'],
+  ['sky', 'Sky'], ['markers', 'Markers'], ['stats', 'Stats'],
+] as const;
 
 function preventDefault(event: Event): void {
   event.preventDefault();
@@ -347,4 +489,28 @@ function frameEntities(camera: THREE.PerspectiveCamera, controls: OrbitControls,
     controls,
     entities.filter((entity) => !entity.state.hidden && !entity.state.disabled).map((entity) => entity.transform.position),
   );
+}
+
+function visibleEntityLayers(
+  entities: readonly EditorEntity[],
+  visibility: ViewportVisibility,
+): ReadonlySet<string> {
+  const layers = new Set(entities.map((entity) => entity.layer));
+  if (!visibility.ties) layers.delete('ties');
+  if (!visibility.shrubs) layers.delete('shrubs');
+  if (!visibility.mobys) layers.delete('mobys');
+  return layers;
+}
+
+function failedAssetFamilies(
+  source: EditorTerrainSource,
+  results: readonly PromiseSettledResult<unknown>[],
+): string[] {
+  const counts = new Map<string, number>();
+  results.forEach((result, index) => {
+    if (result.status === 'fulfilled') return;
+    const kind = source.assets[index].kind;
+    counts.set(kind, (counts.get(kind) ?? 0) + 1);
+  });
+  return [...counts].map(([kind, count]) => `${count} ${kind} asset${count === 1 ? '' : 's'}`);
 }

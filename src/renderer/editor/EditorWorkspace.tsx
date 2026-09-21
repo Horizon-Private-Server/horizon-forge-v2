@@ -44,12 +44,14 @@ export function EditorWorkspace({ project, hostStatus, layoutAction, onProjectCh
   const [busy, setBusy] = useState(false);
   const [terrain, setTerrain] = useState<EditorTerrainSource>();
   const [sceneLoad, setSceneLoad] = useState<EditorLoadProgress>();
+  const [skyPieces, setSkyPieces] = useState<string[]>([]);
   const [cameraFocus, setCameraFocus] = useState<{ entityId: string }>();
   const onReady = useCallback((event: DockviewReadyEvent) => setApi(event.api), []);
 
   useEffect(() => {
     let disposed = false;
     setTerrain(undefined);
+    setSkyPieces([]);
     setCameraFocus(undefined);
     setSceneLoad({ status: 'loading', label: 'Preparing UYA render package…', completed: 0, total: 1 });
     const stopProgress = window.forge.onEditorTerrainProgress((progress) => {
@@ -59,8 +61,8 @@ export function EditorWorkspace({ project, hostStatus, layoutAction, onProjectCh
       if (disposed) return;
       stopProgress();
       setSceneLoad({
-        status: 'loading', label: 'Loading terrain and entity meshes…', completed: 0,
-        total: source.urls.length + source.assets.length,
+        status: 'loading', label: 'Loading terrain, sky, and entity meshes…', completed: 0,
+        total: source.urls.length + source.assets.length + (source.skyUrl ? 1 : 0),
       });
       setTerrain(source);
     }).catch((cause) => {
@@ -133,6 +135,8 @@ export function EditorWorkspace({ project, hostStatus, layoutAction, onProjectCh
     terrain,
     sceneLoad,
     setSceneLoad,
+    skyPieces,
+    setSkyPieces,
     cameraFocus,
     setCameraFocus,
     busy,
@@ -150,7 +154,7 @@ export function EditorWorkspace({ project, hostStatus, layoutAction, onProjectCh
       catch (cause) { setError(errorMessage(cause)); }
       finally { setBusy(false); }
     },
-  }), [busy, cameraFocus, onProjectChange, project, sceneLoad, terrain]);
+  }), [busy, cameraFocus, onProjectChange, project, sceneLoad, skyPieces, terrain]);
 
   return <EditorContext.Provider value={context}>
     <div className="editor-workspace">

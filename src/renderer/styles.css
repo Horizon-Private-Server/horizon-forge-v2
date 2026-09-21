@@ -48,6 +48,17 @@ body {
   outline-offset: -1px;
 }
 
+.scene-toolbar {
+  position: absolute;
+  z-index: 1;
+  top: var(--mantine-spacing-xs);
+  left: var(--mantine-spacing-xs);
+  padding: 0.25rem 0.4rem;
+  border: 1px solid var(--mantine-color-dark-4);
+  border-radius: var(--mantine-radius-xs);
+  background: rgb(17 20 26 / 88%);
+}
+
 .project-hub {
   min-height: 0;
   overflow: auto;

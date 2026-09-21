@@ -74,6 +74,15 @@ export interface UyaRenderPackageResult {
   rootPath: string;
   cacheKey: string;
   terrainPaths: string[];
-  assets: { assetId: string; path?: string; error?: string }[];
+  skyPath?: string;
+  environment?: {
+    backgroundColor: [number, number, number];
+    fogColor: [number, number, number];
+    fogNearDistance: number;
+    fogFarDistance: number;
+    fogNearIntensity: number;
+    fogFarIntensity: number;
+  };
+  assets: { assetId: string; kind: 'moby' | 'tie' | 'shrub'; path?: string; error?: string }[];
   cacheHit: boolean;
 }

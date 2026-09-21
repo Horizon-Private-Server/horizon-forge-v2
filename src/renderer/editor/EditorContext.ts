@@ -8,6 +8,8 @@ export interface EditorContextValue {
   terrain?: EditorTerrainSource;
   sceneLoad?: EditorLoadProgress;
   setSceneLoad(progress?: EditorLoadProgress): void;
+  skyPieces: readonly string[];
+  setSkyPieces(pieces: string[]): void;
   cameraFocus?: { entityId: string };
   setCameraFocus(request?: { entityId: string }): void;
   busy: boolean;

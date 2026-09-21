@@ -16,6 +16,14 @@ export function buildTerrainTreeItems(urls: readonly string[], filter: string): 
   }).filter((item) => !query || `${item.label} tfrags terrain`.toLocaleLowerCase().includes(query));
 }
 
+export function buildSkyTreeItems(names: readonly string[], filter: string): { value: string; label: string }[] {
+  const query = filter.trim().toLocaleLowerCase();
+  return names.map((name, index) => {
+    const shell = name.match(/^skybox_shell_(\d+)$/i)?.[1];
+    return { value: `render:sky:${index}`, label: shell ? `Sky shell ${Number(shell)}` : name };
+  }).filter((item) => !query || `${item.label} sky`.toLocaleLowerCase().includes(query));
+}
+
 export function nextTreeSelection(
   selected: readonly string[],
   value: string,

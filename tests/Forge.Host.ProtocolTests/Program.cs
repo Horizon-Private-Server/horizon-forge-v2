@@ -202,9 +202,11 @@ internal static class Program
             BridgePayloadCodec.EncodeUyaRenderPackageRequest(renderRequest)), "render-package request payload");
         var renderResult = new UyaRenderPackageResultPayload(
             "render-cache/key", "key", ["tfrag/tfrag.gltf", "tfrag/chunks/chunk1/tfrag.gltf"],
+            "assets/skybox/skybox.gltf",
+            new(57, 65, 50, 40, 50, 40, 10, 175, 255, 0),
             [
-                new(new string('a', 64), "entities/a/model.gltf", null),
-                new(new string('b', 64), null, "missing asset"),
+                new(new string('a', 64), "moby", "entities/a/model.gltf", null),
+                new(new string('b', 64), "tie", null, "missing asset"),
             ],
             true);
         var decodedRenderResult = BridgePayloadCodec.DecodeUyaRenderPackageResult(

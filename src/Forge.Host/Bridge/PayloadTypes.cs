@@ -69,11 +69,24 @@ public sealed record UyaRenderPackageRequestPayload(
     uint Level,
     string ProjectPath,
     string CatalogRootPath);
-public sealed record UyaRenderAssetPayload(string AssetId, string? Path, string? Error);
+public sealed record UyaRenderAssetPayload(string AssetId, string Kind, string? Path, string? Error);
+public sealed record UyaRenderEnvironmentPayload(
+    uint BackgroundRed,
+    uint BackgroundGreen,
+    uint BackgroundBlue,
+    uint FogRed,
+    uint FogGreen,
+    uint FogBlue,
+    float FogNearDistance,
+    float FogFarDistance,
+    float FogNearIntensity,
+    float FogFarIntensity);
 public sealed record UyaRenderPackageResultPayload(
     string RootPath,
     string CacheKey,
     IReadOnlyList<string> TerrainPaths,
+    string? SkyPath,
+    UyaRenderEnvironmentPayload? Environment,
     IReadOnlyList<UyaRenderAssetPayload> Assets,
     bool CacheHit);
 public sealed record CatalogMaintenancePayload(

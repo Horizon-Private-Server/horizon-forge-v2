@@ -39,8 +39,11 @@ export class RenderAssetProtocol {
       `forge-asset://${value.cacheKey}/${entry.split('/').map(encodeURIComponent).join('/')}`;
     return {
       urls: value.terrainPaths.map(url),
+      skyUrl: value.skyPath ? url(value.skyPath) : undefined,
+      environment: value.environment,
       assets: value.assets.map((asset) => ({
         assetId: asset.assetId,
+        kind: asset.kind,
         url: asset.path ? url(asset.path) : undefined,
         error: asset.error,
       })),
