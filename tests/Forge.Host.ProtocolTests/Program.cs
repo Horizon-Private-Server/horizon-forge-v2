@@ -197,17 +197,28 @@ internal static class Program
             decodedDescriptor, "project descriptor payload");
 
         var renderRequest = new UyaRenderPackageRequestPayload(
-            "source.iso", "render-cache", UyaIsoService.SupportedMd5, 3);
+            "source.iso", "render-cache", UyaIsoService.SupportedMd5, 3, "project", "catalog");
         Equal(renderRequest, BridgePayloadCodec.DecodeUyaRenderPackageRequest(
             BridgePayloadCodec.EncodeUyaRenderPackageRequest(renderRequest)), "render-package request payload");
         var renderResult = new UyaRenderPackageResultPayload(
-            "render-cache/key", "key", ["tfrag/tfrag.gltf", "tfrag/chunks/chunk1/tfrag.gltf"], true);
+            "render-cache/key", "key", ["tfrag/tfrag.gltf", "tfrag/chunks/chunk1/tfrag.gltf"],
+            [
+                new(new string('a', 64), "entities/a/model.gltf", null),
+                new(new string('b', 64), null, "missing asset"),
+            ],
+            true);
         var decodedRenderResult = BridgePayloadCodec.DecodeUyaRenderPackageResult(
             BridgePayloadCodec.EncodeUyaRenderPackageResult(renderResult));
-        Equal(renderResult with { TerrainPaths = decodedRenderResult.TerrainPaths },
+        Equal(renderResult with
+            {
+                TerrainPaths = decodedRenderResult.TerrainPaths,
+                Assets = decodedRenderResult.Assets,
+            },
             decodedRenderResult, "render-package result payload");
         Equal(true, renderResult.TerrainPaths.SequenceEqual(decodedRenderResult.TerrainPaths),
             "render-package terrain paths");
+        Equal(true, renderResult.Assets.SequenceEqual(decodedRenderResult.Assets),
+            "render-package assets");
 
         var trailing = BridgePayloadCodec.EncodeText("x").Append((byte)0).ToArray();
         Expect(BridgeErrorCode.MalformedPayload, () => BridgePayloadCodec.DecodeText(trailing));

@@ -9,6 +9,7 @@ import {
   EditorEmptyState,
   EditorFilter,
   EditorPanel,
+  EditorProgressState,
   EditorProperty,
   EditorPropertyGrid,
   EditorTree,
@@ -16,12 +17,14 @@ import {
 import { SceneViewport } from './SceneViewport.tsx';
 
 export function ViewportPanel() {
-  const { project, terrain, terrainStatus, execute } = useEditor();
+  const { project, terrain, cameraFocus, setCameraFocus, setSceneLoad, execute } = useEditor();
   return <SceneViewport
     entities={project.entities}
+    focusEntityId={cameraFocus?.entityId}
     selection={project.selection}
     terrain={terrain}
-    terrainStatus={terrainStatus}
+    onFocusHandled={() => setCameraFocus(undefined)}
+    onLoadProgress={setSceneLoad}
     onSelectionChange={(entityIds) => void execute({
       id: crypto.randomUUID(), kind: 'setSelection', entityIds,
     })}
@@ -29,7 +32,7 @@ export function ViewportPanel() {
 }
 
 export function SceneTreePanel() {
-  const { project, terrain, execute, busy } = useEditor();
+  const { project, terrain, setCameraFocus, execute, busy } = useEditor();
   const [filter, setFilter] = useState('');
   const model = useMemo(() => buildSceneEntityGroups(project.entities, filter), [filter, project.entities]);
   const tfrags = useMemo(() => buildTerrainTreeItems(terrain?.urls ?? [], filter), [filter, terrain]);
@@ -63,6 +66,7 @@ export function SceneTreePanel() {
           nodes={nodes}
           selected={project.selection}
           multiple
+          onActivate={(entityId) => setCameraFocus({ entityId })}
           onSelectionChange={(values) => void execute({
             id: crypto.randomUUID(),
             kind: 'setSelection',
@@ -257,9 +261,17 @@ function cloneTransform(value: ProjectTransform): ProjectTransform {
 }
 
 export function DiagnosticsPanel() {
-  const { project, busy, save } = useEditor();
+  const { project, sceneLoad, busy, save } = useEditor();
   return <EditorPanel label="Diagnostics">
     <Stack>
+      {sceneLoad?.status === 'loading' && <EditorProgressState
+        label={sceneLoad.label}
+        completed={sceneLoad.completed}
+        total={sceneLoad.total}
+      />}
+      {sceneLoad?.status === 'error' && <Alert color="red" title="Scene loading failed">
+        {sceneLoad.label}
+      </Alert>}
       {project.migrationPending && <Alert color="yellow" title="Project migration pending">
         Save the project to commit its migrated format.
         <Button ml="sm" disabled={busy} onClick={() => void save()}>Save now</Button>
@@ -273,7 +285,7 @@ export function DiagnosticsPanel() {
         title={diagnostic.code}
         key={`${diagnostic.code}:${diagnostic.message}`}
       >{diagnostic.message}</Alert>)}
-      {!project.migrationPending && !project.baseLevel.missingAssetCount && !project.diagnostics.length
+      {!sceneLoad && !project.migrationPending && !project.baseLevel.missingAssetCount && !project.diagnostics.length
         && <EditorEmptyState message="No diagnostics." />}
       <Button variant="default" onClick={() => void window.forge.revealLogs()}>Open detailed logs</Button>
     </Stack>

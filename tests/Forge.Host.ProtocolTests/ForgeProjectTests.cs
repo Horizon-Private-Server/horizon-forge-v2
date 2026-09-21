@@ -30,7 +30,9 @@ internal static class ForgeProjectTests
                 Entity(secondId, "Second", global.Id),
             };
             var target = new ProjectTargetProfile("UYA", "NTSC-U", "1.00", "uya-ntsc-u");
-            var baseLevel = new ProjectBaseLevel("UYA", "NTSC-U", "1.00", 3, UyaIsoService.SupportedMd5);
+            var baseLevel = new ProjectBaseLevel(
+                "UYA", "NTSC-U", "1.00", 3, UyaIsoService.SupportedMd5,
+                EntityVersion: ProjectSchema.CurrentBaseEntityVersion);
             var originalPath = Path.Combine(root, "project-a");
             var otherPath = Path.Combine(root, "project-b");
             var project = await ForgeProjectWorkspace.CreateAsync(originalPath, "Portable project", target, baseLevel, entities);
@@ -146,7 +148,7 @@ internal static class ForgeProjectTests
             Equal(true, legacyDescriptor.MigrationPending, "project inspection offers migration");
             Equal(0, ReadSchemaVersion(await File.ReadAllBytesAsync(Path.Combine(legacyPath, ForgeProjectWorkspace.ManifestFileName))),
                 "migration does not silently overwrite v0 manifest");
-            legacyDescriptor = await UyaProjectService.MigrateAsync(legacyPath, catalog);
+            legacyDescriptor = await UyaProjectService.MigrateAsync(legacyPath, catalog, string.Empty);
             Equal(false, legacyDescriptor.MigrationPending, "explicit migration completes upgrade");
             Equal(1, ReadSchemaVersion(await File.ReadAllBytesAsync(Path.Combine(legacyPath, ForgeProjectWorkspace.ManifestFileName))),
                 "explicit save writes v1 manifest");

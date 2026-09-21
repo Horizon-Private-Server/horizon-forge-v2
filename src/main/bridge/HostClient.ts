@@ -261,10 +261,14 @@ export class HostClient {
     return { requestId: request.requestId, result: request.result.then(decodeForgeProjectDescriptor) };
   }
 
-  async migrateForgeProject(projectPath: string, catalogRootPath: string): Promise<HostRequest<ForgeProjectDescriptor>> {
+  async migrateForgeProject(
+    projectPath: string,
+    catalogRootPath: string,
+    sourceIsoPath: string,
+  ): Promise<HostRequest<ForgeProjectDescriptor>> {
     const request = await this.#request(
       BridgeOpcode.MigrateForgeProject,
-      encodeProjectInspectRequest({ projectPath, catalogRootPath }),
+      encodeProjectAssetRepairRequest({ projectPath, catalogRootPath, sourceIsoPath }),
     );
     return { requestId: request.requestId, result: request.result.then(decodeForgeProjectDescriptor) };
   }

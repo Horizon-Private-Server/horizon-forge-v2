@@ -256,11 +256,17 @@ test('operation payloads round trip and reject trailing data', () => {
   assert.deepEqual(decodeForgeProjectDescriptor(encodeForgeProjectDescriptor(descriptor)), descriptor);
   const renderRequest = {
     sourceIsoPath: '/clean.iso', cacheRootPath: '/cache', fingerprint: iso.fingerprint, level: 3,
+    projectPath: '/project', catalogRootPath: '/assets',
   };
   assert.deepEqual(decodeUyaRenderPackageRequest(encodeUyaRenderPackageRequest(renderRequest)), renderRequest);
   const renderResult = {
     rootPath: '/cache/key', cacheKey: 'key',
-    terrainPaths: ['tfrag/tfrag.gltf', 'tfrag/chunks/chunk1/tfrag.gltf'], cacheHit: true,
+    terrainPaths: ['tfrag/tfrag.gltf', 'tfrag/chunks/chunk1/tfrag.gltf'],
+    assets: [
+      { assetId: 'a'.repeat(64), path: 'entities/a/model.gltf' },
+      { assetId: 'b'.repeat(64), error: 'missing asset' },
+    ],
+    cacheHit: true,
   };
   assert.deepEqual(decodeUyaRenderPackageResult(encodeUyaRenderPackageResult(renderResult)), renderResult);
 

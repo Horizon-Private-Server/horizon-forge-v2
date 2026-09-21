@@ -48,6 +48,16 @@ test('scene tree grouping filters, labels states, and caps large results', () =>
   assert.equal(entityStateLabel(entity(42)), 'Moby 42 [dirty, locked, missing asset]');
 });
 
+test('scene tree cap leaves every populated layer visible', () => {
+  const entities = ['mobys', 'ties', 'shrubs'].flatMap((layer, group) =>
+    Array.from({ length: 1_000 }, (_, index) => ({ ...entity(group * 1_000 + index), layer })));
+  const model = buildSceneEntityGroups(entities, '');
+
+  assert.deepEqual(model.groups.map((group) => group.layer), ['mobys', 'shrubs', 'ties']);
+  assert.equal(model.groups.reduce((total, group) => total + group.entities.length, 0), 1_000);
+  assert.ok(model.groups.every((group) => group.entities.length > 0));
+});
+
 test('terrain package sections become filterable scene-tree items', () => {
   const urls = [
     'forge-asset://key/assets/tfrag/tfrag.gltf',

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import type { EditorSnapshot } from '../../types/EditorRuntime.js';
 import type { EditorCommand } from '../../types/EditorRuntime.js';
-import type { EditorLayoutAction, EditorTerrainSource, ForgeHostStatus } from '../../types/ForgeApi.js';
+import type { EditorLayoutAction, EditorLoadProgress, EditorTerrainSource, ForgeHostStatus } from '../../types/ForgeApi.js';
 import { errorMessage } from '../../utils/Errors.ts';
 import { EditorContext } from './EditorContext.ts';
 import {
@@ -43,25 +43,30 @@ export function EditorWorkspace({ project, hostStatus, layoutAction, onProjectCh
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [terrain, setTerrain] = useState<EditorTerrainSource>();
-  const [terrainStatus, setTerrainStatus] = useState('Preparing terrain…');
+  const [sceneLoad, setSceneLoad] = useState<EditorLoadProgress>();
+  const [cameraFocus, setCameraFocus] = useState<{ entityId: string }>();
   const onReady = useCallback((event: DockviewReadyEvent) => setApi(event.api), []);
 
   useEffect(() => {
     let disposed = false;
     setTerrain(undefined);
-    setTerrainStatus('Preparing terrain…');
+    setCameraFocus(undefined);
+    setSceneLoad({ status: 'loading', label: 'Preparing UYA render package…', completed: 0, total: 1 });
     const stopProgress = window.forge.onEditorTerrainProgress((progress) => {
-      if (!disposed) setTerrainStatus(`Preparing terrain… ${Math.round(progress.completed / progress.total * 100)}%`);
+      if (!disposed) setSceneLoad({ status: 'loading', label: 'Preparing UYA render package…', ...progress });
     });
     void window.forge.getEditorTerrain().then((source) => {
       if (disposed) return;
       stopProgress();
+      setSceneLoad({
+        status: 'loading', label: 'Loading terrain and entity meshes…', completed: 0,
+        total: source.urls.length + source.assets.length,
+      });
       setTerrain(source);
-      setTerrainStatus('');
     }).catch((cause) => {
       if (!disposed) {
         stopProgress();
-        setTerrainStatus(errorMessage(cause));
+        setSceneLoad({ status: 'error', label: errorMessage(cause), completed: 0, total: 1 });
       }
     });
     return () => {
@@ -126,7 +131,10 @@ export function EditorWorkspace({ project, hostStatus, layoutAction, onProjectCh
   const context = useMemo(() => ({
     project,
     terrain,
-    terrainStatus,
+    sceneLoad,
+    setSceneLoad,
+    cameraFocus,
+    setCameraFocus,
     busy,
     execute: async (command: EditorCommand) => {
       setBusy(true);
@@ -142,7 +150,7 @@ export function EditorWorkspace({ project, hostStatus, layoutAction, onProjectCh
       catch (cause) { setError(errorMessage(cause)); }
       finally { setBusy(false); }
     },
-  }), [busy, onProjectChange, project, terrain, terrainStatus]);
+  }), [busy, cameraFocus, onProjectChange, project, sceneLoad, terrain]);
 
   return <EditorContext.Provider value={context}>
     <div className="editor-workspace">

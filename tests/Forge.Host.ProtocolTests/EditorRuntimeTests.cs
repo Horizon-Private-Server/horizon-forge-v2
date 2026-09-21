@@ -13,7 +13,9 @@ internal static class EditorRuntimeTests
             var firstId = EntityId.New();
             var secondId = EntityId.New();
             var target = new ProjectTargetProfile("UYA", "NTSC-U", "1.00", "uya-ntsc-u");
-            var baseLevel = new ProjectBaseLevel("UYA", "NTSC-U", "1.00", 3, UyaIsoService.SupportedMd5);
+            var baseLevel = new ProjectBaseLevel(
+                "UYA", "NTSC-U", "1.00", 3, UyaIsoService.SupportedMd5,
+                EntityVersion: ProjectSchema.CurrentBaseEntityVersion);
             var firstPath = Path.Combine(root, "first");
             var secondPath = Path.Combine(root, "second");
             await ForgeProjectWorkspace.CreateAsync(firstPath, "First", target, baseLevel,

@@ -35,9 +35,15 @@ export class RenderAssetProtocol {
     const root = await realpath(value.rootPath);
     if (!isPathInside(cacheRoot, root)) throw new Error('Render package is outside the Forge cache');
     this.roots.set(value.cacheKey, root);
+    const url = (entry: string) =>
+      `forge-asset://${value.cacheKey}/${entry.split('/').map(encodeURIComponent).join('/')}`;
     return {
-      urls: value.terrainPaths.map((entry) =>
-        `forge-asset://${value.cacheKey}/${entry.split('/').map(encodeURIComponent).join('/')}`),
+      urls: value.terrainPaths.map(url),
+      assets: value.assets.map((asset) => ({
+        assetId: asset.assetId,
+        url: asset.path ? url(asset.path) : undefined,
+        error: asset.error,
+      })),
       cacheHit: value.cacheHit,
     };
   }

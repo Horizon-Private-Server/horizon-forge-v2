@@ -6,7 +6,17 @@ internal static class UyaRenderPackageTests
     public static async Task RunAsync()
     {
         var root = Path.Combine(Path.GetTempPath(), $"forge-render-package-{Guid.NewGuid():N}");
-        var request = new UyaRenderPackageRequest("", root, new string('a', 32), 3);
+        var cache = Path.Combine(root, "cache");
+        var projectPath = Path.Combine(root, "project");
+        var catalogPath = Path.Combine(root, "catalog");
+        var fingerprint = new string('a', 32);
+        await ForgeProjectWorkspace.CreateAsync(
+            projectPath,
+            "Render test",
+            new("UYA", "NTSC-U", "1.00", "uya-ntsc-u"),
+            new("UYA", "NTSC-U", "1.00", 3, fingerprint, EntityVersion: ProjectSchema.CurrentBaseEntityVersion),
+            []);
+        var request = new UyaRenderPackageRequest("", cache, fingerprint, 3, projectPath, catalogPath);
         const string sdkRevision = "test-sdk";
         try
         {

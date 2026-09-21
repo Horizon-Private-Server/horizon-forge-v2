@@ -66,11 +66,14 @@ export interface UyaRenderPackageRequest {
   cacheRootPath: string;
   fingerprint: string;
   level: number;
+  projectPath: string;
+  catalogRootPath: string;
 }
 
 export interface UyaRenderPackageResult {
   rootPath: string;
   cacheKey: string;
   terrainPaths: string[];
+  assets: { assetId: string; path?: string; error?: string }[];
   cacheHit: boolean;
 }

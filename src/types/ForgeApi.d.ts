@@ -53,6 +53,11 @@ export interface Progress {
   total: number;
 }
 
+export interface EditorLoadProgress extends Progress {
+  label: string;
+  status: 'loading' | 'error';
+}
+
 export interface UyaIsoIdentity {
   isSupported: boolean;
   game: string;
@@ -173,6 +178,7 @@ export interface SetupProgress extends Progress {
 
 export interface EditorTerrainSource {
   urls: string[];
+  assets: { assetId: string; url?: string; error?: string }[];
   cacheHit: boolean;
 }
 

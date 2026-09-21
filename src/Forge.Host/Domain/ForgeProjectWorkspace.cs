@@ -29,7 +29,8 @@ public sealed class ForgeProjectWorkspace
     public string ContentFilePath => ForgeProjectPersistence.ResolveRelativePath(RootPath, Manifest.Content);
     public string CurrentFingerprint => ForgeProjectPersistence.Fingerprint(Manifest, Content);
     public bool IsDirty => _migrationPending || CurrentFingerprint != _savedFingerprint;
-    public bool MigrationPending => _migrationPending;
+    public bool MigrationPending => _migrationPending
+        || Manifest.BaseLevel.EntityVersion < ProjectSchema.CurrentBaseEntityVersion;
 
     public static async Task<ForgeProjectWorkspace> CreateAsync(
         string rootPath,
@@ -153,6 +154,38 @@ public sealed class ForgeProjectWorkspace
         var removed = Content.Entities[index];
         Content = Content with { Entities = Content.Entities.Where(entity => entity.EntityId != entityId).ToArray() };
         return removed;
+    }
+
+    public void CompleteBaseEntityImport(IReadOnlyList<ProjectEntity> entities, int missingAssetCount)
+    {
+        ArgumentNullException.ThrowIfNull(entities);
+        if (Manifest.BaseLevel.EntityVersion >= ProjectSchema.CurrentBaseEntityVersion) return;
+        if (missingAssetCount < 0) throw new ArgumentOutOfRangeException(nameof(missingAssetCount));
+        var importedBySource = entities.Where(entity => entity.Provenance is not null)
+            .ToDictionary(entity => (entity.Provenance!.Section, entity.Provenance.SourceIndex));
+        var existingSources = new HashSet<(string Section, int SourceIndex)>();
+        var updated = Content.Entities.Select(entity =>
+        {
+            if (entity.Provenance is null) return entity;
+            var key = (entity.Provenance.Section, entity.Provenance.SourceIndex);
+            existingSources.Add(key);
+            return entity.Source is null && importedBySource.TryGetValue(key, out var imported)
+                ? entity with { Source = imported.Source }
+                : entity;
+        });
+        Content = Content with
+        {
+            Entities = updated.Concat(entities.Where(entity => entity.Provenance is not null
+                && existingSources.Add((entity.Provenance.Section, entity.Provenance.SourceIndex)))).ToArray(),
+        };
+        Manifest = Manifest with
+        {
+            BaseLevel = Manifest.BaseLevel with
+            {
+                MissingAssetCount = missingAssetCount,
+                EntityVersion = ProjectSchema.CurrentBaseEntityVersion,
+            },
+        };
     }
 
     public void Rename(string name)
@@ -349,6 +382,11 @@ public sealed class ForgeProjectWorkspace
                 ValidateText(entity.Provenance.Section, nameof(entity.Provenance.Section));
                 if (entity.Provenance.Level < 0 || entity.Provenance.SourceIndex < 0)
                     throw new InvalidDataException($"Entity {entity.EntityId} provenance indexes cannot be negative.");
+            }
+            if (entity.Source is not null)
+            {
+                if (entity.Source.ClassId < 0 || entity.Source.RawRecord is null || entity.Source.RawRecord.Length is 0 or > 4_096)
+                    throw new InvalidDataException($"Entity {entity.EntityId} source record is invalid.");
             }
         }
         if (Content.Assets.Any(asset => asset is null)) throw new InvalidDataException("Project assets cannot contain null entries.");

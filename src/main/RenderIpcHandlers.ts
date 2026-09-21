@@ -33,6 +33,8 @@ export function registerRenderIpcHandlers(options: RenderIpcHandlersOptions): vo
         cacheRootPath: settings.paths.renderCache,
         fingerprint,
         level: project.baseLevel.level,
+        projectPath: project.projectPath,
+        catalogRootPath: settings.paths.assets,
       }, (progress) => event.sender.send('forge:editor-terrain-progress', progress));
       activeRequestId = request.requestId;
       return await renderAssets.addPackage(await request.result);

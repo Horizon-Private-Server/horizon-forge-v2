@@ -4,7 +4,8 @@ import * as THREE from 'three';
 
 import { SceneProjection } from '../src/renderer/editor/SceneProjection.ts';
 import type { EditorEntity } from '../src/types/EditorRuntime.js';
-import { disposeObject } from '../src/utils/Scene.ts';
+import { disposeObject, framePs2Positions, rotateCamera, updateCameraFlight, updateCameraMovement } from '../src/utils/Scene.ts';
+import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 function entity(id: string, x = 0, asset = true, state: Partial<EditorEntity['state']> = {}): EditorEntity {
   return {
@@ -86,6 +87,30 @@ test('scene projection applies entity states and picks the nearest eligible enti
   projection.dispose();
 });
 
+test('scene projection merges matching parts, instances assets, and resolves instance picks', () => {
+  const template = new THREE.Group();
+  const geometry = new THREE.BoxGeometry();
+  const material = new THREE.MeshBasicMaterial();
+  const billboard = new THREE.Mesh(geometry, material);
+  billboard.name = 'shrub_billboard';
+  template.add(new THREE.Mesh(geometry, material), new THREE.SkinnedMesh(geometry, material), billboard);
+  const projection = new SceneProjection();
+  projection.setAssetTemplates(new Map([['asset', template]]));
+  projection.sync([entity('a'), entity('b', 10)], ['b']);
+
+  const meshes: THREE.InstancedMesh[] = [];
+  projection.root.traverse((object) => { if (object instanceof THREE.InstancedMesh) meshes.push(object); });
+  assert.equal(meshes.length, 1);
+  const mesh = meshes[0];
+  assert.equal(mesh.count, 2);
+  assert.equal(mesh.geometry.getAttribute('position').count, geometry.getAttribute('position').count * 2);
+  assert.equal(projection.resolvePick([{ object: mesh, instanceId: 1 }] as unknown as THREE.Intersection[]), 'b');
+  assert.ok(Math.abs(projection.getBounds('b')!.getCenter(new THREE.Vector3()).x - 10) < 1e-6);
+
+  projection.dispose();
+  disposeObject(template);
+});
+
 test('projection and scene resources dispose once across repeated loads', () => {
   for (let index = 0; index < 25; index += 1) {
     const projection = new SceneProjection();
@@ -116,4 +141,57 @@ test('scene disposal releases shared geometry, materials, and textures once', ()
   disposeObject(root);
   assert.deepEqual(disposals, { geometry: 1, material: 1, texture: 1 });
   assert.equal(root.children.length, 0);
+});
+
+test('camera movement accelerates and translates the camera and orbit target together', () => {
+  const camera = new THREE.PerspectiveCamera();
+  camera.lookAt(0, 0, -1);
+  const target = new THREE.Vector3(0, 0, -10);
+  const velocity = new THREE.Vector3();
+  updateCameraMovement(camera, target, new Set(['KeyW']), velocity, 1 / 60);
+  assert.ok(camera.position.z < 0 && camera.position.z > -0.1);
+  assert.ok(Math.abs(camera.position.z - (target.z + 10)) < 1e-9);
+  for (let index = 0; index < 300; index++)
+    updateCameraMovement(camera, target, new Set(['KeyW']), velocity, 1 / 60);
+  assert.ok(velocity.length() <= 300);
+});
+
+test('camera look rotates in place and carries the orbit target', () => {
+  const camera = new THREE.PerspectiveCamera();
+  camera.lookAt(0, 0, -1);
+  const position = camera.position.clone();
+  const target = new THREE.Vector3(0, 0, -10);
+  rotateCamera(camera, target, 100, 0);
+  assert.ok(camera.position.equals(position));
+  assert.ok(Math.abs(target.length() - 10) < 1e-6);
+  assert.ok(Math.abs(target.x) > 2);
+});
+
+test('camera flight eases to its exact destination', () => {
+  const position = new THREE.Vector3();
+  const target = new THREE.Vector3();
+  const flight = {
+    cameraStart: position.clone(),
+    cameraEnd: new THREE.Vector3(10, 20, 30),
+    targetStart: target.clone(),
+    targetEnd: new THREE.Vector3(20, 10, 0),
+    elapsed: 0,
+    duration: 0.4,
+  };
+  assert.equal(updateCameraFlight(position, target, flight, 0.2), false);
+  assert.deepEqual(position.toArray(), [5, 10, 15]);
+  assert.deepEqual(target.toArray(), [10, 5, 0]);
+  assert.equal(updateCameraFlight(position, target, flight, 0.2), true);
+  assert.deepEqual(position.toArray(), flight.cameraEnd.toArray());
+  assert.deepEqual(target.toArray(), flight.targetEnd.toArray());
+});
+
+test('camera framing ignores distant entity outliers', () => {
+  const camera = new THREE.PerspectiveCamera();
+  const controls = { target: new THREE.Vector3(), update() {} } as unknown as OrbitControls;
+  const cluster = Array.from({ length: 20 }, (_, index) => ({ x: index, y: 0, z: 0 }));
+  assert.equal(framePs2Positions(camera, controls, [...cluster, { x: 10_000, y: 0, z: 0 }]), true);
+  assert.ok(controls.target.x < 20);
+  assert.ok(camera.position.distanceTo(controls.target) < 50);
+  assert.ok(camera.far > 19_000);
 });

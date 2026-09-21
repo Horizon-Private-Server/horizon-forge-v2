@@ -12,7 +12,8 @@ public sealed record ProjectBaseLevel(
     string Revision,
     int Level,
     string SourceFingerprint,
-    int MissingAssetCount = 0);
+    int MissingAssetCount = 0,
+    int EntityVersion = 0);
 
 public sealed record ProjectVector3(float X, float Y, float Z);
 
@@ -42,6 +43,10 @@ public sealed record ProjectEntityState(
     bool Disabled = false,
     bool Locked = false);
 
+public sealed record ProjectEntitySource(
+    int ClassId,
+    byte[] RawRecord);
+
 public sealed record ProjectEntity(
     EntityId EntityId,
     string Name,
@@ -49,7 +54,8 @@ public sealed record ProjectEntity(
     ProjectTransform Transform,
     ProjectAssetReference? Asset,
     ProjectEntityProvenance? Provenance = null,
-    ProjectEntityState? State = null);
+    ProjectEntityState? State = null,
+    ProjectEntitySource? Source = null);
 
 public sealed record ProjectAttachedAsset(
     AssetId Id,

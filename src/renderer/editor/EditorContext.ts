@@ -1,12 +1,15 @@
 import { createContext, useContext } from 'react';
 
 import type { EditorCommand, EditorSnapshot } from '../../types/EditorRuntime.js';
-import type { EditorTerrainSource } from '../../types/ForgeApi.js';
+import type { EditorLoadProgress, EditorTerrainSource } from '../../types/ForgeApi.js';
 
 export interface EditorContextValue {
   project: EditorSnapshot;
   terrain?: EditorTerrainSource;
-  terrainStatus: string;
+  sceneLoad?: EditorLoadProgress;
+  setSceneLoad(progress?: EditorLoadProgress): void;
+  cameraFocus?: { entityId: string };
+  setCameraFocus(request?: { entityId: string }): void;
   busy: boolean;
   execute(command: EditorCommand): Promise<void>;
   save(): Promise<void>;

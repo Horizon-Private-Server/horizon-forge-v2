@@ -272,6 +272,13 @@ Acceptance:
 Verification: authored instance fixtures, representative level counts, old-project
 upgrade, deletion/reopen, and cross-platform serialization tests.
 
+Implementation: the pinned SDK decodes typed UYA tie and shrub records while
+retaining their raw bytes. New projects persist moby, tie, and shrub entities with
+catalog references, source provenance, and decomposed transforms. Existing projects
+offer a one-time source-ISO-backed upgrade; its stored entity version prevents
+deleted base entities from being recreated on later opens. Missing catalog entries
+remain as placeholder-capable entities instead of being dropped.
+
 ## M2-012 — Replace entity proxies with vanilla asset meshes
 
 Requirements: FR-SCENE-002, FR-SCENE-003, FR-SCENE-004, FR-SCENE-007,
@@ -298,6 +305,20 @@ Acceptance:
 
 Verification: shared-resource counts, instanced-picking fixtures, state matrix,
 representative dense-level frame profile, and repeated-load resource soak.
+
+Implementation: the host resolves every unique project Asset ID through the
+project/global stores, validates its canonical blob and identity, and uses the
+pinned SDK to cache a browser-ready glTF plus textures beside the terrain package.
+The renderer loads each Asset ID once, merges compatible primitives by material,
+and instances bind-pose geometry across tie, shrub, and moby entities. Instance ray
+hits map back to Entity IDs; meshless mobys and failed/missing assets retain
+distinct editor markers. A representative UYA Level 1 build exported all 137
+referenced assets for 4,589 entities without failures; the projection benchmark
+reduced estimated mesh draws from 4,986 to 902. The WebGL viewport uses a neutral
+editor light, a fixed 1x pixel ratio, and camera-centered mouse look with right-drag
+pan and reduced wheel dolly, augmented by damped viewport-focused WASD, Q/E
+vertical movement, and Shift acceleration. Initial framing uses the median entity
+position and 75th-percentile radius so distant outliers do not hide the main map.
 
 ## M2-013 — Add sky and viewport map-fidelity controls
 

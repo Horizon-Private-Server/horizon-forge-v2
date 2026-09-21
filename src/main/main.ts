@@ -43,6 +43,7 @@ function createWindow(): void {
     },
   });
   mainWindow = window;
+  window.maximize();
 
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', (event, url) => {

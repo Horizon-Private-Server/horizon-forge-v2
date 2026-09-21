@@ -43,10 +43,11 @@ interface EditorTreeProps {
   nodes: TreeNodeData[];
   selected?: string[];
   multiple?: boolean;
+  onActivate?(value: string): void;
   onSelectionChange?(values: string[]): void;
 }
 
-export function EditorTree({ label, nodes, selected = [], multiple = false, onSelectionChange }: EditorTreeProps) {
+export function EditorTree({ label, nodes, selected = [], multiple = false, onActivate, onSelectionChange }: EditorTreeProps) {
   const tree = useTree({ selectedState: selected, multiple, onSelectedStateChange: onSelectionChange });
   const values = useMemo(() => selectableTreeValues(nodes), [nodes]);
   const valueSet = useMemo(() => new Set(values), [values]);
@@ -95,9 +96,14 @@ export function EditorTree({ label, nodes, selected = [], multiple = false, onSe
       className={`${elementProps.className} editor-tree-row`}
       onClick={(event) => {
         event.stopPropagation();
+        if (event.detail > 1) return;
         if (hasChildren) controller.toggleExpanded(node.value);
         else select(node.value, event);
         event.currentTarget.closest<HTMLElement>('[role="treeitem"]')?.focus();
+      }}
+      onDoubleClick={(event) => {
+        event.stopPropagation();
+        if (valueSet.has(node.value)) onActivate?.(node.value);
       }}
     >
       <span aria-hidden="true" className="editor-tree-chevron">{hasChildren ? (expanded ? '▾' : '▸') : ''}</span>

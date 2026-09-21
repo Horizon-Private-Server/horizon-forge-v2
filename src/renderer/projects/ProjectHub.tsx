@@ -140,7 +140,10 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen, 
     try {
       setBusy(true);
       setError(undefined);
-      const project = await window.forge.restoreForgeProject(recoveryProject.path, recoveryId);
+      const restored = await window.forge.restoreForgeProject(recoveryProject.path, recoveryId);
+      const project = restored.migrationPending
+        ? await window.forge.migrateForgeProject(restored.path)
+        : restored;
       setRecoveryProject(undefined);
       setRecoveryId(null);
       onOpen(project);
@@ -171,7 +174,7 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen, 
 
   const warnings = preflight?.warnings ?? hub?.creation?.warnings ?? [];
   const canCreate = Boolean(hub?.creation?.levels.length)
-    && Boolean(hostStatus?.capabilities.includes('uya.projects.base.mobys'));
+    && Boolean(hostStatus?.capabilities.includes('uya.projects.base.instances'));
   const selectedRecovery = recoveryProject?.recoveries.find((recovery) => recovery.id === recoveryId);
 
   return (
@@ -274,7 +277,7 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen, 
           {preflightBusy && <Text c="dimmed" size="xs">Checking source instances and global assets…</Text>}
           {preflight && (
             <Text size="xs">
-              {preflight.renderableInstanceCount} renderable and {preflight.modelLessInstanceCount} model-less moby instances
+              {preflight.renderableInstanceCount} renderable base instances and {preflight.modelLessInstanceCount} intentional meshless mobys
               {preflight.missingAssetInstanceCount
                 ? `; ${preflight.missingAssetInstanceCount} instances across ${preflight.missingClassCount} class IDs are missing assets.`
                 : `; all ${preflight.sourceInstanceCount} instances will be included.`}
@@ -323,7 +326,7 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen, 
           <Alert color="yellow">
             {recoveryProject?.recoveries.length
               ? 'Forge found autosaved work newer than the last explicit save. Review it before choosing which version to open.'
-              : 'This project uses the version-zero format. Forge will preserve the existing files until you explicitly upgrade it.'}
+              : 'This project predates the current project format or base-entity coverage. Forge will preserve the existing files until you explicitly upgrade it.'}
           </Alert>
           {Boolean(recoveryProject?.recoveries.length) && <Select
             label="Recovery snapshot"

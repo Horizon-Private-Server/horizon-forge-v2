@@ -1,14 +1,9 @@
-using RatchetPs2.Games.UYA.Gameplay;
 using RatchetPs2.Games.UYA.Level;
-using RatchetPs2.Games.DL.Level;
 
 namespace Forge.Host.Domain;
 
 public static class UyaProjectService
 {
-    private const string PartialBaseWarning =
-        "The pinned SDK currently exposes UYA moby instances only. Tie, shrub, and other base content will remain sourced from the base WAD but is not yet editable as scene entities.";
-
     public static async Task<UyaProjectCreationOptions> GetCreationOptionsAsync(
         string sourceIsoPath,
         CancellationToken cancellationToken = default)
@@ -19,7 +14,7 @@ public static class UyaProjectService
     }
 
     public static UyaProjectCreationOptions GetCreationOptions(Stream iso) =>
-        new(FindLevels(iso), [PartialBaseWarning]);
+        new(FindLevels(iso), []);
 
     public static async Task<UyaProjectPreflight> PreflightAsync(
         string sourceIsoPath,
@@ -40,11 +35,11 @@ public static class UyaProjectService
         var baseData = ReadBase(iso, catalog, level);
         return new(
             level,
-            baseData.Instances.Count,
-            baseData.Instances.Count(instance => baseData.Assets.ContainsKey(instance.ClassId)),
+            baseData.SourceInstanceCount,
+            baseData.RenderableInstanceCount,
             baseData.ModelLessInstanceCount,
             baseData.MissingInstanceCount,
-            baseData.MissingClasses.Count,
+            baseData.MissingClassCount,
             CreateWarnings(baseData));
     }
 
@@ -92,16 +87,16 @@ public static class UyaProjectService
         var warnings = CreateWarnings(baseData);
         if (!request.AllowPartial && warnings.Count > 0) throw new InvalidDataException(string.Join(' ', warnings));
         await ReportAsync(progress, 2, 4);
-        var entities = baseData.Instances.Select((instance, index) => CreateEntity(
-            instance, index, request.Level, baseData.Assets, baseData.ModelClassIds)).Where(entity => entity is not null).Cast<ProjectEntity>().ToArray();
-        if (entities.Length == 0) throw new InvalidDataException($"UYA level {request.Level} does not contain any usable moby instances.");
+        var entities = baseData.Entities;
+        if (entities.Count == 0) throw new InvalidDataException($"UYA level {request.Level} does not contain any supported base instances.");
         await ReportAsync(progress, 3, 4);
 
         var workspace = await ForgeProjectWorkspace.CreateAsync(
             request.ProjectPath,
             request.Name,
             new("UYA", "NTSC-U", request.Revision, "uya-ntsc-u"),
-            new("UYA", "NTSC-U", request.Revision, request.Level, request.Fingerprint.ToLowerInvariant(), baseData.MissingInstanceCount),
+            new("UYA", "NTSC-U", request.Revision, request.Level, request.Fingerprint.ToLowerInvariant(),
+                baseData.MissingInstanceCount, ProjectSchema.CurrentBaseEntityVersion),
             entities,
             cancellationToken);
         await ReportAsync(progress, 4, 4);
@@ -200,11 +195,42 @@ public static class UyaProjectService
     public static async Task<ForgeProjectDescriptor> MigrateAsync(
         string projectPath,
         AssetCatalogStore catalog,
+        string sourceIsoPath,
         CancellationToken cancellationToken = default)
     {
         var workspace = await ForgeProjectWorkspace.OpenAsync(projectPath, cancellationToken);
-        if (workspace.MigrationPending) await workspace.SaveAsync(cancellationToken);
-        return await InspectAsync(projectPath, catalog, cancellationToken: cancellationToken);
+        if (workspace.Manifest.BaseLevel.EntityVersion >= ProjectSchema.CurrentBaseEntityVersion)
+            return await SaveMigrationAsync(workspace, catalog, cancellationToken);
+        var identity = await UyaIsoService.ValidateAsync(sourceIsoPath, cancellationToken: cancellationToken);
+        if (!identity.IsSupported || !identity.Fingerprint.Equals(
+                workspace.Manifest.BaseLevel.SourceFingerprint, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("The UYA source ISO does not match this project's verified source fingerprint.");
+        await using var iso = OpenIso(sourceIsoPath);
+        return await MigrateValidatedAsync(projectPath, catalog, iso, cancellationToken);
+    }
+
+    public static async Task<ForgeProjectDescriptor> MigrateValidatedAsync(
+        string projectPath,
+        AssetCatalogStore catalog,
+        Stream iso,
+        CancellationToken cancellationToken = default)
+    {
+        var workspace = await ForgeProjectWorkspace.OpenAsync(projectPath, cancellationToken);
+        if (workspace.Manifest.BaseLevel.EntityVersion < ProjectSchema.CurrentBaseEntityVersion)
+        {
+            var baseData = ReadBase(iso, catalog, workspace.Manifest.BaseLevel.Level);
+            workspace.CompleteBaseEntityImport(baseData.Entities, baseData.MissingInstanceCount);
+        }
+        return await SaveMigrationAsync(workspace, catalog, cancellationToken);
+    }
+
+    private static async Task<ForgeProjectDescriptor> SaveMigrationAsync(
+        ForgeProjectWorkspace workspace,
+        AssetCatalogStore catalog,
+        CancellationToken cancellationToken)
+    {
+        if (workspace.MigrationPending || workspace.IsDirty) await workspace.SaveAsync(cancellationToken);
+        return await InspectAsync(workspace.RootPath, catalog, cancellationToken: cancellationToken);
     }
 
     private static IReadOnlyList<MissingProjectAsset> FindMissingAssets(
@@ -236,87 +262,21 @@ public static class UyaProjectService
             .ToArray();
     }
 
-    private static ProjectEntity? CreateEntity(
-        UyaMobyInstance instance,
-        int index,
-        int level,
-        IReadOnlyDictionary<int, AssetCatalogEntry> assets,
-        IReadOnlySet<int> modelClassIds)
-    {
-        assets.TryGetValue(instance.ClassId, out var asset);
-        if (asset is null && modelClassIds.Contains(instance.ClassId)) return null;
-        return new(
-            EntityId.New(),
-            $"Moby 0x{instance.ClassId:X4} #{index}",
-            "mobys",
-            new(
-                new(instance.Position.X, instance.Position.Y, instance.Position.Z),
-                FromZyxEuler(instance.Rotation),
-                new(instance.Scale, instance.Scale, instance.Scale)),
-            asset is null ? null : new(asset.Id, AssetKind.Moby),
-            new("UYA", level, "gameplay/core/moby_instances", index));
-    }
-
-    private static ProjectQuaternion FromZyxEuler(UyaVector3 rotation)
-    {
-        var c1 = MathF.Cos(rotation.X / 2);
-        var c2 = MathF.Cos(rotation.Y / 2);
-        var c3 = MathF.Cos(rotation.Z / 2);
-        var s1 = MathF.Sin(rotation.X / 2);
-        var s2 = MathF.Sin(rotation.Y / 2);
-        var s3 = MathF.Sin(rotation.Z / 2);
-        return new(
-            s1 * c2 * c3 - c1 * s2 * s3,
-            c1 * s2 * c3 + s1 * c2 * s3,
-            c1 * c2 * s3 - s1 * s2 * c3,
-            c1 * c2 * c3 + s1 * s2 * s3);
-    }
-
-    private static BaseData ReadBase(Stream iso, AssetCatalogStore catalog, int level)
+    private static UyaBaseLevelData ReadBase(Stream iso, AssetCatalogStore catalog, int level)
     {
         if (!iso.CanRead || !iso.CanSeek) throw new ArgumentException("The UYA ISO stream must be readable and seekable.", nameof(iso));
         if (!FindLevels(iso).Contains(level)) throw new InvalidDataException($"UYA level {level} is not present in the source ISO.");
-        var levelWad = UyaLooseLevelWadExtractor.ExtractPrimary(iso, level).Bytes;
-        var package = UyaLevelWadUnpacker.Unpack(levelWad);
-        var mobyBytes = package.Files.SingleOrDefault(file => file.Path == "gameplay/core/moby_instances.bin")?.Bytes
-            ?? throw new InvalidDataException($"UYA level {level} does not contain readable moby instances.");
-        var instances = UyaMobyInstancesReader.Read(mobyBytes).Instances;
-        var source = UyaLevelWadRenderPackageBuilder.ReadAssetSourceFiles(package.Files);
-        var header = DlAssetReader.ReadHeader(source.HeaderBytes);
-        var modelClassIds = DlAssetReader.ReadModelDefinitions(
-            source.HeaderBytes, header.MobyModelOffset, header.MobyModelCount)
-            .Where(model => model.ModelOffset > 0)
-            .Select(model => model.ModelId)
-            .ToHashSet();
-        var assets = BuildMobyAssetLookup(catalog, level);
-        var missingClasses = instances.Select(instance => instance.ClassId)
-            .Where(classId => modelClassIds.Contains(classId) && !assets.ContainsKey(classId)).Distinct().Order().ToArray();
-        return new(
-            instances,
-            assets,
-            modelClassIds,
-            missingClasses,
-            instances.Count(instance => modelClassIds.Contains(instance.ClassId) && !assets.ContainsKey(instance.ClassId)),
-            instances.Count(instance => !modelClassIds.Contains(instance.ClassId)));
+        return UyaBaseLevelService.Read(iso, catalog, level);
     }
 
-    private static IReadOnlyList<string> CreateWarnings(BaseData value)
+    private static IReadOnlyList<string> CreateWarnings(UyaBaseLevelData value)
     {
-        var warnings = new List<string> { PartialBaseWarning };
+        var warnings = new List<string>();
         if (value.MissingInstanceCount > 0)
-            warnings.Add($"{value.MissingInstanceCount} moby instances across {value.MissingClasses.Count} class IDs are absent from the global catalog and will be skipped.");
+            warnings.Add($"{value.MissingInstanceCount} instances across {value.MissingClassCount} model classes are absent from the global catalog and will use placeholders.");
+        if (value.FallbackTransformCount > 0)
+            warnings.Add($"{value.FallbackTransformCount} tie or shrub transforms could not be decomposed and will use identity rotation and scale.");
         return warnings;
-    }
-
-    private static IReadOnlyDictionary<int, AssetCatalogEntry> BuildMobyAssetLookup(AssetCatalogStore catalog, int level)
-    {
-        var result = new Dictionary<int, AssetCatalogEntry>();
-        foreach (var asset in catalog.Query(new(Kind: AssetKind.Moby, Game: "UYA", Level: $"level{level:00}", Limit: AssetCatalogStore.MaxQueryLimit)))
-        {
-            var alias = asset.Aliases.FirstOrDefault(value => value.StartsWith("moby:", StringComparison.Ordinal) && !value.StartsWith("moby:0x", StringComparison.Ordinal));
-            if (alias is not null && int.TryParse(alias.AsSpan(5), out var classId)) result.TryAdd(classId, asset);
-        }
-        return result;
     }
 
     private static IReadOnlyList<int> FindLevels(Stream iso)
@@ -356,12 +316,4 @@ public static class UyaProjectService
         var completed = value.Total <= 0 ? start : start + value.Completed * (end - start) / value.Total;
         return progress(new(completed, 10_000));
     }
-
-    private sealed record BaseData(
-        IReadOnlyList<UyaMobyInstance> Instances,
-        IReadOnlyDictionary<int, AssetCatalogEntry> Assets,
-        IReadOnlySet<int> ModelClassIds,
-        IReadOnlyList<int> MissingClasses,
-        int MissingInstanceCount,
-        int ModelLessInstanceCount);
 }

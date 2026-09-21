@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -10,7 +11,8 @@ namespace Forge.Host.Domain;
 
 public static class UyaRenderPackageService
 {
-    public const int SchemaVersion = 1;
+    public const int SchemaVersion = 2;
+    private const long MaxAssetBytes = 256L * 1024 * 1024;
     private const string MarkerName = ".forge-render-package.json";
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
@@ -21,7 +23,8 @@ public static class UyaRenderPackageService
         CancellationToken cancellationToken = default)
     {
         Validate(request, sdkRevision);
-        var cacheKey = CreateCacheKey(request, sdkRevision);
+        var assets = await ResolveAssetsAsync(request, cancellationToken);
+        var cacheKey = CreateCacheKey(request, sdkRevision, assets.Select(asset => asset.Id));
         var target = Path.Combine(Path.GetFullPath(request.CacheRootPath), cacheKey);
         var cached = await TryOpenAsync(target, request, sdkRevision, cancellationToken);
         if (cached is not null)
@@ -30,7 +33,7 @@ public static class UyaRenderPackageService
             return cached with { CacheHit = true };
         }
         if (string.IsNullOrWhiteSpace(request.SourceIsoPath) || !File.Exists(request.SourceIsoPath))
-            throw new IOException("The terrain cache is missing and the clean UYA ISO is unavailable. Repair it through Forge → Setup.");
+            throw new IOException("The scene cache is missing and the clean UYA ISO is unavailable. Repair it through Forge → Setup.");
 
         var identity = await UyaIsoService.ValidateAsync(
             request.SourceIsoPath,
@@ -53,8 +56,10 @@ public static class UyaRenderPackageService
             () => UyaFrontendMapPackageBuilder.BuildLevelWadPart(levelWad, DlLevelAssetGroup.Terrain),
             cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
-        await ReportAsync(progress, 7_000, 10_000);
-        return await MaterializeAsync(request, sdkRevision, package, progress, cancellationToken);
+        await ReportAsync(progress, 5_000, 10_000);
+        var renderedAssets = await BuildAssetsAsync(assets, progress, cancellationToken);
+        return await MaterializeAsync(
+            request, sdkRevision, cacheKey, package, renderedAssets, progress, cancellationToken);
     }
 
     public static async Task<UyaRenderPackageResult> MaterializeAsync(
@@ -66,20 +71,53 @@ public static class UyaRenderPackageService
     {
         Validate(request, sdkRevision);
         ArgumentNullException.ThrowIfNull(package);
-        var cacheRoot = Path.GetFullPath(request.CacheRootPath);
         var cacheKey = CreateCacheKey(request, sdkRevision);
+        return await MaterializeAsync(request, sdkRevision, cacheKey, package, [], progress, cancellationToken);
+    }
+
+    private static async Task<UyaRenderPackageResult> MaterializeAsync(
+        UyaRenderPackageRequest request,
+        string sdkRevision,
+        string cacheKey,
+        PackedFilePackage package,
+        IReadOnlyList<BuiltAsset> assets,
+        Func<IsoProgress, ValueTask>? progress,
+        CancellationToken cancellationToken)
+    {
+        var cacheRoot = Path.GetFullPath(request.CacheRootPath);
         var target = Path.Combine(cacheRoot, cacheKey);
         var cached = await TryOpenAsync(target, request, sdkRevision, cancellationToken);
         if (cached is not null) return cached with { CacheHit = true };
 
-        var entries = ValidateEntries(package);
-        var terrainPaths = entries.Select(entry => entry.Path)
+        var files = ValidateEntries(package)
+            .Select(entry => new MaterialFile(
+                entry.Path,
+                package.PackedBytes.AsMemory(entry.Offset, entry.Length)))
+            .ToList();
+        var terrainPaths = files.Select(entry => entry.Path)
             .Where(path => (path.StartsWith("tfrag/", StringComparison.Ordinal)
                     || path.Contains("/tfrag/", StringComparison.Ordinal))
                 && path.EndsWith("/tfrag.gltf", StringComparison.Ordinal))
             .Order(StringComparer.Ordinal)
             .ToArray();
         if (terrainPaths.Length == 0) throw new InvalidDataException("The SDK render package contains no tfrag glTF files.");
+        var assetResults = new List<UyaRenderAssetResult>(assets.Count);
+        foreach (var asset in assets)
+        {
+            if (asset.Package is null)
+            {
+                assetResults.Add(new(asset.Id.ToString(), null, asset.Error ?? "Asset export failed."));
+                continue;
+            }
+            var prefix = $"entities/{asset.Id}/";
+            foreach (var entry in ValidateEntries(asset.Package))
+                files.Add(new(
+                    prefix + entry.Path,
+                    asset.Package.PackedBytes.AsMemory(entry.Offset, entry.Length)));
+            assetResults.Add(new(asset.Id.ToString(), prefix + "model.gltf", null));
+        }
+        if (files.Select(file => file.Path).Distinct(StringComparer.Ordinal).Count() != files.Count)
+            throw new InvalidDataException("The SDK render package contains duplicate paths.");
 
         Directory.CreateDirectory(cacheRoot);
         var partial = Path.Combine(cacheRoot, $".{cacheKey}.{Guid.NewGuid():N}.partial");
@@ -87,8 +125,8 @@ public static class UyaRenderPackageService
         try
         {
             long written = 0;
-            var total = Math.Max(1, entries.Sum(entry => (long)entry.Length));
-            foreach (var entry in entries)
+            var total = Math.Max(1, files.Sum(entry => (long)entry.Bytes.Length));
+            foreach (var entry in files)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var destination = ResolveEntryPath(partial, entry.Path);
@@ -96,10 +134,10 @@ public static class UyaRenderPackageService
                 await using var output = new FileStream(
                     destination, FileMode.CreateNew, FileAccess.Write, FileShare.None, 64 * 1024,
                     FileOptions.Asynchronous | FileOptions.SequentialScan);
-                await output.WriteAsync(package.PackedBytes.AsMemory(entry.Offset, entry.Length), cancellationToken);
+                await output.WriteAsync(entry.Bytes, cancellationToken);
                 await output.FlushAsync(cancellationToken);
-                written += entry.Length;
-                await ReportAsync(progress, 7_000 + written * 2_900 / total, 10_000);
+                written += entry.Bytes.Length;
+                await ReportAsync(progress, 8_000 + written * 1_900 / total, 10_000);
             }
 
             var marker = new CacheMarker(
@@ -108,8 +146,9 @@ public static class UyaRenderPackageService
                 request.Fingerprint.ToLowerInvariant(),
                 request.Level,
                 sdkRevision,
-                entries.Select(entry => new CacheFile(entry.Path, entry.Length)).ToArray(),
-                terrainPaths);
+                files.Select(entry => new CacheFile(entry.Path, entry.Bytes.Length)).ToArray(),
+                terrainPaths,
+                assetResults);
             await File.WriteAllBytesAsync(
                 Path.Combine(partial, MarkerName),
                 JsonSerializer.SerializeToUtf8Bytes(marker, JsonOptions),
@@ -118,7 +157,7 @@ public static class UyaRenderPackageService
             if (Directory.Exists(target)) Directory.Delete(target, recursive: true);
             Directory.Move(partial, target);
             await ReportAsync(progress, 10_000, 10_000);
-            return new(target, cacheKey, terrainPaths, false);
+            return new(target, cacheKey, terrainPaths, assetResults, false);
         }
         catch
         {
@@ -128,9 +167,17 @@ public static class UyaRenderPackageService
     }
 
     public static string CreateCacheKey(UyaRenderPackageRequest request, string sdkRevision)
+        => CreateCacheKey(request, sdkRevision, []);
+
+    private static string CreateCacheKey(
+        UyaRenderPackageRequest request,
+        string sdkRevision,
+        IEnumerable<AssetId> assetIds)
     {
         Validate(request, sdkRevision);
-        var revisionKey = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(sdkRevision)))
+        var identity = string.Join('\n', new[] { sdkRevision }
+            .Concat(assetIds.Select(id => id.ToString()).Order(StringComparer.Ordinal)));
+        var revisionKey = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity)))
             .ToLowerInvariant()[..16];
         return $"uya-{request.Fingerprint.ToLowerInvariant()}-l{request.Level:D2}-p{SchemaVersion}-r{revisionKey}";
     }
@@ -161,7 +208,9 @@ public static class UyaRenderPackageService
             || marker.Files is null
             || marker.Files.Count > 100_000
             || marker.TerrainPaths is null
-            || marker.TerrainPaths.Count == 0)
+            || marker.TerrainPaths.Count == 0
+            || marker.Assets is null
+            || marker.Assets.Count > 100_000)
             return null;
         try
         {
@@ -173,6 +222,8 @@ public static class UyaRenderPackageService
             }
             foreach (var terrainPath in marker.TerrainPaths)
                 if (!files.ContainsKey(NormalizeEntryPath(terrainPath))) return null;
+            foreach (var asset in marker.Assets)
+                if (asset.Path is not null && !files.ContainsKey(NormalizeEntryPath(asset.Path))) return null;
         }
         catch (ArgumentException)
         {
@@ -182,7 +233,7 @@ public static class UyaRenderPackageService
         {
             return null;
         }
-        return new(root, marker.CacheKey, marker.TerrainPaths, true);
+        return new(root, marker.CacheKey, marker.TerrainPaths, marker.Assets, true);
     }
 
     private static IReadOnlyList<PackedFileEntry> ValidateEntries(PackedFilePackage package)
@@ -199,6 +250,133 @@ public static class UyaRenderPackageService
             entries[index++] = entry with { Path = normalized };
         }
         return entries;
+    }
+
+    private static async Task<IReadOnlyList<AssetSource>> ResolveAssetsAsync(
+        UyaRenderPackageRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.ProjectPath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.CatalogRootPath);
+        var workspace = await ForgeProjectWorkspace.OpenAsync(request.ProjectPath, cancellationToken);
+        if (workspace.Manifest.Target.Game != "UYA"
+            || workspace.Manifest.BaseLevel.Level != request.Level
+            || !workspace.Manifest.BaseLevel.SourceFingerprint.Equals(request.Fingerprint, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("The active project does not match the requested UYA render package.");
+        var catalog = await AssetCatalogStore.OpenAsync(request.CatalogRootPath, cancellationToken);
+        var attached = workspace.Content.Assets.ToDictionary(asset => asset.Id);
+        var result = new List<AssetSource>();
+        foreach (var reference in workspace.Content.Entities
+                     .Select(entity => entity.Asset)
+                     .OfType<ProjectAssetReference>()
+                     .Distinct()
+                     .OrderBy(reference => reference.Id.ToString(), StringComparer.Ordinal))
+        {
+            if (attached.TryGetValue(reference.Id, out var projectAsset))
+            {
+                result.Add(new(
+                    reference.Id,
+                    reference.Kind,
+                    projectAsset.CanonicalFormatVersion,
+                    projectAsset.Size,
+                    workspace.ResolveAssetPath(reference.Id, catalog),
+                    projectAsset.Kind == reference.Kind ? null : "Project asset kind does not match its entity reference."));
+                continue;
+            }
+            var global = catalog.Query(new(Id: reference.Id)).SingleOrDefault();
+            result.Add(global is null
+                ? new(reference.Id, reference.Kind, 0, 0, null, "Asset blob is missing from the global catalog.")
+                : new(
+                    reference.Id,
+                    reference.Kind,
+                    global.CanonicalFormatVersion,
+                    global.Size,
+                    catalog.ResolveBlobPath(reference.Id),
+                    global.Kind == reference.Kind ? null : "Catalog asset kind does not match its entity reference."));
+        }
+        return result;
+    }
+
+    private static async Task<IReadOnlyList<BuiltAsset>> BuildAssetsAsync(
+        IReadOnlyList<AssetSource> assets,
+        Func<IsoProgress, ValueTask>? progress,
+        CancellationToken cancellationToken)
+    {
+        var result = new List<BuiltAsset>(assets.Count);
+        for (var index = 0; index < assets.Count; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var asset = assets[index];
+            try
+            {
+                if (asset.Error is not null) throw new InvalidDataException(asset.Error);
+                if (asset.CanonicalFormatVersion != UyaAssetImportService.CanonicalFormatVersion)
+                    throw new InvalidDataException($"Unsupported canonical asset format {asset.CanonicalFormatVersion}.");
+                if (asset.Path is null || !File.Exists(asset.Path))
+                    throw new FileNotFoundException("Asset blob is missing.");
+                var info = new FileInfo(asset.Path);
+                if (info.Length != asset.Size || info.Length is <= 0 or > MaxAssetBytes)
+                    throw new InvalidDataException("Asset blob size does not match its catalog entry.");
+                var bytes = await File.ReadAllBytesAsync(asset.Path, cancellationToken);
+                if (AssetId.Compute(asset.Kind, asset.CanonicalFormatVersion, bytes) != asset.Id)
+                    throw new InvalidDataException("Asset blob failed its identity check.");
+                var canonical = DecodeCanonicalAsset(bytes);
+                var kind = asset.Kind switch
+                {
+                    AssetKind.Moby => UyaFrontendAssetKind.Moby,
+                    AssetKind.Tie => UyaFrontendAssetKind.Tie,
+                    AssetKind.Shrub => UyaFrontendAssetKind.Shrub,
+                    _ => throw new NotSupportedException($"{asset.Kind} render assets are not supported."),
+                };
+                var package = await Task.Run(
+                    () => UyaFrontendAssetPackageBuilder.Build(kind, canonical.ModelBytes, canonical.Textures),
+                    cancellationToken);
+                result.Add(new(asset.Id, package, null));
+            }
+            catch (Exception exception) when (exception is ArgumentException
+                or InvalidDataException
+                or IOException
+                or NotSupportedException
+                or OverflowException)
+            {
+                result.Add(new(asset.Id, null, exception.Message));
+            }
+            await ReportAsync(progress, 5_000 + (index + 1L) * 3_000 / Math.Max(1, assets.Count), 10_000);
+        }
+        return result;
+    }
+
+    private static CanonicalAsset DecodeCanonicalAsset(byte[] bytes)
+    {
+        if (bytes.Length < 14 || !bytes.AsSpan(0, 6).SequenceEqual("HFUYA\0"u8))
+            throw new InvalidDataException("Asset blob has an invalid UYA canonical header.");
+        var offset = 6;
+        var modelLength = ReadLength(bytes, ref offset, "model");
+        var model = bytes.AsSpan(offset, modelLength).ToArray();
+        offset += modelLength;
+        var textureCount = ReadLength(bytes, ref offset, "texture count");
+        if (textureCount > 4_096) throw new InvalidDataException("Asset blob texture count exceeds the limit.");
+        var textures = new UyaFrontendAssetTexture[textureCount];
+        for (var index = 0; index < textures.Length; index++)
+        {
+            if (offset >= bytes.Length) throw new InvalidDataException("Asset blob ended before its texture role.");
+            var role = bytes[offset++];
+            var length = ReadLength(bytes, ref offset, "texture");
+            textures[index] = new(role, bytes.AsSpan(offset, length).ToArray());
+            offset += length;
+        }
+        if (offset != bytes.Length) throw new InvalidDataException("Asset blob contains trailing data.");
+        return new(model, textures);
+    }
+
+    private static int ReadLength(byte[] bytes, ref int offset, string field)
+    {
+        if (bytes.Length - offset < 4) throw new InvalidDataException($"Asset blob ended before its {field} length.");
+        var length = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(offset, 4));
+        offset += 4;
+        if (length < 0 || length > bytes.Length - offset)
+            throw new InvalidDataException($"Asset blob {field} length is invalid.");
+        return length;
     }
 
     private static string ResolveEntryPath(string root, string entryPath)
@@ -254,7 +432,18 @@ public static class UyaRenderPackageService
         int Level,
         string SdkRevision,
         IReadOnlyList<CacheFile> Files,
-        IReadOnlyList<string> TerrainPaths);
+        IReadOnlyList<string> TerrainPaths,
+        IReadOnlyList<UyaRenderAssetResult> Assets);
 
     private sealed record CacheFile(string Path, long Length);
+    private sealed record MaterialFile(string Path, ReadOnlyMemory<byte> Bytes);
+    private sealed record AssetSource(
+        AssetId Id,
+        AssetKind Kind,
+        uint CanonicalFormatVersion,
+        long Size,
+        string? Path,
+        string? Error);
+    private sealed record BuiltAsset(AssetId Id, PackedFilePackage? Package, string? Error);
+    private sealed record CanonicalAsset(byte[] ModelBytes, IReadOnlyList<UyaFrontendAssetTexture> Textures);
 }

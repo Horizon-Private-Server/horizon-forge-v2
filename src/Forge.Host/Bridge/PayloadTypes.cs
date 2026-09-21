@@ -66,11 +66,15 @@ public sealed record UyaRenderPackageRequestPayload(
     string SourceIsoPath,
     string CacheRootPath,
     string Fingerprint,
-    uint Level);
+    uint Level,
+    string ProjectPath,
+    string CatalogRootPath);
+public sealed record UyaRenderAssetPayload(string AssetId, string? Path, string? Error);
 public sealed record UyaRenderPackageResultPayload(
     string RootPath,
     string CacheKey,
     IReadOnlyList<string> TerrainPaths,
+    IReadOnlyList<UyaRenderAssetPayload> Assets,
     bool CacheHit);
 public sealed record CatalogMaintenancePayload(
     uint ProjectCount,

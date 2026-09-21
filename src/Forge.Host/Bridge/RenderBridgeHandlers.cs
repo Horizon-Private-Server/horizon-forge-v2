@@ -15,8 +15,12 @@ internal static class RenderBridgeHandlers
             request.SourceIsoPath,
             request.CacheRootPath,
             request.Fingerprint,
-            checked((int)request.Level)), sdkRevision, progress, cancellationToken);
+            checked((int)request.Level),
+            request.ProjectPath,
+            request.CatalogRootPath), sdkRevision, progress, cancellationToken);
         return BridgePayloadCodec.EncodeUyaRenderPackageResult(new(
-            result.RootPath, result.CacheKey, result.TerrainPaths, result.CacheHit));
+            result.RootPath, result.CacheKey, result.TerrainPaths,
+            result.Assets.Select(asset => new UyaRenderAssetPayload(asset.AssetId, asset.Path, asset.Error)).ToArray(),
+            result.CacheHit));
     }
 }

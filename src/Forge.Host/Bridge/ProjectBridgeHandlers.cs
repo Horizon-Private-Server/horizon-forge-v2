@@ -91,10 +91,10 @@ internal static class ProjectBridgeHandlers
 
     private static async Task<byte[]> MigrateAsync(byte[] payload, CancellationToken cancellationToken)
     {
-        var request = BridgePayloadCodec.DecodeProjectInspectRequest(payload);
+        var request = BridgePayloadCodec.DecodeProjectAssetRepairRequest(payload);
         var catalog = await AssetCatalogStore.OpenAsync(request.CatalogRootPath, cancellationToken);
         return EncodeProject(await UyaProjectService.MigrateAsync(
-            request.ProjectPath, catalog, cancellationToken));
+            request.ProjectPath, catalog, request.SourceIsoPath, cancellationToken));
     }
 
     private static async Task<byte[]> RepairAsync(
