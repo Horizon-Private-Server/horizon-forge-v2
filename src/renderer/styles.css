@@ -156,6 +156,26 @@ body {
   align-items: end;
 }
 
+.keybinding-list {
+  max-height: min(32rem, 60vh);
+  overflow: auto;
+  border: 1px solid var(--mantine-color-dark-4);
+}
+
+.keybinding-row {
+  display: grid;
+  grid-template-columns: minmax(12rem, 1fr) minmax(7rem, auto) auto auto;
+  gap: var(--mantine-spacing-xs);
+  align-items: center;
+  min-height: 34px;
+  padding: var(--mantine-spacing-xs);
+  border-bottom: 1px solid var(--mantine-color-dark-4);
+}
+
+.keybinding-row:last-child {
+  border-bottom: 0;
+}
+
 .editor-workspace {
   position: relative;
   display: grid;

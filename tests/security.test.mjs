@@ -9,7 +9,6 @@ import {
   isPathInside,
   isTrustedSender,
 } from '../dist-electron/utils/Security.js';
-import { editorClipboardShortcut } from '../dist-electron/utils/EditorShortcuts.js';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -35,12 +34,4 @@ test('renderer CSP excludes remote scripts and unsafe evaluation', async () => {
   assert.match(policy, /default-src 'self'/);
   assert.match(policy, /script-src 'self'/);
   assert.doesNotMatch(policy, /unsafe-eval|https?:/);
-});
-
-test('project clipboard shortcuts intercept only plain Ctrl/Cmd+C and V keydowns', () => {
-  const input = { type: 'keyDown', key: 'c', isAutoRepeat: false, control: true, meta: false, alt: false, shift: false };
-  assert.equal(editorClipboardShortcut(input), 'copyEntities');
-  assert.equal(editorClipboardShortcut({ ...input, key: 'v' }), 'pasteEntities');
-  assert.equal(editorClipboardShortcut({ ...input, shift: true }), undefined);
-  assert.equal(editorClipboardShortcut({ ...input, control: false }), undefined);
 });

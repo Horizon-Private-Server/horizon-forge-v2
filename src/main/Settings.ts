@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { writeJsonSafely } from '../utils/FileSystem.ts';
+import { isKeybindingOverrides } from '../utils/Keybindings.ts';
 import type { KnownSettings, SettingEntry, SettingsSnapshot, SettingValue } from '../types/ForgeApi.js';
 import type { ApplicationPaths, RawSettings, SettingDefinition } from '../types/Settings.js';
 
@@ -135,6 +136,11 @@ function createDefinitions(paths: ApplicationPaths): SettingDefinition[] {
       description: 'Seconds between project autosaves.', defaultValue: 30, restartRequired: false, machineSpecific: false,
       editable: true,
       validate: (value): value is number => Number.isInteger(value) && Number(value) >= 5 && Number(value) <= 3600,
+    },
+    {
+      key: 'keybindings.overrides', group: 'Keybindings', label: 'Keybinding overrides', type: 'text',
+      description: 'User-defined command shortcuts managed by Forge.', defaultValue: '{}', restartRequired: false,
+      machineSpecific: false, editable: true, validate: isKeybindingOverrides,
     },
     {
       key: 'ui.editorLayout', group: 'Editor', label: 'Editor layout', type: 'text',

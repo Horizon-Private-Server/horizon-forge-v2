@@ -2,6 +2,7 @@ import { DockviewReact, themeAbyss } from 'dockview-react';
 import type { DockviewApi, DockviewReadyEvent } from 'dockview-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
+import type { KeybindingMap } from '../../types/Keybindings.js';
 import type { EditorSnapshot } from '../../types/EditorRuntime.js';
 import type { EditorCommand } from '../../types/EditorRuntime.js';
 import type { EditorLayoutAction, EditorLoadProgress, EditorTerrainSource, ForgeHostStatus } from '../../types/ForgeApi.js';
@@ -10,8 +11,8 @@ import { EditorContext } from './EditorContext.ts';
 import {
   createDefaultEditorLayout,
   decodeEditorLayout,
+  panelForLayoutAction,
   showEditorPanel,
-  type EditorPanelId,
 } from './EditorLayout.ts';
 import {
   DiagnosticsPanel,
@@ -25,6 +26,7 @@ import { EditorStatusBar } from './EditorStatusBar.tsx';
 
 interface EditorWorkspaceProps {
   project: EditorSnapshot;
+  keybindings: KeybindingMap;
   hostStatus?: ForgeHostStatus;
   layoutAction?: { id: number; action: EditorLayoutAction };
   showViewportStats: boolean;
@@ -40,6 +42,7 @@ const components = {
 
 export function EditorWorkspace({
   project,
+  keybindings,
   hostStatus,
   layoutAction,
   showViewportStats,
@@ -134,11 +137,12 @@ export function EditorWorkspace({
   useEffect(() => {
     if (!api || !initialized || !layoutAction) return;
     if (layoutAction.action === 'resetLayout') createDefaultEditorLayout(api);
-    else showEditorPanel(api, panelForAction(layoutAction.action));
+    else showEditorPanel(api, panelForLayoutAction(layoutAction.action));
   }, [api, initialized, layoutAction]);
 
   const context = useMemo(() => ({
     project,
+    keybindings,
     terrain,
     sceneLoad,
     setSceneLoad,
@@ -166,7 +170,7 @@ export function EditorWorkspace({
       catch (cause) { setError(errorMessage(cause)); }
       finally { setBusy(false); }
     },
-  }), [busy, cameraFocus, onProjectChange, project, sceneLoad, showViewportStats, skyPieces, terrain]);
+  }), [busy, cameraFocus, keybindings, onProjectChange, project, sceneLoad, showViewportStats, skyPieces, terrain]);
 
   return <EditorContext.Provider value={context}>
     <div className="editor-workspace">
@@ -183,14 +187,4 @@ export function EditorWorkspace({
       <EditorStatusBar hostStatus={hostStatus} />
     </div>
   </EditorContext.Provider>;
-}
-
-function panelForAction(action: Exclude<EditorLayoutAction, 'resetLayout'>): EditorPanelId {
-  const panels: Record<Exclude<EditorLayoutAction, 'resetLayout'>, EditorPanelId> = {
-    showViewport: 'viewport',
-    showSceneTree: 'sceneTree',
-    showProperties: 'properties',
-    showDiagnostics: 'diagnostics',
-  };
-  return panels[action];
 }

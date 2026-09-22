@@ -11,6 +11,7 @@ export interface ForgeHostStatus {
 
 export interface KnownSettings {
   'editor.autosaveSeconds': number;
+  'keybindings.overrides': string;
   'imports.uya.enabled': boolean;
   'imports.uya.completedFingerprint': string;
   'imports.uya.completedVersion': number;

@@ -25,6 +25,7 @@ test('settings validate defaults and preserve unknown keys', async () => {
     const invalid = await store.getSnapshot();
     assert.equal(invalid.entries.find((entry) => entry.key === 'editor.autosaveSeconds')?.value, 30);
     assert.equal(invalid.entries.find((entry) => entry.key === 'ui.showViewportStats')?.value, true);
+    assert.equal(invalid.entries.find((entry) => entry.key === 'keybindings.overrides')?.value, '{}');
     assert.match(invalid.diagnostics.join('\n'), /editor\.autosaveSeconds/);
 
     await store.set('paths.projects', '/maps/projects');
@@ -45,6 +46,7 @@ test('settings validate defaults and preserve unknown keys', async () => {
     assert.deepEqual(await store.export(false), {
       'editor.autosaveSeconds': 30,
       'imports.uya.enabled': true,
+      'keybindings.overrides': '{}',
       'ui.showViewportStats': true,
     });
     await store.reset();

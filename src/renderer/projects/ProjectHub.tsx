@@ -16,7 +16,8 @@ import {
 import { useCallback, useEffect, useState } from 'react';
 
 import type { ForgeHostStatus, ForgeProjectDescriptor, ProjectHubState, UyaProjectPreflight } from '../../types/ForgeApi.js';
-import { formatBytes } from '../../utils/Format.ts';
+import { errorMessage } from '../../utils/Errors.ts';
+import { fileName, formatBytes } from '../../utils/Format.ts';
 import { CatalogMaintenanceModal } from './CatalogMaintenanceModal.tsx';
 import { MissingAssetsModal } from './MissingAssetsModal.tsx';
 
@@ -57,7 +58,7 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen, 
       setError(undefined);
       setHub(await window.forge.getProjectHub());
     } catch (cause) {
-      setError(message(cause));
+      setError(errorMessage(cause));
     }
   }, []);
 
@@ -68,7 +69,7 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen, 
       const project = await window.forge.openForgeProject();
       if (project) offerProject(project);
     } catch (cause) {
-      setError(message(cause));
+      setError(errorMessage(cause));
     } finally {
       setBusy(false);
     }
@@ -86,7 +87,7 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen, 
     setPreflightBusy(true);
     void window.forge.preflightUyaProject(Number(level))
       .then((value) => { if (current) setPreflight(value); })
-      .catch((cause) => { if (current) setError(message(cause)); })
+      .catch((cause) => { if (current) setError(errorMessage(cause)); })
       .finally(() => { if (current) setPreflightBusy(false); });
     return () => { current = false; };
   }, [level]);
@@ -102,7 +103,7 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen, 
         offerProject(project);
       }
     } catch (cause) {
-      setError(message(cause));
+      setError(errorMessage(cause));
     } finally {
       setBusy(false);
     }
@@ -114,7 +115,7 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen, 
       setError(undefined);
       offerProject(await window.forge.openRecentProject(path));
     } catch (cause) {
-      setError(message(cause));
+      setError(errorMessage(cause));
     } finally {
       setBusy(false);
     }
@@ -129,7 +130,7 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen, 
       setRenameProject(undefined);
       await refresh();
     } catch (cause) {
-      setError(message(cause));
+      setError(errorMessage(cause));
     } finally {
       setBusy(false);
     }
@@ -148,7 +149,7 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen, 
       setRecoveryId(null);
       onOpen(project);
     } catch (cause) {
-      setError(message(cause));
+      setError(errorMessage(cause));
     } finally {
       setBusy(false);
     }
@@ -166,7 +167,7 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen, 
       setRecoveryId(null);
       onOpen(project);
     } catch (cause) {
-      setError(message(cause));
+      setError(errorMessage(cause));
     } finally {
       setBusy(false);
     }
@@ -243,7 +244,7 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen, 
                       <Button variant="subtle" onClick={() => void window.forge.revealForgeProject(recent.path)}>Reveal</Button>
                       <Button variant="subtle" color="gray" onClick={async () => {
                         try { setHub(await window.forge.removeRecentProject(recent.path)); }
-                        catch (cause) { setError(message(cause)); }
+                        catch (cause) { setError(errorMessage(cause)); }
                       }}>Remove</Button>
                     </Group>
                   </Table.Td>
@@ -358,12 +359,4 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen, 
       </Modal>
     </section>
   );
-}
-
-function fileName(value: string): string {
-  return value.split(/[\\/]/).filter(Boolean).at(-1) ?? value;
-}
-
-function message(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

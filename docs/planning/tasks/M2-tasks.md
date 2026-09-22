@@ -236,6 +236,15 @@ Acceptance:
 
 Verification: context/conflict tests and recorded keyboard-only editor walkthrough.
 
+Implementation: one shared command registry resolves defaults plus user overrides
+from the flat `keybindings.overrides` setting. Global project/edit commands and
+viewport-only mode/Page Down commands dispatch by context, while text inputs and
+dialogs retain native keyboard behavior. The Settings keybinding view supports
+search, capture, clear, per-command reset, reset-all, and pre-save conflict
+detection; the Forge menu reflects changes immediately. Defaults use Ctrl/Cmd for
+cross-platform application commands, 1–4 for select/move/rotate/scale, and Page
+Down for ground placement.
+
 ## M2-010 — Render cached UYA tfrags in the editor
 
 Requirements: FR-SCENE-001, FR-SCENE-002, FR-SCENE-011, FR-BRIDGE-004,

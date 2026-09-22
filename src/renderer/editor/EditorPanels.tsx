@@ -18,12 +18,13 @@ import { SceneViewport } from './SceneViewport.tsx';
 
 export function ViewportPanel() {
   const {
-    project, terrain, cameraFocus, setCameraFocus, setSceneLoad, setSkyPieces,
+    project, keybindings, terrain, cameraFocus, setCameraFocus, setSceneLoad, setSkyPieces,
     execute, busy, showViewportStats,
   } = useEditor();
   return <SceneViewport
     disabled={busy}
     entities={project.entities}
+    keybindings={keybindings}
     focusEntityId={cameraFocus?.entityId}
     selection={project.selection}
     showStats={showViewportStats}

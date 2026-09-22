@@ -1,10 +1,12 @@
 import { createContext, useContext } from 'react';
 
+import type { KeybindingMap } from '../../types/Keybindings.js';
 import type { EditorCommand, EditorSnapshot } from '../../types/EditorRuntime.js';
 import type { EditorLoadProgress, EditorTerrainSource } from '../../types/ForgeApi.js';
 
 export interface EditorContextValue {
   project: EditorSnapshot;
+  keybindings: KeybindingMap;
   terrain?: EditorTerrainSource;
   sceneLoad?: EditorLoadProgress;
   setSceneLoad(progress?: EditorLoadProgress): void;

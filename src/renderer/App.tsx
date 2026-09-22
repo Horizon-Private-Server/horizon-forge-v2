@@ -1,9 +1,12 @@
 import { Alert, Badge, Button, Group, Text, Title } from '@mantine/core';
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 
-import type { EditorCommand, EditorLayoutAction, EditorSnapshot, ForgeAction, ForgeHostStatus } from '../types/ForgeApi.js';
-import { errorMessage } from '../utils/Errors.js';
+import type { KeybindingMap } from '../types/Keybindings.js';
+import type { ForgeHostStatus } from '../types/ForgeApi.js';
+import { parseKeybindingOverrides, resolveKeybindings } from '../utils/Keybindings.ts';
 import { EditorWorkspace } from './editor/EditorWorkspace.tsx';
+import { useForgeActions } from './hooks/UseForgeActions.ts';
+import { useKeyboardContext } from './hooks/UseKeyboardContext.ts';
 import { ProjectHub } from './projects/ProjectHub.tsx';
 import { SettingsModal } from './settings/SettingsModal.tsx';
 import { SetupWizard } from './setup/SetupWizard.tsx';
@@ -13,12 +16,20 @@ export function App() {
   const [hostStatus, setHostStatus] = useState<ForgeHostStatus>();
   const [settingsOpened, setSettingsOpened] = useState(false);
   const [showViewportStats, setShowViewportStats] = useState(true);
+  const [keybindings, setKeybindings] = useState<KeybindingMap>(() => resolveKeybindings({}));
   const [setupOpened, setSetupOpened] = useState(false);
-  const [activeProject, setActiveProject] = useState<EditorSnapshot>();
-  const [editorError, setEditorError] = useState<string>();
   const [hubRefresh, setHubRefresh] = useState(0);
-  const [hubAction, setHubAction] = useState<{ id: number; action: 'newProject' | 'openProject' }>();
-  const [layoutAction, setLayoutAction] = useState<{ id: number; action: EditorLayoutAction }>();
+  const {
+    activeProject,
+    editorError,
+    hubAction,
+    layoutAction,
+    handleForgeAction,
+    openProject,
+    setActiveProject,
+    clearEditorError,
+  } = useForgeActions(setSetupOpened, setSettingsOpened);
+  useKeyboardContext(keybindings, handleForgeAction);
 
   useEffect(() => {
     let mounted = true;
@@ -37,79 +48,21 @@ export function App() {
   useEffect(() => {
     void window.forge.getSettings().then((snapshot) => {
       setShowViewportStats(snapshot.entries.find((entry) => entry.key === 'ui.showViewportStats')?.value === true);
+      setKeybindings(resolveKeybindings(parseKeybindingOverrides(
+        snapshot.entries.find((entry) => entry.key === 'keybindings.overrides')?.value,
+      )));
     }).catch(() => undefined);
-  }, []);
-
-  useEffect(() => {
-    const update = () => window.forge.setEditorTextInputActive(isTextInput(document.activeElement));
-    const updateAfterFocus = () => queueMicrotask(update);
-    document.addEventListener('focusin', updateAfterFocus);
-    document.addEventListener('focusout', updateAfterFocus);
-    update();
-    return () => {
-      document.removeEventListener('focusin', updateAfterFocus);
-      document.removeEventListener('focusout', updateAfterFocus);
-      window.forge.setEditorTextInputActive(false);
-    };
   }, []);
 
   useEffect(() => {
     void window.forge.getSetupState().then((state) => setSetupOpened(state.required));
   }, []);
 
-  const handleForgeAction = useCallback((action: ForgeAction) => {
-    if (action === 'setup') setSetupOpened(true);
-    else if (action === 'settings') setSettingsOpened(true);
-    else if (action === 'saveProject') {
-      if (activeProject) {
-        void window.forge.saveEditorProject()
-          .then(setActiveProject)
-          .catch((error) => setEditorError(errorMessage(error)));
-      }
-    }
-    else if (action === 'undoEditor' || action === 'redoEditor') {
-      if (activeProject) {
-        void window.forge.executeEditorCommand({
-          id: crypto.randomUUID(),
-          kind: action === 'undoEditor' ? 'undo' : 'redo',
-          entityIds: [],
-        }).then(setActiveProject).catch((error) => setEditorError(errorMessage(error)));
-      }
-    }
-    else if (isEditorEntityAction(action)) {
-      if (!activeProject) return;
-      if (action === 'copyEntities' && activeProject.selection.length === 0) return;
-      if (action === 'pasteEntities' && !activeProject.canPaste) return;
-      const entityIds = action === 'pasteEntities' ? [] : activeProject.selection;
-      const command = { id: crypto.randomUUID(), kind: action, entityIds } as EditorCommand;
-      void window.forge.executeEditorCommand(command)
-        .then(setActiveProject)
-        .catch((error) => setEditorError(errorMessage(error)));
-    }
-    else if (isEditorLayoutAction(action)) {
-      if (activeProject) setLayoutAction({ id: Date.now(), action });
-    }
-    else if (action === 'projects') {
-      void (activeProject ? window.forge.closeEditorProject() : Promise.resolve()).then(() => {
-        setHubAction(undefined);
-        setLayoutAction(undefined);
-        setActiveProject(undefined);
-      }).catch((error) => setEditorError(errorMessage(error)));
-    }
-    else {
-      void (activeProject ? window.forge.closeEditorProject() : Promise.resolve()).then(() => {
-        setActiveProject(undefined);
-        setLayoutAction(undefined);
-        setHubAction({ id: Date.now(), action });
-      }).catch((error) => setEditorError(errorMessage(error)));
-    }
-  }, [activeProject]);
-
   useEffect(() => window.forge.onForgeAction(handleForgeAction), [handleForgeAction]);
 
   return (
     <main className="app-shell">
-      <ForgeMenuBar project={activeProject} onAction={handleForgeAction} />
+      <ForgeMenuBar keybindings={keybindings} project={activeProject} onAction={handleForgeAction} />
       <header className="app-header">
         <Group justify="space-between" wrap="nowrap">
           <div>
@@ -120,16 +73,8 @@ export function App() {
             {activeProject && <>
               <Text size="sm">{activeProject.projectName}</Text>
               {activeProject.isDirty && <Badge color="yellow" variant="light">Unsaved</Badge>}
-              <Button onClick={() => void window.forge.saveEditorProject()
-                .then(setActiveProject)
-                .catch((error) => setEditorError(errorMessage(error)))}>Save</Button>
-              <Button variant="default" onClick={() => {
-                void window.forge.closeEditorProject().then(() => {
-                  setHubAction(undefined);
-                  setLayoutAction(undefined);
-                  setActiveProject(undefined);
-                }).catch((error) => setEditorError(errorMessage(error)));
-              }}>Projects</Button>
+              <Button onClick={() => handleForgeAction('saveProject')}>Save</Button>
+              <Button variant="default" onClick={() => handleForgeAction('projects')}>Projects</Button>
             </>}
             <Badge color={hostStatus ? 'teal' : 'yellow'} variant="light">
               {hostStatus ? `Host ${hostStatus.hostVersion.split('+')[0]} · ${hostStatus.supportedGames.join(', ')}` : 'Host connecting'}
@@ -138,10 +83,11 @@ export function App() {
         </Group>
       </header>
       <div className="app-content">
-        {editorError && <Alert color="red" withCloseButton onClose={() => setEditorError(undefined)}>{editorError}</Alert>}
+        {editorError && <Alert color="red" withCloseButton onClose={clearEditorError}>{editorError}</Alert>}
         {activeProject
           ? <EditorWorkspace
             project={activeProject}
+            keybindings={keybindings}
             hostStatus={hostStatus}
             layoutAction={layoutAction}
             showViewportStats={showViewportStats}
@@ -151,18 +97,14 @@ export function App() {
             hostStatus={hostStatus}
             requestedAction={hubAction}
             refreshToken={hubRefresh}
-            onOpen={(project) => void window.forge.openEditorProject(project.path).then((snapshot) => {
-              setEditorError(undefined);
-              setHubAction(undefined);
-              setLayoutAction(undefined);
-              setActiveProject(snapshot);
-            }).catch((error) => setEditorError(errorMessage(error)))}
+            onOpen={(project) => openProject(project.path)}
             onOpenSetup={() => setSetupOpened(true)}
           />}
       </div>
       <SettingsModal
         opened={settingsOpened}
         onClose={() => setSettingsOpened(false)}
+        onKeybindingsChange={setKeybindings}
         onViewportStatsChange={setShowViewportStats}
       />
       <SetupWizard opened={setupOpened} onClose={() => {
@@ -171,18 +113,4 @@ export function App() {
       }} />
     </main>
   );
-}
-
-function isEditorLayoutAction(action: ForgeAction): action is EditorLayoutAction {
-  return ['resetLayout', 'showViewport', 'showSceneTree', 'showProperties', 'showDiagnostics'].includes(action);
-}
-
-function isEditorEntityAction(action: ForgeAction): action is Extract<ForgeAction,
-  'deleteEntities' | 'duplicateEntities' | 'copyEntities' | 'pasteEntities'> {
-  return ['deleteEntities', 'duplicateEntities', 'copyEntities', 'pasteEntities'].includes(action);
-}
-
-function isTextInput(element: Element | null): boolean {
-  return element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement
-    || (element instanceof HTMLElement && element.isContentEditable);
 }

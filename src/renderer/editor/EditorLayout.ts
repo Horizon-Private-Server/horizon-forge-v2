@@ -2,6 +2,7 @@ import type {
   DockviewApi,
   SerializedDockview,
 } from 'dockview-react';
+import type { EditorLayoutAction } from '../../types/ForgeApi.js';
 
 export const EDITOR_PANELS = {
   viewport: { component: 'viewport', title: 'Viewport' },
@@ -58,6 +59,16 @@ export function showEditorPanel(api: DockviewApi, id: EditorPanelId): void {
 
 export function isEditorPanelId(value: string): value is EditorPanelId {
   return Object.hasOwn(EDITOR_PANELS, value);
+}
+
+export function panelForLayoutAction(action: Exclude<EditorLayoutAction, 'resetLayout'>): EditorPanelId {
+  const panels: Record<Exclude<EditorLayoutAction, 'resetLayout'>, EditorPanelId> = {
+    showViewport: 'viewport',
+    showSceneTree: 'sceneTree',
+    showProperties: 'properties',
+    showDiagnostics: 'diagnostics',
+  };
+  return panels[action];
 }
 
 function panelDirection(id: Exclude<EditorPanelId, 'viewport'>): 'left' | 'right' | 'below' {

@@ -4,6 +4,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 import type { EditorEntity, EditorTransformUpdate } from '../../types/EditorRuntime.js';
+import type { KeybindingMap } from '../../types/Keybindings.js';
 import type { EditorLoadProgress, EditorTerrainSource } from '../../types/ForgeApi.js';
 import type { EditorSnapSource, EditorSnapTarget } from '../../types/EditorViewport.js';
 import {
@@ -20,6 +21,8 @@ import {
 } from '../../utils/Scene.ts';
 import type { CameraFlight } from '../../utils/Scene.ts';
 import { configurePs2MaterialAlpha, configurePs2MaterialFog } from '../../utils/Ps2Materials.ts';
+import { isTextInput } from '../../utils/Dom.ts';
+import { findKeybindingCommand, transformModeForKeybinding } from '../../utils/Keybindings.ts';
 import { nextViewportSelection } from './EditorPanelState.ts';
 import { buildGroundPlacement } from './ScenePlacement.ts';
 import { SceneProjection } from './SceneProjection.ts';
@@ -30,6 +33,7 @@ import { ViewportToolbar } from './ViewportToolbar.tsx';
 
 interface SceneViewportProps {
   entities: readonly EditorEntity[];
+  keybindings: KeybindingMap;
   focusEntityId?: string;
   selection: readonly string[];
   terrain?: EditorTerrainSource;
@@ -44,6 +48,7 @@ interface SceneViewportProps {
 
 export function SceneViewport({
   entities,
+  keybindings,
   focusEntityId,
   selection,
   terrain: terrainSource,
@@ -69,12 +74,14 @@ export function SceneViewport({
   const currentShowStats = useRef(showStats);
   const currentSelection = useRef(selection);
   const currentEntities = useRef(entities);
+  const currentKeybindings = useRef(keybindings);
   const focusHandled = useRef(onFocusHandled);
   const loadProgressChanged = useRef(onLoadProgress);
   const selectionChanged = useRef(onSelectionChange);
   const transformsCommitted = useRef(onTransformsCommit);
   currentSelection.current = selection;
   currentEntities.current = entities;
+  currentKeybindings.current = keybindings;
   currentShowStats.current = showStats;
   focusHandled.current = onFocusHandled;
   loadProgressChanged.current = onLoadProgress;
@@ -196,6 +203,7 @@ export function SceneViewport({
     };
 
     const keyDown = (event: KeyboardEvent) => {
+      if (isTextInput(event.target)) return;
       if (SNAP_MODIFIER_KEYS.has(event.code)) {
         if (cameraInputActive) {
           snapModifiers.add(event.code);
@@ -207,7 +215,16 @@ export function SceneViewport({
         event.preventDefault();
         return;
       }
-      if (event.code === 'PageDown' && cameraInputActive && !transformTool.isInteracting) {
+      const command = cameraInputActive
+        ? findKeybindingCommand(currentKeybindings.current, event, 'viewport')
+        : undefined;
+      const nextMode = transformModeForKeybinding(command);
+      if (nextMode) {
+        event.preventDefault();
+        setMode(nextMode);
+        return;
+      }
+      if (command === 'scene.snapToGround' && !transformTool.isInteracting) {
         event.preventDefault();
         if (event.repeat || !transformTool.controls.enabled) return;
         const result = buildGroundPlacement(

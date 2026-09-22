@@ -9,7 +9,6 @@ export function installApplicationMenu(runAction: (action: ForgeAction) => void)
   const setup: MenuItemConstructorOptions = { label: 'Setup…', click: () => runAction('setup') };
   const settings: MenuItemConstructorOptions = {
     label: 'Settings…',
-    accelerator: 'CmdOrCtrl+,',
     click: () => runAction('settings'),
   };
   const forgeMenu: MenuItemConstructorOptions[] = process.platform === 'darwin'
@@ -33,9 +32,9 @@ export function installApplicationMenu(runAction: (action: ForgeAction) => void)
     {
       label: 'File',
       submenu: [
-        { label: 'New Project…', accelerator: 'CmdOrCtrl+N', click: () => runAction('newProject') },
-        { label: 'Open Project…', accelerator: 'CmdOrCtrl+O', click: () => runAction('openProject') },
-        { label: 'Save', accelerator: 'CmdOrCtrl+S', click: () => runAction('saveProject') },
+        { label: 'New Project…', click: () => runAction('newProject') },
+        { label: 'Open Project…', click: () => runAction('openProject') },
+        { label: 'Save', click: () => runAction('saveProject') },
         { label: 'Project Hub', click: () => runAction('projects') },
         { type: 'separator' },
         { role: process.platform === 'darwin' ? 'close' : 'quit' },
@@ -45,31 +44,31 @@ export function installApplicationMenu(runAction: (action: ForgeAction) => void)
       label: 'Edit',
       submenu: [
         {
-          id: 'editorUndo', label: 'Undo Project Change', accelerator: 'CmdOrCtrl+Z', enabled: false,
+          id: 'editorUndo', label: 'Undo Project Change', enabled: false,
           click: (_item, window) => textInputActive && window instanceof BrowserWindow
             ? window.webContents.undo() : runAction('undoEditor'),
         },
         {
-          id: 'editorRedo', label: 'Redo Project Change', accelerator: 'CmdOrCtrl+Y', enabled: false,
+          id: 'editorRedo', label: 'Redo Project Change', enabled: false,
           click: (_item, window) => textInputActive && window instanceof BrowserWindow
             ? window.webContents.redo() : runAction('redoEditor'),
         },
         { type: 'separator' },
-        { id: 'editorDuplicate', label: 'Duplicate Selected Entities', accelerator: 'CmdOrCtrl+D', enabled: false,
+        { id: 'editorDuplicate', label: 'Duplicate Selected Entities', enabled: false,
           click: () => runAction('duplicateEntities') },
-        { id: 'editorDelete', label: 'Delete Selected Entities', accelerator: 'Delete', enabled: false,
+        { id: 'editorDelete', label: 'Delete Selected Entities', enabled: false,
           click: () => runAction('deleteEntities') },
         { type: 'separator' },
-        { id: 'editorCut', label: 'Cut', accelerator: 'CmdOrCtrl+X', enabled: false,
+        { id: 'editorCut', label: 'Cut', enabled: false,
           click: (_item, window) => { if (window instanceof BrowserWindow) window.webContents.cut(); } },
-        { id: 'editorCopy', label: 'Copy Selected Entities', accelerator: 'CmdOrCtrl+C', enabled: false,
+        { id: 'editorCopy', label: 'Copy Selected Entities', enabled: false,
           click: (_item, window) => textInputActive && window instanceof BrowserWindow
             ? window.webContents.copy() : runAction('copyEntities') },
-        { id: 'editorPaste', label: 'Paste Entities', accelerator: 'CmdOrCtrl+V', enabled: false,
+        { id: 'editorPaste', label: 'Paste Entities', enabled: false,
           click: (_item, window) => textInputActive && window instanceof BrowserWindow
             ? window.webContents.paste() : runAction('pasteEntities') },
         { type: 'separator' },
-        { id: 'editorSelectAll', label: 'Select All', accelerator: 'CmdOrCtrl+A', enabled: false,
+        { id: 'editorSelectAll', label: 'Select All', enabled: false,
           click: (_item, window) => { if (window instanceof BrowserWindow) window.webContents.selectAll(); } },
       ],
     },
@@ -109,10 +108,6 @@ export function setEditorMenuState(snapshot?: EditorSnapshot): void {
 export function setEditorTextInputActive(active: boolean): void {
   textInputActive = active;
   updateEditorMenu();
-}
-
-export function isEditorTextInputActive(): boolean {
-  return textInputActive;
 }
 
 function updateEditorMenu(): void {
