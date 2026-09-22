@@ -194,6 +194,38 @@ public sealed class ForgeProjectWorkspace
         return removed;
     }
 
+    public EntityId[] RemoveEntities(IReadOnlyList<EntityId> entityIds)
+    {
+        var indexes = EntityIndexes(entityIds);
+        var removed = entityIds.ToHashSet();
+        var entities = Content.Entities.Where(entity => !removed.Contains(entity.EntityId)).ToArray();
+        Content = Content with { Entities = entities };
+        if (entities.Length == 0) return [];
+        return [entities[Math.Min(indexes.Min(), entities.Length - 1)].EntityId];
+    }
+
+    public ProjectEntity[] GetEntities(IReadOnlyList<EntityId> entityIds)
+    {
+        _ = EntityIndexes(entityIds);
+        var entities = Content.Entities.ToDictionary(entity => entity.EntityId);
+        return entityIds.Select(id => entities[id]).ToArray();
+    }
+
+    public ProjectEntity[] AddCopies(IReadOnlyList<ProjectEntity> entities)
+    {
+        ArgumentNullException.ThrowIfNull(entities);
+        if (entities.Count == 0) throw new ArgumentException("At least one entity is required.", nameof(entities));
+        var copies = entities.Select(entity => entity with
+        {
+            EntityId = EntityId.New(),
+            Name = entity.Name.Length <= 251 ? $"{entity.Name} copy" : $"{entity.Name[..251]} copy",
+            Provenance = null,
+            State = (entity.State ?? new()) with { Locked = false },
+        }).ToArray();
+        Content = Content with { Entities = Content.Entities.Concat(copies).ToArray() };
+        return copies;
+    }
+
     public void CompleteBaseEntityImport(IReadOnlyList<ProjectEntity> entities, int missingAssetCount)
     {
         ArgumentNullException.ThrowIfNull(entities);
@@ -357,6 +389,14 @@ public sealed class ForgeProjectWorkspace
         for (var index = 0; index < Content.Entities.Count; index++)
             if (Content.Entities[index].EntityId == id) return index;
         throw new KeyNotFoundException($"Entity {id} is not present in the project.");
+    }
+
+    private int[] EntityIndexes(IReadOnlyList<EntityId> entityIds)
+    {
+        ArgumentNullException.ThrowIfNull(entityIds);
+        if (entityIds.Count == 0 || entityIds.Distinct().Count() != entityIds.Count)
+            throw new ArgumentException("Entity IDs must be non-empty and unique.", nameof(entityIds));
+        return entityIds.Select(FindEntityIndex).ToArray();
     }
 
     private void UpdateEntities(IReadOnlyList<EntityId> entityIds, Func<ProjectEntity, ProjectEntity> update)

@@ -16,9 +16,42 @@ body {
 
 .app-shell {
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto auto 1fr;
   height: 100%;
   background: #11141a;
+}
+
+.forge-menu-bar {
+  z-index: 1001;
+  display: flex;
+  min-height: 24px;
+  padding-inline: 2px;
+  border-bottom: 1px solid #2c3038;
+  background: #151922;
+}
+
+.forge-menu-trigger {
+  min-width: 0;
+  padding: 3px 8px;
+  color: var(--mantine-color-gray-3);
+  font-size: var(--mantine-font-size-xs);
+  line-height: 18px;
+}
+
+.forge-menu-trigger:hover,
+.forge-menu-trigger[data-expanded] {
+  background: var(--mantine-color-dark-5);
+}
+
+.forge-menu-trigger:focus-visible {
+  outline: 1px solid var(--mantine-primary-color-filled);
+  outline-offset: -1px;
+}
+
+.forge-menu-shortcut {
+  margin-inline-start: var(--mantine-spacing-lg);
+  color: var(--mantine-color-dimmed);
+  font-size: var(--mantine-font-size-xs);
 }
 
 .app-header {
@@ -26,6 +59,18 @@ body {
   padding: var(--mantine-spacing-sm) var(--mantine-spacing-md);
   border-bottom: 1px solid #2c3038;
   background: #191d24;
+}
+
+.app-content {
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+  flex-direction: column;
+}
+
+.app-content > .editor-workspace,
+.app-content > .project-hub {
+  flex: 1;
 }
 
 .scene-viewport {

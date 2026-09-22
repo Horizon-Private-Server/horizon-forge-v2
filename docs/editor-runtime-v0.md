@@ -35,11 +35,15 @@ event is produced.
 | `setEntityLayer` | one or more Entity IDs and nonblank layer | Reparents entities to a layer |
 | `setEntityState` | one or more Entity IDs and a partial state | Changes hidden, disabled, or locked state |
 | `undo` / `redo` | no entity or mutation data | Moves through bounded session history |
+| `deleteEntities` | one or more unlocked Entity IDs | Removes entities and selects a stable neighbor |
+| `duplicateEntities` | one or more unlocked Entity IDs | Creates editable copies with new Entity IDs |
+| `copyEntities` / `pasteEntities` | selected Entity IDs / none | Uses a project-local entity clipboard |
 
 Project mutations retain structurally shared before/after project records. History
 is session-local, exposes `canUndo`/`canRedo` in each snapshot, and evicts the
 oldest complete commands beyond 100 entries or approximately 128 MiB. Selection
-commands remain UI-only and do not enter history.
+and copy commands remain UI-only and do not enter history. Paste and duplicate
+preserve compatible asset/source data, clear source provenance, and assign new IDs.
 
 Commands and their fields use the binary bridge codec. JSON serialization in the
 domain contract test proves that command values are data, not executable UI

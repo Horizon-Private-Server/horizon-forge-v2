@@ -208,6 +208,16 @@ Acceptance:
 Verification: mixed-command sequences, memory eviction, dependency deletion, and
 clipboard graph tests.
 
+Implementation: the authoritative host retains structurally shared before/after
+project records with fixed 100-entry and approximate 128 MiB eviction limits.
+Undo and redo restore content, selection, dirtiness, validation, and all projected
+views. Delete chooses a stable neighboring selection; the current P0 schema has
+no mapped inbound entity references to summarize. Duplicate
+and project-local copy/paste preserve asset/source records, clear vanilla source
+provenance, unlock copies, assign new Entity IDs, and commit as one history entry.
+The clipboard is cleared on project transitions; cross-project paste remains out
+of scope until attached-asset collection is reliable.
+
 ## M2-009 — Implement contextual keybindings and accessibility baseline
 
 Requirements: FR-EDIT-004, NFR-UX-001, NFR-UX-002  

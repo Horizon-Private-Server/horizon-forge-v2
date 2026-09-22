@@ -48,6 +48,13 @@ export const forgeTheme = createTheme({
         },
       },
     },
+    Menu: {
+      defaultProps: { shadow: 'md' },
+      styles: {
+        dropdown: { padding: 2 },
+        item: { minHeight: 24, padding: '3px 8px' },
+      },
+    },
     MultiSelect: { defaultProps: { size: 'xs' } },
     NumberInput: { defaultProps: { size: 'xs' } },
     Radio: { defaultProps: { size: 'xs' } },

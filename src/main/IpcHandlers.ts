@@ -10,10 +10,11 @@ import { errorMessage } from '../utils/Errors.js';
 import { availableBytes, fileExists, writeJsonSafely } from '../utils/FileSystem.js';
 import { isTrustedSender } from '../utils/Security.js';
 import type { RecentProjects } from './RecentProjects.js';
-import { setEditorHistoryMenuState } from './ApplicationMenu.js';
+import { setEditorMenuState, setEditorTextInputActive } from './ApplicationMenu.js';
 import type { RenderAssetProtocol } from './RenderAssetProtocol.js';
 import { registerRenderIpcHandlers } from './RenderIpcHandlers.js';
 import type { SettingsStore } from './Settings.js';
+import { registerWindowIpcHandlers } from './WindowIpcHandlers.js';
 import type { HostClient } from './bridge/HostClient.js';
 
 interface IpcHandlersOptions {
@@ -35,11 +36,12 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
   }
 
   function editorSnapshot(value: EditorSnapshot): EditorSnapshot {
-    setEditorHistoryMenuState(value.canUndo, value.canRedo);
+    setEditorMenuState(value);
     return value;
   }
 
   registerRenderIpcHandlers({ host, settings, renderAssets, assertSender });
+  registerWindowIpcHandlers({ getMainWindow, assertSender });
 
   async function getSettingValues(): Promise<Record<string, string | number | boolean>> {
     const snapshot = await settings.getSnapshot();
@@ -144,6 +146,7 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
       || ![
         'setSelection', 'renameProject', 'updateTransform', 'updateTransforms',
         'renameEntity', 'setEntityLayer', 'setEntityState', 'undo', 'redo',
+        'deleteEntities', 'duplicateEntities', 'copyEntities', 'pasteEntities',
       ].includes(String(command.kind))
       || !Array.isArray(command.entityIds)
       || command.entityIds.some((id) => typeof id !== 'string')) {
@@ -462,6 +465,11 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
     const message = await shell.openPath(settings.paths.logs);
     if (message) throw new Error(message);
   });
+  ipcMain.on('forge:editor-text-input', (event, active: unknown) => {
+    assertSender(event.sender.id);
+    if (typeof active !== 'boolean') throw new TypeError('Editor input context is invalid');
+    setEditorTextInputActive(active);
+  });
   ipcMain.handle('forge:editor-open', async (event, projectPath: unknown) => {
     assertSender(event.sender.id);
     const values = await getSettingValues();
@@ -472,7 +480,7 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
   ipcMain.handle('forge:editor-close', async (event) => {
     assertSender(event.sender.id);
     await (await host.closeEditorProject()).result;
-    setEditorHistoryMenuState();
+    setEditorMenuState();
   });
   ipcMain.handle('forge:editor-query', async (event) => {
     assertSender(event.sender.id);

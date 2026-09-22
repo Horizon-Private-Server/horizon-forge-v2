@@ -200,7 +200,11 @@ export type EditorLayoutAction = 'resetLayout' | 'showViewport' | 'showSceneTree
   | 'showProperties' | 'showDiagnostics';
 
 export type ForgeAction = ForgeDialog | EditorLayoutAction
-  | 'projects' | 'newProject' | 'openProject' | 'saveProject' | 'undoEditor' | 'redoEditor';
+  | 'projects' | 'newProject' | 'openProject' | 'saveProject' | 'undoEditor' | 'redoEditor'
+  | 'deleteEntities' | 'duplicateEntities' | 'copyEntities' | 'pasteEntities';
+
+export type ForgeWindowAction = 'quit' | 'minimize' | 'toggleMaximize'
+  | 'resetZoom' | 'zoomIn' | 'zoomOut' | 'toggleFullscreen' | 'toggleDevTools';
 
 export interface ForgeApi {
   getHostStatus(): Promise<ForgeHostStatus>;
@@ -233,6 +237,8 @@ export interface ForgeApi {
   getEditorSnapshot(): Promise<EditorSnapshot>;
   executeEditorCommand(command: EditorCommand): Promise<EditorSnapshot>;
   saveEditorProject(): Promise<EditorSnapshot>;
+  runWindowAction(action: ForgeWindowAction): void;
+  setEditorTextInputActive(active: boolean): void;
   readEditorEvents(afterSequence: number, limit?: number): Promise<EditorEvent[]>;
   getEditorTerrain(): Promise<EditorTerrainSource>;
   cancelEditorTerrain(): Promise<void>;

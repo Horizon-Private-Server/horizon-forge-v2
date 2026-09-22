@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { EditorCommand, ForgeAction, ForgeApi, Progress, SetupProgress } from '../types/ForgeApi.js';
+import type { EditorCommand, ForgeAction, ForgeApi, ForgeWindowAction, Progress, SetupProgress } from '../types/ForgeApi.js';
 
 const forgeApi = Object.freeze({
   getHostStatus: () => ipcRenderer.invoke('forge:host-status'),
@@ -33,6 +33,8 @@ const forgeApi = Object.freeze({
   getEditorSnapshot: () => ipcRenderer.invoke('forge:editor-query'),
   executeEditorCommand: (command: EditorCommand) => ipcRenderer.invoke('forge:editor-execute', command),
   saveEditorProject: () => ipcRenderer.invoke('forge:editor-save'),
+  runWindowAction: (action: ForgeWindowAction) => ipcRenderer.send('forge:window-action', action),
+  setEditorTextInputActive: (active: boolean) => ipcRenderer.send('forge:editor-text-input', active),
   readEditorEvents: (afterSequence: number, limit = 100) =>
     ipcRenderer.invoke('forge:editor-events', afterSequence, limit),
   getEditorTerrain: () => ipcRenderer.invoke('forge:editor-terrain'),

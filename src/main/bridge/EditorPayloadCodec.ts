@@ -20,6 +20,10 @@ const commandKinds = {
   updateTransforms: 7,
   undo: 8,
   redo: 9,
+  deleteEntities: 10,
+  duplicateEntities: 11,
+  copyEntities: 12,
+  pasteEntities: 13,
 } as const;
 const eventKinds: Record<number, EditorEvent['kind']> = {
   1: 'projectOpened', 2: 'projectChanged', 3: 'selectionChanged', 4: 'projectSaved',
@@ -88,6 +92,7 @@ export function decodeEditorSnapshot(payload: Uint8Array): EditorSnapshot {
   const migrationPending = reader.readBoolean();
   const canUndo = reader.readBoolean();
   const canRedo = reader.readBoolean();
+  const canPaste = reader.readBoolean();
   const lastEventSequence = reader.readUInt64();
   const capabilities = reader.readStrings();
   const tools = readList(reader, 64, () => ({
@@ -100,7 +105,7 @@ export function decodeEditorSnapshot(payload: Uint8Array): EditorSnapshot {
   reader.complete();
   return {
     projectPath, projectId, projectName, target, baseLevel, entities, selection, isDirty,
-    migrationPending, canUndo, canRedo, lastEventSequence, capabilities, tools, diagnostics,
+    migrationPending, canUndo, canRedo, canPaste, lastEventSequence, capabilities, tools, diagnostics,
   };
 }
 

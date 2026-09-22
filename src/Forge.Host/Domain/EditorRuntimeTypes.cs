@@ -11,6 +11,10 @@ public enum EditorCommandKind : byte
     UpdateTransforms = 7,
     Undo = 8,
     Redo = 9,
+    DeleteEntities = 10,
+    DuplicateEntities = 11,
+    CopyEntities = 12,
+    PasteEntities = 13,
 }
 
 public enum EditorEventKind : byte
@@ -95,6 +99,7 @@ public sealed record EditorSnapshot(
     bool MigrationPending,
     bool CanUndo,
     bool CanRedo,
+    bool CanPaste,
     long LastEventSequence,
     IReadOnlyList<string> Capabilities,
     IReadOnlyList<EditorTool> Tools,

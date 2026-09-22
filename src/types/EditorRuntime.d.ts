@@ -50,7 +50,8 @@ export type EditorCommand =
     entityIds: string[];
     state: { hidden?: boolean; disabled?: boolean; locked?: boolean };
   }
-  | { id: string; kind: 'undo' | 'redo'; entityIds: [] };
+  | { id: string; kind: 'undo' | 'redo' | 'pasteEntities'; entityIds: [] }
+  | { id: string; kind: 'deleteEntities' | 'duplicateEntities' | 'copyEntities'; entityIds: string[] };
 
 export interface EditorEvent {
   sequence: number;
@@ -81,6 +82,7 @@ export interface EditorSnapshot {
   migrationPending: boolean;
   canUndo: boolean;
   canRedo: boolean;
+  canPaste: boolean;
   lastEventSequence: number;
   capabilities: string[];
   tools: { id: string; label: string; capability: string }[];

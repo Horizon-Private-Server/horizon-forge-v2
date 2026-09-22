@@ -70,6 +70,26 @@ internal static class EditorRuntimeTests
             Equal(secondTransform.Position,
                 snapshot.Entities.Single(entity => entity.EntityId == secondId).Transform.Position,
                 "runtime batch transform mutation");
+            snapshot = await runtime.ExecuteAsync(Command(EditorCommandKind.CopyEntities, [firstId]));
+            Equal(true, snapshot.CanPaste, "copy enables same-project paste");
+            snapshot = await runtime.ExecuteAsync(Command(EditorCommandKind.PasteEntities, []));
+            var pastedId = snapshot.Selection.Single();
+            Equal(3, snapshot.Entities.Count, "paste adds copied entity");
+            Equal(null, snapshot.Entities.Single(entity => entity.EntityId == pastedId).Provenance,
+                "paste clears source provenance");
+            snapshot = await runtime.ExecuteAsync(Command(EditorCommandKind.Undo, []));
+            Equal(2, snapshot.Entities.Count, "paste is undoable");
+            Equal(true, snapshot.Selection.SequenceEqual([firstId, secondId]), "undo restores pre-paste selection");
+            snapshot = await runtime.ExecuteAsync(Command(EditorCommandKind.DuplicateEntities, [secondId]));
+            var duplicateId = snapshot.Selection.Single();
+            Equal(true, duplicateId != secondId, "duplicate receives a new entity ID");
+            snapshot = await runtime.ExecuteAsync(Command(EditorCommandKind.DeleteEntities, [duplicateId]));
+            Equal(2, snapshot.Entities.Count, "delete removes selected entity");
+            Equal(true, snapshot.Selection.SequenceEqual([secondId]), "delete chooses a stable selection fallback");
+            snapshot = await runtime.ExecuteAsync(Command(EditorCommandKind.Undo, []));
+            Equal(true, snapshot.Entities.Any(entity => entity.EntityId == duplicateId), "delete is undoable");
+            snapshot = await runtime.ExecuteAsync(Command(EditorCommandKind.Undo, []));
+            Equal(2, snapshot.Entities.Count, "duplicate is undoable");
             Equal(true, snapshot.Entities.Single(entity => entity.EntityId == firstId).State.Dirty,
                 "mutated entity dirty state");
             snapshot = await runtime.ExecuteAsync(new(
@@ -88,6 +108,8 @@ internal static class EditorRuntimeTests
                 Guid.NewGuid().ToString("D"), EditorCommandKind.RenameEntity, [firstId], Text: "Locked rename")));
             await ThrowsAsync<ArgumentException>(() => runtime.ExecuteAsync(
                 Command(EditorCommandKind.UpdateTransform, [firstId], ProjectTransform.Identity)));
+            await ThrowsAsync<ArgumentException>(() => runtime.ExecuteAsync(
+                Command(EditorCommandKind.DeleteEntities, [firstId])));
             snapshot = await runtime.ExecuteAsync(new(
                 Guid.NewGuid().ToString("D"), EditorCommandKind.SetEntityState, [firstId],
                 State: new(Locked: false)));

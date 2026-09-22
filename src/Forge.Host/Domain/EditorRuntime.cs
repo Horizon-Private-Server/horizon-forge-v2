@@ -7,7 +7,8 @@ public sealed class EditorRuntime : IAsyncDisposable
     private static readonly string[] RuntimeCapabilities =
     [
         "editor.query", "editor.selection", "editor.project.rename", "editor.transform.update",
-        "editor.entity.rename", "editor.entity.layer", "editor.entity.state", "editor.history", "editor.save", "editor.recovery",
+        "editor.entity.rename", "editor.entity.layer", "editor.entity.state", "editor.entity.delete",
+        "editor.entity.duplicate", "editor.clipboard", "editor.history", "editor.save", "editor.recovery",
     ];
     private static readonly EditorTool[] RuntimeTools =
     [
@@ -22,8 +23,9 @@ public sealed class EditorRuntime : IAsyncDisposable
     private readonly List<EditorDiagnostic> _diagnostics = [];
     private readonly EditorHistory _history = new();
     private ForgeProjectWorkspace? _workspace;
-    private HashSet<EntityId> _missingAssets = [];
+    private HashSet<AssetId> _missingAssets = [];
     private Dictionary<EntityId, ProjectEntity> _savedEntities = [];
+    private ProjectEntity[] _clipboard = [];
     private EntityId[] _selection = [];
     private TimeSpan _autosaveDelay;
     private CancellationTokenSource? _autosaveCancellation;
@@ -59,6 +61,7 @@ public sealed class EditorRuntime : IAsyncDisposable
             _missingAssets = missingAssets;
             _autosaveDelay = autosaveDelay;
             _selection = [];
+            _clipboard = [];
             _history.Clear();
             _diagnostics.Clear();
             AddEvent(EditorEventKind.ProjectOpened, null, [], _workspace.RootPath);
@@ -98,6 +101,7 @@ public sealed class EditorRuntime : IAsyncDisposable
             var stateBefore = workspace.CaptureState();
             var selectionBefore = _selection;
             var fingerprintBefore = workspace.CurrentFingerprint;
+            IReadOnlyList<EntityId> historyEntityIds = command.EntityIds;
             switch (command.Kind)
             {
                 case EditorCommandKind.SetSelection:
@@ -140,13 +144,36 @@ public sealed class EditorRuntime : IAsyncDisposable
                 case EditorCommandKind.Redo:
                     ApplyHistory(workspace, command.Id, undo: false);
                     break;
+                case EditorCommandKind.DeleteEntities:
+                    _selection = workspace.RemoveEntities(command.EntityIds);
+                    AddEvent(EditorEventKind.ProjectChanged, command.Id, command.EntityIds, "Entities deleted");
+                    ScheduleAutosave();
+                    break;
+                case EditorCommandKind.DuplicateEntities:
+                    _selection = workspace.AddCopies(workspace.GetEntities(command.EntityIds))
+                        .Select(entity => entity.EntityId).ToArray();
+                    historyEntityIds = _selection;
+                    AddEvent(EditorEventKind.ProjectChanged, command.Id, _selection, "Entities duplicated");
+                    ScheduleAutosave();
+                    break;
+                case EditorCommandKind.CopyEntities:
+                    _clipboard = workspace.GetEntities(command.EntityIds);
+                    break;
+                case EditorCommandKind.PasteEntities:
+                    if (_clipboard.Length == 0) break;
+                    _selection = workspace.AddCopies(_clipboard).Select(entity => entity.EntityId).ToArray();
+                    historyEntityIds = _selection;
+                    AddEvent(EditorEventKind.ProjectChanged, command.Id, _selection, "Entities pasted");
+                    ScheduleAutosave();
+                    break;
                 default:
                     throw new ArgumentOutOfRangeException(nameof(command), command.Kind, "Unknown editor command");
             }
-            if (command.Kind is not (EditorCommandKind.SetSelection or EditorCommandKind.Undo or EditorCommandKind.Redo)
+            if (command.Kind is not (EditorCommandKind.SetSelection or EditorCommandKind.CopyEntities
+                    or EditorCommandKind.Undo or EditorCommandKind.Redo)
                 && workspace.CurrentFingerprint != fingerprintBefore)
                 _history.Push(stateBefore, workspace.CaptureState(), selectionBefore, _selection,
-                    command.EntityIds, EstimateHistoryBytes(command, stateBefore));
+                    historyEntityIds, EstimateHistoryBytes(command, stateBefore));
             return Snapshot();
         }
         finally
@@ -239,6 +266,7 @@ public sealed class EditorRuntime : IAsyncDisposable
         _missingAssets = [];
         _savedEntities = [];
         _selection = [];
+        _clipboard = [];
     }
 
     private async Task WriteRecoveryCoreAsync(CancellationToken cancellationToken)
@@ -325,13 +353,15 @@ public sealed class EditorRuntime : IAsyncDisposable
                     entity.Provenance,
                     entity.Source?.ClassId,
                     new(!_savedEntities.TryGetValue(entity.EntityId, out var saved) || saved != entity,
-                        state.Hidden, state.Disabled, state.Locked, false, _missingAssets.Contains(entity.EntityId)));
+                        state.Hidden, state.Disabled, state.Locked, false,
+                        entity.Asset is not null && _missingAssets.Contains(entity.Asset.Id)));
             }).ToArray(),
             _selection.ToArray(),
             workspace.IsDirty,
             workspace.MigrationPending,
             _history.CanUndo,
             _history.CanRedo,
+            _clipboard.Length > 0,
             _eventSequence,
             RuntimeCapabilities.ToArray(),
             RuntimeTools.ToArray(),
@@ -357,7 +387,9 @@ public sealed class EditorRuntime : IAsyncDisposable
         if (command.EntityIds.Any(locked.Contains)
             && command.Kind is EditorCommandKind.UpdateTransform or EditorCommandKind.UpdateTransforms
                 or EditorCommandKind.RenameEntity
-                or EditorCommandKind.SetEntityLayer)
+                or EditorCommandKind.SetEntityLayer
+                or EditorCommandKind.DeleteEntities
+                or EditorCommandKind.DuplicateEntities)
             throw new ArgumentException("Locked entities cannot be modified.", nameof(command));
         if (command.EntityIds.Any(locked.Contains)
             && command.Kind == EditorCommandKind.SetEntityState
@@ -392,6 +424,13 @@ public sealed class EditorRuntime : IAsyncDisposable
                 || command.Transform is not null || command.Text is not null || command.State is not null
                 || command.Transforms?.Count > 0:
                 throw new ArgumentException("History commands cannot contain mutation data.", nameof(command));
+            case EditorCommandKind.DeleteEntities or EditorCommandKind.DuplicateEntities or EditorCommandKind.CopyEntities
+                when command.EntityIds.Count == 0 || command.Transform is not null || command.Text is not null
+                || command.State is not null || command.Transforms?.Count > 0:
+                throw new ArgumentException("Entity edit commands require only one or more entities.", nameof(command));
+            case EditorCommandKind.PasteEntities when command.EntityIds.Count != 0 || command.Transform is not null
+                || command.Text is not null || command.State is not null || command.Transforms?.Count > 0:
+                throw new ArgumentException("Paste commands cannot contain mutation data.", nameof(command));
         }
     }
 
@@ -417,12 +456,12 @@ public sealed class EditorRuntime : IAsyncDisposable
         + (long)(command.Transforms?.Count ?? 0) * 64
         + (command.Text?.Length ?? 0) * sizeof(char);
 
-    private static HashSet<EntityId> FindMissingAssets(ForgeProjectWorkspace workspace, AssetCatalogStore catalog) =>
+    private static HashSet<AssetId> FindMissingAssets(ForgeProjectWorkspace workspace, AssetCatalogStore catalog) =>
         workspace.Content.Entities
             .Where(entity => entity.Asset is not null)
             .GroupBy(entity => entity.Asset!.Id)
             .Where(group => workspace.ResolveAssetPath(group.Key, catalog) is null)
-            .SelectMany(group => group.Select(entity => entity.EntityId))
+            .Select(group => group.Key)
             .ToHashSet();
 
     private void AddEvent(

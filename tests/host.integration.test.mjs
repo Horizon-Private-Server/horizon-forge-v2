@@ -144,6 +144,25 @@ test('host handshake, echo, progress, cancellation, crash recovery, and concurre
     }],
   })).result;
   assert.deepEqual(batchTransformed.entities[0].transform.position, { x: 11, y: 22, z: 33 });
+  const duplicated = await (await client.executeEditorCommand({
+    id: '30000000-0000-4000-8000-000000000009', kind: 'duplicateEntities', entityIds: [entityId],
+  })).result;
+  const duplicateId = duplicated.selection[0];
+  assert.notEqual(duplicateId, entityId);
+  assert.equal(duplicated.entities.length, 2);
+  const deleted = await (await client.executeEditorCommand({
+    id: '30000000-0000-4000-8000-00000000000a', kind: 'deleteEntities', entityIds: [duplicateId],
+  })).result;
+  assert.equal(deleted.entities.length, 1);
+  const copied = await (await client.executeEditorCommand({
+    id: '30000000-0000-4000-8000-00000000000b', kind: 'copyEntities', entityIds: [entityId],
+  })).result;
+  assert.equal(copied.canPaste, true);
+  const pasted = await (await client.executeEditorCommand({
+    id: '30000000-0000-4000-8000-00000000000c', kind: 'pasteEntities', entityIds: [],
+  })).result;
+  assert.equal(pasted.entities.length, 2);
+  assert.notEqual(pasted.selection[0], entityId);
   const updatedEntity = await (await client.executeEditorCommand({
     id: '30000000-0000-4000-8000-000000000004',
     kind: 'renameEntity',
@@ -170,8 +189,7 @@ test('host handshake, echo, progress, cancellation, crash recovery, and concurre
   const events = await (await client.readEditorEvents(0)).result;
   assert.deepEqual(events.map((event) => event.kind), [
     'projectOpened', 'selectionChanged', 'projectChanged', 'projectChanged', 'projectChanged', 'projectChanged',
-    'projectChanged', 'projectChanged',
-    'projectChanged',
+    'projectChanged', 'projectChanged', 'projectChanged', 'projectChanged', 'projectChanged', 'projectChanged',
   ]);
   const saved = await (await client.saveEditorProject()).result;
   assert.equal(saved.isDirty, false);

@@ -3,8 +3,9 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { createApplicationPaths } from '../utils/ApplicationPaths.js';
+import { editorClipboardShortcut } from '../utils/EditorShortcuts.js';
 import { isAllowedNavigation } from '../utils/Security.js';
-import { installApplicationMenu } from './ApplicationMenu.js';
+import { installApplicationMenu, isEditorTextInputActive } from './ApplicationMenu.js';
 import { registerIpcHandlers } from './IpcHandlers.js';
 import { RecentProjects } from './RecentProjects.js';
 import { RenderAssetProtocol } from './RenderAssetProtocol.js';
@@ -44,10 +45,17 @@ function createWindow(): void {
   });
   mainWindow = window;
   window.maximize();
+  window.setMenuBarVisibility(false);
 
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', (event, url) => {
     if (!isAllowedNavigation(url, applicationUrl)) event.preventDefault();
+  });
+  window.webContents.on('before-input-event', (event, input) => {
+    const action = isEditorTextInputActive() ? undefined : editorClipboardShortcut(input);
+    if (!action) return;
+    event.preventDefault();
+    window.webContents.send('forge:action', action);
   });
   window.on('closed', () => {
     if (mainWindow === window) mainWindow = undefined;
