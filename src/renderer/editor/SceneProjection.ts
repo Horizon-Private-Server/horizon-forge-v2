@@ -176,13 +176,44 @@ export class SceneProjection {
 
   resolvePick(intersections: readonly THREE.Intersection[]): string | undefined {
     for (const intersection of intersections) {
-      const instanceIds = intersection.object.userData[INSTANCE_IDS_KEY] as string[] | undefined;
-      const id = instanceIds && intersection.instanceId !== undefined
-        ? instanceIds[intersection.instanceId]
-        : this.resolveEntityId(intersection.object);
+      const id = this.resolveIntersectionEntityId(intersection);
       if (id && this.pickable.has(id)) return id;
     }
     return undefined;
+  }
+
+  resolveIntersectionEntityId(intersection: THREE.Intersection): string | undefined {
+    const instanceIds = intersection.object.userData[INSTANCE_IDS_KEY] as string[] | undefined;
+    return instanceIds && intersection.instanceId !== undefined
+      ? instanceIds[intersection.instanceId]
+      : this.resolveEntityId(intersection.object);
+  }
+
+  getWorldVertices(entityIds: readonly string[]): THREE.Vector3[] {
+    const selected = new Set(entityIds);
+    const seen = new Set<string>();
+    const vertices: THREE.Vector3[] = [];
+    this.root.updateMatrixWorld(true);
+    for (const projection of this.instances.values()) {
+      for (const mesh of projection.meshes) {
+        const ids = mesh.userData[INSTANCE_IDS_KEY] as string[];
+        ids.forEach((id, index) => {
+          if (!selected.has(id) || seen.has(`${id}:${mesh.geometry.uuid}`)) return;
+          seen.add(`${id}:${mesh.geometry.uuid}`);
+          mesh.getMatrixAt(index, this.instanceMatrix);
+          this.instanceMatrix.premultiply(mesh.matrixWorld);
+          appendWorldVertices(mesh.geometry, this.instanceMatrix, vertices);
+        });
+      }
+    }
+    for (const id of selected) {
+      const object = this.objects.get(id);
+      object?.updateMatrixWorld(true);
+      object?.traverse((child) => {
+        if (child instanceof THREE.Mesh) appendWorldVertices(child.geometry, child.matrixWorld, vertices);
+      });
+    }
+    return vertices;
   }
 
   dispose(): void {
@@ -361,6 +392,16 @@ function geometrySignature(geometry: THREE.BufferGeometry): string {
   return `${geometry.index ? 'indexed' : 'plain'}:${Object.entries(geometry.attributes)
     .map(([name, value]) => `${name}/${value.array.constructor.name}/${value.itemSize}/${value.normalized}`)
     .sort().join(',')}`;
+}
+
+function appendWorldVertices(
+  geometry: THREE.BufferGeometry,
+  matrix: THREE.Matrix4,
+  target: THREE.Vector3[],
+): void {
+  const position = geometry.getAttribute('position');
+  for (let index = 0; index < position.count; index += 1)
+    target.push(new THREE.Vector3().fromBufferAttribute(position as THREE.BufferAttribute, index).applyMatrix4(matrix));
 }
 
 function addInstancedMesh(

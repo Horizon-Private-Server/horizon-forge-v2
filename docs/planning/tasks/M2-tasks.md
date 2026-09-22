@@ -181,6 +181,14 @@ Acceptance:
 
 Verification: deterministic geometry fixtures, latency profile, and undo checks.
 
+Implementation: transform controls provide configurable move, rotation, and scale
+increments with Ctrl inversion. Translation can use the selection center, active
+origin, or a selected-mesh vertex against the grid, another entity's bounds center,
+the ray-hit triangle's nearest vertex, or its visible surface. Selected vertices
+are indexed once per drag; target vertices are limited to the ray-hit triangle.
+Page Down raycasts beneath the selection, ignores its own geometry, preserves group
+offsets, commits one batch transform, and reports no-hit results without mutation.
+
 ## M2-008 — Complete command history and common edit operations
 
 Requirements: FR-EDIT-001, FR-EDIT-002, FR-EDIT-003, DR-017  

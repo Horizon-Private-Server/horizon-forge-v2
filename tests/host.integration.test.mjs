@@ -120,6 +120,16 @@ test('host handshake, echo, progress, cancellation, crash recovery, and concurre
   })).result;
   assert.deepEqual(transformed.entities[0].transform.position, { x: 10.5, y: 20.25, z: -30.75 });
   assert.equal(transformed.entities[0].state.dirty, true);
+  assert.equal(transformed.canUndo, true);
+  const undone = await (await client.executeEditorCommand({
+    id: '30000000-0000-4000-8000-000000000007', kind: 'undo', entityIds: [],
+  })).result;
+  assert.deepEqual(undone.entities[0].transform.position, { x: 1, y: 2, z: 3 });
+  assert.equal(undone.canRedo, true);
+  const redone = await (await client.executeEditorCommand({
+    id: '30000000-0000-4000-8000-000000000008', kind: 'redo', entityIds: [],
+  })).result;
+  assert.deepEqual(redone.entities[0].transform.position, { x: 10.5, y: 20.25, z: -30.75 });
   const batchTransformed = await (await client.executeEditorCommand({
     id: '30000000-0000-4000-8000-000000000006',
     kind: 'updateTransforms',
@@ -160,6 +170,7 @@ test('host handshake, echo, progress, cancellation, crash recovery, and concurre
   const events = await (await client.readEditorEvents(0)).result;
   assert.deepEqual(events.map((event) => event.kind), [
     'projectOpened', 'selectionChanged', 'projectChanged', 'projectChanged', 'projectChanged', 'projectChanged',
+    'projectChanged', 'projectChanged',
     'projectChanged',
   ]);
   const saved = await (await client.saveEditorProject()).result;

@@ -2,7 +2,9 @@ import * as THREE from 'three';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 
 import type { EditorEntity, EditorTransformUpdate, ProjectTransform } from '../../types/EditorRuntime.js';
+import type { EditorSnapSource, EditorSnapTarget } from '../../types/EditorViewport.js';
 import { cloneProjectTransform, projectTransformToSceneMatrix, sceneMatrixToProjectTransform } from '../../utils/Transforms.ts';
+import { VertexSnapIndex } from './SceneSnapping.ts';
 import type { SceneProjection } from './SceneProjection.ts';
 
 export type EditorTransformMode = 'select' | 'translate' | 'rotate' | 'scale';
@@ -11,6 +13,8 @@ export type EditorTransformSpace = 'world' | 'local';
 interface TransformToolCallbacks {
   preview(entities?: readonly EditorEntity[]): void;
   commit(updates: EditorTransformUpdate[]): void;
+  collectSnapVertices(entityIds: readonly string[]): THREE.Vector3[];
+  resolveSnapTarget(mode: Exclude<EditorSnapTarget, 'grid'>, entityIds: readonly string[]): THREE.Vector3 | undefined;
 }
 
 export class TransformTool {
@@ -25,13 +29,26 @@ export class TransformTool {
   private readonly source = new THREE.Matrix4();
   private readonly transformed = new THREE.Matrix4();
   private readonly pivotScale = new THREE.Vector3();
+  private readonly pivotRotation = new THREE.Quaternion();
   private readonly pivotPosition = new THREE.Vector3();
+  private readonly startPivotPosition = new THREE.Vector3();
+  private readonly sourceOffset = new THREE.Vector3();
+  private readonly snapQuery = new THREE.Vector3();
+  private readonly translationDelta = new THREE.Vector3();
   private entities: readonly EditorEntity[] = [];
   private activeIds: string[] = [];
   private originals = new Map<string, ProjectTransform>();
   private projection?: SceneProjection;
   private mode: EditorTransformMode = 'select';
   private space: EditorTransformSpace = 'world';
+  private snapEnabled = false;
+  private snapInverted = false;
+  private translationSnap = 1;
+  private rotationSnap = THREE.MathUtils.degToRad(15);
+  private scaleSnap = 0.1;
+  private snapSource: EditorSnapSource = 'center';
+  private snapTarget: EditorSnapTarget = 'grid';
+  private vertexIndex?: VertexSnapIndex;
   private cancelled = false;
   private pointerActive = false;
 
@@ -71,6 +88,29 @@ export class TransformTool {
     this.refreshAttachment();
   }
 
+  setSnapping(
+    enabled: boolean,
+    translation: number,
+    rotationDegrees: number,
+    scale: number,
+    source: EditorSnapSource,
+    target: EditorSnapTarget,
+  ): void {
+    this.snapEnabled = enabled;
+    this.translationSnap = translation;
+    this.rotationSnap = THREE.MathUtils.degToRad(rotationDegrees);
+    this.scaleSnap = scale;
+    this.snapSource = source;
+    this.snapTarget = target;
+    this.applySnapping();
+  }
+
+  setSnapInverted(inverted: boolean): void {
+    if (this.snapInverted === inverted) return;
+    this.snapInverted = inverted;
+    this.applySnapping();
+  }
+
   sync(entities: readonly EditorEntity[], selection: readonly string[], projection: SceneProjection): void {
     this.entities = entities;
     this.projection = projection;
@@ -106,12 +146,26 @@ export class TransformTool {
     this.cancelled = false;
     this.proxy.updateMatrix();
     this.startPivot.copy(this.proxy.matrix);
+    this.startPivotPosition.setFromMatrixPosition(this.startPivot);
+    this.sourceOffset.set(0, 0, 0);
+    this.vertexIndex = undefined;
+    if (this.snapSource === 'origin') {
+      const active = this.entities.find((entity) => entity.id === this.activeIds.at(-1));
+      if (active) {
+        projectTransformToSceneMatrix(active.transform, this.source)
+          .decompose(this.pivotPosition, this.pivotRotation, this.pivotScale);
+        this.sourceOffset.copy(this.pivotPosition).sub(this.startPivotPosition);
+      }
+    } else if (this.snapSource === 'vertex') {
+      this.vertexIndex = new VertexSnapIndex(this.callbacks.collectSnapVertices(this.activeIds));
+    }
     this.originals = new Map(this.entities.filter((entity) => this.activeIds.includes(entity.id))
       .map((entity) => [entity.id, cloneProjectTransform(entity.transform)]));
   };
 
   private readonly handleObjectChange = () => {
     if (this.originals.size === 0 || this.cancelled) return;
+    this.applyTargetSnap();
     const updates = this.buildUpdates();
     const transforms = new Map(updates.map((update) => [update.entityId, update.transform]));
     this.callbacks.preview(this.entities.map((entity) => {
@@ -124,6 +178,7 @@ export class TransformTool {
     const updates = this.cancelled ? [] : this.buildUpdates();
     const changed = !this.proxy.matrix.equals(this.startPivot);
     this.originals.clear();
+    this.vertexIndex = undefined;
     if (this.cancelled) this.callbacks.preview();
     else if (changed && updates.length) this.callbacks.commit(updates);
     this.cancelled = false;
@@ -164,6 +219,28 @@ export class TransformTool {
     }
     this.proxy.updateMatrix();
     this.controls.attach(this.proxy);
+  }
+
+  private applySnapping(): void {
+    const enabled = this.snapEnabled !== this.snapInverted;
+    this.controls.setTranslationSnap(enabled && this.snapTarget === 'grid' ? this.translationSnap : null);
+    this.controls.setRotationSnap(enabled ? this.rotationSnap : null);
+    this.controls.setScaleSnap(enabled ? this.scaleSnap : null);
+  }
+
+  private applyTargetSnap(): void {
+    if (this.mode !== 'translate' || this.snapTarget === 'grid'
+      || this.snapEnabled === this.snapInverted) return;
+    const target = this.callbacks.resolveSnapTarget(this.snapTarget, this.activeIds);
+    if (!target) return;
+    if (this.snapSource === 'vertex') {
+      this.translationDelta.copy(this.proxy.position).sub(this.startPivotPosition);
+      const source = this.vertexIndex?.nearest(this.snapQuery.copy(target).sub(this.translationDelta));
+      if (!source) return;
+      this.sourceOffset.copy(source).sub(this.startPivotPosition);
+    }
+    this.proxy.position.copy(target).sub(this.sourceOffset);
+    this.proxy.updateMatrix();
   }
 }
 

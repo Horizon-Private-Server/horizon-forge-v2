@@ -34,6 +34,12 @@ event is produced.
 | `renameEntity` | one Entity ID and nonblank name | Renames one entity and marks it dirty |
 | `setEntityLayer` | one or more Entity IDs and nonblank layer | Reparents entities to a layer |
 | `setEntityState` | one or more Entity IDs and a partial state | Changes hidden, disabled, or locked state |
+| `undo` / `redo` | no entity or mutation data | Moves through bounded session history |
+
+Project mutations retain structurally shared before/after project records. History
+is session-local, exposes `canUndo`/`canRedo` in each snapshot, and evicts the
+oldest complete commands beyond 100 entries or approximately 128 MiB. Selection
+commands remain UI-only and do not enter history.
 
 Commands and their fields use the binary bridge codec. JSON serialization in the
 domain contract test proves that command values are data, not executable UI
@@ -57,4 +63,4 @@ query. Diagnostics retain the newest 100 entries.
 Capabilities and tool descriptors expose concrete supported behavior without a
 service locator. P0 implements no plugin loading or collaboration transport.
 Future peers can replay the same validated serializable commands and ordered
-events; conflict authority and undo/redo remain later tasks.
+events; conflict authority remains a later task.

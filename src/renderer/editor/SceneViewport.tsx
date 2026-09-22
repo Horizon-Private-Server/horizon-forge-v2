@@ -5,6 +5,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 import type { EditorEntity, EditorTransformUpdate } from '../../types/EditorRuntime.js';
 import type { EditorLoadProgress, EditorTerrainSource } from '../../types/ForgeApi.js';
+import type { EditorSnapSource, EditorSnapTarget } from '../../types/EditorViewport.js';
 import {
   disposeObject,
   applySceneEnvironment,
@@ -20,7 +21,9 @@ import {
 import type { CameraFlight } from '../../utils/Scene.ts';
 import { configurePs2MaterialAlpha, configurePs2MaterialFog } from '../../utils/Ps2Materials.ts';
 import { nextViewportSelection } from './EditorPanelState.ts';
+import { buildGroundPlacement } from './ScenePlacement.ts';
 import { SceneProjection } from './SceneProjection.ts';
+import { resolvePointerSnapTarget } from './SceneSnapping.ts';
 import { TransformTool } from './TransformTool.ts';
 import type { EditorTransformMode, EditorTransformSpace } from './TransformTool.ts';
 import { ViewportToolbar } from './ViewportToolbar.tsx';
@@ -55,6 +58,13 @@ export function SceneViewport({
   const container = useRef<HTMLDivElement>(null);
   const [mode, setMode] = useState<EditorTransformMode>('select');
   const [space, setSpace] = useState<EditorTransformSpace>('world');
+  const [snapEnabled, setSnapEnabled] = useState(false);
+  const [snapSource, setSnapSource] = useState<EditorSnapSource>('center');
+  const [snapTarget, setSnapTarget] = useState<EditorSnapTarget>('grid');
+  const [translationSnap, setTranslationSnap] = useState(1);
+  const [rotationSnap, setRotationSnap] = useState(15);
+  const [scaleSnap, setScaleSnap] = useState(0.1);
+  const [notice, setNotice] = useState<string>();
   const [stats, setStats] = useState<{ fps: number; calls: number; triangles: number }>();
   const currentShowStats = useRef(showStats);
   const currentSelection = useRef(selection);
@@ -120,11 +130,14 @@ export function SceneViewport({
     controls.enableRotate = false;
     controls.zoomSpeed = 0.35;
     const movement = new Set<string>();
+    const snapModifiers = new Set<string>();
     const velocity = new THREE.Vector3();
     const clock = new THREE.Clock();
     let cameraInputActive = false;
     camera.position.set(0, 150, 300);
     controls.update();
+    const snapRaycaster = new THREE.Raycaster();
+    const snapPointer = new THREE.Vector2();
     const transformTool = new TransformTool(camera, renderer.domElement, toolScene, {
       preview: (preview) => currentProjection.sync(
         preview ?? currentEntities.current,
@@ -143,7 +156,22 @@ export function SceneViewport({
           });
         });
       },
+      collectSnapVertices: (entityIds) => currentProjection.getWorldVertices(entityIds),
+      resolveSnapTarget: (target, entityIds) => {
+        snapRaycaster.setFromCamera(snapPointer, camera);
+        return resolvePointerSnapTarget(
+          target,
+          snapRaycaster,
+          currentProjection,
+          [terrain, currentProjection.root],
+          new Set(entityIds),
+        );
+      },
     });
+    const toggleCameraDuringTransform = (event: { value: unknown }) => {
+      controls.enabled = event.value !== true;
+    };
+    transformTool.controls.addEventListener('dragging-changed', toggleCameraDuringTransform);
     viewport.current = {
       projection: currentProjection,
       scene,
@@ -160,9 +188,38 @@ export function SceneViewport({
       framed: false,
     };
 
+    let noticeTimer: ReturnType<typeof setTimeout> | undefined;
+    const showNotice = (message: string) => {
+      setNotice(message);
+      if (noticeTimer) clearTimeout(noticeTimer);
+      noticeTimer = setTimeout(() => setNotice(undefined), 2_000);
+    };
+
     const keyDown = (event: KeyboardEvent) => {
+      if (SNAP_MODIFIER_KEYS.has(event.code)) {
+        if (cameraInputActive) {
+          snapModifiers.add(event.code);
+          transformTool.setSnapInverted(true);
+        }
+        return;
+      }
       if (event.code === 'Escape' && transformTool.cancel()) {
         event.preventDefault();
+        return;
+      }
+      if (event.code === 'PageDown' && cameraInputActive && !transformTool.isInteracting) {
+        event.preventDefault();
+        if (event.repeat || !transformTool.controls.enabled) return;
+        const result = buildGroundPlacement(
+          currentEntities.current,
+          currentSelection.current,
+          currentProjection,
+          [terrain, currentProjection.root],
+        );
+        if (!result.updates.length) showNotice(result.message);
+        else void transformsCommitted.current(result.updates).then((committed) => {
+          if (committed) showNotice(result.message);
+        });
         return;
       }
       if (!cameraInputActive || !MOVEMENT_KEYS.has(event.code)) return;
@@ -171,10 +228,17 @@ export function SceneViewport({
       movement.add(event.code);
       event.preventDefault();
     };
-    const keyUp = (event: KeyboardEvent) => movement.delete(event.code);
+    const keyUp = (event: KeyboardEvent) => {
+      movement.delete(event.code);
+      if (!SNAP_MODIFIER_KEYS.has(event.code)) return;
+      snapModifiers.delete(event.code);
+      transformTool.setSnapInverted(snapModifiers.size > 0);
+    };
     const deactivateCameraInput = () => {
       cameraInputActive = false;
       movement.clear();
+      snapModifiers.clear();
+      transformTool.setSnapInverted(false);
     };
     const activateCameraInput = () => { cameraInputActive = true; };
     window.addEventListener('keydown', keyDown);
@@ -191,6 +255,13 @@ export function SceneViewport({
     let pointerStart: { x: number; y: number } | undefined;
     let lookPointerId: number | undefined;
     let lookPosition: { x: number; y: number } | undefined;
+    const updateSnapPointer = (event: PointerEvent) => {
+      const bounds = renderer.domElement.getBoundingClientRect();
+      snapPointer.set(
+        (event.clientX - bounds.left) / bounds.width * 2 - 1,
+        -(event.clientY - bounds.top) / bounds.height * 2 + 1,
+      );
+    };
     const pointerDown = (event: PointerEvent) => {
       if (transformTool.isInteracting) return;
       if (viewport.current) viewport.current.flight = undefined;
@@ -241,6 +312,8 @@ export function SceneViewport({
       lookPosition = undefined;
       if (renderer.domElement.hasPointerCapture(event.pointerId)) renderer.domElement.releasePointerCapture(event.pointerId);
     };
+    renderer.domElement.addEventListener('pointerdown', updateSnapPointer, true);
+    renderer.domElement.addEventListener('pointermove', updateSnapPointer, true);
     renderer.domElement.addEventListener('pointerdown', pointerDown);
     renderer.domElement.addEventListener('pointermove', pointerMove);
     renderer.domElement.addEventListener('pointerup', pointerUp);
@@ -295,6 +368,9 @@ export function SceneViewport({
 
     return () => {
       observer.disconnect();
+      if (noticeTimer) clearTimeout(noticeTimer);
+      renderer.domElement.removeEventListener('pointerdown', updateSnapPointer, true);
+      renderer.domElement.removeEventListener('pointermove', updateSnapPointer, true);
       renderer.domElement.removeEventListener('pointerdown', pointerDown);
       renderer.domElement.removeEventListener('pointermove', pointerMove);
       renderer.domElement.removeEventListener('pointerup', pointerUp);
@@ -308,6 +384,7 @@ export function SceneViewport({
       renderer.domElement.removeEventListener('focus', activateCameraInput);
       renderer.domElement.removeEventListener('blur', deactivateCameraInput);
       renderer.setAnimationLoop(null);
+      transformTool.controls.removeEventListener('dragging-changed', toggleCameraDuringTransform);
       transformTool.dispose();
       controls.dispose();
       sky.removeFromParent();
@@ -452,6 +529,9 @@ export function SceneViewport({
 
   useEffect(() => viewport.current?.transformTool.setMode(mode), [mode]);
   useEffect(() => viewport.current?.transformTool.setSpace(space), [space]);
+  useEffect(() => viewport.current?.transformTool.setSnapping(
+    snapEnabled, translationSnap, rotationSnap, scaleSnap, snapSource, snapTarget,
+  ), [rotationSnap, scaleSnap, snapEnabled, snapSource, snapTarget, translationSnap]);
   useEffect(() => viewport.current?.transformTool.setEnabled(!disabled), [disabled]);
 
   useEffect(() => {
@@ -482,9 +562,22 @@ export function SceneViewport({
       <ViewportToolbar
         mode={mode}
         space={space}
+        snapSource={snapSource}
+        snapTarget={snapTarget}
+        snapEnabled={snapEnabled}
+        translationSnap={translationSnap}
+        rotationSnap={rotationSnap}
+        scaleSnap={scaleSnap}
         onModeChange={setMode}
         onSpaceChange={setSpace}
+        onSnapSourceChange={setSnapSource}
+        onSnapTargetChange={setSnapTarget}
+        onSnapEnabledChange={setSnapEnabled}
+        onTranslationSnapChange={setTranslationSnap}
+        onRotationSnapChange={setRotationSnap}
+        onScaleSnapChange={setScaleSnap}
       />
+      {notice && <div className="scene-notice" role="status">{notice}</div>}
       {showStats && <div className="scene-stats">
         {stats ? `${stats.fps} FPS · ${stats.calls} calls · ${stats.triangles.toLocaleString()} tris` : 'Measuring…'}
       </div>}
@@ -493,6 +586,7 @@ export function SceneViewport({
 }
 
 const MOVEMENT_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'Space', 'ShiftLeft', 'ShiftRight']);
+const SNAP_MODIFIER_KEYS = new Set(['ControlLeft', 'ControlRight']);
 const ZERO_VECTOR = new THREE.Vector3();
 
 function preventDefault(event: Event): void {

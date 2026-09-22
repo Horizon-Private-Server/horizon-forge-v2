@@ -51,6 +51,18 @@ internal static class EditorRuntimeTests
             Equal(new ProjectVector3(10, 20, 30),
                 snapshot.Entities.Single(entity => entity.EntityId == firstId).Transform.Position,
                 "runtime transform mutation");
+            Equal(true, snapshot.CanUndo, "mutation enables undo");
+            snapshot = await runtime.ExecuteAsync(Command(EditorCommandKind.Undo, []));
+            Equal(ProjectTransform.Identity.Position,
+                snapshot.Entities.Single(entity => entity.EntityId == firstId).Transform.Position,
+                "undo restores transform");
+            Equal(false, snapshot.IsDirty, "undo restores clean state");
+            Equal(true, snapshot.CanRedo, "undo enables redo");
+            snapshot = await runtime.ExecuteAsync(Command(EditorCommandKind.Redo, []));
+            Equal(transform.Position,
+                snapshot.Entities.Single(entity => entity.EntityId == firstId).Transform.Position,
+                "redo restores transform mutation");
+            Equal(false, snapshot.CanRedo, "redo consumes redo entry");
             var secondTransform = ProjectTransform.Identity with { Position = new(40, 50, 60) };
             snapshot = await runtime.ExecuteAsync(new(
                 Guid.NewGuid().ToString("D"), EditorCommandKind.UpdateTransforms, [firstId, secondId],
@@ -89,6 +101,18 @@ internal static class EditorRuntimeTests
             snapshot = await runtime.SaveAsync();
             Equal(false, snapshot.IsDirty, "manual save marks runtime clean");
             Equal(true, snapshot.Entities.All(entity => !entity.State.Dirty), "save clears entity dirty state");
+            Equal(true, snapshot.CanUndo, "save preserves session history");
+            for (var index = 0; index < 101; index++)
+                snapshot = await runtime.ExecuteAsync(new(
+                    Guid.NewGuid().ToString("D"), EditorCommandKind.RenameProject, [], Text: $"History {index}"));
+            var undoCount = 0;
+            while (snapshot.CanUndo)
+            {
+                snapshot = await runtime.ExecuteAsync(Command(EditorCommandKind.Undo, []));
+                undoCount++;
+            }
+            Equal(100, undoCount, "history entry cap");
+            Equal("History 0", snapshot.ProjectName, "history evicts the oldest complete command");
             snapshot = await runtime.ExecuteAsync(new(
                 Guid.NewGuid().ToString("D"), EditorCommandKind.RenameProject, [], Text: "Renamed"));
             Equal("Renamed", snapshot.ProjectName, "rename command");

@@ -60,6 +60,8 @@ internal static class EditorPayloadCodec
         WriteEntityIds(writer, value.Selection);
         writer.WriteBoolean(value.IsDirty);
         writer.WriteBoolean(value.MigrationPending);
+        writer.WriteBoolean(value.CanUndo);
+        writer.WriteBoolean(value.CanRedo);
         writer.WriteUInt64(checked((ulong)value.LastEventSequence));
         writer.WriteStrings(value.Capabilities.ToArray());
         writer.WriteUInt32((uint)value.Tools.Count);

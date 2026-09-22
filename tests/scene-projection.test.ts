@@ -3,6 +3,8 @@ import test from 'node:test';
 import * as THREE from 'three';
 
 import { SceneProjection } from '../src/renderer/editor/SceneProjection.ts';
+import { buildGroundPlacement } from '../src/renderer/editor/ScenePlacement.ts';
+import { resolvePointerSnapTarget, VertexSnapIndex } from '../src/renderer/editor/SceneSnapping.ts';
 import type { EditorEntity } from '../src/types/EditorRuntime.js';
 import {
   applySceneEnvironment,
@@ -280,6 +282,63 @@ test('unsupported moby metal overlays do not obscure the textured base mesh', ()
   projection.root.traverse((object) => { if (object instanceof THREE.InstancedMesh) meshes.push(object); });
   assert.equal(meshes.length, 1);
   assert.equal((meshes[0].material as THREE.Material).transparent, true);
+  projection.dispose();
+  disposeObject(template);
+});
+
+test('Page Down placement preserves group offsets and ignores selected meshes', () => {
+  const projection = new SceneProjection();
+  const template = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), new THREE.MeshBasicMaterial());
+  projection.setAssetTemplates(new Map([['asset', template]]));
+  const lower = entity('lower', 0);
+  lower.transform.position.z = 10;
+  const upper = entity('upper', 4);
+  upper.transform.position.z = 12;
+  projection.sync([lower, upper]);
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), new THREE.MeshBasicMaterial());
+  ground.rotateX(-Math.PI / 2);
+  const result = buildGroundPlacement(
+    [lower, upper], ['lower', 'upper'], projection, [ground, projection.root],
+  );
+  assert.equal(result.updates.length, 2);
+  assert.equal(result.updates[0].transform.position.z, 1);
+  assert.equal(result.updates[1].transform.position.z, 3);
+  assert.equal(
+    result.updates[1].transform.position.z - result.updates[0].transform.position.z,
+    upper.transform.position.z - lower.transform.position.z,
+  );
+  projection.dispose();
+  disposeObject(template);
+  disposeObject(ground);
+});
+
+test('translation snapping resolves centers, visible vertices, surfaces, and nearest source vertices', () => {
+  const index = new VertexSnapIndex([
+    new THREE.Vector3(-5, 0, 0),
+    new THREE.Vector3(2, 1, 0),
+    new THREE.Vector3(8, 0, 0),
+  ]);
+  assert.deepEqual(index.nearest(new THREE.Vector3(2.1, 1.1, 0))?.toArray(), [2, 1, 0]);
+
+  const template = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+  const projection = new SceneProjection();
+  projection.setAssetTemplates(new Map([['asset', template]]));
+  projection.sync([entity('target')]);
+  assert.ok(projection.getWorldVertices(['target']).some((point) => point.distanceTo(
+    new THREE.Vector3(0.5, 3.5, -1.5),
+  ) < 1e-6));
+  const raycaster = new THREE.Raycaster(new THREE.Vector3(0.4, 10, -1.6), new THREE.Vector3(0, -1, 0));
+  const targets = [projection.root];
+  assert.deepEqual(
+    resolvePointerSnapTarget('center', raycaster, projection, targets, new Set())?.toArray(),
+    [0, 3, -2],
+  );
+  const vertex = resolvePointerSnapTarget('vertex', raycaster, projection, targets, new Set())!;
+  assert.ok(Math.abs(Math.abs(vertex.x) - 0.5) < 1e-6);
+  assert.ok(Math.abs(Math.abs(vertex.y - 3) - 0.5) < 1e-6);
+  assert.ok(Math.abs(Math.abs(vertex.z + 2) - 0.5) < 1e-6);
+  assert.ok(Math.abs(resolvePointerSnapTarget('surface', raycaster, projection, targets, new Set())!.y - 3.5) < 1e-6);
+  assert.equal(resolvePointerSnapTarget('center', raycaster, projection, targets, new Set(['target'])), undefined);
   projection.dispose();
   disposeObject(template);
 });

@@ -3,13 +3,14 @@ import type { BrowserWindow } from 'electron';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 
-import type { EditorCommand, ProjectHubState } from '../types/ForgeApi.js';
+import type { EditorCommand, EditorSnapshot, ProjectHubState } from '../types/ForgeApi.js';
 import { safeProjectDirectoryName } from '../utils/ApplicationPaths.js';
 import { showOpenDialog, showSaveDialog } from '../utils/ElectronDialogs.js';
 import { errorMessage } from '../utils/Errors.js';
 import { availableBytes, fileExists, writeJsonSafely } from '../utils/FileSystem.js';
 import { isTrustedSender } from '../utils/Security.js';
 import type { RecentProjects } from './RecentProjects.js';
+import { setEditorHistoryMenuState } from './ApplicationMenu.js';
 import type { RenderAssetProtocol } from './RenderAssetProtocol.js';
 import { registerRenderIpcHandlers } from './RenderIpcHandlers.js';
 import type { SettingsStore } from './Settings.js';
@@ -31,6 +32,11 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
 
   function assertSender(senderId: number): void {
     if (!isTrustedSender(senderId, getMainWindow()?.webContents.id)) throw new Error('Untrusted IPC sender');
+  }
+
+  function editorSnapshot(value: EditorSnapshot): EditorSnapshot {
+    setEditorHistoryMenuState(value.canUndo, value.canRedo);
+    return value;
   }
 
   registerRenderIpcHandlers({ host, settings, renderAssets, assertSender });
@@ -137,7 +143,7 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
     if (typeof command.id !== 'string'
       || ![
         'setSelection', 'renameProject', 'updateTransform', 'updateTransforms',
-        'renameEntity', 'setEntityLayer', 'setEntityState',
+        'renameEntity', 'setEntityLayer', 'setEntityState', 'undo', 'redo',
       ].includes(String(command.kind))
       || !Array.isArray(command.entityIds)
       || command.entityIds.some((id) => typeof id !== 'string')) {
@@ -460,25 +466,26 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
     assertSender(event.sender.id);
     const values = await getSettingValues();
     const autosaveSeconds = Number(values['editor.autosaveSeconds']);
-    return (await host.openEditorProject(
-      await assertRecentProject(projectPath), settings.paths.assets, autosaveSeconds)).result;
+    return editorSnapshot(await (await host.openEditorProject(
+      await assertRecentProject(projectPath), settings.paths.assets, autosaveSeconds)).result);
   });
   ipcMain.handle('forge:editor-close', async (event) => {
     assertSender(event.sender.id);
     await (await host.closeEditorProject()).result;
+    setEditorHistoryMenuState();
   });
   ipcMain.handle('forge:editor-query', async (event) => {
     assertSender(event.sender.id);
-    return (await host.getEditorSnapshot()).result;
+    return editorSnapshot(await (await host.getEditorSnapshot()).result);
   });
   ipcMain.handle('forge:editor-execute', async (event, command: unknown) => {
     assertSender(event.sender.id);
     assertEditorCommand(command);
-    return (await host.executeEditorCommand(command)).result;
+    return editorSnapshot(await (await host.executeEditorCommand(command)).result);
   });
   ipcMain.handle('forge:editor-save', async (event) => {
     assertSender(event.sender.id);
-    return (await host.saveEditorProject()).result;
+    return editorSnapshot(await (await host.saveEditorProject()).result);
   });
   ipcMain.handle('forge:editor-events', async (event, afterSequence: unknown, limit: unknown) => {
     assertSender(event.sender.id);

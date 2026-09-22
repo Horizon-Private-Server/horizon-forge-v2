@@ -200,7 +200,7 @@ export type EditorLayoutAction = 'resetLayout' | 'showViewport' | 'showSceneTree
   | 'showProperties' | 'showDiagnostics';
 
 export type ForgeAction = ForgeDialog | EditorLayoutAction
-  | 'projects' | 'newProject' | 'openProject' | 'saveProject';
+  | 'projects' | 'newProject' | 'openProject' | 'saveProject' | 'undoEditor' | 'redoEditor';
 
 export interface ForgeApi {
   getHostStatus(): Promise<ForgeHostStatus>;

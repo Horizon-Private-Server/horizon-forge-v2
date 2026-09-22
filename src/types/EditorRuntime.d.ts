@@ -49,7 +49,8 @@ export type EditorCommand =
     kind: 'setEntityState';
     entityIds: string[];
     state: { hidden?: boolean; disabled?: boolean; locked?: boolean };
-  };
+  }
+  | { id: string; kind: 'undo' | 'redo'; entityIds: [] };
 
 export interface EditorEvent {
   sequence: number;
@@ -78,6 +79,8 @@ export interface EditorSnapshot {
   selection: string[];
   isDirty: boolean;
   migrationPending: boolean;
+  canUndo: boolean;
+  canRedo: boolean;
   lastEventSequence: number;
   capabilities: string[];
   tools: { id: string; label: string; capability: string }[];

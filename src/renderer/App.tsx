@@ -51,6 +51,15 @@ export function App() {
             .catch((error) => setEditorError(errorMessage(error)));
         }
       }
+      else if (action === 'undoEditor' || action === 'redoEditor') {
+        if (activeProject) {
+          void window.forge.executeEditorCommand({
+            id: crypto.randomUUID(),
+            kind: action === 'undoEditor' ? 'undo' : 'redo',
+            entityIds: [],
+          }).then(setActiveProject).catch((error) => setEditorError(errorMessage(error)));
+        }
+      }
       else if (isEditorLayoutAction(action)) {
         if (activeProject) setLayoutAction({ id: Date.now(), action });
       }

@@ -70,6 +70,18 @@ body {
   line-height: 1.1;
 }
 
+.scene-notice {
+  position: absolute;
+  z-index: 1;
+  bottom: var(--mantine-spacing-xs);
+  left: 50%;
+  padding: 0.2rem 0.45rem;
+  border-radius: var(--mantine-radius-xs);
+  background: rgb(17 20 26 / 88%);
+  font-size: var(--mantine-font-size-xs);
+  transform: translateX(-50%);
+}
+
 .project-hub {
   min-height: 0;
   overflow: auto;

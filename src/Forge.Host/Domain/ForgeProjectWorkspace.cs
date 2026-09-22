@@ -32,6 +32,27 @@ public sealed class ForgeProjectWorkspace
     public bool MigrationPending => _migrationPending
         || Manifest.BaseLevel.EntityVersion < ProjectSchema.CurrentBaseEntityVersion;
 
+    internal ForgeProjectState CaptureState() => new(Manifest, Content);
+
+    internal void RestoreState(ForgeProjectState state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        var previousManifest = Manifest;
+        var previousContent = Content;
+        try
+        {
+            Manifest = state.Manifest;
+            Content = state.Content;
+            Validate();
+        }
+        catch
+        {
+            Manifest = previousManifest;
+            Content = previousContent;
+            throw;
+        }
+    }
+
     public static async Task<ForgeProjectWorkspace> CreateAsync(
         string rootPath,
         string name,
@@ -443,3 +464,5 @@ public sealed class ForgeProjectWorkspace
     }
 
 }
+
+internal sealed record ForgeProjectState(ForgeProjectManifest Manifest, ForgeProjectContent Content);

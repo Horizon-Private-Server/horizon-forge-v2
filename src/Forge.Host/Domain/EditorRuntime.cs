@@ -7,7 +7,7 @@ public sealed class EditorRuntime : IAsyncDisposable
     private static readonly string[] RuntimeCapabilities =
     [
         "editor.query", "editor.selection", "editor.project.rename", "editor.transform.update",
-        "editor.entity.rename", "editor.entity.layer", "editor.entity.state", "editor.save", "editor.recovery",
+        "editor.entity.rename", "editor.entity.layer", "editor.entity.state", "editor.history", "editor.save", "editor.recovery",
     ];
     private static readonly EditorTool[] RuntimeTools =
     [
@@ -20,6 +20,7 @@ public sealed class EditorRuntime : IAsyncDisposable
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly List<EditorEvent> _events = [];
     private readonly List<EditorDiagnostic> _diagnostics = [];
+    private readonly EditorHistory _history = new();
     private ForgeProjectWorkspace? _workspace;
     private HashSet<EntityId> _missingAssets = [];
     private Dictionary<EntityId, ProjectEntity> _savedEntities = [];
@@ -58,6 +59,7 @@ public sealed class EditorRuntime : IAsyncDisposable
             _missingAssets = missingAssets;
             _autosaveDelay = autosaveDelay;
             _selection = [];
+            _history.Clear();
             _diagnostics.Clear();
             AddEvent(EditorEventKind.ProjectOpened, null, [], _workspace.RootPath);
             return Snapshot();
@@ -93,6 +95,9 @@ public sealed class EditorRuntime : IAsyncDisposable
             ThrowIfDisposed();
             var workspace = RequireWorkspace();
             ValidateCommand(command, workspace);
+            var stateBefore = workspace.CaptureState();
+            var selectionBefore = _selection;
+            var fingerprintBefore = workspace.CurrentFingerprint;
             switch (command.Kind)
             {
                 case EditorCommandKind.SetSelection:
@@ -129,9 +134,19 @@ public sealed class EditorRuntime : IAsyncDisposable
                     AddEvent(EditorEventKind.ProjectChanged, command.Id, command.EntityIds, "Entity state updated");
                     ScheduleAutosave();
                     break;
+                case EditorCommandKind.Undo:
+                    ApplyHistory(workspace, command.Id, undo: true);
+                    break;
+                case EditorCommandKind.Redo:
+                    ApplyHistory(workspace, command.Id, undo: false);
+                    break;
                 default:
                     throw new ArgumentOutOfRangeException(nameof(command), command.Kind, "Unknown editor command");
             }
+            if (command.Kind is not (EditorCommandKind.SetSelection or EditorCommandKind.Undo or EditorCommandKind.Redo)
+                && workspace.CurrentFingerprint != fingerprintBefore)
+                _history.Push(stateBefore, workspace.CaptureState(), selectionBefore, _selection,
+                    command.EntityIds, EstimateHistoryBytes(command, stateBefore));
             return Snapshot();
         }
         finally
@@ -211,10 +226,15 @@ public sealed class EditorRuntime : IAsyncDisposable
     private async Task CloseCoreAsync(CancellationToken cancellationToken)
     {
         CancelAutosave();
-        if (_workspace is null) return;
+        if (_workspace is null)
+        {
+            _history.Clear();
+            return;
+        }
         var path = _workspace.RootPath;
         await WriteRecoveryCoreAsync(cancellationToken);
         AddEvent(EditorEventKind.ProjectClosed, null, [], path);
+        _history.Clear();
         _workspace = null;
         _missingAssets = [];
         _savedEntities = [];
@@ -310,6 +330,8 @@ public sealed class EditorRuntime : IAsyncDisposable
             _selection.ToArray(),
             workspace.IsDirty,
             workspace.MigrationPending,
+            _history.CanUndo,
+            _history.CanRedo,
             _eventSequence,
             RuntimeCapabilities.ToArray(),
             RuntimeTools.ToArray(),
@@ -366,8 +388,34 @@ public sealed class EditorRuntime : IAsyncDisposable
                 || command.Text is not null || command.State is null
                 || (command.State.Hidden is null && command.State.Disabled is null && command.State.Locked is null):
                 throw new ArgumentException("State commands require entities and at least one state change.", nameof(command));
+            case EditorCommandKind.Undo or EditorCommandKind.Redo when command.EntityIds.Count != 0
+                || command.Transform is not null || command.Text is not null || command.State is not null
+                || command.Transforms?.Count > 0:
+                throw new ArgumentException("History commands cannot contain mutation data.", nameof(command));
         }
     }
+
+    private void ApplyHistory(ForgeProjectWorkspace workspace, string commandId, bool undo)
+    {
+        ForgeProjectState state;
+        EntityId[] selection;
+        EntityId[] entityIds;
+        var changed = undo
+            ? _history.TryUndo(out state, out selection, out entityIds)
+            : _history.TryRedo(out state, out selection, out entityIds);
+        if (!changed) return;
+        workspace.RestoreState(state);
+        _selection = selection;
+        AddEvent(EditorEventKind.ProjectChanged, commandId, entityIds, undo ? "Undo" : "Redo");
+        if (workspace.IsDirty) ScheduleAutosave();
+        else CancelAutosave();
+    }
+
+    private static long EstimateHistoryBytes(EditorCommand command, ForgeProjectState before) =>
+        256L + (long)before.Content.Entities.Count * IntPtr.Size
+        + (long)command.EntityIds.Count * 16
+        + (long)(command.Transforms?.Count ?? 0) * 64
+        + (command.Text?.Length ?? 0) * sizeof(char);
 
     private static HashSet<EntityId> FindMissingAssets(ForgeProjectWorkspace workspace, AssetCatalogStore catalog) =>
         workspace.Content.Entities

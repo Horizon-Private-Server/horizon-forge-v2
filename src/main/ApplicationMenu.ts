@@ -41,8 +41,14 @@ export function installApplicationMenu(runAction: (action: ForgeAction) => void)
     {
       label: 'Edit',
       submenu: [
-        { role: 'undo' },
-        { role: 'redo' },
+        {
+          id: 'editorUndo', label: 'Undo Project Change', accelerator: 'CmdOrCtrl+Z', enabled: false,
+          click: () => runAction('undoEditor'),
+        },
+        {
+          id: 'editorRedo', label: 'Redo Project Change', accelerator: 'CmdOrCtrl+Y', enabled: false,
+          click: () => runAction('redoEditor'),
+        },
         { type: 'separator' },
         { role: 'cut' },
         { role: 'copy' },
@@ -75,4 +81,12 @@ export function installApplicationMenu(runAction: (action: ForgeAction) => void)
     { label: 'Window', submenu: [{ role: 'minimize' }, { role: 'zoom' }] },
     { label: 'Forge', submenu: forgeMenu },
   ]));
+}
+
+export function setEditorHistoryMenuState(canUndo = false, canRedo = false): void {
+  const menu = Menu.getApplicationMenu();
+  const undo = menu?.getMenuItemById('editorUndo');
+  const redo = menu?.getMenuItemById('editorRedo');
+  if (undo) undo.enabled = canUndo;
+  if (redo) redo.enabled = canRedo;
 }

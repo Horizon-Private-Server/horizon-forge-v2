@@ -9,6 +9,8 @@ public enum EditorCommandKind : byte
     SetEntityLayer = 5,
     SetEntityState = 6,
     UpdateTransforms = 7,
+    Undo = 8,
+    Redo = 9,
 }
 
 public enum EditorEventKind : byte
@@ -91,6 +93,8 @@ public sealed record EditorSnapshot(
     IReadOnlyList<EntityId> Selection,
     bool IsDirty,
     bool MigrationPending,
+    bool CanUndo,
+    bool CanRedo,
     long LastEventSequence,
     IReadOnlyList<string> Capabilities,
     IReadOnlyList<EditorTool> Tools,
