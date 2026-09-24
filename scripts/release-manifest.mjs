@@ -11,6 +11,8 @@ export async function createReleaseManifest(directory, version, channel, commit,
   if (!versionPattern.test(version) || tag !== `v${version}`)
     throw new Error(`Release identity ${tag} does not match ${channel} version ${version}`);
   if (!/^[0-9a-f]{40}$/i.test(commit)) throw new Error('Release commit must be a full SHA');
+  if (!/^(?:[0-9a-f]{40}|v\d+\.\d+\.\d+(?:[.-][0-9A-Za-z.-]+)?)$/i.test(sdkRevision))
+    throw new Error('SDK revision must be a full SHA or pinned release tag');
   const names = (await readdir(directory))
     .filter((name) => name.endsWith('.tar.gz') || name.endsWith('.zip'))
     .sort();

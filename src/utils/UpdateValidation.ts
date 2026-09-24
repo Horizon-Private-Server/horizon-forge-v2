@@ -23,6 +23,10 @@ export function validateReleaseManifest(
 ): { manifest: ReleaseManifest; artifact: ReleaseArtifact } {
   if (!isRecord(value)) throw new TypeError('Release manifest must be an object.');
   const versionPattern = channel === 'stable' ? stableVersion : nightlyVersion;
+  if (typeof value.sdkRevision !== 'string'
+    || !/^(?:[0-9a-f]{40}|v\d+\.\d+\.\d+(?:[.-][0-9A-Za-z.-]+)?)$/i.test(value.sdkRevision)) {
+    throw new TypeError('Release manifest SDK revision is invalid.');
+  }
   if (value.schemaVersion !== 1
     || value.channel !== channel
     || typeof value.version !== 'string'
@@ -31,8 +35,6 @@ export function validateReleaseManifest(
     || tag !== `v${value.version}`
     || typeof value.commit !== 'string'
     || !/^[0-9a-f]{40}$/i.test(value.commit)
-    || typeof value.sdkRevision !== 'string'
-    || !/^[0-9a-f]{40}$/i.test(value.sdkRevision)
     || value.bridgeProtocol !== 1
     || !Array.isArray(value.artifacts)) {
     throw new TypeError('Release manifest identity is invalid.');

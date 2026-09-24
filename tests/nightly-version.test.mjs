@@ -48,4 +48,8 @@ test('release manifests retain channel, provenance, and package hashes', async (
     createReleaseManifest(directory, '2.0.0', 'nightly', 'a'.repeat(40), 'v0.5.0', 'v2.0.0'),
     /does not match nightly/,
   );
+  await assert.rejects(
+    createReleaseManifest(directory, '2.0.0', 'stable', 'a'.repeat(40), 'main', 'v2.0.0'),
+    /SDK revision/,
+  );
 });

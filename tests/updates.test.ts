@@ -10,7 +10,7 @@ const manifest = {
   channel: 'nightly',
   tag: 'v2.0.0-nightly.42.01234567',
   commit: '0123456789abcdef0123456789abcdef01234567',
-  sdkRevision: '89abcdef0123456789abcdef0123456789abcdef',
+  sdkRevision: 'v0.5.0',
   bridgeProtocol: 1,
   artifacts: [
     {
@@ -34,6 +34,8 @@ test('updates are ordered and release manifests stay within their trusted channe
   assert.equal(compareForgeVersions('2.0.0', manifest.version), 1);
   assert.equal(compareForgeVersions(manifest.version, manifest.version), 0);
   assert.equal(validateReleaseManifest(manifest, 'nightly', manifest.tag, 'windows').artifact.size, 2345);
+  assert.throws(() => validateReleaseManifest({ ...manifest, sdkRevision: 'main' },
+    'nightly', manifest.tag, 'windows'), /SDK revision/);
   assert.throws(() => validateReleaseManifest(manifest, 'stable', manifest.tag, 'windows'), /identity/);
   assert.throws(() => validateReleaseManifest({ ...manifest, artifacts: [
     { ...manifest.artifacts[0], file: '../forge.tar.gz' },
