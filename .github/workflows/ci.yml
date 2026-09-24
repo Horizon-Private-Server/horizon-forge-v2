@@ -230,6 +230,10 @@ jobs:
           package_version=$(node -p "require('./package.json').version")
           version=$(node scripts/stable-version.mjs "$package_version" "$GITHUB_REF_NAME")
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          previous_tag=$(gh release list --repo "$GITHUB_REPOSITORY" \
+            --exclude-drafts --exclude-pre-releases --limit 1 \
+            --json tagName --jq '.[0].tagName // ""')
+          echo "previous_tag=$previous_tag" >> "$GITHUB_OUTPUT"
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             state=$(gh release view "$GITHUB_REF_NAME" --json isDraft,isPrerelease --jq '[.isDraft,.isPrerelease] | @tsv')
             [[ "$state" == $'false\tfalse' ]] || {
@@ -255,13 +259,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           STABLE_VERSION: ${{ steps.stable.outputs.version }}
+          PREVIOUS_STABLE_TAG: ${{ steps.stable.outputs.previous_tag }}
         run: |
           sdk_revision=$(tr -d '[:space:]' < ratchet-sdk.version)
           node scripts/release-manifest.mjs release-assets "$STABLE_VERSION" stable \
             "$GITHUB_SHA" "$sdk_revision" "$GITHUB_REF_NAME" release-assets/release-manifest.json
+          notes_args=(--generate-notes)
+          if [[ -n "$PREVIOUS_STABLE_TAG" ]]; then
+            notes_args+=(--notes-start-tag "$PREVIOUS_STABLE_TAG")
+          fi
           gh release create "$GITHUB_REF_NAME" release-assets/* \
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
             --title "Horizon Forge $STABLE_VERSION" \
-            --generate-notes \
+            "${notes_args[@]}" \
             --latest

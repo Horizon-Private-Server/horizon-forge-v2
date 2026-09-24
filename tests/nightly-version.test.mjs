@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -18,6 +18,16 @@ test('stable tags exactly match package versions', () => {
   assert.equal(validateStableVersion('2.0.0', 'v2.0.0'), '2.0.0');
   assert.throws(() => validateStableVersion('2.0.0', 'v2.0.1'), /does not match/);
   assert.throws(() => validateStableVersion('2.0.0-beta.1', 'v2.0.0-beta.1'), /Package version/);
+});
+
+test('stable release notes compare against the previous stable release', async () => {
+  const workflow = await readFile('.github/workflows/ci.yml', 'utf8');
+  const configuration = await readFile('.github/release.yml', 'utf8');
+  assert.match(workflow, /--exclude-pre-releases/);
+  assert.match(workflow, /--notes-start-tag "\$PREVIOUS_STABLE_TAG"/);
+  assert.match(configuration, /title: Features/);
+  assert.match(configuration, /title: Fixes/);
+  assert.match(configuration, /labels:\n\s+- '\*'/);
 });
 
 test('release manifests retain channel, provenance, and package hashes', async (context) => {

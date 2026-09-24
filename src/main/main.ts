@@ -97,11 +97,13 @@ app.whenReady().then(async () => {
       const snapshot = await settings.getSnapshot();
       const enabled = snapshot.entries.find((entry) => entry.key === 'updates.automaticChecks')?.value === true;
       const channel = snapshot.entries.find((entry) => entry.key === 'updates.channel')?.value;
-      if (enabled && (channel === 'stable' || channel === 'nightly')) await updates.checkAndPrompt(false, channel);
+      if (enabled && (channel === 'stable' || channel === 'nightly')) void updates.check(false, channel);
     };
     const runUpdateCheck = () => void checkForUpdates().catch((error) => console.warn('Could not read update settings', error));
-    setTimeout(runUpdateCheck, 30_000).unref();
-    setInterval(runUpdateCheck, 6 * 60 * 60_000).unref();
+    mainWindow?.webContents.once('did-finish-load', () => {
+      setTimeout(runUpdateCheck, 30_000).unref();
+      setInterval(runUpdateCheck, 6 * 60 * 60_000).unref();
+    });
   }
 
   app.on('activate', () => {

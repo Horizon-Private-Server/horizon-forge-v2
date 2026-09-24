@@ -66,6 +66,9 @@ either platform packages. The existing Linux/Windows matrix runs the full test g
 embeds the stable channel and tag version, and uploads the same package contract used
 by nightlies. A protected `stable-release` job publishes checksums and a deterministic
 provenance/update manifest as a non-prerelease GitHub Release with generated notes.
+Generated notes are anchored to the previous published stable release and grouped by
+the repository's release-note label categories, so intervening nightlies do not become
+the stable changelog baseline.
 An existing published stable tag is validated and left untouched on rerun; a draft or
 prerelease collision fails instead of mutating release identity. Signing credentials
 are intentionally absent until platform signing is configured, and the stable job's
@@ -92,8 +95,11 @@ Implementation: packaged builds default to their embedded release channel, while
 explicit Settings choice allows users to switch between stable and nightly. Checks
 remain isolated to the selected channel against the fixed Horizon Forge GitHub
 release source. Manual checks are available from the Forge menu and periodic checks
-are enabled by default in Settings. Validated updates enter the shared header
-notification center with their source, version, channel, notes, size, and an explicit
+are enabled by default in Settings. Checks run passively after the renderer loads;
+network requests are never awaited by editor startup or manual UI actions, and manual
+status/error results use notifications rather than modal dialogs. Validated updates
+enter the shared header notification center with their source, version, channel,
+notes, size, and an explicit
 handoff action; dismissing the notification defers the update. Linux opens the trusted
 release page. Windows downloads the selected archive without restarting Forge and
 accepts it only when its byte length and SHA-256 match the release manifest. Dirty

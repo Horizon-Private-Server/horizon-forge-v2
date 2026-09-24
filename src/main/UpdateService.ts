@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { open, readFile, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { app, dialog, net, shell } from 'electron';
-import type { BrowserWindow, MessageBoxOptions } from 'electron';
+import type { BrowserWindow } from 'electron';
 
 import type { AvailableUpdate, ReleaseArtifact, UpdateChannel } from '../types/Updates.js';
 import { formatBytes } from '../utils/Format.js';
@@ -57,11 +57,15 @@ export class UpdateService {
     return new UpdateService({ ...options, channel });
   }
 
-  async checkAndPrompt(manual: boolean, channel: UpdateChannel): Promise<void> {
+  async check(manual: boolean, channel: UpdateChannel): Promise<void> {
     if (this.checking) return;
     if (!this.options.channel) {
-      if (manual) await this.showMessage({
-        type: 'info', message: 'Update checks are not available in local development or standalone builds.', buttons: ['OK'],
+      if (manual) this.options.notifications.publish({
+        id: 'update:unavailable',
+        title: 'Update checks are unavailable',
+        message: 'Update checks are not available in local development or standalone builds.',
+        severity: 'info',
+        createdUnixMilliseconds: Date.now(),
       });
       return;
     }
@@ -70,10 +74,12 @@ export class UpdateService {
     try {
       const update = await this.findUpdate(channel);
       if (!update) {
-        if (manual) await this.showMessage({
-          type: 'info', message: 'Horizon Forge is up to date.',
-          detail: `Channel: ${channel}\nVersion: ${this.options.version}\nTrusted source: ${trustedSource}`,
-          buttons: ['OK'],
+        if (manual) this.options.notifications.publish({
+          id: `update:current:${channel}`,
+          title: 'Horizon Forge is up to date',
+          message: `Channel: ${channel}\nVersion: ${this.options.version}\nTrusted source: ${trustedSource}`,
+          severity: 'info',
+          createdUnixMilliseconds: Date.now(),
         });
         return;
       }
@@ -85,9 +91,12 @@ export class UpdateService {
         console.warn('Forge update check failed', error);
         return;
       }
-      await this.showMessage({
-        type: 'error', message: 'Forge could not securely check for updates.',
-        detail: error instanceof Error ? error.message : String(error), buttons: ['OK'],
+      this.options.notifications.publish({
+        id: `update:error:${channel}`,
+        title: 'Forge could not securely check for updates',
+        message: error instanceof Error ? error.message : String(error),
+        severity: 'error',
+        createdUnixMilliseconds: Date.now(),
       });
     } finally {
       this.checking = false;
@@ -174,10 +183,6 @@ export class UpdateService {
     return true;
   }
 
-  private showMessage(options: MessageBoxOptions) {
-    const window = this.options.getMainWindow();
-    return window ? dialog.showMessageBox(window, options) : dialog.showMessageBox(options);
-  }
 }
 
 async function fetchJson(url: string): Promise<unknown> {
