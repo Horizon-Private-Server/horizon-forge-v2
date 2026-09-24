@@ -1,7 +1,5 @@
 import type { EditorEntity } from '../../types/EditorRuntime.js';
 
-export const MAX_VISIBLE_TREE_ENTITIES = 1_000;
-
 export interface SceneEntityGroup {
   layer: string;
   entities: EditorEntity[];
@@ -64,8 +62,7 @@ export function nextViewportSelection(
 export function buildSceneEntityGroups(
   entities: readonly EditorEntity[],
   filter: string,
-  limit = MAX_VISIBLE_TREE_ENTITIES,
-): { groups: SceneEntityGroup[]; matched: number; shown: number } {
+): { groups: SceneEntityGroup[]; matched: number } {
   const query = filter.trim().toLocaleLowerCase();
   const groups = new Map<string, EditorEntity[]>();
   for (const entity of entities) {
@@ -75,15 +72,9 @@ export function buildSceneEntityGroups(
     else groups.set(entity.layer, [entity]);
   }
   const ordered = [...groups].sort(([left], [right]) => left.localeCompare(right));
-  let remaining = limit;
   return {
-    groups: ordered.map(([layer, values], index) => {
-      const entities = values.slice(0, Math.ceil(remaining / (ordered.length - index)));
-      remaining -= entities.length;
-      return { layer, entities };
-    }),
+    groups: ordered.map(([layer, values]) => ({ layer, entities: values })),
     matched: ordered.reduce((total, [, values]) => total + values.length, 0),
-    shown: limit - remaining,
   };
 }
 
@@ -97,4 +88,17 @@ export function entityStateLabel(entity: EditorEntity): string {
     entity.state.missingAsset && 'missing asset',
   ].filter(Boolean);
   return states.length ? `${entity.name} [${states.join(', ')}]` : entity.name;
+}
+
+export function entityTreeKind(entity: EditorEntity): string {
+  if (entity.asset?.kind) return entity.asset.kind.toLocaleLowerCase();
+  return entity.layer.toLocaleLowerCase().replace(/s$/, '');
+}
+
+export function entityTreeText(entity: EditorEntity): string {
+  const label = entityStateLabel(entity);
+  const prefix = `${entityTreeKind(entity)} `;
+  if (!label.toLocaleLowerCase().startsWith(prefix)) return label;
+  const remainder = label.slice(prefix.length);
+  return /^0x[\da-f]+ #\d+(?:\s|$)/i.test(remainder) ? remainder : label;
 }

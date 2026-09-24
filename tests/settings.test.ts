@@ -20,28 +20,35 @@ test('settings validate defaults and preserve unknown keys', async () => {
     await writeFile(paths.settingsFile, JSON.stringify({
       'editor.autosaveSeconds': 1,
       'future.setting': { enabled: true },
+      'ui.sceneTreeColors.tie': 'cyan',
     }));
 
     const invalid = await store.getSnapshot();
     assert.equal(invalid.entries.find((entry) => entry.key === 'editor.autosaveSeconds')?.value, 30);
     assert.equal(invalid.entries.find((entry) => entry.key === 'ui.showViewportStats')?.value, true);
+    assert.equal(invalid.entries.find((entry) => entry.key === 'ui.sceneTreeColors.tie')?.value, '#15aabf');
     assert.equal(invalid.entries.find((entry) => entry.key === 'keybindings.overrides')?.value, '{}');
     assert.equal(invalid.entries.find((entry) => entry.key === 'updates.automaticChecks')?.value, true);
     assert.equal(invalid.entries.find((entry) => entry.key === 'updates.channel')?.value, 'stable');
     assert.equal((await new SettingsStore(paths, 'nightly').getSnapshot()).entries
       .find((entry) => entry.key === 'updates.channel')?.value, 'nightly');
     assert.match(invalid.diagnostics.join('\n'), /editor\.autosaveSeconds/);
+    assert.match(invalid.diagnostics.join('\n'), /ui\.sceneTreeColors\.tie/);
 
     await store.set('paths.projects', '/maps/projects');
     await store.set('ui.editorLayout', '{"panels":{}}');
     await store.set('ui.showViewportStats', true);
+    await store.set('ui.sceneTreeColors.tie', '#00ffff');
     const persisted = JSON.parse(await readFile(paths.settingsFile, 'utf8'));
     assert.deepEqual(persisted['future.setting'], { enabled: true });
     assert.equal(persisted['editor.autosaveSeconds'], 1);
     assert.equal(persisted['paths.projects'], '/maps/projects');
     assert.equal(persisted['ui.editorLayout'], '{"panels":{}}');
     assert.equal(persisted['ui.showViewportStats'], true);
+    assert.equal(persisted['ui.sceneTreeColors.tie'], '#00ffff');
 
+    const resetColor = await store.reset('ui.sceneTreeColors.tie');
+    assert.equal(resetColor.entries.find((entry) => entry.key === 'ui.sceneTreeColors.tie')?.value, '#15aabf');
     await store.reset('editor.autosaveSeconds');
     const reset = JSON.parse(await readFile(paths.settingsFile, 'utf8'));
     assert.equal(reset['editor.autosaveSeconds'], undefined);
@@ -51,6 +58,12 @@ test('settings validate defaults and preserve unknown keys', async () => {
       'editor.autosaveSeconds': 30,
       'imports.uya.enabled': true,
       'keybindings.overrides': '{}',
+      'ui.sceneTreeColors.moby': '#ae3ec9',
+      'ui.sceneTreeColors.object': '#868e96',
+      'ui.sceneTreeColors.shrub': '#40c057',
+      'ui.sceneTreeColors.sky': '#4c6ef5',
+      'ui.sceneTreeColors.tfrag': '#82c91e',
+      'ui.sceneTreeColors.tie': '#15aabf',
       'ui.showViewportStats': true,
       'updates.automaticChecks': true,
       'updates.channel': 'stable',

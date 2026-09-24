@@ -4,6 +4,12 @@ import { useEffect, useState } from 'react';
 import type { KeybindingMap } from '../types/Keybindings.js';
 import type { ForgeHostStatus } from '../types/ForgeApi.js';
 import { parseKeybindingOverrides, resolveKeybindings } from '../utils/Keybindings.ts';
+import {
+  DEFAULT_SCENE_TREE_COLORS,
+  readSceneTreeColors,
+  sceneTreeColorVariables,
+} from '../utils/SceneTreeColors.ts';
+import type { SceneTreeColors } from '../types/SceneTree.js';
 import { EditorWorkspace } from './editor/EditorWorkspace.tsx';
 import { useForgeActions } from './hooks/UseForgeActions.ts';
 import { useKeyboardContext } from './hooks/UseKeyboardContext.ts';
@@ -19,6 +25,7 @@ export function App() {
   const [hostStatus, setHostStatus] = useState<ForgeHostStatus>();
   const [settingsOpened, setSettingsOpened] = useState(false);
   const [showViewportStats, setShowViewportStats] = useState(true);
+  const [sceneTreeColors, setSceneTreeColors] = useState<SceneTreeColors>(DEFAULT_SCENE_TREE_COLORS);
   const [keybindings, setKeybindings] = useState<KeybindingMap>(() => resolveKeybindings({}));
   const [setupOpened, setSetupOpened] = useState(false);
   const [updateCheckOpened, setUpdateCheckOpened] = useState(false);
@@ -53,6 +60,7 @@ export function App() {
   useEffect(() => {
     void window.forge.getSettings().then((snapshot) => {
       setShowViewportStats(snapshot.entries.find((entry) => entry.key === 'ui.showViewportStats')?.value === true);
+      setSceneTreeColors(readSceneTreeColors(snapshot.entries));
       setKeybindings(resolveKeybindings(parseKeybindingOverrides(
         snapshot.entries.find((entry) => entry.key === 'keybindings.overrides')?.value,
       )));
@@ -66,7 +74,7 @@ export function App() {
   useEffect(() => window.forge.onForgeAction(handleForgeAction), [handleForgeAction]);
 
   return (
-    <main className="app-shell">
+    <main className="app-shell" style={sceneTreeColorVariables(sceneTreeColors)}>
       <ForgeMenuBar keybindings={keybindings} project={activeProject} onAction={handleForgeAction} />
       <header className="app-header">
         <Group justify="space-between" wrap="nowrap">
@@ -115,6 +123,8 @@ export function App() {
         opened={settingsOpened}
         onClose={() => setSettingsOpened(false)}
         onKeybindingsChange={setKeybindings}
+        sceneTreeColors={sceneTreeColors}
+        onSceneTreeColorsChange={setSceneTreeColors}
         onViewportStatsChange={setShowViewportStats}
       />
       <SetupWizard opened={setupOpened} onClose={() => {

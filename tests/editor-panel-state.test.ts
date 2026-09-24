@@ -6,6 +6,8 @@ import {
   buildSkyTreeItems,
   buildTerrainTreeItems,
   entityStateLabel,
+  entityTreeKind,
+  entityTreeText,
   nextTreeSelection,
   nextViewportSelection,
 } from '../src/renderer/editor/EditorPanelState.ts';
@@ -33,13 +35,13 @@ function entity(index: number): EditorEntity {
   };
 }
 
-test('scene tree grouping filters, labels states, and caps large results', () => {
+test('scene tree grouping filters, labels states, and returns every result', () => {
   const entities = Array.from({ length: 25_000 }, (_, index) => entity(index));
   const started = performance.now();
   const all = buildSceneEntityGroups(entities, '');
   const elapsed = performance.now() - started;
   assert.equal(all.matched, 25_000);
-  assert.equal(all.shown, 1_000);
+  assert.equal(all.groups.reduce((total, group) => total + group.entities.length, 0), 25_000);
   assert.equal(all.groups.length, 2);
   assert.ok(elapsed < 1_000, `large tree model took ${elapsed.toFixed(1)} ms`);
 
@@ -47,15 +49,20 @@ test('scene tree grouping filters, labels states, and caps large results', () =>
   assert.ok(filtered.matched > 0);
   assert.ok(filtered.groups.flatMap((group) => group.entities).every((value) => value.name.includes('42')));
   assert.equal(entityStateLabel(entity(42)), 'Moby 42 [dirty, locked, missing asset]');
+  assert.equal(entityTreeKind(entity(42)), 'moby');
+  assert.equal(entityTreeText({ ...entity(42), name: 'Moby 0x002A #42' }),
+    '0x002A #42 [dirty, locked, missing asset]');
+  assert.equal(entityTreeText(entity(42)), 'Moby 42 [dirty, locked, missing asset]');
+  assert.equal(entityTreeText({ ...entity(42), name: 'Custom name' }), 'Custom name [dirty, locked, missing asset]');
 });
 
-test('scene tree cap leaves every populated layer visible', () => {
+test('scene tree keeps every populated layer visible', () => {
   const entities = ['mobys', 'ties', 'shrubs'].flatMap((layer, group) =>
     Array.from({ length: 1_000 }, (_, index) => ({ ...entity(group * 1_000 + index), layer })));
   const model = buildSceneEntityGroups(entities, '');
 
   assert.deepEqual(model.groups.map((group) => group.layer), ['mobys', 'shrubs', 'ties']);
-  assert.equal(model.groups.reduce((total, group) => total + group.entities.length, 0), 1_000);
+  assert.equal(model.groups.reduce((total, group) => total + group.entities.length, 0), 3_000);
   assert.ok(model.groups.every((group) => group.entities.length > 0));
 });
 

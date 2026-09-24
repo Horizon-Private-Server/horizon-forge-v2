@@ -29,6 +29,12 @@ export interface KnownSettings {
   'sources.uya.size': number;
   'targets.uya.developmentIso': string;
   'ui.editorLayout': string;
+  'ui.sceneTreeColors.moby': string;
+  'ui.sceneTreeColors.object': string;
+  'ui.sceneTreeColors.shrub': string;
+  'ui.sceneTreeColors.sky': string;
+  'ui.sceneTreeColors.tfrag': string;
+  'ui.sceneTreeColors.tie': string;
   'ui.showViewportStats': boolean;
   'updates.automaticChecks': boolean;
   'updates.channel': 'stable' | 'nightly';

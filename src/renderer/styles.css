@@ -262,7 +262,31 @@ body {
   cursor: default;
 }
 
-.editor-tree-row span:last-child {
+.editor-tree-row > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scene-tree-label {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  gap: 0.3rem;
+}
+
+.scene-tree-badge {
+  flex: 0 0 auto;
+}
+
+.scene-tree-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  flex: 0 0 0.5rem;
+  border-radius: 50%;
+}
+
+.scene-tree-label-text {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

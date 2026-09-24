@@ -1,10 +1,19 @@
-import { Alert, Button, Checkbox, Code, Group, NumberInput, Stack, Text, TextInput } from '@mantine/core';
+import { Alert, Badge, Button, Checkbox, Code, Group, NumberInput, Stack, Text, TextInput } from '@mantine/core';
 import type { TreeNodeData } from '@mantine/core';
+import type { ReactNode } from 'react';
 import { useLayoutEffect, useMemo, useState } from 'react';
 
 import type { EditorEntity, ProjectQuaternion, ProjectTransform, ProjectVector3 } from '../../types/EditorRuntime.js';
+import type { SceneTreeKind } from '../../types/SceneTree.js';
+import { DEFAULT_SCENE_TREE_COLORS, SCENE_TREE_LABELS } from '../../utils/SceneTreeColors.ts';
 import { useEditor } from './EditorContext.ts';
-import { buildSceneEntityGroups, buildSkyTreeItems, buildTerrainTreeItems, entityStateLabel } from './EditorPanelState.ts';
+import {
+  buildSceneEntityGroups,
+  buildSkyTreeItems,
+  buildTerrainTreeItems,
+  entityTreeKind,
+  entityTreeText,
+} from './EditorPanelState.ts';
 import {
   EditorEmptyState,
   EditorFilter,
@@ -53,18 +62,29 @@ export function SceneTreePanel() {
   const nodes: TreeNodeData[] = [
     ...(tfrags.length ? [{
       value: 'render:tfrags',
-      label: `tfrags (${tfrags.length})`,
-      children: tfrags.map((item) => ({ ...item, nodeProps: { selectable: false } })),
+      label: <SceneTreeLabel kind="tfrag">({tfrags.length})</SceneTreeLabel>,
+      children: tfrags.map((item) => ({
+        ...item,
+        label: <SceneTreeLabel kind="tfrag" dot>{item.label.replace(/ tfrag$/i, '')}</SceneTreeLabel>,
+        nodeProps: { selectable: false },
+      })),
     }] : []),
     ...(sky.length ? [{
       value: 'render:sky',
-      label: `sky (${sky.length})`,
-      children: sky.map((item) => ({ ...item, nodeProps: { selectable: false } })),
+      label: <SceneTreeLabel kind="sky">({sky.length})</SceneTreeLabel>,
+      children: sky.map((item) => ({
+        ...item,
+        label: <SceneTreeLabel kind="sky" dot>{item.label.replace(/^sky /i, '')}</SceneTreeLabel>,
+        nodeProps: { selectable: false },
+      })),
     }] : []),
     ...model.groups.map((group) => ({
-    value: `layer:${group.layer}`,
-    label: `${group.layer} (${group.entities.length})`,
-    children: group.entities.map((entity) => ({ value: entity.id, label: entityStateLabel(entity) })),
+      value: `layer:${group.layer}`,
+      label: <SceneTreeLabel kind={groupTreeKind(group.entities)}>({group.entities.length})</SceneTreeLabel>,
+      children: group.entities.map((entity) => ({
+        value: entity.id,
+        label: <SceneTreeLabel kind={entityTreeKind(entity)} dot>{entityTreeText(entity)}</SceneTreeLabel>,
+      })),
     })),
   ];
   const renderItemCount = tfrags.length + sky.length;
@@ -92,11 +112,33 @@ export function SceneTreePanel() {
           })}
         />
         : <EditorEmptyState message="No matching scene objects." />}
-      {model.shown + renderItemCount < matched && <Text c="yellow" size="xs">
-        Showing {model.shown + renderItemCount} of {matched} matches. Refine the filter to see the remainder.
-      </Text>}
     </Stack>
   </EditorPanel>;
+}
+
+function SceneTreeLabel({ kind, children, dot = false }: { kind: string; children: ReactNode; dot?: boolean }) {
+  const normalizedKind = kind in SCENE_TREE_LABELS ? kind as SceneTreeKind : 'object';
+  const label = SCENE_TREE_LABELS[normalizedKind];
+  const color = `var(--forge-scene-tree-${normalizedKind}, ${DEFAULT_SCENE_TREE_COLORS[normalizedKind]})`;
+  return <span className="scene-tree-label">
+    {dot
+      ? <span
+        aria-label={`${label} item`}
+        className="scene-tree-dot"
+        role="img"
+        style={{ backgroundColor: color }}
+        title={label}
+      />
+      : <Badge className="scene-tree-badge" size="xs" variant="outline" style={{ borderColor: color, color }}>
+        {label}
+      </Badge>}
+    <span className="scene-tree-label-text">{children}</span>
+  </span>;
+}
+
+function groupTreeKind(entities: readonly EditorEntity[]): string {
+  const kinds = new Set(entities.map(entityTreeKind));
+  return kinds.size === 1 ? kinds.values().next().value ?? 'object' : 'object';
 }
 
 export function PropertiesPanel() {

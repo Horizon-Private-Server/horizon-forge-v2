@@ -3,6 +3,13 @@ import path from 'node:path';
 
 import { writeJsonSafely } from '../utils/FileSystem.ts';
 import { isKeybindingOverrides } from '../utils/Keybindings.ts';
+import {
+  DEFAULT_SCENE_TREE_COLORS,
+  isHexColor,
+  SCENE_TREE_COLOR_KEYS,
+  SCENE_TREE_KINDS,
+  SCENE_TREE_LABELS,
+} from '../utils/SceneTreeColors.ts';
 import type { KnownSettings, SettingEntry, SettingsSnapshot, SettingValue } from '../types/ForgeApi.js';
 import type { ApplicationPaths, RawSettings, SettingDefinition } from '../types/Settings.js';
 import type { UpdateChannel } from '../types/Updates.js';
@@ -155,6 +162,12 @@ function createDefinitions(paths: ApplicationPaths, defaultUpdateChannel: Update
       machineSpecific: false, editable: true,
       validate: (value): value is boolean => typeof value === 'boolean',
     },
+    ...SCENE_TREE_KINDS.map((kind): SettingDefinition => ({
+      key: SCENE_TREE_COLOR_KEYS[kind], group: 'Customization', label: `${SCENE_TREE_LABELS[kind]} tree color`,
+      type: 'text', description: `Color used for ${SCENE_TREE_LABELS[kind].toLocaleLowerCase()} items in the scene tree.`,
+      defaultValue: DEFAULT_SCENE_TREE_COLORS[kind], restartRequired: false, machineSpecific: false, editable: true,
+      validate: isHexColor,
+    })),
     {
       key: 'updates.automaticChecks', group: 'Updates', label: 'Automatically check for updates', type: 'boolean',
       description: 'Periodically check the installed release channel and ask before downloading.',

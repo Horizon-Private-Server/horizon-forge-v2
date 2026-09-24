@@ -1,24 +1,43 @@
-import { Alert, Modal, Select, Stack, Switch, Tabs, TextInput } from '@mantine/core';
+import { Alert, Button, ColorInput, Modal, Select, SimpleGrid, Stack, Switch, Tabs, TextInput } from '@mantine/core';
 import { useEffect, useState } from 'react';
 
 import type { KeybindingMap, KeybindingOverrides } from '../../types/Keybindings.js';
+import type { SceneTreeColors, SceneTreeKind } from '../../types/SceneTree.js';
 import { errorMessage } from '../../utils/Errors.ts';
 import { parseKeybindingOverrides, resolveKeybindings } from '../../utils/Keybindings.ts';
+import {
+  DEFAULT_SCENE_TREE_COLORS,
+  isHexColor,
+  readSceneTreeColors,
+  SCENE_TREE_COLOR_KEYS,
+  SCENE_TREE_KINDS,
+  SCENE_TREE_LABELS,
+} from '../../utils/SceneTreeColors.ts';
 import { KeybindingsSettings } from './KeybindingsSettings.tsx';
 
 interface SettingsModalProps {
   opened: boolean;
   onClose(): void;
   onKeybindingsChange(value: KeybindingMap): void;
+  sceneTreeColors: SceneTreeColors;
+  onSceneTreeColorsChange(value: SceneTreeColors): void;
   onViewportStatsChange(value: boolean): void;
 }
 
-export function SettingsModal({ opened, onClose, onKeybindingsChange, onViewportStatsChange }: SettingsModalProps) {
+export function SettingsModal({
+  opened,
+  onClose,
+  onKeybindingsChange,
+  sceneTreeColors,
+  onSceneTreeColorsChange,
+  onViewportStatsChange,
+}: SettingsModalProps) {
   const [sourceIso, setSourceIso] = useState('');
   const [showViewportStats, setShowViewportStats] = useState(true);
   const [automaticUpdateChecks, setAutomaticUpdateChecks] = useState(true);
   const [updateChannel, setUpdateChannel] = useState<'stable' | 'nightly'>('stable');
   const [keybindingOverrides, setKeybindingOverrides] = useState<KeybindingOverrides>({});
+  const [resettingTreeColors, setResettingTreeColors] = useState(false);
   const [error, setError] = useState<string>();
 
   useEffect(() => {
@@ -35,17 +54,32 @@ export function SettingsModal({ opened, onClose, onKeybindingsChange, onViewport
       setAutomaticUpdateChecks(updates?.value === true);
       setUpdateChannel(channel?.value === 'nightly' ? 'nightly' : 'stable');
       setKeybindingOverrides(overrides);
+      onSceneTreeColorsChange(readSceneTreeColors(snapshot.entries));
       onKeybindingsChange(resolveKeybindings(overrides));
       onViewportStatsChange(stats?.value === true);
       setError(undefined);
     }).catch((reason: unknown) => setError(errorMessage(reason)));
   }, [opened]);
 
+  const resetTreeColors = async () => {
+    setResettingTreeColors(true);
+    setError(undefined);
+    try {
+      for (const kind of SCENE_TREE_KINDS) await window.forge.resetSettings(SCENE_TREE_COLOR_KEYS[kind]);
+      onSceneTreeColorsChange(DEFAULT_SCENE_TREE_COLORS);
+    } catch (reason) {
+      setError(errorMessage(reason));
+    } finally {
+      setResettingTreeColors(false);
+    }
+  };
+
   return (
     <Modal opened={opened} onClose={onClose} title="Settings" size="xl">
       <Tabs defaultValue="general">
         <Tabs.List>
           <Tabs.Tab value="general">General</Tabs.Tab>
+          <Tabs.Tab value="customization">Customization</Tabs.Tab>
           <Tabs.Tab value="keybindings">Keybindings</Tabs.Tab>
         </Tabs.List>
         <Tabs.Panel value="general" pt="sm">
@@ -107,6 +141,25 @@ export function SettingsModal({ opened, onClose, onKeybindingsChange, onViewport
             {error && <Alert color="red" title="Settings error">{error}</Alert>}
           </Stack>
         </Tabs.Panel>
+        <Tabs.Panel value="customization" pt="sm">
+          <SimpleGrid cols={{ base: 1, sm: 2 }}>
+            {SCENE_TREE_KINDS.map((kind) => <ColorInput
+              key={kind}
+              label={`${SCENE_TREE_LABELS[kind]} tree color`}
+              value={sceneTreeColors[kind]}
+              format="hex"
+              withEyeDropper={false}
+              onChange={(value) => {
+                if (isHexColor(value)) onSceneTreeColorsChange({ ...sceneTreeColors, [kind]: value });
+              }}
+              onChangeEnd={(value) => persistSceneTreeColor(kind, value, onSceneTreeColorsChange, setError)}
+            />)}
+          </SimpleGrid>
+          <Button mt="sm" variant="default" loading={resettingTreeColors} onClick={() => void resetTreeColors()}>
+            Reset tree colors
+          </Button>
+          {error && <Alert color="red" title="Settings error" mt="sm">{error}</Alert>}
+        </Tabs.Panel>
         <Tabs.Panel value="keybindings" pt="sm">
           <KeybindingsSettings
             bindings={resolveKeybindings(keybindingOverrides)}
@@ -120,4 +173,17 @@ export function SettingsModal({ opened, onClose, onKeybindingsChange, onViewport
       </Tabs>
     </Modal>
   );
+}
+
+function persistSceneTreeColor(
+  kind: SceneTreeKind,
+  value: string,
+  onChange: (colors: SceneTreeColors) => void,
+  onError: (error: string) => void,
+): void {
+  if (!isHexColor(value)) return;
+  void window.forge.setSetting(SCENE_TREE_COLOR_KEYS[kind], value).catch((reason: unknown) => {
+    onError(errorMessage(reason));
+    void window.forge.getSettings().then((snapshot) => onChange(readSceneTreeColors(snapshot.entries)));
+  });
 }
