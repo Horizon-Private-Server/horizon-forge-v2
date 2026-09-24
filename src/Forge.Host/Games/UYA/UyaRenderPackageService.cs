@@ -1,13 +1,15 @@
-using System.Buffers.Binary;
+using Forge.Host.Domain;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using RatchetPs2.Core.Games;
+using RatchetPs2.Core.LevelAssets;
 using RatchetPs2.Core.Wad.Models;
 using RatchetPs2.Games.DL.Level;
 using RatchetPs2.Games.UYA.Level;
 using RatchetPs2.Sdk;
 
-namespace Forge.Host.Domain;
+namespace Forge.Host.Games.UYA;
 
 public static class UyaRenderPackageService
 {
@@ -48,13 +50,15 @@ public static class UyaRenderPackageService
         cancellationToken.ThrowIfCancellationRequested();
         await ReportAsync(progress, 2_000, 10_000);
         var levelWad = await Task.Run(
-            () => UyaLooseLevelWadExtractor.ExtractPrimary(iso, request.Level).Bytes,
+            () => LevelArchiveReader.ExtractPrimary(GameId.UYA, iso, request.Level),
             cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         await ReportAsync(progress, 3_000, 10_000);
         var packages = await Task.Run(() => (
-            Terrain: UyaFrontendMapPackageBuilder.BuildLevelWadPart(levelWad, DlLevelAssetGroup.Terrain),
-            Sky: UyaFrontendMapPackageBuilder.BuildLevelWadPart(levelWad, DlLevelAssetGroup.Common),
+            Terrain: FrontendMapPackageBuilder.BuildLevelWadPart(
+                levelWad, GameId.UYA, FrontendMapAssetGroup.Terrain),
+            Sky: FrontendMapPackageBuilder.BuildLevelWadPart(
+                levelWad, GameId.UYA, FrontendMapAssetGroup.Common),
             Environment: UyaRenderEnvironmentReader.Read(levelWad)), cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         await ReportAsync(progress, 5_000, 10_000);
@@ -352,7 +356,8 @@ public static class UyaRenderPackageService
             try
             {
                 if (asset.Error is not null) throw new InvalidDataException(asset.Error);
-                if (asset.CanonicalFormatVersion != UyaAssetImportService.CanonicalFormatVersion)
+                if (asset.CanonicalFormatVersion is not 0
+                    && asset.CanonicalFormatVersion != UyaAssetImportService.CanonicalFormatVersion)
                     throw new InvalidDataException($"Unsupported canonical asset format {asset.CanonicalFormatVersion}.");
                 if (asset.Path is null || !File.Exists(asset.Path))
                     throw new FileNotFoundException("Asset blob is missing.");
@@ -362,16 +367,17 @@ public static class UyaRenderPackageService
                 var bytes = await File.ReadAllBytesAsync(asset.Path, cancellationToken);
                 if (AssetId.Compute(asset.Kind, asset.CanonicalFormatVersion, bytes) != asset.Id)
                     throw new InvalidDataException("Asset blob failed its identity check.");
-                var canonical = DecodeCanonicalAsset(bytes);
+                var canonical = UyaCanonicalAssetCodec.Decode(bytes);
                 var kind = asset.Kind switch
                 {
-                    AssetKind.Moby => UyaFrontendAssetKind.Moby,
-                    AssetKind.Tie => UyaFrontendAssetKind.Tie,
-                    AssetKind.Shrub => UyaFrontendAssetKind.Shrub,
+                    AssetKind.Moby => FrontendAssetKind.Moby,
+                    AssetKind.Tie => FrontendAssetKind.Tie,
+                    AssetKind.Shrub => FrontendAssetKind.Shrub,
                     _ => throw new NotSupportedException($"{asset.Kind} render assets are not supported."),
                 };
                 var package = await Task.Run(
-                    () => UyaFrontendAssetPackageBuilder.Build(kind, canonical.ModelBytes, canonical.Textures),
+                    () => FrontendAssetPackageBuilder.Build(
+                        GameId.UYA, kind, canonical.ModelBytes, canonical.Textures),
                     cancellationToken);
                 result.Add(new(asset.Id, asset.Kind, package, null));
             }
@@ -386,39 +392,6 @@ public static class UyaRenderPackageService
             await ReportAsync(progress, 5_000 + (index + 1L) * 3_000 / Math.Max(1, assets.Count), 10_000);
         }
         return result;
-    }
-
-    private static CanonicalAsset DecodeCanonicalAsset(byte[] bytes)
-    {
-        if (bytes.Length < 14 || !bytes.AsSpan(0, 6).SequenceEqual("HFUYA\0"u8))
-            throw new InvalidDataException("Asset blob has an invalid UYA canonical header.");
-        var offset = 6;
-        var modelLength = ReadLength(bytes, ref offset, "model");
-        var model = bytes.AsSpan(offset, modelLength).ToArray();
-        offset += modelLength;
-        var textureCount = ReadLength(bytes, ref offset, "texture count");
-        if (textureCount > 4_096) throw new InvalidDataException("Asset blob texture count exceeds the limit.");
-        var textures = new UyaFrontendAssetTexture[textureCount];
-        for (var index = 0; index < textures.Length; index++)
-        {
-            if (offset >= bytes.Length) throw new InvalidDataException("Asset blob ended before its texture role.");
-            var role = bytes[offset++];
-            var length = ReadLength(bytes, ref offset, "texture");
-            textures[index] = new(role, bytes.AsSpan(offset, length).ToArray());
-            offset += length;
-        }
-        if (offset != bytes.Length) throw new InvalidDataException("Asset blob contains trailing data.");
-        return new(model, textures);
-    }
-
-    private static int ReadLength(byte[] bytes, ref int offset, string field)
-    {
-        if (bytes.Length - offset < 4) throw new InvalidDataException($"Asset blob ended before its {field} length.");
-        var length = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(offset, 4));
-        offset += 4;
-        if (length < 0 || length > bytes.Length - offset)
-            throw new InvalidDataException($"Asset blob {field} length is invalid.");
-        return length;
     }
 
     private static string ResolveEntryPath(string root, string entryPath)
@@ -489,5 +462,4 @@ public static class UyaRenderPackageService
         string? Path,
         string? Error);
     private sealed record BuiltAsset(AssetId Id, AssetKind Kind, PackedFilePackage? Package, string? Error);
-    private sealed record CanonicalAsset(byte[] ModelBytes, IReadOnlyList<UyaFrontendAssetTexture> Textures);
 }

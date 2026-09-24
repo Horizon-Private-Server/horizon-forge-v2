@@ -278,6 +278,7 @@ body {
   top: var(--mantine-spacing-xs);
   right: var(--mantine-spacing-xs);
   max-width: min(30rem, calc(100% - 0.5rem));
+  user-select: text;
 }
 
 .editor-status-bar {

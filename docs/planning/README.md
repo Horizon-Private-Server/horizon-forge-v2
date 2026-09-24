@@ -17,10 +17,13 @@ these documents define delivery order and completion evidence.
 M0 Foundations
   └─ M1 Projects/assets
        └─ M2 Editing
-            └─ M3 Incremental bake
-                 ├─ M4 Build/patch loop
-                 └─ M5 Vanilla texture optimization
-                       └─ M6 Distribution/P0 release
+            └─ M3 Bake foundations (M3-001 through M3-003)
+                 └─ M3A SDK archive round-trip
+                      └─ M3 Bake writers/qualification (M3-004 through M3-008)
+                           └─ M5 Texture inventory/writers (M5-001 through M5-003)
+                                └─ M4 Build/patch loop
+                                     └─ M5 Diagnostics/qualification (M5-004 through M5-005)
+                                          └─ M6 Distribution/P0 release
 
 P1 Custom assets starts only after the relevant M3-M5 contracts are stable.
 ```
@@ -35,6 +38,7 @@ M6 workflow scaffolding may begin earlier, but its release gate remains last.
 | P0 | M1 — Project and asset foundation | [Milestone](milestones/M1-project-foundation.md) | [Tasks](tasks/M1-tasks.md) |
 | P0 | M2 — Editor core | [Milestone](milestones/M2-editor-core.md) | [Tasks](tasks/M2-tasks.md) |
 | P0 | M3 — Incremental bake | [Milestone](milestones/M3-incremental-bake.md) | [Tasks](tasks/M3-tasks.md) |
+| P0 | M3A — SDK archive round-trip | [Milestone](milestones/M3A-sdk-archive-round-trip.md) | [Tasks](tasks/M3A-tasks.md) |
 | P0 | M4 — Build and patch loop | [Milestone](milestones/M4-build-patch.md) | [Tasks](tasks/M4-tasks.md) |
 | P0 | M5 — Vanilla texture optimization | [Milestone](milestones/M5-texture-optimization.md) | [Tasks](tasks/M5-tasks.md) |
 | P0 | M6 — Distribution and release | [Milestone](milestones/M6-distribution.md) | [Tasks](tasks/M6-tasks.md) |
@@ -86,4 +90,3 @@ the repository or uploaded as a public CI artifact. Unit and CI tests use synthe
 fixtures, structural test builders, hashes, or redistributable authored data.
 Full-ISO integration tests are local/manual unless a separately authorized private
 environment is established later.
-

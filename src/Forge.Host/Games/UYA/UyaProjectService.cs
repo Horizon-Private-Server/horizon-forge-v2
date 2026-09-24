@@ -1,9 +1,14 @@
+using Forge.Host.Domain;
+using RatchetPs2.Core.Games;
 using RatchetPs2.Games.UYA.Level;
+using RatchetPs2.Sdk;
 
-namespace Forge.Host.Domain;
+namespace Forge.Host.Games.UYA;
 
 public static class UyaProjectService
 {
+    private const string BaseLayerImporterVersion = "forge-uya-base-v2";
+
     public static async Task<UyaProjectCreationOptions> GetCreationOptionsAsync(
         string sourceIsoPath,
         CancellationToken cancellationToken = default)
@@ -14,7 +19,7 @@ public static class UyaProjectService
     }
 
     public static UyaProjectCreationOptions GetCreationOptions(Stream iso) =>
-        new(FindLevels(iso), []);
+        new(LevelCatalogReader.FindAvailable(GameId.UYA, iso), []);
 
     public static async Task<UyaProjectPreflight> PreflightAsync(
         string sourceIsoPath,
@@ -99,6 +104,27 @@ public static class UyaProjectService
                 baseData.MissingInstanceCount, ProjectSchema.CurrentBaseEntityVersion),
             entities,
             cancellationToken);
+        await OpaqueContentStore.WriteAsync(
+            workspace.RootPath,
+            OpaqueSource(request.Revision, request.Level, request.Fingerprint),
+            baseData.OpaqueSections,
+            cancellationToken);
+        await WriteBaseLayersAsync(
+            workspace.RootPath,
+            catalog,
+            OpaqueSource(request.Revision, request.Level, request.Fingerprint),
+            baseData.BaseLayers,
+            cancellationToken);
+        await UyaStaticLayerStore.WriteSourceAsync(
+            workspace.RootPath,
+            OpaqueSource(request.Revision, request.Level, request.Fingerprint),
+            baseData.StaticLayers,
+            cancellationToken);
+        await UyaGameplayLayerStore.WriteSourceAsync(
+            workspace.RootPath,
+            OpaqueSource(request.Revision, request.Level, request.Fingerprint),
+            baseData.GameplayPvars,
+            cancellationToken);
         await ReportAsync(progress, 4, 4);
         return await InspectAsync(workspace.RootPath, catalog, warnings, cancellationToken);
     }
@@ -111,6 +137,10 @@ public static class UyaProjectService
     {
         ArgumentNullException.ThrowIfNull(catalog);
         var workspace = await ForgeProjectWorkspace.OpenAsync(projectPath, cancellationToken);
+        var opaque = await OpaqueContentStore.InspectAsync(projectPath, cancellationToken);
+        var baseLayers = await UyaBaseLayerStore.InspectAsync(projectPath, catalog, cancellationToken);
+        var staticLayers = await UyaStaticLayerStore.InspectAsync(projectPath, cancellationToken);
+        var gameplay = await UyaGameplayLayerStore.InspectAsync(projectPath, cancellationToken);
         var missingAssets = FindMissingAssets(workspace, catalog);
         var missing = workspace.Manifest.BaseLevel.MissingAssetCount + missingAssets.Sum(asset => asset.EntityCount);
         var manifestPath = Path.Combine(workspace.RootPath, ForgeProjectWorkspace.ManifestFileName);
@@ -132,8 +162,12 @@ public static class UyaProjectService
             workspace.Content.Entities.Count,
             missing,
             workspace.IsDirty,
-            workspace.MigrationPending,
-            warnings ?? [],
+            workspace.MigrationPending || !opaque.IsValid || !baseLayers.IsValid || !staticLayers.IsValid || !gameplay.IsValid,
+            (warnings ?? []).Concat(opaque.Blockers)
+                .Concat(baseLayers.Blockers.Values.SelectMany(value => value))
+                .Concat(staticLayers.Blockers.Values.SelectMany(value => value))
+                .Concat(gameplay.Blockers)
+                .Distinct(StringComparer.Ordinal).ToArray(),
             recoveries,
             missingAssets);
     }
@@ -199,7 +233,15 @@ public static class UyaProjectService
         CancellationToken cancellationToken = default)
     {
         var workspace = await ForgeProjectWorkspace.OpenAsync(projectPath, cancellationToken);
-        if (workspace.Manifest.BaseLevel.EntityVersion >= ProjectSchema.CurrentBaseEntityVersion)
+        var opaque = await OpaqueContentStore.InspectAsync(projectPath, cancellationToken);
+        var baseLayers = await UyaBaseLayerStore.InspectAsync(projectPath, catalog, cancellationToken);
+        var staticLayers = await UyaStaticLayerStore.InspectAsync(projectPath, cancellationToken);
+        var gameplay = await UyaGameplayLayerStore.InspectAsync(projectPath, cancellationToken);
+        if (workspace.Manifest.BaseLevel.EntityVersion >= ProjectSchema.CurrentBaseEntityVersion
+            && opaque.IsValid
+            && baseLayers.IsValid
+            && staticLayers.IsValid
+            && gameplay.IsValid)
             return await SaveMigrationAsync(workspace, catalog, cancellationToken);
         var identity = await UyaIsoService.ValidateAsync(sourceIsoPath, cancellationToken: cancellationToken);
         if (!identity.IsSupported || !identity.Fingerprint.Equals(
@@ -216,10 +258,52 @@ public static class UyaProjectService
         CancellationToken cancellationToken = default)
     {
         var workspace = await ForgeProjectWorkspace.OpenAsync(projectPath, cancellationToken);
-        if (workspace.Manifest.BaseLevel.EntityVersion < ProjectSchema.CurrentBaseEntityVersion)
+        var opaque = await OpaqueContentStore.InspectAsync(projectPath, cancellationToken);
+        var baseLayers = await UyaBaseLayerStore.InspectAsync(projectPath, catalog, cancellationToken);
+        var staticLayers = await UyaStaticLayerStore.InspectAsync(projectPath, cancellationToken);
+        var gameplay = await UyaGameplayLayerStore.InspectAsync(projectPath, cancellationToken);
+        if (workspace.Manifest.BaseLevel.EntityVersion < ProjectSchema.CurrentBaseEntityVersion
+            || !opaque.IsValid
+            || !baseLayers.IsValid
+            || !staticLayers.IsValid
+            || !gameplay.IsValid)
         {
             var baseData = ReadBase(iso, catalog, workspace.Manifest.BaseLevel.Level);
-            workspace.CompleteBaseEntityImport(baseData.Entities, baseData.MissingInstanceCount);
+            if (workspace.Manifest.BaseLevel.EntityVersion < ProjectSchema.CurrentBaseEntityVersion)
+                workspace.CompleteBaseEntityImport(baseData.Entities, baseData.MissingInstanceCount);
+            await OpaqueContentStore.WriteAsync(
+                workspace.RootPath,
+                OpaqueSource(
+                    workspace.Manifest.BaseLevel.Revision,
+                    workspace.Manifest.BaseLevel.Level,
+                    workspace.Manifest.BaseLevel.SourceFingerprint),
+                baseData.OpaqueSections,
+                cancellationToken);
+            await WriteBaseLayersAsync(
+                workspace.RootPath,
+                catalog,
+                OpaqueSource(
+                    workspace.Manifest.BaseLevel.Revision,
+                    workspace.Manifest.BaseLevel.Level,
+                    workspace.Manifest.BaseLevel.SourceFingerprint),
+                baseData.BaseLayers,
+                cancellationToken);
+            await UyaStaticLayerStore.WriteSourceAsync(
+                workspace.RootPath,
+                OpaqueSource(
+                    workspace.Manifest.BaseLevel.Revision,
+                    workspace.Manifest.BaseLevel.Level,
+                    workspace.Manifest.BaseLevel.SourceFingerprint),
+                baseData.StaticLayers,
+                cancellationToken);
+            await UyaGameplayLayerStore.WriteSourceAsync(
+                workspace.RootPath,
+                OpaqueSource(
+                    workspace.Manifest.BaseLevel.Revision,
+                    workspace.Manifest.BaseLevel.Level,
+                    workspace.Manifest.BaseLevel.SourceFingerprint),
+                baseData.GameplayPvars,
+                cancellationToken);
         }
         return await SaveMigrationAsync(workspace, catalog, cancellationToken);
     }
@@ -265,8 +349,25 @@ public static class UyaProjectService
     private static UyaBaseLevelData ReadBase(Stream iso, AssetCatalogStore catalog, int level)
     {
         if (!iso.CanRead || !iso.CanSeek) throw new ArgumentException("The UYA ISO stream must be readable and seekable.", nameof(iso));
-        if (!FindLevels(iso).Contains(level)) throw new InvalidDataException($"UYA level {level} is not present in the source ISO.");
+        if (!LevelCatalogReader.FindAvailable(GameId.UYA, iso).Contains(level))
+            throw new InvalidDataException($"UYA level {level} is not present in the source ISO.");
         return UyaBaseLevelService.Read(iso, catalog, level);
+    }
+
+    private static OpaqueContentSource OpaqueSource(string revision, int level, string fingerprint) =>
+        new("UYA", "NTSC-U", revision, level, fingerprint);
+
+    private static async Task WriteBaseLayersAsync(
+        string projectRoot,
+        AssetCatalogStore catalog,
+        OpaqueContentSource source,
+        IReadOnlyList<UyaBaseLayerPayload> payloads,
+        CancellationToken cancellationToken)
+    {
+        var entries = await catalog.PutManyAsync(
+            UyaBaseLayerService.CreateCatalogPuts(payloads, source, BaseLayerImporterVersion),
+            cancellationToken);
+        await UyaBaseLayerStore.WriteAsync(projectRoot, source, payloads, entries, cancellationToken);
     }
 
     private static IReadOnlyList<string> CreateWarnings(UyaBaseLevelData value)
@@ -277,14 +378,6 @@ public static class UyaProjectService
         if (value.FallbackTransformCount > 0)
             warnings.Add($"{value.FallbackTransformCount} tie or shrub transforms could not be decomposed and will use identity rotation and scale.");
         return warnings;
-    }
-
-    private static IReadOnlyList<int> FindLevels(Stream iso)
-    {
-        var levels = new List<int>();
-        for (var level = 0; level < UyaLevelConstants.LevelInfoCount; level++)
-            if (!UyaLevelInfoReader.ReadEntry(iso, level).LevelWad.IsEmpty) levels.Add(level);
-        return levels;
     }
 
     private static FileStream OpenIso(string path)

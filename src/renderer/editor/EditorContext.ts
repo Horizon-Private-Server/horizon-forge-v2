@@ -2,7 +2,13 @@ import { createContext, useContext } from 'react';
 
 import type { KeybindingMap } from '../../types/Keybindings.js';
 import type { EditorCommand, EditorSnapshot } from '../../types/EditorRuntime.js';
-import type { EditorLoadProgress, EditorTerrainSource } from '../../types/ForgeApi.js';
+import type {
+  BuildLayerId,
+  BuildPatchProgress,
+  BuildPatchResult,
+  EditorLoadProgress,
+  EditorTerrainSource,
+} from '../../types/ForgeApi.js';
 
 export interface EditorContextValue {
   project: EditorSnapshot;
@@ -16,6 +22,11 @@ export interface EditorContextValue {
   setCameraFocus(request?: { entityId: string }): void;
   showViewportStats: boolean;
   busy: boolean;
+  hostAvailable: boolean;
+  buildProgress?: BuildPatchProgress;
+  buildResult?: BuildPatchResult;
+  build(includedLayers: BuildLayerId[]): Promise<void>;
+  cancelBuild(): Promise<void>;
   execute(command: EditorCommand): Promise<boolean>;
   save(): Promise<void>;
 }

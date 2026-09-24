@@ -1,45 +1,73 @@
-using System.Buffers.Binary;
+using Forge.Host.Domain;
 using System.Security.Cryptography;
-using System.Text;
 using System.Text.RegularExpressions;
+using RatchetPs2.Core.Disc;
+using RatchetPs2.Core.Games;
+using RatchetPs2.Sdk;
 
-namespace Forge.Host.Domain;
+namespace Forge.Host.Games.UYA;
 
 public static partial class UyaIsoService
 {
     private const int SectorSize = 2048;
-    private const string SupportedSerial = "SCUS-97353";
-    // PCSX2 RedumpDatabase entry for the single 2048-byte-sector UYA DVD data track.
-    public const string SupportedMd5 = "ba9f2b38c7346e7b6e5b8e87717d5893";
-    public const long SupportedSize = 4_379_377_664;
     private const int BufferSize = 1024 * 1024;
+    private static DiscImageProfile SupportedProfile => DiscImageInspector.GetSupportedProfile(GameId.UYA);
+
+    public static string SupportedMd5 => SupportedProfile.Md5;
+    public static long SupportedSize => SupportedProfile.Size;
 
     public static async Task<UyaIsoIdentity> ValidateAsync(
         string sourcePath,
         Func<IsoProgress, ValueTask>? progress = null,
         CancellationToken cancellationToken = default,
-        string expectedMd5 = SupportedMd5,
-        long expectedSize = SupportedSize)
+        string? expectedMd5 = null,
+        long? expectedSize = null)
     {
+        expectedMd5 ??= SupportedMd5;
+        expectedSize ??= SupportedSize;
         var fullPath = Path.GetFullPath(sourcePath);
         await using var source = new FileStream(
             fullPath, FileMode.Open, FileAccess.Read, FileShare.Read, BufferSize,
             FileOptions.Asynchronous | FileOptions.SequentialScan);
-        var system = ReadSystemConfiguration(source);
-        var serial = ParseValue(system, BootPattern(), "BOOT2 serial").Replace('_', '-').Replace(".", "");
-        var revision = ParseValue(system, VersionPattern(), "VER");
-        var videoMode = ParseValue(system, VideoModePattern(), "VMODE");
-        var region = videoMode.Equals("NTSC", StringComparison.OrdinalIgnoreCase) ? "NTSC-U" : videoMode.ToUpperInvariant();
-        var game = serial.Equals(SupportedSerial, StringComparison.OrdinalIgnoreCase) ? "UYA" : "Unknown";
+        var disc = DiscImageInspector.Inspect(GameId.UYA, source);
+        var game = disc.Game?.ToString() ?? "Unknown";
 
         source.Position = 0;
         var fingerprint = await HashAsync(source, progress, cancellationToken);
-        var supported = game == "UYA" && region == "NTSC-U" && source.Length == expectedSize
+        var supported = disc.Game == GameId.UYA && disc.Region == SupportedProfile.Region && source.Length == expectedSize
             && fingerprint.Equals(expectedMd5, StringComparison.OrdinalIgnoreCase);
         var diagnostic = supported
             ? "Verified clean UYA NTSC-U disc."
-            : $"Unsupported disc: expected clean UYA NTSC-U {SupportedSerial}, {expectedSize} bytes, MD5 {expectedMd5}; found {serial} {region} revision {revision}, {source.Length} bytes, MD5 {fingerprint}.";
-        return new(supported, game, region, revision, serial, source.Length, fingerprint, diagnostic);
+            : $"Unsupported disc: expected clean UYA NTSC-U {SupportedProfile.Serial}, {expectedSize} bytes, MD5 {expectedMd5}; found {disc.Serial} {disc.Region} revision {disc.Revision}, {source.Length} bytes, MD5 {fingerprint}.";
+        return new(supported, game, disc.Region, disc.Revision, disc.Serial, source.Length, fingerprint, diagnostic);
+    }
+
+    public static UyaIsoIdentity InspectDevelopment(
+        Stream source,
+        long? expectedSize = null,
+        bool allowLarger = false)
+    {
+        expectedSize ??= SupportedSize;
+        ArgumentNullException.ThrowIfNull(source);
+        if (!source.CanRead || !source.CanSeek)
+            throw new ArgumentException("The development ISO stream must be readable and seekable.", nameof(source));
+        var disc = DiscImageInspector.Inspect(GameId.UYA, source);
+        var game = disc.Game?.ToString() ?? "Unknown";
+        var sizeSupported = allowLarger
+            ? source.Length >= expectedSize && source.Length % SectorSize == 0
+            : source.Length == expectedSize;
+        var supported = disc.Game == GameId.UYA
+            && disc.Region == SupportedProfile.Region
+            && disc.Revision == SupportedProfile.Revision
+            && sizeSupported;
+        var expectedLength = allowLarger
+            ? $"a sector-aligned size of at least {expectedSize} bytes"
+            : $"{expectedSize} bytes";
+        var diagnostic = supported
+            ? "Verified writable UYA NTSC-U 1.00 development image layout."
+            : $"Unsupported development disc: expected {SupportedProfile.Serial} NTSC-U revision 1.00, {expectedLength}; "
+                + $"found {disc.Serial} {disc.Region} revision {disc.Revision}, {source.Length} bytes.";
+        return new(supported, game, disc.Region, disc.Revision, disc.Serial, source.Length, string.Empty, diagnostic);
     }
 
     public static async Task<DevelopmentIsoResult> CreateDevelopmentCopyAsync(
@@ -109,7 +137,7 @@ public static partial class UyaIsoService
         }
     }
 
-    private static long GetAvailableSpace(string directory)
+    internal static long GetAvailableSpace(string directory)
     {
         var fullPath = Path.GetFullPath(directory);
         var drive = DriveInfo.GetDrives()
@@ -169,72 +197,18 @@ public static partial class UyaIsoService
         return Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
     }
 
-    private static string ReadSystemConfiguration(Stream source)
-    {
-        Span<byte> descriptor = stackalloc byte[SectorSize];
-        source.Position = 16L * SectorSize;
-        source.ReadExactly(descriptor);
-        if (descriptor[0] != 1 || !descriptor[1..6].SequenceEqual("CD001"u8))
-        {
-            throw new InvalidDataException("The selected file is not an ISO 9660 disc image.");
-        }
-
-        var root = descriptor[156..];
-        var rootSector = BinaryPrimitives.ReadUInt32LittleEndian(root[2..]);
-        var rootLength = BinaryPrimitives.ReadUInt32LittleEndian(root[10..]);
-        if (rootLength is 0 or > 16 * 1024 * 1024) throw new InvalidDataException("ISO root directory is invalid.");
-        var directory = GC.AllocateUninitializedArray<byte>((int)rootLength);
-        source.Position = (long)rootSector * SectorSize;
-        source.ReadExactly(directory);
-
-        for (var offset = 0; offset < directory.Length;)
-        {
-            var recordLength = directory[offset];
-            if (recordLength == 0)
-            {
-                offset = ((offset / SectorSize) + 1) * SectorSize;
-                continue;
-            }
-            if (offset + recordLength > directory.Length || recordLength < 34) break;
-            var record = directory.AsSpan(offset, recordLength);
-            var nameLength = record[32];
-            if (33 + nameLength <= record.Length)
-            {
-                var name = Encoding.ASCII.GetString(record.Slice(33, nameLength));
-                if (name.Equals("SYSTEM.CNF;1", StringComparison.OrdinalIgnoreCase))
-                {
-                    var sector = BinaryPrimitives.ReadUInt32LittleEndian(record[2..]);
-                    var length = BinaryPrimitives.ReadUInt32LittleEndian(record[10..]);
-                    if (length > 64 * 1024) throw new InvalidDataException("SYSTEM.CNF is unexpectedly large.");
-                    var bytes = GC.AllocateUninitializedArray<byte>((int)length);
-                    source.Position = (long)sector * SectorSize;
-                    source.ReadExactly(bytes);
-                    return Encoding.ASCII.GetString(bytes);
-                }
-            }
-            offset += recordLength;
-        }
-        throw new InvalidDataException("ISO does not contain SYSTEM.CNF.");
-    }
-
-    private static string ParseValue(string configuration, Regex pattern, string name)
-    {
-        var match = pattern.Match(configuration);
-        return match.Success ? match.Groups[1].Value : throw new InvalidDataException($"SYSTEM.CNF does not contain {name}.");
-    }
-
-    private static void Commit(string partial, string target)
+    internal static void Commit(string partial, string target)
     {
         File.Move(partial, target, overwrite: true);
     }
 
-    private static string ResolvePath(string value)
+    internal static string ResolvePath(string value)
     {
         var info = new FileInfo(Path.GetFullPath(value));
         return Path.GetFullPath(info.Exists ? info.ResolveLinkTarget(returnFinalTarget: true)?.FullName ?? info.FullName : info.FullName);
     }
 
-    private static bool PathEquals(string left, string right) => string.Equals(
+    internal static bool PathEquals(string left, string right) => string.Equals(
         left, right, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
 
     private static bool IsPathInside(string root, string candidate)
@@ -244,15 +218,6 @@ public static partial class UyaIsoService
             && !relative.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
             && !Path.IsPathRooted(relative);
     }
-
-    [GeneratedRegex(@"BOOT2\s*=\s*cdrom0:\\([A-Z]{4}_[0-9]{3}\.[0-9]{2});1", RegexOptions.IgnoreCase)]
-    private static partial Regex BootPattern();
-
-    [GeneratedRegex(@"^\s*VER\s*=\s*([^\s\r\n]+)", RegexOptions.IgnoreCase | RegexOptions.Multiline)]
-    private static partial Regex VersionPattern();
-
-    [GeneratedRegex(@"^\s*VMODE\s*=\s*([^\s\r\n]+)", RegexOptions.IgnoreCase | RegexOptions.Multiline)]
-    private static partial Regex VideoModePattern();
 
     [GeneratedRegex("^[0-9a-f]{32}$", RegexOptions.IgnoreCase)]
     private static partial Regex FingerprintPattern();

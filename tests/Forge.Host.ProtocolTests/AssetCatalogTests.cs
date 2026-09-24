@@ -1,3 +1,4 @@
+using Forge.Host.Games.UYA;
 using Forge.Host.Domain;
 
 internal static class AssetCatalogTests

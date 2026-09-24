@@ -1,4 +1,4 @@
-namespace Forge.Host.Domain;
+namespace Forge.Host.Games.UYA;
 
 public sealed record UyaIsoIdentity(
     bool IsSupported,
@@ -9,6 +9,3 @@ public sealed record UyaIsoIdentity(
     long Size,
     string Fingerprint,
     string Diagnostic);
-
-public sealed record DevelopmentIsoResult(string Path, long Size, string Fingerprint);
-public readonly record struct IsoProgress(long Completed, long Total);

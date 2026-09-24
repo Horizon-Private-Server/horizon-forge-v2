@@ -26,6 +26,16 @@ test('host handshake, echo, progress, cancellation, crash recovery, and concurre
   assert.ok(handshake.capabilities.includes('bridge.cancellation'));
   assert.ok(handshake.capabilities.includes('uya.iso.copy'));
   assert.ok(handshake.capabilities.includes('uya.assets.import'));
+  assert.ok(handshake.capabilities.includes('uya.bake.tfrags.target-native'));
+  assert.ok(handshake.capabilities.includes('uya.bake.ties.target-native'));
+  assert.ok(handshake.capabilities.includes('uya.bake.shrubs.target-native'));
+  assert.ok(handshake.capabilities.includes('uya.bake.mobys.target-native'));
+  assert.ok(handshake.capabilities.includes('uya.bake.gameplay.pvars-pass-through'));
+  assert.ok(handshake.capabilities.includes('uya.bake.lighting.target-native'));
+  assert.ok(handshake.capabilities.includes('uya.bake.validate'));
+  assert.ok(handshake.capabilities.includes('uya.bake.incremental'));
+  assert.ok(handshake.capabilities.includes('uya.build.level-wad'));
+  assert.ok(handshake.capabilities.includes('uya.build.patch'));
   assert.ok(handshake.capabilities.includes('editor.runtime'));
 
   const concurrent = await Promise.all([

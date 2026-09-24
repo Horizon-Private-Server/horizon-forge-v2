@@ -9,6 +9,7 @@ export const EDITOR_PANELS = {
   sceneTree: { component: 'sceneTree', title: 'Scene' },
   properties: { component: 'properties', title: 'Properties' },
   diagnostics: { component: 'diagnostics', title: 'Diagnostics' },
+  build: { component: 'build', title: 'Build' },
 } as const;
 
 export type EditorPanelId = keyof typeof EDITOR_PANELS;
@@ -43,6 +44,10 @@ export function createDefaultEditorLayout(api: DockviewApi): void {
     id: 'diagnostics', ...EDITOR_PANELS.diagnostics,
     position: { referencePanel: 'viewport', direction: 'below' }, initialHeight: 180,
   });
+  api.addPanel({
+    id: 'build', ...EDITOR_PANELS.build,
+    position: { referencePanel: 'properties', direction: 'within' },
+  });
 }
 
 export function showEditorPanel(api: DockviewApi, id: EditorPanelId): void {
@@ -52,6 +57,11 @@ export function showEditorPanel(api: DockviewApi, id: EditorPanelId): void {
     return;
   }
   const definition = EDITOR_PANELS[id];
+  const properties = id === 'build' ? api.getPanel('properties') : undefined;
+  if (properties) {
+    api.addPanel({ id, ...definition, position: { referencePanel: properties.id, direction: 'within' } });
+    return;
+  }
   api.addPanel(api.getPanel('viewport') && id !== 'viewport'
     ? { id, ...definition, position: { referencePanel: 'viewport', direction: panelDirection(id) } }
     : { id, ...definition });
@@ -67,6 +77,7 @@ export function panelForLayoutAction(action: Exclude<EditorLayoutAction, 'resetL
     showSceneTree: 'sceneTree',
     showProperties: 'properties',
     showDiagnostics: 'diagnostics',
+    showBuild: 'build',
   };
   return panels[action];
 }

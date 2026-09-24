@@ -239,7 +239,7 @@ public sealed class ForgeProjectWorkspace
             if (entity.Provenance is null) return entity;
             var key = (entity.Provenance.Section, entity.Provenance.SourceIndex);
             existingSources.Add(key);
-            return entity.Source is null && importedBySource.TryGetValue(key, out var imported)
+            return importedBySource.TryGetValue(key, out var imported)
                 ? entity with { Source = imported.Source }
                 : entity;
         });

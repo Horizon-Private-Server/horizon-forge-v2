@@ -55,6 +55,38 @@ export interface Progress {
   total: number;
 }
 
+export interface BuildPatchProgress extends Progress {
+  phase: string;
+  message: string;
+}
+
+export interface BuildPatchResult {
+  succeeded: boolean;
+  requiresWarningAcknowledgement: boolean;
+  warningCodes: string[];
+  diagnostics: string[];
+  message: string;
+  nextAction: string;
+  developmentIsoPath?: string;
+  patchMode?: 'InPlace' | 'FullImageReplacement';
+  outputLevelWadSha256?: string;
+  bakedLayerCount: number;
+  bakeWasCurrent: boolean;
+}
+
+export type BuildLayerId = 'World' | 'Sky' | 'Tfrags' | 'Collision' | 'Ties'
+  | 'Shrubs' | 'Mobys' | 'Gameplay' | 'Lighting' | 'Opaque';
+
+export interface BuildLayerStatus {
+  layer: BuildLayerId;
+  state: 'Dirty' | 'DependencyInvalidated' | 'Clean' | 'Blocked';
+  canDefer: boolean;
+}
+
+export interface BuildPlan {
+  layers: BuildLayerStatus[];
+}
+
 export interface EditorLoadProgress extends Progress {
   label: string;
   status: 'loading' | 'error';
@@ -198,7 +230,7 @@ export interface EditorTerrainSource {
 export type ForgeDialog = 'setup' | 'settings';
 
 export type EditorLayoutAction = 'resetLayout' | 'showViewport' | 'showSceneTree'
-  | 'showProperties' | 'showDiagnostics';
+  | 'showProperties' | 'showDiagnostics' | 'showBuild';
 
 export type ForgeAction = ForgeDialog | EditorLayoutAction
   | 'projects' | 'newProject' | 'openProject' | 'saveProject' | 'undoEditor' | 'redoEditor'
@@ -238,6 +270,9 @@ export interface ForgeApi {
   getEditorSnapshot(): Promise<EditorSnapshot>;
   executeEditorCommand(command: EditorCommand): Promise<EditorSnapshot>;
   saveEditorProject(): Promise<EditorSnapshot>;
+  getBuildPlan(): Promise<BuildPlan>;
+  buildAndPatchProject(includedLayers: BuildLayerId[]): Promise<BuildPatchResult>;
+  cancelBuildAndPatch(): Promise<void>;
   runWindowAction(action: ForgeWindowAction): void;
   setEditorTextInputActive(active: boolean): void;
   readEditorEvents(afterSequence: number, limit?: number): Promise<EditorEvent[]>;
@@ -245,6 +280,7 @@ export interface ForgeApi {
   cancelEditorTerrain(): Promise<void>;
   cancelSetupOperation(): Promise<void>;
   onEditorTerrainProgress(listener: (progress: Progress) => void): () => void;
+  onBuildPatchProgress(listener: (progress: BuildPatchProgress) => void): () => void;
   onSetupProgress(listener: (progress: SetupProgress) => void): () => void;
   onForgeAction(listener: (action: ForgeAction) => void): () => void;
 }

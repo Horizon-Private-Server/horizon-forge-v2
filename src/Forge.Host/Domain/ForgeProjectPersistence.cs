@@ -196,7 +196,7 @@ internal static class ForgeProjectPersistence
         value.Entities,
         value.Assets);
 
-    private static T Deserialize<T>(byte[] bytes, string description) =>
+    internal static T Deserialize<T>(byte[] bytes, string description) =>
         JsonSerializer.Deserialize<T>(bytes, JsonOptions)
         ?? throw new InvalidDataException($"{description} is empty.");
 
@@ -274,7 +274,7 @@ internal static class ForgeProjectPersistence
         output.Flush(flushToDisk: true);
     }
 
-    private static async Task WriteFileSafelyAsync(string path, byte[] bytes, CancellationToken cancellationToken)
+    internal static async Task WriteFileSafelyAsync(string path, byte[] bytes, CancellationToken cancellationToken)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var temporary = $"{path}.{Guid.NewGuid():N}.partial";

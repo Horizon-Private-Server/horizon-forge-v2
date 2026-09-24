@@ -46,3 +46,15 @@ These rules apply to the entire repository unless a more specific `AGENTS.md` ov
 ## C# boundary
 
 - `src/types/` and `src/utils/` are TypeScript conventions. Keep C# declarations and helpers in the appropriate `Forge.Host` domain or bridge namespace using PascalCase filenames.
+
+## Game boundaries
+
+- Keep project, catalog, editor, history, bake graph, staging, and opaque-content infrastructure game-neutral.
+- Put Forge game adapters under `src/Forge.Host/Games/<GAME>/` with matching namespaces such as `Forge.Host.Games.UYA`; do not leave game-prefixed services in the shared `Domain/` folder.
+- Keep binary layouts, archive composition, game asset conversion, and disc patching in `RatchetPs2.Games.<GAME>` behind game-prefixed implementations.
+- Consume those implementations through game-neutral `RatchetPs2.Sdk` entry points that dispatch from `GameId` or equivalent target metadata.
+- Keep renderer-facing APIs game-neutral; Electron and `Forge.Host` select the target-game adapter from project metadata.
+- A neutral public name must use neutral inputs, outputs, diagnostics, and dependencies. Do not merely remove a game prefix from game-specific code.
+- Shared `Forge.Host.Domain` code must not depend on `Forge.Host.Games.*`; select or supply the game adapter from the Bridge/composition boundary.
+- Put game-specific host tests under `tests/Forge.Host.ProtocolTests/Games/<GAME>/` with a matching namespace.
+- Promote a second implementation into shared code only after both games demonstrate the same format or algorithm; do not add one-implementation interfaces or factories for anticipated games.

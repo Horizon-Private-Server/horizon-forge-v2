@@ -17,8 +17,8 @@ the entire authoring loop with vanilla NTSC-U Up Your Arsenal content.
 - Vanilla tie, shrub, moby, sky, tfrag, gameplay, collision, and lighting support
   to the extent explicitly enabled by host capabilities.
 - Byte-exact pass-through for unsupported data including code overlays.
-- Incremental deterministic bake to staging, WAD build, recoverable development
-  ISO patch, and manual reload in externally managed PCSX2.
+- Incremental deterministic bake to staging, verified in-memory SDK WAD build,
+  recoverable development ISO patch, and manual reload in externally managed PCSX2.
 - Lossless shared-palette optimization for compatible vanilla tie, shrub, and moby
   textures.
 - Linux and Windows packages, nightly/stable GitHub publishing, update checking,
@@ -41,4 +41,3 @@ A clean supported UYA ISO can be configured without risk; a base project can be
 created, edited, saved, recovered, baked, built, and patched; untouched/unsupported
 content is preserved; the resulting development ISO reloads successfully in
 PCSX2; and the same project passes packaged Linux and Windows smoke tests.
-

@@ -1,3 +1,5 @@
+using Forge.Host.Games.UYA;
+using Forge.Host.ProtocolTests.Games.UYA;
 using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -26,9 +28,14 @@ internal static class Program
             await AssetMaintenanceTests.RunAsync();
             await UyaAssetImportTests.RunAsync();
             await ForgeProjectTests.RunAsync();
+            await BakeLayerTests.RunAsync();
             await EditorRuntimeTests.RunAsync();
             await UyaProjectTests.RunAsync();
+            await UyaBakeWorkflowTests.RunAsync();
             await UyaRenderPackageTests.RunAsync();
+            await UyaArchiveBuildTests.RunAsync();
+            await UyaStaticLayerTests.RunAsync();
+            await UyaGameplayLayerTests.RunAsync();
             Console.WriteLine("C# bridge and domain contract checks passed");
             return 0;
         }
@@ -221,6 +228,35 @@ internal static class Program
             "render-package terrain paths");
         Equal(true, renderResult.Assets.SequenceEqual(decodedRenderResult.Assets),
             "render-package assets");
+
+        var buildRequest = new UyaBuildPatchRequestPayload(
+            "project", "catalog", "clean.iso", "development.iso", new string('a', 32), ["WARN-1"], false,
+            ["Ties", "Lighting"]);
+        var decodedBuildRequest = BuildPayloadCodec.DecodeRequest(BuildPayloadCodec.EncodeRequest(buildRequest));
+        Equal(buildRequest with
+        {
+            AcknowledgedWarnings = decodedBuildRequest.AcknowledgedWarnings,
+            IncludedLayers = decodedBuildRequest.IncludedLayers,
+        },
+            decodedBuildRequest, "build request payload");
+        var buildPlan = new UyaBuildPlanPayload([
+            new("Ties", "Dirty", true),
+            new("Lighting", "DependencyInvalidated", false),
+        ]);
+        var decodedBuildPlan = BuildPayloadCodec.DecodePlan(BuildPayloadCodec.EncodePlan(buildPlan));
+        Equal(true, buildPlan.Layers.SequenceEqual(decodedBuildPlan.Layers), "build plan payload");
+        var buildProgress = new UyaBuildPatchProgressPayload("Pack", 2, 4, "Packing");
+        Equal(buildProgress, BuildPayloadCodec.DecodeProgress(BuildPayloadCodec.EncodeProgress(buildProgress)),
+            "build progress payload");
+        var buildResult = new UyaBuildPatchResultPayload(
+            true, false, [], ["diagnostic"], "Patched", "Reload", "development.iso", "InPlace",
+            new string('b', 64), 2, false);
+        var decodedBuildResult = BuildPayloadCodec.DecodeResult(BuildPayloadCodec.EncodeResult(buildResult));
+        Equal(buildResult with
+        {
+            WarningCodes = decodedBuildResult.WarningCodes,
+            Diagnostics = decodedBuildResult.Diagnostics,
+        }, decodedBuildResult, "build result payload");
 
         var trailing = BridgePayloadCodec.EncodeText("x").Append((byte)0).ToArray();
         Expect(BridgeErrorCode.MalformedPayload, () => BridgePayloadCodec.DecodeText(trailing));

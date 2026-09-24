@@ -30,6 +30,8 @@ export const BridgeOpcode = {
   SaveEditorProject: 19,
   ReadEditorEvents: 20,
   PrepareUyaRenderPackage: 21,
+  BuildAndPatchUyaProject: 22,
+  GetUyaBuildPlan: 23,
 } as const;
 
 export const BridgeErrorCode = {

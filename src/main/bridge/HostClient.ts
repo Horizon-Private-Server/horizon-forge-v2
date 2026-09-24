@@ -2,6 +2,9 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 
 import type {
   DevelopmentIsoResult,
+  BuildPlan,
+  BuildPatchProgress,
+  BuildPatchResult,
   CatalogMaintenancePreview,
   EditorCommand,
   EditorEvent,
@@ -14,7 +17,19 @@ import type {
   UyaProjectOptions,
   UyaProjectPreflight,
 } from '../../types/ForgeApi.js';
-import type { UyaRenderPackageRequest, UyaRenderPackageResult } from '../../types/BridgePayloads.js';
+import type {
+  UyaBuildPatchRequest,
+  UyaBuildPlanRequest,
+  UyaRenderPackageRequest,
+  UyaRenderPackageResult,
+} from '../../types/BridgePayloads.js';
+import {
+  decodeBuildPatchProgress,
+  decodeBuildPatchResult,
+  decodeBuildPlan,
+  encodeBuildPatchRequest,
+  encodeBuildPlanRequest,
+} from './BuildPayloadCodec.js';
 import {
   decodeEditorEvents,
   decodeEditorSnapshot,
@@ -22,17 +37,9 @@ import {
   encodeEditorEventRequest,
   encodeEditorOpenRequest,
 } from './EditorPayloadCodec.js';
-import {
-  decodeCatalogMaintenance,
-  encodeCatalogCollectionRequest,
-  encodeCatalogMaintenanceRequest,
-  encodeProjectAssetRepairRequest,
-} from './MaintenancePayloadCodec.js';
-import {
-  BridgeFrameDecoder,
-  decodeErrorMessage,
-  encodeFrame,
-} from './FrameCodec.js';
+import { decodeCatalogMaintenance, encodeCatalogCollectionRequest, encodeCatalogMaintenanceRequest,
+  encodeProjectAssetRepairRequest } from './MaintenancePayloadCodec.js';
+import { BridgeFrameDecoder, decodeErrorMessage, encodeFrame } from './FrameCodec.js';
 import type { BridgeFrame, HostRequest } from './BridgeProtocol.js';
 import { BridgeErrorCode, BridgeMessageKind, BridgeOpcode, BridgeProtocolError } from './BridgeProtocol.js';
 import {
@@ -62,8 +69,8 @@ interface PendingRequest {
   resolve: (payload: Buffer) => void;
   reject: (error: Error) => void;
   onProgress?: (progress: Progress) => void;
+  onBuildProgress?: (progress: BuildPatchProgress) => void;
 }
-
 interface ReadyWaiter {
   promise: Promise<ForgeHostStatus>;
   resolve: (handshake: ForgeHostStatus) => void;
@@ -355,6 +362,24 @@ export class HostClient {
     return { requestId: request.requestId, result: request.result.then(decodeUyaRenderPackageResult) };
   }
 
+  async buildAndPatchUyaProject(
+    value: UyaBuildPatchRequest,
+    onProgress?: (progress: BuildPatchProgress) => void,
+  ): Promise<HostRequest<BuildPatchResult>> {
+    const request = await this.#request(
+      BridgeOpcode.BuildAndPatchUyaProject,
+      encodeBuildPatchRequest(value),
+      undefined,
+      onProgress,
+    );
+    return { requestId: request.requestId, result: request.result.then(decodeBuildPatchResult) };
+  }
+
+  async getUyaBuildPlan(value: UyaBuildPlanRequest): Promise<HostRequest<BuildPlan>> {
+    const request = await this.#request(BridgeOpcode.GetUyaBuildPlan, encodeBuildPlanRequest(value));
+    return { requestId: request.requestId, result: request.result.then(decodeBuildPlan) };
+  }
+
   async cancel(requestId: number): Promise<void> {
     const pending = this.#pending.get(requestId);
     if (!pending) return;
@@ -371,6 +396,7 @@ export class HostClient {
     opcode: BridgeOpcode,
     payload: Uint8Array,
     onProgress?: (progress: Progress) => void,
+    onBuildProgress?: (progress: BuildPatchProgress) => void,
   ): Promise<HostRequest<Buffer>> {
     await this.start();
     const requestId = this.#allocateRequestId();
@@ -380,7 +406,7 @@ export class HostClient {
       resolve = resolvePromise;
       reject = rejectPromise;
     });
-    this.#pending.set(requestId, { opcode, resolve, reject, onProgress });
+    this.#pending.set(requestId, { opcode, resolve, reject, onProgress, onBuildProgress });
 
     try {
       await this.#write({
@@ -419,7 +445,8 @@ export class HostClient {
     switch (frame.kind) {
       case BridgeMessageKind.Progress:
         try {
-          pending.onProgress?.(decodeProgress(frame.payload));
+          if (pending.onBuildProgress) pending.onBuildProgress(decodeBuildPatchProgress(frame.payload));
+          else pending.onProgress?.(decodeProgress(frame.payload));
         } catch (error) {
           console.error('Forge host progress callback failed', error);
         }

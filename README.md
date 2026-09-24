@@ -13,6 +13,9 @@ npm run dev
 
 For an existing checkout at the pinned revision, use
 `bash scripts/bootstrap-ratchet-sdk.sh --source /path/to/ratchet-ps2-cli`.
+The `ratchet-sdk.version` selector accepts either an exact commit SHA or a release
+tag such as `v0.4.4`. Publish and tag ratchet-ps2-cli first, update that file to
+the new tag, then build or publish Forge.
 
 `npm run build` verifies the Electron/React application and the .NET host.
 `npm test` runs the protocol, identity/schema, host lifecycle, and desktop security checks.

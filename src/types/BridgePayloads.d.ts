@@ -1,3 +1,5 @@
+import type { BuildLayerId } from './ForgeApi.js';
+
 export interface EchoRequest {
   message: string;
   delayMs: number;
@@ -85,4 +87,20 @@ export interface UyaRenderPackageResult {
   };
   assets: { assetId: string; kind: 'moby' | 'tie' | 'shrub'; path?: string; error?: string }[];
   cacheHit: boolean;
+}
+
+export interface UyaBuildPatchRequest {
+  projectRoot: string;
+  catalogRoot: string;
+  cleanSourceIso: string;
+  developmentIso: string;
+  sourceFingerprint: string;
+  acknowledgedWarnings: string[];
+  forceFullImage: boolean;
+  includedLayers: BuildLayerId[];
+}
+
+export interface UyaBuildPlanRequest {
+  projectRoot: string;
+  catalogRoot: string;
 }

@@ -10,6 +10,7 @@ import { errorMessage } from '../utils/Errors.js';
 import { availableBytes, fileExists, writeJsonSafely } from '../utils/FileSystem.js';
 import { isTrustedSender } from '../utils/Security.js';
 import type { RecentProjects } from './RecentProjects.js';
+import { registerBuildIpcHandlers } from './BuildIpcHandlers.js';
 import { setEditorMenuState, setEditorTextInputActive } from './ApplicationMenu.js';
 import type { RenderAssetProtocol } from './RenderAssetProtocol.js';
 import { registerRenderIpcHandlers } from './RenderIpcHandlers.js';
@@ -41,6 +42,7 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
   }
 
   registerRenderIpcHandlers({ host, settings, renderAssets, assertSender });
+  registerBuildIpcHandlers({ host, settings, getMainWindow, assertSender });
   registerWindowIpcHandlers({ getMainWindow, assertSender });
 
   async function getSettingValues(): Promise<Record<string, string | number | boolean>> {

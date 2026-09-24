@@ -17,6 +17,9 @@ public enum AssetKind : ushort
     Sound = 8,
     Sky = 9,
     Gameplay = 10,
+    World = 11,
+    Collision = 12,
+    Lighting = 13,
 }
 
 [JsonConverter(typeof(AssetIdJsonConverter))]

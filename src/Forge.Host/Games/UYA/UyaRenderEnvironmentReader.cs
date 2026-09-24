@@ -1,7 +1,8 @@
+using Forge.Host.Domain;
 using RatchetPs2.Games.UYA.Gameplay;
 using RatchetPs2.Games.UYA.Level;
 
-namespace Forge.Host.Domain;
+namespace Forge.Host.Games.UYA;
 
 internal static class UyaRenderEnvironmentReader
 {

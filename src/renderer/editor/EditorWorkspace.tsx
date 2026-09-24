@@ -1,13 +1,22 @@
 import { DockviewReact, themeAbyss } from 'dockview-react';
 import type { DockviewApi, DockviewReadyEvent } from 'dockview-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { KeybindingMap } from '../../types/Keybindings.js';
 import type { EditorSnapshot } from '../../types/EditorRuntime.js';
 import type { EditorCommand } from '../../types/EditorRuntime.js';
-import type { EditorLayoutAction, EditorLoadProgress, EditorTerrainSource, ForgeHostStatus } from '../../types/ForgeApi.js';
+import type {
+  BuildPatchProgress,
+  BuildPatchResult,
+  BuildLayerId,
+  EditorLayoutAction,
+  EditorLoadProgress,
+  EditorTerrainSource,
+  ForgeHostStatus,
+} from '../../types/ForgeApi.js';
 import { errorMessage } from '../../utils/Errors.ts';
 import { EditorContext } from './EditorContext.ts';
+import { BuildPanel } from './BuildPanel.tsx';
 import {
   createDefaultEditorLayout,
   decodeEditorLayout,
@@ -38,6 +47,7 @@ const components = {
   sceneTree: SceneTreePanel,
   properties: PropertiesPanel,
   diagnostics: DiagnosticsPanel,
+  build: BuildPanel,
 };
 
 export function EditorWorkspace({
@@ -52,6 +62,9 @@ export function EditorWorkspace({
   const [initialized, setInitialized] = useState(false);
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const [buildProgress, setBuildProgress] = useState<BuildPatchProgress>();
+  const [buildResult, setBuildResult] = useState<BuildPatchResult>();
+  const buildRunning = useRef(false);
   const [terrain, setTerrain] = useState<EditorTerrainSource>();
   const [sceneLoad, setSceneLoad] = useState<EditorLoadProgress>();
   const [skyPieces, setSkyPieces] = useState<string[]>([]);
@@ -104,6 +117,7 @@ export function EditorWorkspace({
       try {
         if (layout) api.fromJSON(layout);
         else createDefaultEditorLayout(api);
+        if (!api.getPanel('build')) showEditorPanel(api, 'build');
       } catch {
         createDefaultEditorLayout(api);
       }
@@ -140,6 +154,30 @@ export function EditorWorkspace({
     else showEditorPanel(api, panelForLayoutAction(layoutAction.action));
   }, [api, initialized, layoutAction]);
 
+  useEffect(() => window.forge.onBuildPatchProgress(setBuildProgress), []);
+
+  const buildAndPatch = useCallback(async (includedLayers: BuildLayerId[]) => {
+    if (buildRunning.current) return;
+    buildRunning.current = true;
+    setBusy(true);
+    setError(undefined);
+    setBuildResult(undefined);
+    setBuildProgress({ phase: 'Preflight', completed: 0, total: 1, message: 'Starting build…' });
+    try {
+      const result = await window.forge.buildAndPatchProject(includedLayers);
+      setBuildResult(result);
+      if (!result.succeeded) {
+        setError([result.message, ...result.diagnostics, result.nextAction].filter(Boolean).join(' '));
+      }
+      onProjectChange(await window.forge.getEditorSnapshot());
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      buildRunning.current = false;
+      setBusy(false);
+    }
+  }, [onProjectChange]);
+
   const context = useMemo(() => ({
     project,
     keybindings,
@@ -152,6 +190,11 @@ export function EditorWorkspace({
     setCameraFocus,
     showViewportStats,
     busy,
+    hostAvailable: Boolean(hostStatus),
+    buildProgress,
+    buildResult,
+    build: buildAndPatch,
+    cancelBuild: () => window.forge.cancelBuildAndPatch(),
     execute: async (command: EditorCommand) => {
       setError(undefined);
       try {
@@ -170,7 +213,8 @@ export function EditorWorkspace({
       catch (cause) { setError(errorMessage(cause)); }
       finally { setBusy(false); }
     },
-  }), [busy, cameraFocus, keybindings, onProjectChange, project, sceneLoad, showViewportStats, skyPieces, terrain]);
+  }), [buildAndPatch, buildProgress, buildResult, busy, cameraFocus, hostStatus, keybindings, onProjectChange,
+    project, sceneLoad, showViewportStats, skyPieces, terrain]);
 
   return <EditorContext.Provider value={context}>
     <div className="editor-workspace">
@@ -184,7 +228,13 @@ export function EditorWorkspace({
         theme={themeAbyss}
         watermarkComponent={EditorWatermark}
       />
-      <EditorStatusBar hostStatus={hostStatus} />
+      <EditorStatusBar
+        hostStatus={hostStatus}
+        busy={busy}
+        buildProgress={buildProgress}
+        buildResult={buildResult}
+        onCancel={() => void window.forge.cancelBuildAndPatch()}
+      />
     </div>
   </EditorContext.Provider>;
 }

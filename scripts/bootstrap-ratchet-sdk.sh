@@ -21,11 +21,15 @@ case $# in
   *) usage ;;
 esac
 
-revision=$(tr -d '[:space:]' < "$version_file")
-[[ $revision =~ ^[0-9a-f]{40}$ ]] || {
-  echo "Invalid Ratchet SDK revision in $version_file" >&2
+selector=$(tr -d '[:space:]' < "$version_file")
+if [[ $selector =~ ^[0-9a-f]{40}$ ]]; then
+  selector_kind=commit
+elif [[ $selector =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+  selector_kind=tag
+else
+  echo "Invalid Ratchet SDK selector in $version_file; expected a 40-character commit or release tag such as v0.4.4" >&2
   exit 1
-}
+fi
 
 if [[ -n $source_root ]]; then
   [[ -d $source_root ]] || {
@@ -34,6 +38,10 @@ if [[ -n $source_root ]]; then
   }
   sdk_root=$(git -C "$source_root" rev-parse --show-toplevel 2>/dev/null) || {
     echo "Ratchet SDK source is not a Git checkout: $source_root" >&2
+    exit 1
+  }
+  expected_revision=$(git -C "$sdk_root" rev-parse --verify "$selector^{commit}" 2>/dev/null) || {
+    echo "Ratchet SDK selector $selector does not exist at $sdk_root" >&2
     exit 1
   }
 else
@@ -47,32 +55,38 @@ else
     git clone --filter=blob:none "$repository" "$sdk_root"
   fi
 
-  if ! git -C "$sdk_root" cat-file -e "$revision^{commit}" 2>/dev/null; then
-    git -C "$sdk_root" fetch --depth 1 origin "$revision"
+  if ! git -C "$sdk_root" cat-file -e "$selector^{commit}" 2>/dev/null; then
+    if [[ $selector_kind == tag ]]; then
+      git -C "$sdk_root" fetch --depth 1 origin "refs/tags/$selector:refs/tags/$selector"
+    else
+      git -C "$sdk_root" fetch --depth 1 origin "$selector"
+    fi
   fi
 
+  expected_revision=$(git -C "$sdk_root" rev-parse --verify "$selector^{commit}")
+
   if [[ ! -e $sdk_root/.git/index ]]; then
-    git -C "$sdk_root" checkout --detach "$revision"
+    git -C "$sdk_root" checkout --detach "$expected_revision"
   fi
 
   current_revision=$(git -C "$sdk_root" rev-parse HEAD 2>/dev/null || true)
-  if [[ $current_revision != "$revision" ]]; then
+  if [[ $current_revision != "$expected_revision" ]]; then
     [[ -z $(git -C "$sdk_root" status --porcelain) ]] || {
       echo "Managed Ratchet SDK has local changes; refusing to replace them: $sdk_root" >&2
       exit 1
     }
-    git -C "$sdk_root" checkout --detach "$revision"
+    git -C "$sdk_root" checkout --detach "$expected_revision"
   fi
 fi
 
 actual_revision=$(git -C "$sdk_root" rev-parse HEAD)
-[[ $actual_revision == "$revision" ]] || {
-  echo "Ratchet SDK revision mismatch: expected $revision, found $actual_revision at $sdk_root" >&2
+[[ $actual_revision == "$expected_revision" ]] || {
+  echo "Ratchet SDK revision mismatch: selector $selector resolves to $expected_revision, found $actual_revision at $sdk_root" >&2
   exit 1
 }
 
 [[ -z $(git -C "$sdk_root" status --porcelain) ]] || {
-  echo "Ratchet SDK checkout has local changes and cannot represent pinned revision $revision: $sdk_root" >&2
+  echo "Ratchet SDK checkout has local changes and cannot represent selector $selector: $sdk_root" >&2
   exit 1
 }
 
@@ -99,4 +113,4 @@ printf '%s\n' "$msbuild_sdk_root" > "$marker.tmp"
 mv -f "$marker.tmp" "$marker"
 
 dotnet build "$forge_root/src/Forge.Host/Forge.Host.csproj" --configuration Release
-echo "Ratchet SDK $revision ready at $sdk_root"
+echo "Ratchet SDK $selector ($expected_revision) ready at $sdk_root"

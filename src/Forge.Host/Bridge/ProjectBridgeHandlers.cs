@@ -1,9 +1,71 @@
 using Forge.Host.Domain;
+using Forge.Host.Games.UYA;
 
 namespace Forge.Host.Bridge;
 
 internal static class ProjectBridgeHandlers
 {
+    public static async Task<byte[]> BuildAndPatchAsync(
+        byte[] payload,
+        string hostVersion,
+        string sdkRevision,
+        Func<UyaBuildPatchProgress, ValueTask> progress,
+        CancellationToken cancellationToken)
+    {
+        var request = BuildPayloadCodec.DecodeRequest(payload);
+        var result = await UyaBuildPatchService.RunAsync(
+            new(
+                request.ProjectRoot,
+                request.CatalogRoot,
+                request.CleanSourceIso,
+                request.DevelopmentIso,
+                request.SourceFingerprint,
+                request.AcknowledgedWarnings.ToHashSet(StringComparer.Ordinal),
+                request.ForceFullImage,
+                ParseLayers(request.IncludedLayers)),
+            hostVersion,
+            sdkRevision,
+            progress,
+            cancellationToken);
+        return BuildPayloadCodec.EncodeResult(new(
+            result.Succeeded,
+            result.RequiresWarningAcknowledgement,
+            result.WarningCodes,
+            result.Diagnostics,
+            result.Message,
+            result.NextAction,
+            result.DevelopmentIsoPath ?? string.Empty,
+            result.PatchMode?.ToString() ?? string.Empty,
+            result.OutputLevelWadSha256 ?? string.Empty,
+            checked((uint)result.BakedLayerCount),
+            result.BakeWasCurrent));
+    }
+
+    public static async Task<byte[]> GetBuildPlanAsync(
+        byte[] payload,
+        string hostVersion,
+        string sdkRevision,
+        CancellationToken cancellationToken)
+    {
+        var request = BuildPayloadCodec.DecodePlanRequest(payload);
+        var result = await UyaBuildPatchService.PlanAsync(
+            request.ProjectRoot, request.CatalogRoot, hostVersion, sdkRevision, cancellationToken);
+        return BuildPayloadCodec.EncodePlan(new(result.Layers.Select(value => new UyaBuildLayerStatusPayload(
+            value.Layer.ToString(), value.State.ToString(), value.CanDefer)).ToArray()));
+    }
+
+    private static IReadOnlySet<BakeLayerId> ParseLayers(IReadOnlyList<string> values)
+    {
+        var result = new HashSet<BakeLayerId>();
+        foreach (var value in values)
+        {
+            if (!Enum.TryParse<BakeLayerId>(value, false, out var layer) || !Enum.IsDefined(layer))
+                throw new ArgumentException($"Unknown bake layer: {value}.");
+            if (!result.Add(layer)) throw new ArgumentException($"Duplicate bake layer: {value}.");
+        }
+        return result;
+    }
+
     public static async Task<byte[]> HandleAsync(
         BridgeFrame frame,
         string sdkRevision,
@@ -108,7 +170,7 @@ internal static class ProjectBridgeHandlers
             request.ProjectPath,
             request.CatalogRootPath,
             request.SourceIsoPath,
-            $"forge-uya-v1+{sdkRevision}",
+            $"forge-uya-v2+{sdkRevision}",
             progress,
             cancellationToken));
     }
@@ -117,14 +179,21 @@ internal static class ProjectBridgeHandlers
     {
         var request = BridgePayloadCodec.DecodeCatalogMaintenanceRequest(payload);
         return EncodeMaintenance(await AssetCatalogMaintenance.PreviewAsync(
-            request.CatalogRootPath, request.ProjectRoots, cancellationToken));
+            request.CatalogRootPath,
+            request.ProjectRoots,
+            cancellationToken,
+            UyaBaseLayerStore.ReadAssetIdsAsync));
     }
 
     private static async Task<byte[]> CollectCatalogAsync(byte[] payload, CancellationToken cancellationToken)
     {
         var request = BridgePayloadCodec.DecodeCatalogCollectionRequest(payload);
         return EncodeMaintenance(await AssetCatalogMaintenance.CollectAsync(
-            request.CatalogRootPath, request.ProjectRoots, request.ConfirmationToken, cancellationToken));
+            request.CatalogRootPath,
+            request.ProjectRoots,
+            request.ConfirmationToken,
+            cancellationToken,
+            UyaBaseLayerStore.ReadAssetIdsAsync));
     }
 
     private static byte[] EncodeProject(ForgeProjectDescriptor result) =>

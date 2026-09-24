@@ -1,5 +1,14 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { EditorCommand, ForgeAction, ForgeApi, ForgeWindowAction, Progress, SetupProgress } from '../types/ForgeApi.js';
+import type {
+  BuildPatchProgress,
+  BuildLayerId,
+  EditorCommand,
+  ForgeAction,
+  ForgeApi,
+  ForgeWindowAction,
+  Progress,
+  SetupProgress,
+} from '../types/ForgeApi.js';
 
 const forgeApi = Object.freeze({
   getHostStatus: () => ipcRenderer.invoke('forge:host-status'),
@@ -33,6 +42,10 @@ const forgeApi = Object.freeze({
   getEditorSnapshot: () => ipcRenderer.invoke('forge:editor-query'),
   executeEditorCommand: (command: EditorCommand) => ipcRenderer.invoke('forge:editor-execute', command),
   saveEditorProject: () => ipcRenderer.invoke('forge:editor-save'),
+  getBuildPlan: () => ipcRenderer.invoke('forge:editor-build-plan'),
+  buildAndPatchProject: (includedLayers: BuildLayerId[]) =>
+    ipcRenderer.invoke('forge:editor-build-patch', includedLayers),
+  cancelBuildAndPatch: () => ipcRenderer.invoke('forge:editor-build-cancel'),
   runWindowAction: (action: ForgeWindowAction) => ipcRenderer.send('forge:window-action', action),
   setEditorTextInputActive: (active: boolean) => ipcRenderer.send('forge:editor-text-input', active),
   readEditorEvents: (afterSequence: number, limit = 100) =>
@@ -49,6 +62,11 @@ const forgeApi = Object.freeze({
     const handler = (_event: Electron.IpcRendererEvent, progress: Progress) => listener(progress);
     ipcRenderer.on('forge:editor-terrain-progress', handler);
     return () => ipcRenderer.removeListener('forge:editor-terrain-progress', handler);
+  },
+  onBuildPatchProgress: (listener: (progress: BuildPatchProgress) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, progress: BuildPatchProgress) => listener(progress);
+    ipcRenderer.on('forge:editor-build-progress', handler);
+    return () => ipcRenderer.removeListener('forge:editor-build-progress', handler);
   },
   onForgeAction: (listener: (action: ForgeAction) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, action: ForgeAction) => listener(action);

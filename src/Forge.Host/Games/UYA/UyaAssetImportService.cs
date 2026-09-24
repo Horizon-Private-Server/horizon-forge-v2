@@ -1,19 +1,18 @@
-using System.Buffers.Binary;
+using Forge.Host.Domain;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using RatchetPs2.Core.Games;
-using RatchetPs2.Core.IO;
+using RatchetPs2.Core.LevelAssets;
 using RatchetPs2.Core.Textures.Pif;
-using RatchetPs2.Core.Wad;
-using RatchetPs2.Games.DL.Level;
 using RatchetPs2.Games.UYA.Level;
+using RatchetPs2.Sdk;
 
-namespace Forge.Host.Domain;
+namespace Forge.Host.Games.UYA;
 
 public static class UyaAssetImportService
 {
-    public const uint CanonicalFormatVersion = 0;
+    public const uint CanonicalFormatVersion = 1;
     private const int StateSchemaVersion = 0;
     private static readonly byte[] MissingTexturePif = CreateMissingTexturePif();
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -71,7 +70,7 @@ public static class UyaAssetImportService
         if (state.Complete) return Result(state, resumed: true);
 
         var resumed = state.CompletedLevels.Count > 0;
-        var levels = FindLevels(iso);
+        var levels = LevelCatalogReader.FindAvailable(GameId.UYA, iso);
         var completed = state.CompletedLevels.ToHashSet();
         if (completed.Any(level => !levels.Contains(level)))
             throw new InvalidDataException("UYA asset import state contains levels not present in the source ISO.");
@@ -86,7 +85,7 @@ public static class UyaAssetImportService
             if (completed.Contains(level)) continue;
             cancellationToken.ThrowIfCancellationRequested();
 
-            var levelWad = UyaLooseLevelWadExtractor.ExtractPrimary(iso, level).Bytes;
+            var levelWad = LevelArchiveReader.ExtractPrimary(GameId.UYA, iso, level);
             var levelAssets = ReadAssets(levelWad, level, request);
             var entries = await store.PutManyAsync(levelAssets.Assets, cancellationToken);
             foreach (var entry in entries) assetIds.Add(entry.Id.ToString());
@@ -146,7 +145,7 @@ public static class UyaAssetImportService
             throw new ArgumentException("The UYA ISO stream must be readable and seekable.", nameof(iso));
         var requestedLevels = levels.Distinct().Order().ToArray();
         if (requestedLevels.Length == 0) return new(0, 0, 0, 0, 0, false);
-        var availableLevels = FindLevels(iso);
+        var availableLevels = LevelCatalogReader.FindAvailable(GameId.UYA, iso);
         if (requestedLevels.Any(level => !availableLevels.Contains(level)))
             throw new InvalidDataException("A repair level is not present in the selected UYA source ISO.");
         var store = await AssetCatalogStore.OpenAsync(request.CatalogRootPath, cancellationToken);
@@ -157,7 +156,7 @@ public static class UyaAssetImportService
         {
             cancellationToken.ThrowIfCancellationRequested();
             var levelAssets = ReadAssets(
-                UyaLooseLevelWadExtractor.ExtractPrimary(iso, requestedLevels[index]).Bytes,
+                LevelArchiveReader.ExtractPrimary(GameId.UYA, iso, requestedLevels[index]),
                 requestedLevels[index],
                 request);
             foreach (var entry in await store.PutManyAsync(levelAssets.Assets, cancellationToken)) ids.Add(entry.Id);
@@ -173,108 +172,30 @@ public static class UyaAssetImportService
         int level,
         UyaAssetImportRequest request)
     {
-        var package = UyaLevelWadUnpacker.Unpack(levelWadBytes);
-        var source = UyaLevelWadRenderPackageBuilder.ReadAssetSourceFiles(package.Files);
-        var header = DlAssetReader.ReadHeader(source.HeaderBytes);
-        var assetBytes = BinaryMagic.IsWad(source.AssetWadBytes)
-            ? WadCompression.Decompress(source.AssetWadBytes)
-            : source.AssetWadBytes;
-        var mobys = DlAssetReader.ReadModelDefinitions(source.HeaderBytes, header.MobyModelOffset, header.MobyModelCount);
-        var ties = DlAssetReader.ReadModelDefinitions(source.HeaderBytes, header.TieModelOffset, header.TieModelCount);
-        var shrubs = DlAssetReader.ReadShrubDefinitions(source.HeaderBytes, header.ShrubModelOffset, header.ShrubModelCount);
-        var knownOffsets = DlAssetReader.CollectKnownAssetOffsets(GameId.UYA, header, assetBytes.Length, mobys, ties, shrubs);
-        var mipmaps = DlAssetReader.ReadMipmapDefinitions(
-            source.HeaderBytes, header.GsRamOffset, Math.Max(0, header.GsRamCount + header.ExtraMipmapCount));
-        var gsStash = mipmaps.Skip(header.GsRamCount).ToArray();
-        var mobyTextures = DlAssetReader.ReadTextureDefinitions(
-            source.HeaderBytes, header.MobyTextureOffset, header.MobyTextureCount);
-        var tieTextures = DlAssetReader.ReadTextureDefinitions(
-            source.HeaderBytes, header.TieTextureOffset, header.TieTextureCount);
-        var shrubTextures = DlAssetReader.ReadTextureDefinitions(
-            source.HeaderBytes, header.ShrubTextureOffset, header.ShrubTextureCount);
-        var results = new List<AssetCatalogPut>(mobys.Count + ties.Count + shrubs.Count);
-        var failures = 0;
-
-        foreach (var definition in mobys)
+        var extracted = LevelAssetExtractor.ExtractLevelWad(GameId.UYA, levelWadBytes);
+        var results = new List<AssetCatalogPut>(extracted.Assets.Count);
+        foreach (var asset in extracted.Assets)
         {
-            try
-            {
-                var (textures, usedPlaceholder) = ReadTextures(
-                    "moby", definition.TextureIds, mobyTextures, source.PaletteBytes, assetBytes,
-                    header.TextureDataOffset, gsStash);
-                AddAsset(results, AssetKind.Moby, definition.ModelId, definition.Index,
-                    DlAssetReader.ReadAssetSlice(assetBytes, definition.ModelOffset, knownOffsets), textures,
-                    usedPlaceholder, level, request);
-            }
-            catch (Exception exception) when (IsUnsupportedAsset(exception))
-            {
-                failures++;
-            }
+            var usedPlaceholder = asset.Textures.Any(texture => texture.PifBytes is null);
+            AddAsset(
+                results,
+                asset.Kind switch
+                {
+                    FrontendAssetKind.Moby => AssetKind.Moby,
+                    FrontendAssetKind.Tie => AssetKind.Tie,
+                    FrontendAssetKind.Shrub => AssetKind.Shrub,
+                    _ => throw new ArgumentOutOfRangeException(nameof(asset.Kind)),
+                },
+                asset.ClassId,
+                asset.SourceIndex,
+                asset.DefinitionBytes,
+                asset.ModelBytes,
+                asset.Textures.Select(texture => (texture.Role, texture.PifBytes ?? MissingTexturePif)).ToArray(),
+                usedPlaceholder,
+                level,
+                request);
         }
-        foreach (var definition in ties)
-        {
-            try
-            {
-                var (textures, usedPlaceholder) = ReadTextures(
-                    "tie", definition.TextureIds, tieTextures, source.PaletteBytes, assetBytes, header.TextureDataOffset, null);
-                AddAsset(results, AssetKind.Tie, definition.ModelId, definition.Index,
-                    DlAssetReader.ReadAssetSlice(assetBytes, definition.ModelOffset, knownOffsets), textures,
-                    usedPlaceholder, level, request);
-            }
-            catch (Exception exception) when (IsUnsupportedAsset(exception))
-            {
-                failures++;
-            }
-        }
-        foreach (var definition in shrubs)
-        {
-            try
-            {
-                var (textures, usedPlaceholder) = ReadTextures(
-                    "shrub", definition.TextureIds, shrubTextures, source.PaletteBytes, assetBytes, header.TextureDataOffset, null);
-                if (definition.Width > 0 && definition.Height > 0 && definition.TextureId > 0)
-                    textures.Add((1, DlAssetReader.BuildShrubBillboardTexture(definition, source.PaletteBytes).PifBytes));
-                AddAsset(results, AssetKind.Shrub, definition.ModelId, definition.Index,
-                    DlAssetReader.ReadAssetSlice(assetBytes, definition.ModelOffset, knownOffsets), textures,
-                    usedPlaceholder, level, request);
-            }
-            catch (Exception exception) when (IsUnsupportedAsset(exception))
-            {
-                failures++;
-            }
-        }
-        return new(results, failures);
-    }
-
-    private static (List<(byte Role, byte[] Bytes)> Textures, bool UsedPlaceholder) ReadTextures(
-        string family,
-        byte[] textureIds,
-        IReadOnlyList<DlAssetTextureDefinition> definitions,
-        byte[] paletteBytes,
-        byte[] assetBytes,
-        int textureDataOffset,
-        IReadOnlyList<DlAssetMipmapDefinition>? gsStash)
-    {
-        var textures = new List<(byte, byte[])>();
-        var usedPlaceholder = false;
-        foreach (var textureId in textureIds)
-        {
-            if (textureId == byte.MaxValue) continue;
-            try
-            {
-                if (textureId >= definitions.Count) throw new InvalidDataException($"{family} texture ID {textureId} is out of range.");
-                var texture = DlAssetReader.BuildAssetTexture(
-                    family, textures.Count, definitions[textureId], paletteBytes, assetBytes, textureDataOffset,
-                    gsStash, isSwizzled: false, useTextureFlags: true);
-                textures.Add((0, texture.PifBytes));
-            }
-            catch (Exception exception) when (IsUnsupportedAsset(exception))
-            {
-                textures.Add((0, MissingTexturePif));
-                usedPlaceholder = true;
-            }
-        }
-        return (textures, usedPlaceholder);
+        return new(results, extracted.FailedAssetCount);
     }
 
     private static void AddAsset(
@@ -282,6 +203,7 @@ public static class UyaAssetImportService
         AssetKind kind,
         int modelId,
         int sourceIndex,
+        byte[] definitionBytes,
         byte[] modelBytes,
         IReadOnlyList<(byte Role, byte[] Bytes)> textures,
         bool usedPlaceholder,
@@ -293,7 +215,10 @@ public static class UyaAssetImportService
         results.Add(new(
             kind,
             CanonicalFormatVersion,
-            CreateCanonicalBytes(modelBytes, textures),
+            UyaCanonicalAssetCodec.Encode(
+                definitionBytes,
+                modelBytes,
+                textures.Select(value => new FrontendAssetTexture(value.Role, value.Bytes)).ToArray()),
             new(
                 request.ImporterVersion,
                 new("UYA", "NTSC-U", request.Revision, $"level{level:00}", "level_wad/assets/asset_wad.bin", sourceIndex, request.Fingerprint),
@@ -313,34 +238,6 @@ public static class UyaAssetImportService
         for (var x = 0; x < size; x++)
             pixels[y * size + x] = (byte)(((x / 2) + (y / 2)) & 1);
         return PifWriter.Write(PifWriter.CreateIndexed8(size, size, palette, pixels));
-    }
-
-    private static byte[] CreateCanonicalBytes(
-        byte[] modelBytes,
-        IReadOnlyList<(byte Role, byte[] Bytes)> textures)
-    {
-        using var stream = new MemoryStream();
-        stream.Write("HFUYA\0"u8);
-        WriteInt32(stream, modelBytes.Length);
-        stream.Write(modelBytes);
-        WriteInt32(stream, textures.Count);
-        foreach (var texture in textures)
-        {
-            stream.WriteByte(texture.Role);
-            WriteInt32(stream, texture.Bytes.Length);
-            stream.Write(texture.Bytes);
-        }
-        return stream.ToArray();
-    }
-
-    private static IReadOnlyList<int> FindLevels(Stream iso)
-    {
-        var levels = new List<int>();
-        for (var level = 0; level < UyaLevelConstants.LevelInfoCount; level++)
-        {
-            if (!UyaLevelInfoReader.ReadEntry(iso, level).LevelWad.IsEmpty) levels.Add(level);
-        }
-        return levels;
     }
 
     private static string GetStatePath(UyaAssetImportRequest request)
@@ -440,13 +337,6 @@ public static class UyaAssetImportService
             throw new ArgumentException("UYA source fingerprint must be a 32-character MD5 value.", nameof(request));
     }
 
-    private static void WriteInt32(Stream stream, int value)
-    {
-        Span<byte> bytes = stackalloc byte[sizeof(int)];
-        BinaryPrimitives.WriteInt32LittleEndian(bytes, value);
-        stream.Write(bytes);
-    }
-
     private static ValueTask ReportAsync(Func<IsoProgress, ValueTask>? progress, int completed, int total) =>
         progress?.Invoke(new(completed, Math.Max(1, total))) ?? ValueTask.CompletedTask;
 
@@ -469,9 +359,6 @@ public static class UyaAssetImportService
         state.AssetIds.Count,
         state.FailedAssets,
         resumed);
-
-    private static bool IsUnsupportedAsset(Exception exception) => exception is
-        ArgumentException or InvalidDataException or IOException or NotSupportedException or OverflowException;
 
     private sealed record ImportState(
         int SchemaVersion,

@@ -1,9 +1,13 @@
+using Forge.Host.Games.UYA;
 using System.Buffers.Binary;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Forge.Host.Domain;
 using RatchetPs2.Games.UYA.Gameplay;
 using RatchetPs2.Games.UYA.Level;
+
+namespace Forge.Host.ProtocolTests.Games.UYA;
 
 internal static class UyaProjectTests
 {
@@ -16,19 +20,19 @@ internal static class UyaProjectTests
             var catalog = await AssetCatalogStore.OpenAsync(Path.Combine(root, "catalog"));
             var global = await catalog.PutAsync(
                 AssetKind.Moby,
-                0,
-                "moby class 100"u8.ToArray(),
+                UyaAssetImportService.CanonicalFormatVersion,
+                CanonicalAsset(AssetKind.Moby, 0x11),
                 new(
                     "test-importer",
                     new("UYA", "NTSC-U", "1.00", "level03", "level_wad/assets/asset_wad.bin", 0, new string('a', 32)),
                     ["moby:100", "moby:0x0064"],
                     ["vanilla", "game:UYA", "level:03"]));
             var tieAsset = await catalog.PutAsync(
-                AssetKind.Tie, 0, "tie class 200"u8.ToArray(),
+                AssetKind.Tie, UyaAssetImportService.CanonicalFormatVersion, CanonicalAsset(AssetKind.Tie, 0x22),
                 new("test-importer", new("UYA", "NTSC-U", "1.00", "level03", "level_wad/assets/asset_wad.bin", 0, new string('a', 32)),
                     ["tie:200", "tie:0x00C8"], ["vanilla", "game:UYA", "level:03"]));
             var shrubAsset = await catalog.PutAsync(
-                AssetKind.Shrub, 0, "shrub class 300"u8.ToArray(),
+                AssetKind.Shrub, UyaAssetImportService.CanonicalFormatVersion, CanonicalAsset(AssetKind.Shrub, 0x33),
                 new("test-importer", new("UYA", "NTSC-U", "1.00", "level03", "level_wad/assets/asset_wad.bin", 0, new string('a', 32)),
                     ["shrub:300", "shrub:0x012C"], ["vanilla", "game:UYA", "level:03"]));
             var iso = CreateIso();
@@ -50,6 +54,93 @@ internal static class UyaProjectTests
                 new MemoryStream(iso, writable: false), catalog, request);
             Equal(4, descriptor.EntityCount, "base entity count");
             Equal(0, descriptor.MissingAssetCount, "base missing assets");
+
+            var opaque = await OpaqueContentStore.InspectAsync(projectPath);
+            Equal(true, opaque.IsValid, "opaque content captured");
+            var code = opaque.Manifest!.Sections.Single(section => section.Name == "level-data/code-overlay");
+            Equal("5f78c33274e43fa9de5659265c1d917e25c03722dcb0b8d27db8d5feaa813953", code.Checksum,
+                "code overlay golden checksum");
+            Equal("level_wad/level_data.wad", code.Placement.Container, "code overlay container");
+            Equal(0, code.Placement.HeaderOffset, "code overlay header slot");
+            Equal(0x80L, code.Placement.Offset, "code overlay source offset");
+            Equal(4L, code.Placement.Length, "code overlay source length");
+            var baseInspection = await UyaBaseLayerStore.InspectAsync(projectPath, catalog);
+            Equal(true, baseInspection.IsValid, "target-native base layers captured");
+            Equal(5, baseInspection.Manifest!.Layers.Sum(layer => layer.Assets.Count), "base layer asset count");
+            Equal(1, baseInspection.Manifest.Layers.Single(layer => layer.Layer == BakeLayerId.Lighting).Assets.Count,
+                "native lighting asset count");
+            Equal(false, opaque.Manifest.Sections.Any(section => section.Name == "gameplay/directional_lights"),
+                "lighting is not duplicated as opaque content");
+            var opaqueInput = await OpaqueContentStore.CreateBakeInputAsync(projectPath);
+            var baseInputs = await UyaBaseLayerStore.CreateBakeInputsAsync(projectPath, catalog);
+            var authoredInputs = baseInputs.Append(opaqueInput).ToDictionary(input => input.Id);
+            var bakeInputs = Enum.GetValues<BakeLayerId>().Select(layer => authoredInputs.GetValueOrDefault(layer)
+                ?? new BakeLayerInput(layer, System.Text.Encoding.UTF8.GetBytes(layer.ToString()), [], ReadOnlyMemory<byte>.Empty))
+                .ToArray();
+            var bakeContext = new BakeFingerprintContext(
+                new("UYA", "NTSC-U", "1.00", "uya-ntsc-u"), "translator-1", "baker-1");
+            var validation = await UyaBakeValidationService.PreflightAsync(
+                projectPath, catalog, bakeContext);
+            Equal(true, validation.CanBake,
+                "complete project passes structured bake preflight: "
+                + string.Join(" | ", validation.Diagnostics.Select(value => value.Cause)));
+            var bakePlan = BakeLayerGraph.CreatePlan(bakeContext, bakeInputs);
+            var staging = await BakeStagingStore.OpenAsync(projectPath);
+            var stagedOpaque = await OpaqueContentStore.StageAsync(
+                projectPath,
+                staging,
+                bakePlan.Layers.Single(layer => layer.Layer == BakeLayerId.Opaque));
+            foreach (var section in opaque.Manifest.Sections)
+            {
+                var projectBytes = await File.ReadAllBytesAsync(Path.Combine(projectPath, "content", "opaque", section.Blob));
+                var stagedBytes = await File.ReadAllBytesAsync(Path.Combine(staging.RootPath, stagedOpaque.RelativePath, section.Blob));
+                Equal(true, projectBytes.SequenceEqual(stagedBytes), $"opaque round trip {section.Name}");
+            }
+            var expectedBaseHashes = new Dictionary<BakeLayerId, string>
+            {
+                [BakeLayerId.World] = "5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
+                [BakeLayerId.Sky] = "66687aadf862bd776c8fc18b8e9f8e20089714856ee233b3902a591d0d5f2925",
+                [BakeLayerId.Tfrags] = "f315f3f6d33215f8777a7d5a4b809f433729d13a86fe6adf3da5c11137e18273",
+                [BakeLayerId.Collision] = "c2f480d4dda9f4522b9f6d590011636d904accfe59f12f9d66a0221c2558e3a2",
+                [BakeLayerId.Lighting] = "2f1ca708f889230a7103c4c80f42c014a236702015618039ed298af3a7f26f17",
+            };
+            foreach (var layer in UyaBaseLayerSchema.Layers)
+            {
+                var snapshot = await UyaBaseLayerStore.StageAsync(
+                    projectPath,
+                    catalog,
+                    staging,
+                    bakePlan.Layers.Single(value => value.Layer == layer));
+                var asset = baseInspection.Manifest.Layers.Single(value => value.Layer == layer).Assets.Single();
+                var bytes = await File.ReadAllBytesAsync(Path.Combine(staging.RootPath, snapshot.RelativePath, asset.Name));
+                var checksum = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+                Equal(expectedBaseHashes[layer], checksum, $"{layer} golden output");
+            }
+            var maintenance = await AssetCatalogMaintenance.PreviewAsync(
+                catalog.RootPath,
+                [projectPath],
+                readAdditionalReferences: UyaBaseLayerStore.ReadAssetIdsAsync);
+            var baseAssetIds = baseInspection.Manifest.Layers.SelectMany(layer => layer.Assets)
+                .Select(asset => asset.Asset.Id).ToHashSet();
+            Equal(false, maintenance.Candidates.Any(candidate => baseAssetIds.Contains(candidate.Id)),
+                "catalog maintenance protects base layers");
+
+            var skyAsset = baseInspection.Manifest.Layers.Single(value => value.Layer == BakeLayerId.Sky).Assets.Single();
+            File.Delete(catalog.ResolveBlobPath(skyAsset.Asset.Id)!);
+            var missingBaseInputs = await UyaBaseLayerStore.CreateBakeInputsAsync(projectPath, catalog);
+            var missingBasePlan = BakeLayerGraph.CreatePlan(
+                bakeContext,
+                bakeInputs.Select(input => missingBaseInputs.SingleOrDefault(value => value.Id == input.Id) ?? input).ToArray(),
+                staging.Manifest);
+            Equal(BakeLayerState.Blocked,
+                missingBasePlan.Layers.Single(value => value.Layer == BakeLayerId.Sky).State,
+                "missing base layer blocks only its output");
+            Equal(BakeLayerState.Clean,
+                missingBasePlan.Layers.Single(value => value.Layer == BakeLayerId.Tfrags).State,
+                "unrelated base layer remains clean");
+            await UyaProjectService.MigrateValidatedAsync(projectPath, catalog, new MemoryStream(iso, writable: false));
+            Equal(true, (await UyaBaseLayerStore.InspectAsync(projectPath, catalog)).IsValid,
+                "base layer repair restores catalog data");
 
             var project = await ForgeProjectWorkspace.OpenAsync(projectPath);
             var entity = project.Content.Entities.Single(candidate => candidate.Asset?.Kind == AssetKind.Moby);
@@ -84,6 +175,39 @@ internal static class UyaProjectTests
             Equal("Renamed project", reopened.Manifest.Name, "project rename");
             Equal(3, reopened.Content.Entities.Count, "project-only entity deletion");
             Equal(true, File.Exists(catalog.ResolveBlobPath(global.Id)), "global asset survives deletion");
+            var afterEditInput = await OpaqueContentStore.CreateBakeInputAsync(projectPath);
+            var afterEditPlan = BakeLayerGraph.CreatePlan(
+                bakeContext,
+                bakeInputs.Select(input => input.Id == BakeLayerId.Opaque ? afterEditInput : input).ToArray(),
+                staging.Manifest);
+            Equal(BakeLayerState.Clean,
+                afterEditPlan.Layers.Single(layer => layer.Layer == BakeLayerId.Opaque).State,
+                "supported edits do not invalidate opaque content");
+            Equal(true, UyaBaseLayerSchema.Layers.All(layer =>
+                    afterEditPlan.Layers.Single(value => value.Layer == layer).State == BakeLayerState.Clean),
+                "entity edits do not invalidate base geometry layers");
+
+            var codePath = Path.Combine(projectPath, "content", "opaque", code.Blob);
+            await File.WriteAllBytesAsync(codePath, [0, 0, 0, 0]);
+            var altered = await OpaqueContentStore.CreateBakeInputAsync(projectPath);
+            var alteredPlan = BakeLayerGraph.CreatePlan(
+                bakeContext,
+                bakeInputs.Select(input => input.Id == BakeLayerId.Opaque ? altered : input).ToArray(),
+                staging.Manifest);
+            Equal(BakeLayerState.Blocked,
+                alteredPlan.Layers.Single(layer => layer.Layer == BakeLayerId.Opaque).State,
+                "altered opaque content blocks bake");
+            Equal(true, altered.Blockers!.Any(value => value.Contains("checksum changed", StringComparison.Ordinal)),
+                "altered opaque content is actionable");
+            await UyaProjectService.MigrateValidatedAsync(projectPath, catalog, new MemoryStream(iso, writable: false));
+            File.Delete(codePath);
+            var missingOpaque = await OpaqueContentStore.CreateBakeInputAsync(projectPath);
+            Equal(true, missingOpaque.Blockers!.Any(value => value.Contains("is missing", StringComparison.Ordinal)),
+                "missing opaque content is actionable");
+            var repaired = await UyaProjectService.MigrateValidatedAsync(
+                projectPath, catalog, new MemoryStream(iso, writable: false));
+            Equal(false, repaired.MigrationPending, "opaque content repair completes");
+            Equal(true, (await OpaqueContentStore.InspectAsync(projectPath)).IsValid, "opaque content repair restores bytes");
 
             var legacyPath = Path.Combine(root, "legacy-base-project");
             await UyaProjectService.CreateValidatedAsync(
@@ -136,7 +260,7 @@ internal static class UyaProjectTests
         }
     }
 
-    private static byte[] CreateIso()
+    internal static byte[] CreateIso()
     {
         const int headerSector = 0x500;
         var bytes = new byte[(headerSector + 3) * UyaLevelConstants.SectorSize];
@@ -153,10 +277,15 @@ internal static class UyaProjectTests
         WriteInt32(wad, 0x24, 1);
 
         var levelData = wad[UyaLevelConstants.SectorSize..];
+        WriteByteBlock(levelData, 0x00, 0x80, 4);
         WriteByteBlock(levelData, 0x08, 0x100, 0x160);
-        WriteByteBlock(levelData, 0x10, 0x240, 1);
-        WriteByteBlock(levelData, 0x48, 0x300, 1);
+        WriteByteBlock(levelData, 0x10, 0x260, 1);
+        WriteByteBlock(levelData, 0x48, 0x300, 0xc0);
+        new byte[] { 0xde, 0xad, 0xbe, 0xef }.CopyTo(levelData[0x80..]);
         var assetHeader = levelData[0x100..];
+        WriteInt32(assetHeader, 0x08, 0x40);
+        WriteInt32(assetHeader, 0x10, 0x80);
+        WriteInt32(assetHeader, 0x14, 0xa0);
         WriteInt32(assetHeader, 0x18, 1);
         WriteInt32(assetHeader, 0x1c, 0xc0);
         WriteInt32(assetHeader, 0x20, 1);
@@ -173,7 +302,13 @@ internal static class UyaProjectTests
         WriteInt32(assetHeader, 0x104, 300);
         assetHeader.Slice(0x110, 0x10).Fill(byte.MaxValue);
 
+        var assets = levelData[0x300..0x3c0];
+        WriteInt32(assets, 0x40, 0x40);
+        assets[0xa0..0xc0].Fill(0xcc);
+
         var gameplay = wad[(2 * UyaLevelConstants.SectorSize)..];
+        WriteInt32(gameplay, 0x00, 0x400);
+        WriteInt32(gameplay, 0x04, 0x2ac);
         WriteInt32(gameplay, 0x34, 0x9c);
         WriteInt32(gameplay, 0x40, 0x10c);
         WriteInt32(gameplay, 0x4c, 0x18c);
@@ -210,11 +345,14 @@ internal static class UyaProjectTests
         WriteSingle(instance, 0x4c, 0.1f);
         WriteSingle(instance, 0x50, 0.2f);
         WriteSingle(instance, 0x54, 0.3f);
+        WriteInt32(instance, 0x68, -1);
         var missingInstance = instance[0x88..];
         WriteInt32(missingInstance, 0x00, 0x88);
         WriteInt32(missingInstance, 0x10, 8);
         WriteInt32(missingInstance, 0x28, 101);
         WriteSingle(missingInstance, 0x2c, 1);
+        WriteInt32(missingInstance, 0x68, -1);
+        WriteInt32(gameplay, 0x2ac, 1);
         return bytes;
     }
 
@@ -228,6 +366,18 @@ internal static class UyaProjectTests
     {
         WriteInt32(bytes, offset, blockOffset);
         WriteInt32(bytes, offset + 4, length);
+    }
+
+    private static byte[] CanonicalAsset(AssetKind kind, byte modelByte)
+    {
+        var definitionLength = kind == AssetKind.Shrub ? 0x30 : 0x20;
+        var bytes = new byte[19 + definitionLength];
+        "HFUYA1"u8.CopyTo(bytes);
+        WriteInt32(bytes, 6, definitionLength);
+        WriteInt32(bytes, 10 + definitionLength, 1);
+        bytes[14 + definitionLength] = modelByte;
+        WriteInt32(bytes, 15 + definitionLength, 0);
+        return bytes;
     }
 
     private static void Equal<T>(T expected, T actual, string context)

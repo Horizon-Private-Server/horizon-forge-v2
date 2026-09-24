@@ -27,5 +27,11 @@ return await BridgeHost.RunAsync(
             "uya.assets.import", "uya.assets.import.mobys", "uya.assets.import.ties", "uya.assets.import.shrubs",
             "uya.projects.base.instances", "projects.inspect", "projects.rename", "projects.recovery", "projects.migrate",
             "projects.assets.repair", "assets.catalog.gc", "editor.runtime", "editor.commands",
-            "editor.events", "editor.autosave", "uya.render.terrain"
+            "editor.events", "editor.autosave", "uya.render.terrain",
+            "uya.bake.world.target-native", "uya.bake.sky.target-native",
+            "uya.bake.tfrags.target-native", "uya.bake.collision.target-native",
+            "uya.bake.ties.target-native", "uya.bake.shrubs.target-native",
+            "uya.bake.mobys.target-native", "uya.bake.gameplay.pvars-pass-through",
+            "uya.bake.lighting.target-native", "uya.bake.validate", "uya.bake.incremental",
+            "uya.build.level-wad", "uya.build.patch", "uya.build.plan", "uya.build.selective"
         ]));

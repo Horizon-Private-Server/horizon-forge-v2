@@ -51,6 +51,7 @@ export function ForgeMenuBar({ keybindings, project, onAction }: ForgeMenuBarPro
           <Item onClick={() => onAction('showSceneTree')}>Scene</Item>
           <Item onClick={() => onAction('showProperties')}>Properties</Item>
           <Item onClick={() => onAction('showDiagnostics')}>Diagnostics</Item>
+          <Item onClick={() => onAction('showBuild')}>Build</Item>
         </Menu.Sub.Dropdown>
       </Menu.Sub>
       <Item disabled={!project} onClick={() => onAction('resetLayout')}>Reset Layout</Item>

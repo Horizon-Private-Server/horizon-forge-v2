@@ -34,6 +34,8 @@ public enum BridgeOpcode : ushort
     SaveEditorProject = 19,
     ReadEditorEvents = 20,
     PrepareUyaRenderPackage = 21,
+    BuildAndPatchUyaProject = 22,
+    GetUyaBuildPlan = 23,
 }
 
 public enum BridgeErrorCode : ushort

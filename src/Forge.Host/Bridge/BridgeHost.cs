@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Forge.Host.Domain;
+using Forge.Host.Games.UYA;
 
 namespace Forge.Host.Bridge;
 
@@ -155,16 +156,36 @@ public static class BridgeHost
                             CreateProgressReporter(frame, writer, hostCancellation),
                             requestCancellation.Token)), hostCancellation);
                     break;
+                case BridgeOpcode.BuildAndPatchUyaProject:
+                    await writer.WriteAsync(new(
+                        BridgeMessageKind.Result, frame.Opcode, BridgeErrorCode.None, frame.RequestId,
+                        await ProjectBridgeHandlers.BuildAndPatchAsync(
+                            frame.Payload,
+                            handshake.HostVersion,
+                            handshake.SdkRevision,
+                            CreateBuildProgressReporter(frame, writer, hostCancellation),
+                            requestCancellation.Token)), hostCancellation);
+                    break;
+                case BridgeOpcode.GetUyaBuildPlan:
+                    await writer.WriteAsync(new(
+                        BridgeMessageKind.Result, frame.Opcode, BridgeErrorCode.None, frame.RequestId,
+                        await ProjectBridgeHandlers.GetBuildPlanAsync(
+                            frame.Payload,
+                            handshake.HostVersion,
+                            handshake.SdkRevision,
+                            requestCancellation.Token)), hostCancellation);
+                    break;
                 default:
                     await WriteErrorAsync(writer, frame.RequestId, BridgeErrorCode.UnknownOpcode,
                         $"Unsupported opcode: {frame.Opcode}", hostCancellation);
                     break;
             }
         }
-        catch (OperationCanceledException) when (requestCancellation.IsCancellationRequested)
+        catch (OperationCanceledException exception) when (requestCancellation.IsCancellationRequested)
         {
             await WriteErrorAsync(writer, frame.RequestId, BridgeErrorCode.Cancelled,
-                "Operation cancelled", hostCancellation);
+                string.IsNullOrWhiteSpace(exception.Message) ? "Operation cancelled" : exception.Message,
+                hostCancellation);
         }
         catch (BridgeProtocolException exception)
         {
@@ -307,7 +328,7 @@ public static class BridgeHost
                 request.CatalogRootPath,
                 request.Fingerprint,
                 request.Revision,
-                $"forge-uya-v1+{sdkRevision}",
+                $"forge-uya-v2+{sdkRevision}",
                 request.Force),
             CreateProgressReporter(frame, writer, hostCancellation),
             requestCancellation);
@@ -344,6 +365,34 @@ public static class BridgeHost
                 BridgeErrorCode.None,
                 frame.RequestId,
                 BridgePayloadCodec.EncodeProgress(completed, 10_000)), hostCancellation);
+        };
+    }
+
+    private static Func<UyaBuildPatchProgress, ValueTask> CreateBuildProgressReporter(
+        BridgeFrame frame,
+        FrameWriter writer,
+        CancellationToken hostCancellation)
+    {
+        UyaBuildPatchPhase? lastPhase = null;
+        long lastScaled = -1;
+        return async progress =>
+        {
+            var scaled = progress.Total <= 0
+                ? 0
+                : Math.Min(10_000, progress.Completed * 10_000 / progress.Total);
+            if (progress.Phase == lastPhase && scaled < 10_000 && scaled - lastScaled < 25) return;
+            lastPhase = progress.Phase;
+            lastScaled = scaled;
+            await writer.WriteAsync(new(
+                BridgeMessageKind.Progress,
+                frame.Opcode,
+                BridgeErrorCode.None,
+                frame.RequestId,
+                BuildPayloadCodec.EncodeProgress(new(
+                    progress.Phase.ToString(),
+                    checked((ulong)progress.Completed),
+                    checked((ulong)progress.Total),
+                    progress.Message))), hostCancellation);
         };
     }
 

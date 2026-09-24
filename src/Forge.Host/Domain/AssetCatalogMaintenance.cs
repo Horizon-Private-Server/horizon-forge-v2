@@ -13,9 +13,10 @@ public static class AssetCatalogMaintenance
     public static async Task<AssetCatalogMaintenanceReport> PreviewAsync(
         string catalogRootPath,
         IReadOnlyCollection<string> projectRoots,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Func<string, CancellationToken, Task<IReadOnlyList<AssetId>>>? readAdditionalReferences = null)
     {
-        var references = await FindReferencesAsync(projectRoots, cancellationToken);
+        var references = await FindReferencesAsync(projectRoots, readAdditionalReferences, cancellationToken);
         var catalog = await AssetCatalogStore.OpenAsync(catalogRootPath, cancellationToken);
         var preview = catalog.PreviewGarbageCollection(references.AssetIds);
         return ToReport(preview, references);
@@ -25,9 +26,10 @@ public static class AssetCatalogMaintenance
         string catalogRootPath,
         IReadOnlyCollection<string> projectRoots,
         string confirmationToken,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Func<string, CancellationToken, Task<IReadOnlyList<AssetId>>>? readAdditionalReferences = null)
     {
-        var references = await FindReferencesAsync(projectRoots, cancellationToken);
+        var references = await FindReferencesAsync(projectRoots, readAdditionalReferences, cancellationToken);
         if (references.Blockers.Count > 0)
             throw new InvalidDataException("Catalog cleanup is blocked because one or more known projects could not be inspected.");
         var catalog = await AssetCatalogStore.OpenAsync(catalogRootPath, cancellationToken);
@@ -53,6 +55,7 @@ public static class AssetCatalogMaintenance
 
     private static async Task<ProjectReferences> FindReferencesAsync(
         IReadOnlyCollection<string> roots,
+        Func<string, CancellationToken, Task<IReadOnlyList<AssetId>>>? readAdditionalReferences,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(roots);
@@ -111,6 +114,8 @@ public static class AssetCatalogMaintenance
                     await workspace.LoadRecoveryAsync(recovery.Id, cancellationToken);
                     AddReferences(workspace, ids);
                 }
+                if (readAdditionalReferences is not null)
+                    foreach (var id in await readAdditionalReferences(projectPath, cancellationToken)) ids.Add(id);
                 inspected++;
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException

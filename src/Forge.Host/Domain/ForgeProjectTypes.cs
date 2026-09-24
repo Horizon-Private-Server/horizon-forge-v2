@@ -45,7 +45,8 @@ public sealed record ProjectEntityState(
 
 public sealed record ProjectEntitySource(
     int ClassId,
-    byte[] RawRecord);
+    byte[] RawRecord,
+    bool ModelLess = false);
 
 public sealed record ProjectEntity(
     EntityId EntityId,

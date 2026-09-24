@@ -17,6 +17,10 @@
     <AssemblyMetadata Include="RatchetSdkRevision" Value="$(RatchetSdkRevision)" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Forge.Host.ProtocolTests" />
+  </ItemGroup>
+
   <Target Name="ValidateRatchetSdk" BeforeTargets="PrepareForBuild">
     <Error Condition="'$(RatchetSdkRoot)' == ''"
            Text="Ratchet SDK is not configured. Run: bash scripts/bootstrap-ratchet-sdk.sh" />

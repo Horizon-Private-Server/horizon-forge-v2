@@ -29,8 +29,8 @@ The words **MUST**, **SHOULD**, and **MAY** are normative:
 
 Items marked **P1** or **Future** influence today's boundaries but do not authorize
 building the feature in P0. **P0** and **MVP** are synonyms: the first usable,
-vanilla-asset-only Forge release assembled through milestones M0-M6. P0 is a
-priority, not milestone M0.
+vanilla-asset-only Forge release assembled through milestones M0-M6, including
+intermediate milestone M3A. P0 is a priority, not milestone M0.
 
 ## 2. Product goals
 
@@ -204,6 +204,8 @@ do not expand the P0 pipeline.
   not shell out to the CLI.
 - Owns CPU-heavy and filesystem-heavy game operations.
 - Uses stream/byte-oriented SDK APIs and adds editor orchestration only.
+- Does not duplicate game container writers, compression, or ISO patch logic owned
+  by the Ratchet SDK/game libraries.
 - Writes protocol frames to stdout and diagnostics to stderr.
 
 ### 6.2 Ratchet SDK bootstrap
@@ -228,6 +230,17 @@ Publish workflows MUST run this bootstrap before building Forge and bundle the
 compiled SDK dependencies with the self-contained .NET host. Credentials for a
 private SDK repository, if required, come from protected GitHub secrets and are
 never embedded in artifacts.
+
+#### FR-SDK-002: Binary mutation authority
+
+Reusable ratchet-ps2-cli SDK, Core, and game assemblies are the sole authority for
+game binary parsing, serialization, archive layout, compression, patch planning,
+and ISO mutation. CLI commands and Forge.Host are thin consumers of the same APIs;
+neither may maintain a second writer for a game format.
+
+The reusable APIs MUST be host-independent, accept memory or streams rather than
+requiring paths, avoid console/UI dependencies, and return structured diagnostics,
+progress, cancellation state, hashes, and output metadata needed by callers.
 
 ### 6.3 Binary bridge
 
@@ -932,6 +945,39 @@ MAY join only after their loading and lifetime rules are verified.
 Build consumes the last successful bake manifest and packs through the .NET SDK.
 It rejects stale/failed inputs unless a supported partial workflow is selected.
 
+#### FR-BUILD-002: Lossless archive ownership and reassembly
+
+Before edited packing is enabled, the SDK MUST losslessly decompose and rebuild a
+supported NTSC-U UYA level archive. At each nested container level every source
+byte is classified exactly once as a header field, known payload, padding/alignment,
+or named opaque span. Source path, offset, length, alignment, order, compression
+state, and checksum remain available for validation and diagnostics.
+
+For an unchanged container, rebuilt pre-compression bytes MUST be byte-identical
+to the source bytes when uncompressed or to the decompressed source bytes when
+compressed. Unknown, reserved, padding, gap, and trailing bytes are preserved.
+Overlapping, overflowing, ambiguous, or out-of-bounds layouts block output rather
+than being normalized silently. Newly created alignment bytes use deterministic
+format-defined fill and never expose stale pooled memory.
+
+#### FR-BUILD-003: Verified compression
+
+Compression occurs only after uncompressed output validates. Equal input and
+compressor version produce deterministic output. Retail compressed bytes do not
+need to be reproduced, but decompressing the generated WAD MUST reproduce the
+validated uncompressed bytes exactly. The result records pre- and post-compression
+sizes and hashes and is not published when verification fails.
+Decompression enforces explicit output/expansion bounds and cancellation.
+
+#### FR-BUILD-004: In-memory archive pipeline
+
+Decomposition, reassembly, and compression use direct SDK memory/stream APIs.
+Normal operation reads the source archive once, writes only the requested final
+artifact, and creates no loose per-section or temporary intermediate files.
+Payload views SHOULD share backing input memory; writers use one deterministic
+destination and bounded reusable scratch storage rather than repeated whole-buffer
+concatenation or a full-container copy per payload.
+
 #### FR-PATCH-001: Development target
 
 Patching requires the separate development ISO created from the matching clean
@@ -946,6 +992,10 @@ preconditions, output sizes, free-space needs, and whether the operation is
 in-place or requires rebuilding.
 
 #### FR-PATCH-003: Recoverability
+
+The SDK owns patch-plan construction and validated byte-range mutation over a
+caller-provided seekable stream. Forge.Host owns path validation, file opening,
+durable journal storage, flush coordination, and atomic filesystem replacement.
 
 - In-place writes journal original affected ranges.
 - Writes flush and verify before retiring the journal.
@@ -1114,6 +1164,15 @@ or renderer loops. Background work SHOULD throttle if it harms interaction.
 Avoid unnecessary renderer/main/host copies. Repeated project/level opens release
 GPU and host resources. A soak test detects unbounded growth.
 
+#### NFR-PERF-006: Archive processing
+
+Archive decomposition and assembly MUST be linear in total bytes plus entry count,
+apart from the compression algorithm's documented search cost. Qualification on
+the largest supported levels records elapsed time, throughput, managed allocation,
+peak working set, compression ratio, and bulk-buffer copy count. Regressions are
+evaluated against retained same-machine baselines; correctness and bounded memory
+remain hard gates.
+
 ### 9.2 Reliability
 
 #### NFR-REL-001: No silent data loss
@@ -1273,6 +1332,11 @@ Invariants:
 - Deterministic bake fixtures per supported game/layer.
 - Opaque code-overlay and unsupported-entry fixtures proving payload hashes remain
   byte-identical after build/repack.
+- Per-container byte-ownership fixtures proving complete, non-overlapping UYA
+  coverage and byte-identical source/decompressed-source unpack/repack before
+  compression.
+- Deterministic WAD compression vectors proving generated output decompresses to
+  the validated uncompressed bytes for boundary, malformed, and large-shape inputs.
 - Incremental invalidation for every cross-layer dependency.
 - **P1:** cross-game fixtures for each known format difference.
 - **P1:** GLB boundaries and target-limit errors.
@@ -1346,7 +1410,7 @@ Exit: safely edit/recover a representative scene without raw-file changes.
 ### M3: Incremental bake
 
 - Dependencies, fingerprints, staging, deterministic manifests, validation.
-- UYA NTSC-U map WAD output with the selected initial content coverage.
+- UYA NTSC-U loose staging output with the selected initial content coverage.
 - Lighting layer and isolated rebake.
 - Byte-exact opaque pass-through for code overlays and unsupported entries.
 - Required canonical-to-UYA bake translations for supported P0 content.
@@ -1354,9 +1418,22 @@ Exit: safely edit/recover a representative scene without raw-file changes.
 Exit: changing one entity rebakes only required outputs; clean rebuild is
 byte-equivalent.
 
+### M3A: SDK archive round-trip
+
+- Complete byte ownership for primary and nested NTSC-U UYA level containers.
+- Byte-identical in-memory reconstruction of unchanged uncompressed archives.
+- Deterministic compression with decompression/hash verification.
+- Direct Forge.Host-to-SDK integration contract with no CLI subprocess.
+- All-level correctness plus largest-level memory and throughput qualification.
+
+Exit: every readable level from a locally supplied clean UYA ISO rebuilds every
+container byte-identically against its source or decompressed-source image before
+compression, generated compressed WADs decompress to those same images, and the
+workflow creates no intermediate loose files.
+
 ### M4: Build and rapid test loop
 
-- Archive build from successful staging.
+- Archive build from successful staging through the M3A SDK packer.
 - ISO validation, patch plan, journaling/recovery, verification.
 - One-click **Bake, Build & Patch**.
 - Clear success/file-access failure behavior for an externally managed emulator.
@@ -1534,6 +1611,14 @@ vanilla NTSC-U UYA assets only. Custom GLBs and custom texture quantization are 
 P0 uses a fixed 100-entry and approximately 128 MiB session-history limit,
 evicting the oldest complete commands when either limit is reached. Configuration
 can be added later if real projects demonstrate a need.
+
+#### DR-018: Ratchet SDK binary-write authority
+
+The reusable assemblies in the ratchet-ps2-cli package own game payload writers,
+container layout, compression, patch planning, and ISO mutation. Forge.Host calls
+those APIs directly in-process. The command-line application may expose the same
+operations for diagnostics, but it is not an integration boundary and contains no
+separate binary implementation.
 
 ### Open decisions
 

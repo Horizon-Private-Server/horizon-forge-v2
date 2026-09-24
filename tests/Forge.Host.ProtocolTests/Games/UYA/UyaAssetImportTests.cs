@@ -1,11 +1,24 @@
+using Forge.Host.Games.UYA;
 using System.Buffers.Binary;
 using Forge.Host.Domain;
 using RatchetPs2.Games.UYA.Level;
+
+namespace Forge.Host.ProtocolTests.Games.UYA;
 
 internal static class UyaAssetImportTests
 {
     public static async Task RunAsync()
     {
+        var definitionA = new byte[0x20];
+        var definitionB = new byte[0x20];
+        WriteInt32(definitionA, 0, 0x100);
+        WriteInt32(definitionB, 0, 0x900);
+        definitionA.AsSpan(0x10).Fill(1);
+        definitionB.AsSpan(0x10).Fill(2);
+        Equal(true, UyaCanonicalAssetCodec.Encode(definitionA, [1], [])
+            .SequenceEqual(UyaCanonicalAssetCodec.Encode(definitionB, [1], [])),
+            "volatile native references do not split canonical assets");
+
         var root = Path.Combine(Path.GetTempPath(), $"forge-uya-import-{Guid.NewGuid():N}");
         Directory.CreateDirectory(root);
         try

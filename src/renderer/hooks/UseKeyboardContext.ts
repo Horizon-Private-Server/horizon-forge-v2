@@ -24,6 +24,7 @@ export function useKeyboardContext(keybindings: KeybindingMap, onAction: (action
       if (isTextInput(event.target) || document.querySelector('[role="dialog"]')) return;
       const action = forgeActionForKeybinding(findKeybindingCommand(keybindings, event, 'global'));
       if (!action) return;
+      if (action === 'copyEntities' && window.getSelection()?.toString()) return;
       event.preventDefault();
       onAction(action);
     };

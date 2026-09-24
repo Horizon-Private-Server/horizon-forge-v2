@@ -1,3 +1,4 @@
+using Forge.Host.Games.UYA;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -148,8 +149,10 @@ internal static class ForgeProjectTests
             Equal(true, legacyDescriptor.MigrationPending, "project inspection offers migration");
             Equal(0, ReadSchemaVersion(await File.ReadAllBytesAsync(Path.Combine(legacyPath, ForgeProjectWorkspace.ManifestFileName))),
                 "migration does not silently overwrite v0 manifest");
-            legacyDescriptor = await UyaProjectService.MigrateAsync(legacyPath, catalog, string.Empty);
-            Equal(false, legacyDescriptor.MigrationPending, "explicit migration completes upgrade");
+            await legacy.SaveAsync();
+            legacyDescriptor = await UyaProjectService.InspectAsync(legacyPath, catalog);
+            Equal(true, legacyDescriptor.MigrationPending,
+                "schema-only migration still requires UYA source-backed content upgrade");
             Equal(1, ReadSchemaVersion(await File.ReadAllBytesAsync(Path.Combine(legacyPath, ForgeProjectWorkspace.ManifestFileName))),
                 "explicit save writes v1 manifest");
 

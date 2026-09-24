@@ -82,6 +82,7 @@ export function installApplicationMenu(runAction: (action: ForgeAction) => void)
             { label: 'Scene', click: () => runAction('showSceneTree') },
             { label: 'Properties', click: () => runAction('showProperties') },
             { label: 'Diagnostics', click: () => runAction('showDiagnostics') },
+            { label: 'Build', click: () => runAction('showBuild') },
           ],
         },
         { label: 'Reset Layout', click: () => runAction('resetLayout') },

@@ -1,5 +1,8 @@
+using Forge.Host.Games.UYA;
 using Forge.Host.Domain;
 using RatchetPs2.Core.Wad.Models;
+
+namespace Forge.Host.ProtocolTests.Games.UYA;
 
 internal static class UyaRenderPackageTests
 {

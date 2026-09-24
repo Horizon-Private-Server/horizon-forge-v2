@@ -1,4 +1,4 @@
-namespace Forge.Host.Domain;
+namespace Forge.Host.Games.UYA;
 
 public sealed record UyaAssetImportRequest(
     string SourceIsoPath,

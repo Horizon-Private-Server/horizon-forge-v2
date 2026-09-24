@@ -1,23 +1,38 @@
+using Forge.Host.Domain;
 using System.Numerics;
+using RatchetPs2.Core.Games;
+using RatchetPs2.Core.Gameplay;
 using RatchetPs2.Games.DL.Level;
 using RatchetPs2.Games.UYA.Gameplay;
 using RatchetPs2.Games.UYA.Level;
+using RatchetPs2.Sdk;
 
-namespace Forge.Host.Domain;
+namespace Forge.Host.Games.UYA;
 
 internal static class UyaBaseLevelService
 {
     public static UyaBaseLevelData Read(Stream iso, AssetCatalogStore catalog, int level)
     {
-        var levelWad = UyaLooseLevelWadExtractor.ExtractPrimary(iso, level).Bytes;
+        var levelWad = LevelArchiveReader.ExtractPrimary(GameId.UYA, iso, level);
         var package = UyaLevelWadUnpacker.Unpack(levelWad);
         var files = package.Files.ToDictionary(file => file.Path, StringComparer.Ordinal);
         var mobyBytes = Required(files, "gameplay/core/moby_instances.bin", level);
         var tieBytes = Required(files, "gameplay/core/tie_instances.bin", level);
         var shrubBytes = Required(files, "gameplay/core/shrub_instances.bin", level);
-        var mobys = mobyBytes.Length == 0 ? [] : UyaMobyInstancesReader.Read(mobyBytes).Instances;
-        var ties = tieBytes.Length == 0 ? [] : UyaTieInstancesReader.Read(tieBytes).Instances;
-        var shrubs = shrubBytes.Length == 0 ? [] : UyaShrubInstancesReader.Read(shrubBytes).Instances;
+        var gameplayPvars = UyaGameplayBlockReader.ReadCore(
+            Required(files, "gameplay/gameplay_core.bin", level)).PvarTables;
+        var mobyTable = mobyBytes.Length == 0
+            ? new UyaMobyInstances(0, 0, 0, 0, [], [])
+            : UyaMobyInstancesReader.Read(mobyBytes);
+        var mobys = mobyTable.Instances;
+        var tieTable = tieBytes.Length == 0
+            ? new UyaTieInstances(0, [0, 0, 0], [], [])
+            : UyaTieInstancesReader.Read(tieBytes);
+        var shrubTable = shrubBytes.Length == 0
+            ? new UyaShrubInstances(0, [0, 0, 0], [], [])
+            : UyaShrubInstancesReader.Read(shrubBytes);
+        var ties = tieTable.Instances;
+        var shrubs = shrubTable.Instances;
 
         var source = UyaLevelWadRenderPackageBuilder.ReadAssetSourceFiles(package.Files);
         var header = DlAssetReader.ReadHeader(source.HeaderBytes);
@@ -45,7 +60,7 @@ internal static class UyaBaseLevelService
                 new("UYA", level, "gameplay/core/moby_instances", index),
                 Source: new(instance.ClassId, mobyBytes.AsSpan(
                     UyaMobyInstancesReader.HeaderSize + index * UyaMobyInstancesReader.RecordSize,
-                    UyaMobyInstancesReader.RecordSize).ToArray())));
+                    UyaMobyInstancesReader.RecordSize).ToArray(), !mobyClasses.Contains(instance.ClassId))));
         }
 
         var fallbackTransforms = 0;
@@ -69,7 +84,18 @@ internal static class UyaBaseLevelService
             mobys.Count(instance => !mobyClasses.Contains(instance.ClassId)),
             missing,
             missingClasses,
-            fallbackTransforms);
+            fallbackTransforms,
+            UyaOpaqueContentService.Capture(levelWad, package),
+            UyaBaseLayerService.Extract(package),
+            [
+                new(BakeLayerId.Ties, UyaTieInstancesReader.RecordSize,
+                    tieTable.HeaderWords, tieTable.TrailingBytes),
+                new(BakeLayerId.Shrubs, UyaShrubInstancesReader.RecordSize,
+                    shrubTable.HeaderWords, shrubTable.TrailingBytes),
+                new(BakeLayerId.Mobys, UyaMobyInstancesReader.RecordSize,
+                    [mobyTable.SpawnableMobyCount, mobyTable.Pad8, mobyTable.PadC], mobyTable.TrailingBytes),
+            ],
+            gameplayPvars);
     }
 
     private static ProjectEntity CreateStaticEntity(
@@ -164,6 +190,7 @@ internal static class UyaBaseLevelService
         var result = new Dictionary<int, AssetCatalogEntry>();
         foreach (var asset in catalog.Query(new(Kind: kind, Game: "UYA", Level: $"level{level:00}", Limit: AssetCatalogStore.MaxQueryLimit)))
         {
+            if (asset.CanonicalFormatVersion != UyaAssetImportService.CanonicalFormatVersion) continue;
             var prefix = $"{aliasPrefix}:";
             var alias = asset.Aliases.FirstOrDefault(value => value.StartsWith(prefix, StringComparison.Ordinal)
                 && !value.StartsWith($"{prefix}0x", StringComparison.Ordinal));
@@ -204,4 +231,8 @@ internal sealed record UyaBaseLevelData(
     int ModelLessInstanceCount,
     int MissingInstanceCount,
     int MissingClassCount,
-    int FallbackTransformCount);
+    int FallbackTransformCount,
+    IReadOnlyList<OpaqueSectionCapture> OpaqueSections,
+    IReadOnlyList<UyaBaseLayerPayload> BaseLayers,
+    IReadOnlyList<UyaStaticLayerSourceRecord> StaticLayers,
+    GameplayPvarTables? GameplayPvars);
