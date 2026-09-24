@@ -26,6 +26,10 @@ test('settings validate defaults and preserve unknown keys', async () => {
     assert.equal(invalid.entries.find((entry) => entry.key === 'editor.autosaveSeconds')?.value, 30);
     assert.equal(invalid.entries.find((entry) => entry.key === 'ui.showViewportStats')?.value, true);
     assert.equal(invalid.entries.find((entry) => entry.key === 'keybindings.overrides')?.value, '{}');
+    assert.equal(invalid.entries.find((entry) => entry.key === 'updates.automaticChecks')?.value, true);
+    assert.equal(invalid.entries.find((entry) => entry.key === 'updates.channel')?.value, 'stable');
+    assert.equal((await new SettingsStore(paths, 'nightly').getSnapshot()).entries
+      .find((entry) => entry.key === 'updates.channel')?.value, 'nightly');
     assert.match(invalid.diagnostics.join('\n'), /editor\.autosaveSeconds/);
 
     await store.set('paths.projects', '/maps/projects');
@@ -48,6 +52,8 @@ test('settings validate defaults and preserve unknown keys', async () => {
       'imports.uya.enabled': true,
       'keybindings.overrides': '{}',
       'ui.showViewportStats': true,
+      'updates.automaticChecks': true,
+      'updates.channel': 'stable',
     });
     await store.reset();
     assert.deepEqual(JSON.parse(await readFile(paths.settingsFile, 'utf8')), { 'future.setting': { enabled: true } });

@@ -10,18 +10,24 @@ import { errorMessage } from '../utils/Errors.js';
 import { availableBytes, fileExists, writeJsonSafely } from '../utils/FileSystem.js';
 import { isTrustedSender } from '../utils/Security.js';
 import type { RecentProjects } from './RecentProjects.js';
+import type { NotificationCenter } from './NotificationCenter.js';
+import { registerNotificationIpcHandlers } from './NotificationIpcHandlers.js';
 import { registerBuildIpcHandlers } from './BuildIpcHandlers.js';
 import { setEditorMenuState, setEditorTextInputActive } from './ApplicationMenu.js';
 import type { RenderAssetProtocol } from './RenderAssetProtocol.js';
 import { registerRenderIpcHandlers } from './RenderIpcHandlers.js';
 import type { SettingsStore } from './Settings.js';
+import type { UpdateService } from './UpdateService.js';
+import { registerUpdateIpcHandlers } from './UpdateIpcHandlers.js';
 import { registerWindowIpcHandlers } from './WindowIpcHandlers.js';
 import type { HostClient } from './bridge/HostClient.js';
 
 interface IpcHandlersOptions {
   host: HostClient;
+  notifications: NotificationCenter;
   recentProjects: RecentProjects;
   settings: SettingsStore;
+  updates: UpdateService;
   renderAssets: RenderAssetProtocol;
   getMainWindow: () => BrowserWindow | undefined;
 }
@@ -29,7 +35,7 @@ interface IpcHandlersOptions {
 const uyaImportVersion = 1;
 
 export function registerIpcHandlers(options: IpcHandlersOptions): void {
-  const { host, recentProjects, settings, renderAssets, getMainWindow } = options;
+  const { host, notifications, recentProjects, settings, updates, renderAssets, getMainWindow } = options;
   let activeSetupRequestId: number | undefined;
 
   function assertSender(senderId: number): void {
@@ -44,6 +50,8 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
   registerRenderIpcHandlers({ host, settings, renderAssets, assertSender });
   registerBuildIpcHandlers({ host, settings, getMainWindow, assertSender });
   registerWindowIpcHandlers({ getMainWindow, assertSender });
+  registerNotificationIpcHandlers(notifications, assertSender);
+  registerUpdateIpcHandlers(updates, settings, assertSender);
 
   async function getSettingValues(): Promise<Record<string, string | number | boolean>> {
     const snapshot = await settings.getSnapshot();

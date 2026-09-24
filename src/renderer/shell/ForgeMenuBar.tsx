@@ -71,6 +71,7 @@ export function ForgeMenuBar({ keybindings, project, onAction }: ForgeMenuBarPro
     <TopMenu label="Forge">
       <Item onClick={() => onAction('setup')}>Setup…</Item>
       <Item shortcut={shortcut('app.settings')} onClick={() => onAction('settings')}>Settings…</Item>
+      <Item onClick={() => onAction('checkUpdates')}>Check for Updates…</Item>
     </TopMenu>
   </nav>;
 }

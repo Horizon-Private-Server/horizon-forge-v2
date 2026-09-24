@@ -61,6 +61,47 @@ body {
   background: #191d24;
 }
 
+.notification-trigger {
+  position: relative;
+  display: inline-flex;
+}
+
+.notification-dot {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 7px;
+  height: 7px;
+  border: 1px solid #191d24;
+  border-radius: 50%;
+  background: var(--mantine-color-red-6);
+  pointer-events: none;
+}
+
+.notification-menu {
+  max-height: min(32rem, 70vh);
+  overflow-y: auto;
+}
+
+.notification-item {
+  padding: var(--mantine-spacing-xs);
+  border-top: 1px solid var(--mantine-color-dark-4);
+  border-left: 2px solid var(--mantine-primary-color-filled);
+}
+
+.notification-item[data-severity='warning'] {
+  border-left-color: var(--mantine-color-yellow-6);
+}
+
+.notification-item[data-severity='error'] {
+  border-left-color: var(--mantine-color-red-6);
+}
+
+.notification-message {
+  margin-top: 2px;
+  white-space: pre-line;
+}
+
 .app-content {
   display: flex;
   min-height: 0;

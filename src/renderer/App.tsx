@@ -7,10 +7,12 @@ import { parseKeybindingOverrides, resolveKeybindings } from '../utils/Keybindin
 import { EditorWorkspace } from './editor/EditorWorkspace.tsx';
 import { useForgeActions } from './hooks/UseForgeActions.ts';
 import { useKeyboardContext } from './hooks/UseKeyboardContext.ts';
+import { useNotifications } from './hooks/UseNotifications.ts';
 import { ProjectHub } from './projects/ProjectHub.tsx';
 import { SettingsModal } from './settings/SettingsModal.tsx';
 import { SetupWizard } from './setup/SetupWizard.tsx';
 import { ForgeMenuBar } from './shell/ForgeMenuBar.tsx';
+import { NotificationMenu } from './shell/NotificationMenu.tsx';
 
 export function App() {
   const [hostStatus, setHostStatus] = useState<ForgeHostStatus>();
@@ -30,6 +32,7 @@ export function App() {
     clearEditorError,
   } = useForgeActions(setSetupOpened, setSettingsOpened);
   useKeyboardContext(keybindings, handleForgeAction);
+  const notificationCenter = useNotifications();
 
   useEffect(() => {
     let mounted = true;
@@ -70,6 +73,11 @@ export function App() {
             <Text c="dimmed" size="xs">Ratchet &amp; Clank map editor</Text>
           </div>
           <Group>
+            <NotificationMenu
+              notifications={notificationCenter.notifications}
+              onDismiss={notificationCenter.dismiss}
+              onAction={notificationCenter.runAction}
+            />
             {activeProject && <>
               <Text size="sm">{activeProject.projectName}</Text>
               {activeProject.isDirty && <Badge color="yellow" variant="light">Unsaved</Badge>}

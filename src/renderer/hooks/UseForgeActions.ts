@@ -12,6 +12,9 @@ export function useForgeActions(setSetupOpened: (value: boolean) => void, setSet
   const handleForgeAction = useCallback((action: ForgeAction) => {
     if (action === 'setup') setSetupOpened(true);
     else if (action === 'settings') setSettingsOpened(true);
+    else if (action === 'checkUpdates') {
+      void window.forge.checkForUpdates().catch((error) => setEditorError(errorMessage(error)));
+    }
     else if (action === 'saveProject') {
       if (activeProject) void window.forge.saveEditorProject()
         .then(setActiveProject)

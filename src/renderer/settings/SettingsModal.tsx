@@ -1,4 +1,4 @@
-import { Alert, Modal, Stack, Switch, Tabs, TextInput } from '@mantine/core';
+import { Alert, Modal, Select, Stack, Switch, Tabs, TextInput } from '@mantine/core';
 import { useEffect, useState } from 'react';
 
 import type { KeybindingMap, KeybindingOverrides } from '../../types/Keybindings.js';
@@ -16,6 +16,8 @@ interface SettingsModalProps {
 export function SettingsModal({ opened, onClose, onKeybindingsChange, onViewportStatsChange }: SettingsModalProps) {
   const [sourceIso, setSourceIso] = useState('');
   const [showViewportStats, setShowViewportStats] = useState(true);
+  const [automaticUpdateChecks, setAutomaticUpdateChecks] = useState(true);
+  const [updateChannel, setUpdateChannel] = useState<'stable' | 'nightly'>('stable');
   const [keybindingOverrides, setKeybindingOverrides] = useState<KeybindingOverrides>({});
   const [error, setError] = useState<string>();
 
@@ -24,10 +26,14 @@ export function SettingsModal({ opened, onClose, onKeybindingsChange, onViewport
     void window.forge.getSettings().then((snapshot) => {
       const source = snapshot.entries.find((entry) => entry.key === 'sources.uya.iso');
       const stats = snapshot.entries.find((entry) => entry.key === 'ui.showViewportStats');
+      const updates = snapshot.entries.find((entry) => entry.key === 'updates.automaticChecks');
+      const channel = snapshot.entries.find((entry) => entry.key === 'updates.channel');
       const storedBindings = snapshot.entries.find((entry) => entry.key === 'keybindings.overrides')?.value;
       const overrides = parseKeybindingOverrides(storedBindings);
       setSourceIso(typeof source?.value === 'string' ? source.value : '');
       setShowViewportStats(stats?.value === true);
+      setAutomaticUpdateChecks(updates?.value === true);
+      setUpdateChannel(channel?.value === 'nightly' ? 'nightly' : 'stable');
       setKeybindingOverrides(overrides);
       onKeybindingsChange(resolveKeybindings(overrides));
       onViewportStatsChange(stats?.value === true);
@@ -64,6 +70,38 @@ export function SettingsModal({ opened, onClose, onKeybindingsChange, onViewport
                     setShowViewportStats(!value);
                     setError(errorMessage(reason));
                   });
+              }}
+            />
+            <Select
+              label="Update channel"
+              description="Stable receives tagged releases; nightly receives successful main-branch builds."
+              value={updateChannel}
+              data={[
+                { value: 'stable', label: 'Stable' },
+                { value: 'nightly', label: 'Nightly' },
+              ]}
+              allowDeselect={false}
+              onChange={(value) => {
+                if (value !== 'stable' && value !== 'nightly') return;
+                const previous = updateChannel;
+                setUpdateChannel(value);
+                void window.forge.setSetting('updates.channel', value).catch((reason: unknown) => {
+                  setUpdateChannel(previous);
+                  setError(errorMessage(reason));
+                });
+              }}
+            />
+            <Switch
+              checked={automaticUpdateChecks}
+              label="Automatically check for updates"
+              description="Check the selected update channel and ask before downloading."
+              onChange={(event) => {
+                const value = event.currentTarget.checked;
+                setAutomaticUpdateChecks(value);
+                void window.forge.setSetting('updates.automaticChecks', value).catch((reason: unknown) => {
+                  setAutomaticUpdateChecks(!value);
+                  setError(errorMessage(reason));
+                });
               }}
             />
             {error && <Alert color="red" title="Settings error">{error}</Alert>}

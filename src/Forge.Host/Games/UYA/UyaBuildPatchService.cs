@@ -54,6 +54,7 @@ public static class UyaBuildPatchService
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
+        await RestoreInterruptedPatchAsync(request.DevelopmentIso, progress);
         await ReportAsync(progress, new(UyaBuildPatchPhase.Preflight, 0, 1, "Validating build inputs."));
         var workspace = await ForgeProjectWorkspace.OpenAsync(request.ProjectRoot, cancellationToken);
         ValidateRequest(request, workspace);

@@ -76,6 +76,14 @@ internal static class UyaIsoSetupTests
             Equal(levelWadSector * (long)UyaLevelConstants.SectorSize,
                 plan.SdkPlan.Ranges.Single().Offset, "development ISO patch header offset");
 
+            await using (var locked = new FileStream(target, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            {
+                var lockedError = await ExpectAsync<IOException>(() => UyaIsoPatchService.PlanAsync(
+                    source, target, 3, packedLevel, expectedIsoSize: sourceBytes.Length));
+                Contains(lockedError.Message, "Close/eject it from PCSX2 and retry.",
+                    "locked development ISO guidance");
+            }
+
             var oversizedLevel = packedLevel.Concat(new byte[UyaLevelConstants.SectorSize]).ToArray();
             BinaryPrimitives.WriteInt32LittleEndian(oversizedLevel.AsSpan(0x10), 1);
             BinaryPrimitives.WriteInt32LittleEndian(oversizedLevel.AsSpan(0x14), 1);
@@ -404,10 +412,10 @@ internal static class UyaIsoSetupTests
         throw new InvalidOperationException($"Expected {typeof(T).Name}");
     }
 
-    private static async Task ExpectAsync<T>(Func<Task> action) where T : Exception
+    private static async Task<T> ExpectAsync<T>(Func<Task> action) where T : Exception
     {
         try { await action(); }
-        catch (T) { return; }
+        catch (T exception) { return exception; }
         throw new InvalidOperationException($"Expected {typeof(T).Name}");
     }
 

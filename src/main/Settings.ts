@@ -5,15 +5,16 @@ import { writeJsonSafely } from '../utils/FileSystem.ts';
 import { isKeybindingOverrides } from '../utils/Keybindings.ts';
 import type { KnownSettings, SettingEntry, SettingsSnapshot, SettingValue } from '../types/ForgeApi.js';
 import type { ApplicationPaths, RawSettings, SettingDefinition } from '../types/Settings.js';
+import type { UpdateChannel } from '../types/Updates.js';
 
 export class SettingsStore {
   readonly paths: ApplicationPaths;
   private readonly definitions: SettingDefinition[];
   private writes: Promise<void> = Promise.resolve();
 
-  constructor(paths: ApplicationPaths) {
+  constructor(paths: ApplicationPaths, defaultUpdateChannel: UpdateChannel = 'stable') {
     this.paths = paths;
-    this.definitions = createDefinitions(paths);
+    this.definitions = createDefinitions(paths, defaultUpdateChannel);
   }
 
   async ensureFile(): Promise<void> {
@@ -127,7 +128,7 @@ export class SettingsStore {
   }
 }
 
-function createDefinitions(paths: ApplicationPaths): SettingDefinition[] {
+function createDefinitions(paths: ApplicationPaths, defaultUpdateChannel: UpdateChannel): SettingDefinition[] {
   const absolutePath = (value: unknown): value is string => typeof value === 'string'
     && (value === '' || path.posix.isAbsolute(value) || path.win32.isAbsolute(value));
   return [
@@ -153,6 +154,18 @@ function createDefinitions(paths: ApplicationPaths): SettingDefinition[] {
       description: 'Show rendering performance in the viewport.', defaultValue: true, restartRequired: false,
       machineSpecific: false, editable: true,
       validate: (value): value is boolean => typeof value === 'boolean',
+    },
+    {
+      key: 'updates.automaticChecks', group: 'Updates', label: 'Automatically check for updates', type: 'boolean',
+      description: 'Periodically check the installed release channel and ask before downloading.',
+      defaultValue: true, restartRequired: false, machineSpecific: false, editable: true,
+      validate: (value): value is boolean => typeof value === 'boolean',
+    },
+    {
+      key: 'updates.channel', group: 'Updates', label: 'Update channel', type: 'text',
+      description: 'Choose stable releases or main-branch nightly builds.', defaultValue: defaultUpdateChannel,
+      restartRequired: false, machineSpecific: false, editable: true,
+      validate: (value): value is UpdateChannel => value === 'stable' || value === 'nightly',
     },
     {
       key: 'imports.uya.enabled', group: 'Imports', label: 'Import UYA assets', type: 'boolean',

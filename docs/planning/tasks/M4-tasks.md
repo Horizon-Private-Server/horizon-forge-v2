@@ -168,3 +168,7 @@ Acceptance:
 - The qualification includes no-op, normal, fallback, cancel, and recovery paths.
 
 Verification: signed-off Linux and Windows milestone checklist with retained logs.
+
+Qualification: [external PCSX2 loop checklist](../../qualification/M4-pcsx2-test-loop.md).
+The automated recovery and file-lock gates are in place; remaining packaged Linux
+and Windows rows stay explicitly pending until manually signed off.

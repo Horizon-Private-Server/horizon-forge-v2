@@ -1,6 +1,8 @@
 import type { EditorCommand, EditorEvent, EditorSnapshot } from './EditorRuntime.js';
+import type { ForgeNotification } from './Notifications.js';
 
 export type { EditorCommand, EditorEvent, EditorSnapshot } from './EditorRuntime.js';
+export type { ForgeNotification } from './Notifications.js';
 
 export interface ForgeHostStatus {
   hostVersion: string;
@@ -27,6 +29,8 @@ export interface KnownSettings {
   'targets.uya.developmentIso': string;
   'ui.editorLayout': string;
   'ui.showViewportStats': boolean;
+  'updates.automaticChecks': boolean;
+  'updates.channel': 'stable' | 'nightly';
 }
 
 export type SettingKey = keyof KnownSettings;
@@ -234,7 +238,7 @@ export type EditorLayoutAction = 'resetLayout' | 'showViewport' | 'showSceneTree
 
 export type ForgeAction = ForgeDialog | EditorLayoutAction
   | 'projects' | 'newProject' | 'openProject' | 'saveProject' | 'undoEditor' | 'redoEditor'
-  | 'deleteEntities' | 'duplicateEntities' | 'copyEntities' | 'pasteEntities';
+  | 'deleteEntities' | 'duplicateEntities' | 'copyEntities' | 'pasteEntities' | 'checkUpdates';
 
 export type ForgeWindowAction = 'quit' | 'minimize' | 'toggleMaximize'
   | 'resetZoom' | 'zoomIn' | 'zoomOut' | 'toggleFullscreen' | 'toggleDevTools';
@@ -246,6 +250,10 @@ export interface ForgeApi {
   setSetting(key: string, value: unknown): Promise<SettingsSnapshot>;
   resetSettings(key?: string): Promise<SettingsSnapshot>;
   exportSettings(includeMachinePaths: boolean): Promise<boolean>;
+  checkForUpdates(): Promise<void>;
+  getNotifications(): Promise<ForgeNotification[]>;
+  dismissNotification(id: string): Promise<void>;
+  runNotificationAction(id: string): Promise<void>;
   getSetupState(): Promise<SetupState>;
   chooseSetupDirectory(kind: 'projects' | 'developmentIsos'): Promise<SetupState>;
   chooseUyaSource(): Promise<{ path: string; identity: UyaIsoIdentity } | undefined>;
@@ -283,4 +291,5 @@ export interface ForgeApi {
   onBuildPatchProgress(listener: (progress: BuildPatchProgress) => void): () => void;
   onSetupProgress(listener: (progress: SetupProgress) => void): () => void;
   onForgeAction(listener: (action: ForgeAction) => void): () => void;
+  onNotificationsChanged(listener: (notifications: ForgeNotification[]) => void): () => void;
 }

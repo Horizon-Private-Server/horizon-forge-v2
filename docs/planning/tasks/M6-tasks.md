@@ -40,7 +40,9 @@ Implementation: successful `main` pushes build self-contained Linux and Windows
 archives, assign `2.0.0-nightly.<run>.<short-sha>`, embed channel/commit/SDK/protocol
 metadata, publish checksums as a GitHub prerelease, and retain intermediate Actions
 artifacts for 14 days. Pull requests and non-main branches package for validation
-without receiving a release version or publication credentials.
+without receiving a release version or publication credentials. Each published
+nightly also carries a machine-readable, channel-scoped release manifest containing
+the full commit, SDK revision, bridge protocol, platform, architecture, size, and hash.
 
 ## M6-003 — Publish stable tagged releases
 
@@ -59,6 +61,16 @@ Acceptance:
 
 Verification: non-publishing workflow tests plus one maintainer-approved release rehearsal.
 
+Implementation: a pushed final SemVer tag must exactly match `package.json` before
+either platform packages. The existing Linux/Windows matrix runs the full test gate,
+embeds the stable channel and tag version, and uploads the same package contract used
+by nightlies. A protected `stable-release` job publishes checksums and a deterministic
+provenance/update manifest as a non-prerelease GitHub Release with generated notes.
+An existing published stable tag is validated and left untouched on rerun; a draft or
+prerelease collision fails instead of mutating release identity. Signing credentials
+are intentionally absent until platform signing is configured, and the stable job's
+environment is the only future credential boundary.
+
 ## M6-004 — Implement consent-based update checks
 
 Requirements: FR-UPD-001, FR-UPD-002, FR-UPD-003, NFR-SEC-004
@@ -75,6 +87,18 @@ Acceptance:
 - Windows uses verified package updates; Linux clearly hands off where packaging requires it.
 
 Verification: signed/invalid metadata, channel isolation, defer, unsaved-work, and install tests.
+
+Implementation: packaged builds default to their embedded release channel, while an
+explicit Settings choice allows users to switch between stable and nightly. Checks
+remain isolated to the selected channel against the fixed Horizon Forge GitHub
+release source. Manual checks are available from the Forge menu and periodic checks
+are enabled by default in Settings. Validated updates enter the shared header
+notification center with their source, version, channel, notes, size, and an explicit
+handoff action; dismissing the notification defers the update. Linux opens the trusted
+release page. Windows downloads the selected archive without restarting Forge and
+accepts it only when its byte length and SHA-256 match the release manifest. Dirty
+projects are called out explicitly and Forge never closes or replaces itself. Native
+package signing remains the stable-release environment's future credential gate.
 
 ## M6-005 — Establish performance and memory release baselines
 

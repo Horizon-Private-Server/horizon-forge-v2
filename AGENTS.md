@@ -30,6 +30,7 @@ These rules apply to the entire repository unless a more specific `AGENTS.md` ov
 ## Implementation constraints
 
 - Keep classes and modules focused and ideally below 500 logical lines. Treat the limit as a signal to separate responsibilities, not a reason to create one-use abstractions or fragment cohesive code (NFR-MAINT-002).
+- Use `@phosphor-icons/react` for interface iconography. Import individual icons from `dist/csr/<Icon>` so development and production builds do not traverse the full icon catalog.
 - Preserve the dependency direction: parsing and transformation belong in the Ratchet PS2 SDK, desktop orchestration in `Forge.Host`, lifecycle and privileged integration in Electron, and presentation in React/Three.js (NFR-MAINT-001).
 - Prefer the platform, standard library, existing SDK, and installed dependencies before adding packages. New runtime dependencies require a concrete current use (NFR-MAINT-003).
 - Keep import, bake, hash, pack, and patch work off the Electron main and renderer loops. Long operations need progress and cancellation at safe checkpoints (NFR-PERF-004, NFR-REL-003).

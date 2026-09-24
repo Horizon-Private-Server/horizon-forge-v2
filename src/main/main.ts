@@ -3,12 +3,16 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { createApplicationPaths } from '../utils/ApplicationPaths.js';
+import { applicationTitle } from '../utils/ApplicationTitle.js';
 import { isAllowedNavigation } from '../utils/Security.js';
-import { installApplicationMenu } from './ApplicationMenu.js';
+import type { UpdateChannel } from '../types/Updates.js';
+import { installApplicationMenu, isEditorDirty } from './ApplicationMenu.js';
 import { registerIpcHandlers } from './IpcHandlers.js';
+import { NotificationCenter } from './NotificationCenter.js';
 import { RecentProjects } from './RecentProjects.js';
 import { RenderAssetProtocol } from './RenderAssetProtocol.js';
 import { SettingsStore } from './Settings.js';
+import { UpdateService } from './UpdateService.js';
 import { HostClient } from './bridge/HostClient.js';
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
@@ -28,8 +32,9 @@ protocol.registerSchemesAsPrivileged([{
   privileges: { secure: true, standard: true, supportFetchAPI: true, corsEnabled: true },
 }]);
 
-function createWindow(): void {
+function createWindow(installedChannel?: UpdateChannel): void {
   const window = new BrowserWindow({
+    title: applicationTitle(app.isPackaged, app.getVersion(), installedChannel),
     width: 1280,
     height: 800,
     minWidth: 800,
@@ -47,6 +52,7 @@ function createWindow(): void {
   window.setMenuBarVisibility(false);
 
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  window.on('page-title-updated', (event) => event.preventDefault());
   window.webContents.on('will-navigate', (event, url) => {
     if (!isAllowedNavigation(url, applicationUrl)) event.preventDefault();
   });
@@ -58,28 +64,48 @@ function createWindow(): void {
 
 app.whenReady().then(async () => {
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
+  const notifications = new NotificationCenter(() => mainWindow);
+  const updates = await UpdateService.create({
+    version: app.getVersion(),
+    getMainWindow: () => mainWindow,
+    isProjectDirty: isEditorDirty,
+    notifications,
+  }, path.join(app.getAppPath(), 'package.json'));
   const settings = new SettingsStore(createApplicationPaths(
     app.getPath('userData'),
     app.getPath('documents'),
     app.getPath('logs'),
-  ));
+  ), updates.installedChannel ?? 'stable');
   await settings.ensureFile().catch((error) => console.error('Could not initialize Forge settings', error));
   const recentProjects = new RecentProjects(path.join(settings.paths.data, 'recent-projects.json'));
   const renderAssets = new RenderAssetProtocol(settings.paths.renderCache);
   renderAssets.register();
   registerIpcHandlers({
     host,
+    notifications,
     recentProjects,
     renderAssets,
     settings,
+    updates,
     getMainWindow: () => mainWindow,
   });
   installApplicationMenu((action) => mainWindow?.webContents.send('forge:action', action));
-  createWindow();
+  createWindow(updates.installedChannel);
   void host.start().catch((error) => console.error('Forge host failed to start', error));
+  if (app.isPackaged) {
+    const checkForUpdates = async () => {
+      const snapshot = await settings.getSnapshot();
+      const enabled = snapshot.entries.find((entry) => entry.key === 'updates.automaticChecks')?.value === true;
+      const channel = snapshot.entries.find((entry) => entry.key === 'updates.channel')?.value;
+      if (enabled && (channel === 'stable' || channel === 'nightly')) await updates.checkAndPrompt(false, channel);
+    };
+    const runUpdateCheck = () => void checkForUpdates().catch((error) => console.warn('Could not read update settings', error));
+    setTimeout(runUpdateCheck, 30_000).unref();
+    setInterval(runUpdateCheck, 6 * 60 * 60_000).unref();
+  }
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (BrowserWindow.getAllWindows().length === 0) createWindow(updates.installedChannel);
   });
 });
 

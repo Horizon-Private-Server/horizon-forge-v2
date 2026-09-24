@@ -6,6 +6,7 @@ import type {
   ForgeAction,
   ForgeApi,
   ForgeWindowAction,
+  ForgeNotification,
   Progress,
   SetupProgress,
 } from '../types/ForgeApi.js';
@@ -17,6 +18,10 @@ const forgeApi = Object.freeze({
   setSetting: (key: string, value: unknown) => ipcRenderer.invoke('forge:settings-set', key, value),
   resetSettings: (key?: string) => ipcRenderer.invoke('forge:settings-reset', key),
   exportSettings: (includeMachinePaths: boolean) => ipcRenderer.invoke('forge:settings-export', includeMachinePaths),
+  checkForUpdates: () => ipcRenderer.invoke('forge:updates-check'),
+  getNotifications: () => ipcRenderer.invoke('forge:notifications-get'),
+  dismissNotification: (id: string) => ipcRenderer.invoke('forge:notifications-dismiss', id),
+  runNotificationAction: (id: string) => ipcRenderer.invoke('forge:notifications-action', id),
   getSetupState: () => ipcRenderer.invoke('forge:setup-state'),
   chooseSetupDirectory: (kind: 'projects' | 'developmentIsos') => ipcRenderer.invoke('forge:setup-choose-directory', kind),
   chooseUyaSource: () => ipcRenderer.invoke('forge:setup-choose-source'),
@@ -72,6 +77,11 @@ const forgeApi = Object.freeze({
     const handler = (_event: Electron.IpcRendererEvent, action: ForgeAction) => listener(action);
     ipcRenderer.on('forge:action', handler);
     return () => ipcRenderer.removeListener('forge:action', handler);
+  },
+  onNotificationsChanged: (listener: (notifications: ForgeNotification[]) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, notifications: ForgeNotification[]) => listener(notifications);
+    ipcRenderer.on('forge:notifications-changed', handler);
+    return () => ipcRenderer.removeListener('forge:notifications-changed', handler);
   },
 }) satisfies ForgeApi;
 

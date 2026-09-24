@@ -295,6 +295,8 @@ internal static class UyaBakeWorkflowTests
             UyaIsoSetupTests.AddDiscIdentity(physicalIso);
             BinaryPrimitives.WriteInt32LittleEndian(
                 physicalIso.AsSpan(0x500 * UyaLevelConstants.SectorSize + 8), 3);
+            using var physicalStream = new MemoryStream(physicalIso, writable: false);
+            var physicalSourceLevel = UyaLooseLevelWadExtractor.ExtractPrimary(physicalStream, 3).Bytes;
             var cleanIso = Path.Combine(root, "clean.iso");
             var developmentIso = Path.Combine(root, "development.iso");
             await File.WriteAllBytesAsync(cleanIso, physicalIso);
@@ -322,12 +324,61 @@ internal static class UyaBakeWorkflowTests
             Equal(true, phases.Contains(UyaBuildPatchPhase.Complete), "one-click build reports completion");
             Equal(cleanHash, Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(cleanIso))),
                 "one-click build preserves clean ISO");
+            await using (var installedIso = File.OpenRead(developmentIso))
+            {
+                var installedLevel = UyaLooseLevelWadExtractor.ExtractPrimary(installedIso, 3).Bytes;
+                Equal(built.OutputLevelWadSha256,
+                    Convert.ToHexString(SHA256.HashData(installedLevel)).ToLowerInvariant(),
+                    "one-click build installs its verified WAD");
+                var installedAssets = ReadAssets(installedLevel);
+                foreach (var (kind, marker) in new[]
+                    {
+                        (AssetKind.Moby, (byte)0x11),
+                        (AssetKind.Tie, (byte)0x44),
+                        (AssetKind.Shrub, (byte)0x33),
+                    })
+                    Equal(true, UyaTextureQualification.MatchesBaseColors(
+                        installedAssets.Source, installedAssets.Header, installedAssets.AssetWad, kind, marker),
+                        $"installed {kind} texture preserves every color");
+            }
 
             var noOpBuild = await UyaBuildPatchService.RunAsync(
                 buildRequest, "host-test", "sdk-test");
             Equal(true, noOpBuild.Succeeded, "repeated one-click build succeeds");
             Equal(true, noOpBuild.BakeWasCurrent, "repeated one-click build skips clean layers");
             Equal(0, noOpBuild.BakedLayerCount, "repeated one-click build bakes no layers");
+            Equal(built.OutputLevelWadSha256, noOpBuild.OutputLevelWadSha256,
+                "repeated one-click build is byte deterministic");
+
+            var interruptedPack = await UyaLevelPackService.PackAsync(
+                project,
+                catalog,
+                physicalSourceLevel,
+                new(workspace.Manifest.Target, "ratchet-sdk:sdk-test", "forge-host:host-test"));
+            Equal(true, interruptedPack.Succeeded, "interrupted patch fixture packs");
+            var interruptedPlan = await UyaIsoPatchService.PlanAsync(
+                cleanIso, developmentIso, 3, interruptedPack.OutputBytes!, expectedIsoSize: physicalIso.Length);
+            await ThrowsAsync<InvalidOperationException>(() => UyaIsoPatchService.ApplyAsync(
+                interruptedPlan,
+                progress: null,
+                fault: value =>
+                {
+                    if (value.Phase == UyaIsoPatchFaultPhase.RangeDurable)
+                        throw new InvalidOperationException("Injected interrupted patch.");
+                },
+                CancellationToken.None));
+            phases.Clear();
+            var recoveredBuild = await UyaBuildPatchService.RunAsync(
+                buildRequest, "host-test", "sdk-test",
+                progress: value =>
+                {
+                    phases.Add(value.Phase);
+                    return ValueTask.CompletedTask;
+                });
+            Equal(true, recoveredBuild.Succeeded, "one-click build recovers an interrupted patch");
+            Equal(true, phases.Contains(UyaBuildPatchPhase.Recovery), "one-click build reports recovery progress");
+            Equal<UyaIsoPatchRecovery?>(null, await UyaIsoPatchService.InspectRecoveryAsync(developmentIso),
+                "one-click build clears the interrupted patch journal");
 
             workspace = await ForgeProjectWorkspace.OpenAsync(project);
             shrub = workspace.Content.Entities.Single(value => value.Layer == "shrubs");

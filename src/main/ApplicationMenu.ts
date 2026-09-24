@@ -7,6 +7,7 @@ let textInputActive = false;
 
 export function installApplicationMenu(runAction: (action: ForgeAction) => void): void {
   const setup: MenuItemConstructorOptions = { label: 'Setup…', click: () => runAction('setup') };
+  const updates: MenuItemConstructorOptions = { label: 'Check for Updates…', click: () => runAction('checkUpdates') };
   const settings: MenuItemConstructorOptions = {
     label: 'Settings…',
     click: () => runAction('settings'),
@@ -17,6 +18,7 @@ export function installApplicationMenu(runAction: (action: ForgeAction) => void)
       { type: 'separator' },
       setup,
       settings,
+      updates,
       { type: 'separator' },
       { role: 'services' },
       { type: 'separator' },
@@ -26,7 +28,7 @@ export function installApplicationMenu(runAction: (action: ForgeAction) => void)
       { type: 'separator' },
       { role: 'quit' },
     ]
-    : [setup, settings];
+    : [setup, settings, updates];
 
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     {
@@ -109,6 +111,10 @@ export function setEditorMenuState(snapshot?: EditorSnapshot): void {
 export function setEditorTextInputActive(active: boolean): void {
   textInputActive = active;
   updateEditorMenu();
+}
+
+export function isEditorDirty(): boolean {
+  return editorSnapshot?.isDirty ?? false;
 }
 
 function updateEditorMenu(): void {

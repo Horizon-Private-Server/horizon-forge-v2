@@ -147,3 +147,7 @@ Acceptance:
 - Repeated runs are deterministic and failures retain last known-good staging and ISO data.
 
 Verification: automated golden suite plus Linux and Windows PCSX2 qualification record.
+
+Qualification: [vanilla texture pipeline checklist](../../qualification/M5-texture-pipeline.md).
+The automated installed-ISO color, palette-count, determinism, and preservation gates
+are in place; packaged Linux and Windows PCSX2 rendering remains explicitly pending.
