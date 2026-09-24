@@ -27,8 +27,8 @@ const manifest = {
 };
 
 test('updates are ordered and release manifests stay within their trusted channel', () => {
-  assert.equal(applicationTitle(false, '2.0.0'), 'Horizon Forge — Local Dev');
-  assert.equal(applicationTitle(true, '2.0.0'), 'Horizon Forge — Standalone');
+  assert.equal(applicationTitle(false, '2.0.0'), 'Horizon Forge - Local Dev');
+  assert.equal(applicationTitle(true, '2.0.0'), 'Horizon Forge - Standalone');
   assert.equal(applicationTitle(true, '2.0.0', 'stable'), 'Horizon Forge v2.0.0');
   assert.equal(compareForgeVersions('2.0.0-nightly.43.89abcdef', manifest.version), 1);
   assert.equal(compareForgeVersions('2.0.0', manifest.version), 1);
