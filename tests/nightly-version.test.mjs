@@ -27,7 +27,7 @@ test('stable release notes compare against the previous stable release', async (
   assert.match(workflow, /--notes-start-tag "\$PREVIOUS_STABLE_TAG"/);
   assert.match(configuration, /title: Features/);
   assert.match(configuration, /title: Fixes/);
-  assert.match(configuration, /labels:\n\s+- '\*'/);
+  assert.match(configuration, /labels:\r?\n\s+- '\*'/);
 });
 
 test('release manifests retain channel, provenance, and package hashes', async (context) => {
