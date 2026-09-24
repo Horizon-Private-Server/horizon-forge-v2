@@ -13,6 +13,7 @@ import { SettingsModal } from './settings/SettingsModal.tsx';
 import { SetupWizard } from './setup/SetupWizard.tsx';
 import { ForgeMenuBar } from './shell/ForgeMenuBar.tsx';
 import { NotificationMenu } from './shell/NotificationMenu.tsx';
+import { UpdateCheckModal } from './updates/UpdateCheckModal.tsx';
 
 export function App() {
   const [hostStatus, setHostStatus] = useState<ForgeHostStatus>();
@@ -20,6 +21,7 @@ export function App() {
   const [showViewportStats, setShowViewportStats] = useState(true);
   const [keybindings, setKeybindings] = useState<KeybindingMap>(() => resolveKeybindings({}));
   const [setupOpened, setSetupOpened] = useState(false);
+  const [updateCheckOpened, setUpdateCheckOpened] = useState(false);
   const [hubRefresh, setHubRefresh] = useState(0);
   const {
     activeProject,
@@ -30,7 +32,7 @@ export function App() {
     openProject,
     setActiveProject,
     clearEditorError,
-  } = useForgeActions(setSetupOpened, setSettingsOpened);
+  } = useForgeActions(setSetupOpened, setSettingsOpened, setUpdateCheckOpened);
   useKeyboardContext(keybindings, handleForgeAction);
   const notificationCenter = useNotifications();
 
@@ -119,6 +121,7 @@ export function App() {
         setSetupOpened(false);
         setHubRefresh((value) => value + 1);
       }} />
+      <UpdateCheckModal opened={updateCheckOpened} onClose={() => setUpdateCheckOpened(false)} />
     </main>
   );
 }

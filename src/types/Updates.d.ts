@@ -28,3 +28,9 @@ export interface AvailableUpdate {
   downloadUrl: string;
   artifact: ReleaseArtifact;
 }
+
+export interface UpdateCheckResult {
+  status: 'available' | 'current' | 'unavailable' | 'busy' | 'error';
+  title: string;
+  message: string;
+}

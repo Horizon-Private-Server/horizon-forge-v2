@@ -12,6 +12,6 @@ export function registerUpdateIpcHandlers(
     assertSender(event.sender.id);
     const channel = (await settings.getSnapshot()).entries.find((entry) => entry.key === 'updates.channel')?.value;
     if (channel !== 'stable' && channel !== 'nightly') throw new Error('The update channel is invalid.');
-    void updates.check(true, channel);
+    return updates.check(true, channel);
   });
 }

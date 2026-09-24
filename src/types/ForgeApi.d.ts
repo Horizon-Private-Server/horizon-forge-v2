@@ -1,5 +1,6 @@
 import type { EditorCommand, EditorEvent, EditorSnapshot } from './EditorRuntime.js';
 import type { ForgeNotification } from './Notifications.js';
+import type { UpdateCheckResult } from './Updates.js';
 
 export type { EditorCommand, EditorEvent, EditorSnapshot } from './EditorRuntime.js';
 export type { ForgeNotification } from './Notifications.js';
@@ -250,7 +251,7 @@ export interface ForgeApi {
   setSetting(key: string, value: unknown): Promise<SettingsSnapshot>;
   resetSettings(key?: string): Promise<SettingsSnapshot>;
   exportSettings(includeMachinePaths: boolean): Promise<boolean>;
-  checkForUpdates(): Promise<void>;
+  checkForUpdates(): Promise<UpdateCheckResult>;
   getNotifications(): Promise<ForgeNotification[]>;
   dismissNotification(id: string): Promise<void>;
   runNotificationAction(id: string): Promise<void>;

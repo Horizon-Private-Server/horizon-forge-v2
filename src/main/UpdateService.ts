@@ -4,7 +4,7 @@ import path from 'node:path';
 import { app, dialog, net, shell } from 'electron';
 import type { BrowserWindow } from 'electron';
 
-import type { AvailableUpdate, ReleaseArtifact, UpdateChannel } from '../types/Updates.js';
+import type { AvailableUpdate, ReleaseArtifact, UpdateChannel, UpdateCheckResult } from '../types/Updates.js';
 import { formatBytes } from '../utils/Format.js';
 import { compareForgeVersions, validateReleaseManifest } from '../utils/UpdateValidation.js';
 import type { NotificationCenter } from './NotificationCenter.js';
@@ -57,47 +57,47 @@ export class UpdateService {
     return new UpdateService({ ...options, channel });
   }
 
-  async check(manual: boolean, channel: UpdateChannel): Promise<void> {
-    if (this.checking) return;
+  async check(manual: boolean, channel: UpdateChannel): Promise<UpdateCheckResult> {
+    if (this.checking) return {
+      status: 'busy', title: 'Update check already running', message: 'Forge is already checking this release channel.',
+    };
     if (!this.options.channel) {
-      if (manual) this.options.notifications.publish({
-        id: 'update:unavailable',
+      return {
+        status: 'unavailable',
         title: 'Update checks are unavailable',
         message: 'Update checks are not available in local development or standalone builds.',
-        severity: 'info',
-        createdUnixMilliseconds: Date.now(),
-      });
-      return;
+      };
     }
 
     this.checking = true;
     try {
       const update = await this.findUpdate(channel);
       if (!update) {
-        if (manual) this.options.notifications.publish({
-          id: `update:current:${channel}`,
+        return {
+          status: 'current',
           title: 'Horizon Forge is up to date',
           message: `Channel: ${channel}\nVersion: ${this.options.version}\nTrusted source: ${trustedSource}`,
-          severity: 'info',
-          createdUnixMilliseconds: Date.now(),
-        });
-        return;
+        };
       }
-      if (!manual && this.promptedTags.has(update.tag)) return;
+      if (!manual && this.promptedTags.has(update.tag)) return {
+        status: 'available', title: 'Update available', message: `Horizon Forge ${update.version} is available.`,
+      };
       this.promptedTags.add(update.tag);
       this.publishUpdate(update);
+      return {
+        status: 'available',
+        title: 'Update available',
+        message: `Horizon Forge ${update.version} is available on the ${update.channel} channel. Open Notifications for details.`,
+      };
     } catch (error) {
       if (!manual) {
         console.warn('Forge update check failed', error);
-        return;
       }
-      this.options.notifications.publish({
-        id: `update:error:${channel}`,
+      return {
+        status: 'error',
         title: 'Forge could not securely check for updates',
         message: error instanceof Error ? error.message : String(error),
-        severity: 'error',
-        createdUnixMilliseconds: Date.now(),
-      });
+      };
     } finally {
       this.checking = false;
     }

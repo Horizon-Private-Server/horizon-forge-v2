@@ -95,11 +95,10 @@ Implementation: packaged builds default to their embedded release channel, while
 explicit Settings choice allows users to switch between stable and nightly. Checks
 remain isolated to the selected channel against the fixed Horizon Forge GitHub
 release source. Manual checks are available from the Forge menu and periodic checks
-are enabled by default in Settings. Checks run passively after the renderer loads;
-network requests are never awaited by editor startup or manual UI actions, and manual
-status/error results use notifications rather than modal dialogs. Validated updates
-enter the shared header notification center with their source, version, channel,
-notes, size, and an explicit
+are enabled by default in Settings. Automatic checks run passively after the renderer
+loads and are never awaited by editor startup. Manual checks open a non-blocking
+Mantine status modal while discovery runs. Validated updates enter the shared header
+notification center with their source, version, channel, notes, size, and an explicit
 handoff action; dismissing the notification defers the update. Linux opens the trusted
 release page. Windows downloads the selected archive without restarting Forge and
 accepts it only when its byte length and SHA-256 match the release manifest. Dirty

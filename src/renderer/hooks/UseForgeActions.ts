@@ -3,7 +3,11 @@ import { useCallback, useState } from 'react';
 import type { EditorCommand, EditorLayoutAction, EditorSnapshot, ForgeAction } from '../../types/ForgeApi.js';
 import { errorMessage } from '../../utils/Errors.ts';
 
-export function useForgeActions(setSetupOpened: (value: boolean) => void, setSettingsOpened: (value: boolean) => void) {
+export function useForgeActions(
+  setSetupOpened: (value: boolean) => void,
+  setSettingsOpened: (value: boolean) => void,
+  setUpdateCheckOpened: (value: boolean) => void,
+) {
   const [activeProject, setActiveProject] = useState<EditorSnapshot>();
   const [editorError, setEditorError] = useState<string>();
   const [hubAction, setHubAction] = useState<{ id: number; action: 'newProject' | 'openProject' }>();
@@ -12,9 +16,7 @@ export function useForgeActions(setSetupOpened: (value: boolean) => void, setSet
   const handleForgeAction = useCallback((action: ForgeAction) => {
     if (action === 'setup') setSetupOpened(true);
     else if (action === 'settings') setSettingsOpened(true);
-    else if (action === 'checkUpdates') {
-      void window.forge.checkForUpdates().catch((error) => setEditorError(errorMessage(error)));
-    }
+    else if (action === 'checkUpdates') setUpdateCheckOpened(true);
     else if (action === 'saveProject') {
       if (activeProject) void window.forge.saveEditorProject()
         .then(setActiveProject)
@@ -60,7 +62,7 @@ export function useForgeActions(setSetupOpened: (value: boolean) => void, setSet
         setHubAction({ id: Date.now(), action });
       }).catch((error) => setEditorError(errorMessage(error)));
     }
-  }, [activeProject, setSettingsOpened, setSetupOpened]);
+  }, [activeProject, setSettingsOpened, setSetupOpened, setUpdateCheckOpened]);
 
   const openProject = useCallback((path: string) => {
     void window.forge.openEditorProject(path).then((snapshot) => {
