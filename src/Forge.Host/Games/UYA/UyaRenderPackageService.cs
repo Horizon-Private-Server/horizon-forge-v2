@@ -13,7 +13,7 @@ namespace Forge.Host.Games.UYA;
 
 public static class UyaRenderPackageService
 {
-    public const int SchemaVersion = 3;
+    public const int SchemaVersion = 5;
     private const long MaxAssetBytes = 256L * 1024 * 1024;
     private const string MarkerName = ".forge-render-package.json";
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
@@ -54,17 +54,23 @@ public static class UyaRenderPackageService
             cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         await ReportAsync(progress, 3_000, 10_000);
-        var packages = await Task.Run(() => (
-            Terrain: FrontendMapPackageBuilder.BuildLevelWadPart(
-                levelWad, GameId.UYA, FrontendMapAssetGroup.Terrain),
-            Sky: FrontendMapPackageBuilder.BuildLevelWadPart(
-                levelWad, GameId.UYA, FrontendMapAssetGroup.Common),
-            Environment: UyaRenderEnvironmentReader.Read(levelWad)), cancellationToken);
+        var packages = await Task.Run(() =>
+        {
+            var octants = UyaOcclusionGridReader.ReadLevelWad(levelWad).Octants.Select(value =>
+                new UyaRenderOcclusionOctant(value.X, value.Y, value.Z, value.MaskIndex)).ToArray();
+            return (
+                Terrain: FrontendMapPackageBuilder.BuildLevelWadPart(
+                    levelWad, GameId.UYA, FrontendMapAssetGroup.Terrain),
+                Sky: FrontendMapPackageBuilder.BuildLevelWadPart(
+                    levelWad, GameId.UYA, FrontendMapAssetGroup.Common),
+                Environment: UyaRenderEnvironmentReader.Read(levelWad),
+                Octants: (IReadOnlyList<UyaRenderOcclusionOctant>)octants);
+        }, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         await ReportAsync(progress, 5_000, 10_000);
         var renderedAssets = await BuildAssetsAsync(assets, progress, cancellationToken);
         return await MaterializeAsync(
-            request, sdkRevision, cacheKey, packages.Terrain, packages.Sky, packages.Environment,
+            request, sdkRevision, cacheKey, packages.Terrain, packages.Sky, packages.Environment, packages.Octants,
             renderedAssets, progress, cancellationToken);
     }
 
@@ -79,7 +85,7 @@ public static class UyaRenderPackageService
         ArgumentNullException.ThrowIfNull(package);
         var cacheKey = CreateCacheKey(request, sdkRevision);
         return await MaterializeAsync(
-            request, sdkRevision, cacheKey, package, null, null, [], progress, cancellationToken);
+            request, sdkRevision, cacheKey, package, null, null, [], [], progress, cancellationToken);
     }
 
     public static async Task<UyaRenderPackageResult> MaterializeAsync(
@@ -97,7 +103,7 @@ public static class UyaRenderPackageService
         ArgumentNullException.ThrowIfNull(environment);
         var cacheKey = CreateCacheKey(request, sdkRevision);
         return await MaterializeAsync(
-            request, sdkRevision, cacheKey, terrainPackage, skyPackage, environment, [],
+            request, sdkRevision, cacheKey, terrainPackage, skyPackage, environment, [], [],
             progress, cancellationToken);
     }
 
@@ -108,6 +114,7 @@ public static class UyaRenderPackageService
         PackedFilePackage terrainPackage,
         PackedFilePackage? skyPackage,
         UyaRenderEnvironmentResult? environment,
+        IReadOnlyList<UyaRenderOcclusionOctant> octants,
         IReadOnlyList<BuiltAsset> assets,
         Func<IsoProgress, ValueTask>? progress,
         CancellationToken cancellationToken)
@@ -193,7 +200,8 @@ public static class UyaRenderPackageService
                 terrainPaths,
                 skyPath,
                 environment,
-                assetResults);
+                assetResults,
+                octants);
             await File.WriteAllBytesAsync(
                 Path.Combine(partial, MarkerName),
                 JsonSerializer.SerializeToUtf8Bytes(marker, JsonOptions),
@@ -202,7 +210,7 @@ public static class UyaRenderPackageService
             if (Directory.Exists(target)) Directory.Delete(target, recursive: true);
             Directory.Move(partial, target);
             await ReportAsync(progress, 10_000, 10_000);
-            return new(target, cacheKey, terrainPaths, skyPath, environment, assetResults, false);
+            return new(target, cacheKey, terrainPaths, skyPath, environment, assetResults, false, octants);
         }
         catch
         {
@@ -255,7 +263,8 @@ public static class UyaRenderPackageService
             || marker.TerrainPaths is null
             || marker.TerrainPaths.Count == 0
             || marker.Assets is null
-            || marker.Assets.Count > 100_000)
+            || marker.Assets.Count > 100_000
+            || marker.OcclusionOctants is { Count: > 1_000_000 })
             return null;
         try
         {
@@ -279,7 +288,8 @@ public static class UyaRenderPackageService
         {
             return null;
         }
-        return new(root, marker.CacheKey, marker.TerrainPaths, marker.SkyPath, marker.Environment, marker.Assets, true);
+        return new(root, marker.CacheKey, marker.TerrainPaths, marker.SkyPath, marker.Environment, marker.Assets, true,
+            marker.OcclusionOctants);
     }
 
     private static IReadOnlyList<PackedFileEntry> ValidateEntries(PackedFilePackage package)
@@ -450,7 +460,8 @@ public static class UyaRenderPackageService
         IReadOnlyList<string> TerrainPaths,
         string? SkyPath,
         UyaRenderEnvironmentResult? Environment,
-        IReadOnlyList<UyaRenderAssetResult> Assets);
+        IReadOnlyList<UyaRenderAssetResult> Assets,
+        IReadOnlyList<UyaRenderOcclusionOctant>? OcclusionOctants = null);
 
     private sealed record CacheFile(string Path, long Length);
     private sealed record MaterialFile(string Path, ReadOnlyMemory<byte> Bytes);

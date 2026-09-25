@@ -11,7 +11,7 @@ import {
 
 export const BRIDGE_HEADER_SIZE = 24;
 export const BRIDGE_MAX_PAYLOAD_LENGTH = 64 * 1024 * 1024;
-export const BRIDGE_PROTOCOL_VERSION = 1;
+export const BRIDGE_PROTOCOL_VERSION = 2;
 
 const magic = Buffer.from('HFG2', 'ascii');
 const validKinds = new Set<number>(Object.values(BridgeMessageKind));

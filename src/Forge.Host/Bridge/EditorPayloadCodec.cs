@@ -141,10 +141,25 @@ internal static class EditorPayloadCodec
         }
         writer.WriteBoolean(value.SourceClassId is not null);
         if (value.SourceClassId is not null) writer.WriteUInt32(checked((uint)value.SourceClassId));
+        writer.WriteBoolean(value.Geometry is not null);
+        if (value.Geometry is not null)
+        {
+            writer.WriteUInt32((uint)value.Geometry.Kind);
+            if (value.Geometry.Points.Count > MaxEntities) PayloadFormat.Malformed("Geometry point list exceeds item limit");
+            writer.WriteUInt32((uint)value.Geometry.Points.Count);
+            foreach (var point in value.Geometry.Points)
+            {
+                writer.WriteSingle(point.X);
+                writer.WriteSingle(point.Y);
+                writer.WriteSingle(point.Z);
+                writer.WriteSingle(point.W);
+            }
+        }
         writer.WriteBoolean(value.State.Dirty);
         writer.WriteBoolean(value.State.Hidden);
         writer.WriteBoolean(value.State.Disabled);
         writer.WriteBoolean(value.State.Locked);
+        writer.WriteBoolean(value.State.ReadOnly);
         writer.WriteBoolean(value.State.Invalid);
         writer.WriteBoolean(value.State.MissingAsset);
     }

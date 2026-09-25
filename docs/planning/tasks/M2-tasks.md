@@ -419,8 +419,9 @@ preventing the rest of the scene from rendering.
 M2-014 through M2-020 complete base-level import coverage without making an
 unverified writer authoritative. The Ratchet SDK's `UyaGameplayLayout` identifies
 39 core pointer slots. Its current typed readers cover level settings, mobys, ties,
-shrubs, cuboids, ordinary splines, and areas; Forge currently persists only the
-moby/tie/shrub entities and selected base-layer payloads.
+shrubs, cameras, sounds, volumes, paths, areas, lighting, environment data, and per-tie ambient data.
+Forge persists the supported instance views while retaining source blocks or
+target-native base assets as bake authority.
 
 The task details below were cross-checked against Map-o-Matic's gameplay geometry
 and tie-lighting paths, Wrench's instance schema and GC/UYA gameplay readers/writers,
@@ -482,6 +483,15 @@ Acceptance:
 Verification: per-family parser fixtures, matrix/inverse consistency tests, area-link
 fixtures, camera-collision reference checks, and representative all-family counts.
 
+Progress: the source-backed geometry slice imports cuboids, spheres, cylinders,
+pills, ordinary splines, grind paths, and areas through the pinned SDK readers.
+Project schema v2 preserves exact shape matrices, inverse rotations, Euler values,
+path point `w` values, grind metadata, area bounds, and stable area membership links.
+The editor renders read-only volume, path, and area overlays while the original
+opaque sections remain bake authority. The camera-collision grid is now bounds-checked
+and its flags/scalars attach to the referenced native volumes; grid regeneration and
+native writing remain open.
+
 ## M2-016 — Import cameras, sound emitters, groups, and shared references
 
 Requirements: FR-PROJ-001, FR-PROJ-002, FR-SCENE-002, FR-SCENE-005,
@@ -508,6 +518,12 @@ Acceptance:
 
 Verification: camera/sound record fixtures, empty and multi-member group fixtures,
 shared-data/Pvar boundary cases, broken-reference diagnostics, and save/reopen checks.
+
+Progress: UYA camera and ambient-sound records now have bounded SDK readers and typed
+Forge entities. Camera type/transform/Pvar data and sound class/range/matrix/Pvar data
+survive save/reopen and appear as distinct, selectable, fog-free read-only markers.
+The source blocks remain opaque bake authority. Groups, shared-data ownership, Pvar
+link resolution, and their mutation diagnostics remain open.
 
 ## M2-017 — Import UYA lighting, environment, and per-tie ambient data
 
@@ -540,6 +556,15 @@ Acceptance:
 Verification: light-record fixtures, point-mask coverage tests, environment transition
 fixtures, per-tie reorder/delete/duplicate tests, and Map-o-Matic parity screenshots.
 
+Progress: SDK readers now validate and decode directional lights, quantized point
+lights and their 128-slot masks, environment samples, environment transitions, and
+the variable-length tie ambient stream. Forge project schema v2 attaches ambient
+words and the directional selector directly to each stable tie and
+imports the other records as typed, read-only entities with fog-free selectable
+markers. Target-native lighting assets remain bake authority. Accurate model-lighting
+preview, native writers/regeneration, mutation coverage, and Map-o-Matic parity
+screenshots remain open.
+
 ## M2-018 — Import UYA level settings with stable entity references
 
 Requirements: FR-PROJ-001, FR-PROJ-002, FR-SCENE-001, FR-XLT-003
@@ -565,6 +590,10 @@ Acceptance:
 
 Verification: settings boundary fixtures, stable-reference migration tests, chunk-plane
 count/terminator cases, and render-environment snapshot parity.
+
+Progress: the editor now exposes a dedicated read-only Level Settings panel for the
+decoded environment, world, ship, chunk-plane, and sound-count fields. Stable entity
+references, project persistence, diagnostics, and native writing remain open.
 
 ## M2-019 — Decode UYA occlusion octants and instance mappings safely
 
@@ -595,6 +624,11 @@ Acceptance:
 
 Verification: sparse/shared-mask fixtures, invalid tree/mapping corpus, stable-link
 tests, unchanged opaque hashes, and local multi-level octant/mapping statistics.
+
+Progress: a bounded UYA SDK reader now locates the grid through the level asset header,
+decodes the sparse octant tree, and validates shared mask indices. Forge transports the coordinates through its render cache and
+can display all 4x4x4 cells as one optional fog-free instanced overlay. Visibility
+mask bytes, gameplay mappings, stable links, diagnostics, and regeneration remain open.
 
 ## M2-020 — Qualify complete UYA base-data import and migration
 

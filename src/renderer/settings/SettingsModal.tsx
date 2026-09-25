@@ -145,7 +145,7 @@ export function SettingsModal({
           <SimpleGrid cols={{ base: 1, sm: 2 }}>
             {SCENE_TREE_KINDS.map((kind) => <ColorInput
               key={kind}
-              label={`${SCENE_TREE_LABELS[kind]} tree color`}
+              label={kind === 'occlusionOctant' ? 'Occlusion octant color' : `${SCENE_TREE_LABELS[kind]} tree color`}
               value={sceneTreeColors[kind]}
               format="hex"
               withEyeDropper={false}
@@ -156,7 +156,7 @@ export function SettingsModal({
             />)}
           </SimpleGrid>
           <Button mt="sm" variant="default" loading={resettingTreeColors} onClick={() => void resetTreeColors()}>
-            Reset tree colors
+            Reset scene colors
           </Button>
           {error && <Alert color="red" title="Settings error" mt="sm">{error}</Alert>}
         </Tabs.Panel>

@@ -90,7 +90,7 @@ internal static class UyaBakeWorkflowTests
             var packedSource = await UyaLevelPackService.PackAsync(project, catalog, sourceLevelWad, context);
             Equal(true, packedSource.Succeeded, "validated staging packs: "
                 + string.Join(" | ", packedSource.Diagnostics.Select(value => value.Cause)));
-            Equal("f9e830db1584f7d4da1a0b0fe24b28e4b6331ca2c4ee490b461fec2973cf6faf",
+            Equal("350c6a0fe2801b7b62f5993e9324997cd9288af5d954853c5b43745c836fb128",
                 packedSource.OutputSha256, "unchanged staged project golden WAD");
             _ = UyaLevelWadInventoryReader.Read(packedSource.OutputBytes!);
             var installed = ReadAssets(packedSource.OutputBytes!);
@@ -261,7 +261,8 @@ internal static class UyaBakeWorkflowTests
             });
             await workspace.SaveAsync();
             var lightingAsset = (await UyaBaseLayerStore.InspectAsync(project, catalog)).Manifest!.Layers
-                .Single(value => value.Layer == BakeLayerId.Lighting).Assets.Single();
+                .Single(value => value.Layer == BakeLayerId.Lighting).Assets
+                .Single(value => value.Name == "directional-lights.bin");
             var lightingPath = catalog.ResolveBlobPath(lightingAsset.Asset.Id)!;
             var beforeFailure = ManifestBytes(afterCancel.Manifest);
             await ThrowsAsync<InvalidDataException>(() => UyaBakeService.BakeAsync(

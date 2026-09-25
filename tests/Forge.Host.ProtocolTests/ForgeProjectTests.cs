@@ -80,7 +80,8 @@ internal static class ForgeProjectTests
             Equal(firstId, project.Content.Entities[0].EntityId, "entity ID survives move and reopen");
 
             var contentPath = Path.Combine(movedPath, ForgeProjectWorkspace.DefaultContentPath);
-            var futureContent = "{\"schemaVersion\":2,\"futureData\":true}"u8.ToArray();
+            var futureContent = System.Text.Encoding.UTF8.GetBytes(
+                $"{{\"schemaVersion\":{ProjectSchema.CurrentVersion + 1},\"futureData\":true}}");
             await File.WriteAllBytesAsync(contentPath, futureContent);
             await ThrowsAsync<UnsupportedProjectSchemaException>(() => ForgeProjectWorkspace.OpenAsync(movedPath));
             var rejectedContent = await File.ReadAllBytesAsync(contentPath);
@@ -153,8 +154,20 @@ internal static class ForgeProjectTests
             legacyDescriptor = await UyaProjectService.InspectAsync(legacyPath, catalog);
             Equal(true, legacyDescriptor.MigrationPending,
                 "schema-only migration still requires UYA source-backed content upgrade");
-            Equal(1, ReadSchemaVersion(await File.ReadAllBytesAsync(Path.Combine(legacyPath, ForgeProjectWorkspace.ManifestFileName))),
-                "explicit save writes v1 manifest");
+            Equal(ProjectSchema.CurrentVersion,
+                ReadSchemaVersion(await File.ReadAllBytesAsync(Path.Combine(legacyPath, ForgeProjectWorkspace.ManifestFileName))),
+                "explicit save writes current manifest");
+
+            var versionOnePath = Path.Combine(root, "version-one-project");
+            Directory.CreateDirectory(Path.Combine(versionOnePath, "content"));
+            await WriteSchemaVersionAsync(savedManifest, Path.Combine(versionOnePath, ForgeProjectWorkspace.ManifestFileName), 1);
+            await WriteSchemaVersionAsync(savedContent, Path.Combine(versionOnePath, ForgeProjectWorkspace.DefaultContentPath), 1);
+            var versionOne = await ForgeProjectWorkspace.OpenAsync(versionOnePath);
+            Equal(true, versionOne.MigrationPending, "v1 project migration is pending");
+            await versionOne.SaveAsync();
+            Equal(ProjectSchema.CurrentVersion,
+                ReadSchemaVersion(await File.ReadAllBytesAsync(Path.Combine(versionOnePath, ForgeProjectWorkspace.ManifestFileName))),
+                "explicit save migrates v1 manifest");
 
             var sharedEdit = await project.ApplyAssetEditAsync(firstId, "shared edit"u8.ToArray(), catalog);
             Equal(2, sharedEdit.Changes.Count, "default edit updates project references");
@@ -198,6 +211,14 @@ internal static class ForgeProjectTests
             ?? throw new InvalidOperationException("Current project document is invalid");
         document["schemaVersion"] = 0;
         document.Remove("documentType");
+        await File.WriteAllTextAsync(path, document.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n");
+    }
+
+    private static async Task WriteSchemaVersionAsync(byte[] currentBytes, string path, int version)
+    {
+        var document = JsonNode.Parse(currentBytes)?.AsObject()
+            ?? throw new InvalidOperationException("Current project document is invalid");
+        document["schemaVersion"] = version;
         await File.WriteAllTextAsync(path, document.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n");
     }
 

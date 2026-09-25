@@ -32,6 +32,11 @@ const eventKinds: Record<number, EditorEvent['kind']> = {
 const severities: Record<number, EditorSnapshot['diagnostics'][number]['severity']> = {
   1: 'info', 2: 'warning', 3: 'error',
 };
+const geometryKinds: Record<number, NonNullable<EditorEntity['geometry']>['kind']> = {
+  1: 'cuboid', 2: 'spline', 3: 'area', 4: 'sphere', 5: 'cylinder', 6: 'pill', 7: 'grindPath',
+  8: 'directionalLight', 9: 'pointLight', 10: 'environmentSample', 11: 'environmentTransition',
+  12: 'camera', 13: 'ambientSound',
+};
 
 export function encodeEditorOpenRequest(projectPath: string, catalogRootPath: string, autosaveSeconds: number): Buffer {
   const writer = new PayloadWriter();
@@ -126,18 +131,28 @@ export function decodeEditorEvents(payload: Uint8Array): EditorEvent[] {
 function readEntity(reader: PayloadReader): EditorEntity {
   const value: EditorEntity = {
     id: reader.readString(), name: reader.readString(), layer: reader.readString(), transform: readTransform(reader),
-    state: { dirty: false, hidden: false, disabled: false, locked: false, invalid: false, missingAsset: false },
+    state: {
+      dirty: false, hidden: false, disabled: false, locked: false, readOnly: false,
+      invalid: false, missingAsset: false,
+    },
   };
   if (reader.readBoolean()) value.asset = { id: reader.readString(), kind: reader.readString() };
   if (reader.readBoolean()) value.provenance = {
     game: reader.readString(), level: reader.readUInt32(), section: reader.readString(), sourceIndex: reader.readUInt32(),
   };
   if (reader.readBoolean()) value.sourceClassId = reader.readUInt32();
+  if (reader.readBoolean()) value.geometry = {
+    kind: enumValue(geometryKinds, reader.readUInt32(), 'geometry kind'),
+    points: readList(reader, MAX_ENTITIES, () => ({
+      x: reader.readFloat32(), y: reader.readFloat32(), z: reader.readFloat32(), w: reader.readFloat32(),
+    })),
+  };
   value.state = {
     dirty: reader.readBoolean(),
     hidden: reader.readBoolean(),
     disabled: reader.readBoolean(),
     locked: reader.readBoolean(),
+    readOnly: reader.readBoolean(),
     invalid: reader.readBoolean(),
     missingAsset: reader.readBoolean(),
   };

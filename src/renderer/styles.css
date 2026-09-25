@@ -254,7 +254,7 @@ body {
 
 .editor-tree-row {
   display: grid;
-  grid-template-columns: 0.75rem minmax(0, 1fr);
+  grid-template-columns: 1rem minmax(0, 1fr);
   align-items: center;
   min-height: 24px;
   padding-inline: var(--mantine-spacing-xs);
@@ -262,10 +262,29 @@ body {
   cursor: default;
 }
 
-.editor-tree-row > span:last-child {
+.editor-tree-content {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.scene-tree-node {
+  display: inline-flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  gap: var(--mantine-spacing-xs);
+}
+
+.scene-tree-node > .scene-tree-label {
+  flex: 1 1 auto;
+}
+
+.scene-tree-actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 1px;
 }
 
 .scene-tree-label {
@@ -303,7 +322,9 @@ body {
 }
 
 .editor-tree-chevron {
-  color: var(--mantine-color-dimmed);
+  color: var(--mantine-color-gray-3);
+  font-size: 1rem;
+  font-weight: 700;
 }
 
 .editor-property-grid {

@@ -14,6 +14,12 @@ export class PayloadWriter {
     this.#parts.push(bytes);
   }
 
+  writeInt32(value: number): void {
+    const bytes = Buffer.allocUnsafe(4);
+    bytes.writeInt32LE(value);
+    this.#parts.push(bytes);
+  }
+
   writeUInt64(value: number): void {
     if (!Number.isSafeInteger(value) || value < 0) malformed('Invalid 64-bit integer');
     const bytes = Buffer.allocUnsafe(8);
@@ -66,6 +72,13 @@ export class PayloadReader {
   readUInt32(): number {
     this.#require(4);
     const value = this.#bytes.readUInt32LE(this.#offset);
+    this.#offset += 4;
+    return value;
+  }
+
+  readInt32(): number {
+    this.#require(4);
+    const value = this.#bytes.readInt32LE(this.#offset);
     this.#offset += 4;
     return value;
   }

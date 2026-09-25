@@ -9,7 +9,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/Forge.Host/Forge.Host.csproj" />
-    <None Include="../fixtures/bridge-v1.json" Link="fixtures/bridge-v1.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../fixtures/bridge-v2.json" Link="fixtures/bridge-v2.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../fixtures/identity-v0.json" Link="fixtures/identity-v0.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../fixtures/project-v0.json" Link="fixtures/project-v0.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

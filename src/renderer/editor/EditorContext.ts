@@ -2,6 +2,7 @@ import { createContext, useContext } from 'react';
 
 import type { KeybindingMap } from '../../types/Keybindings.js';
 import type { EditorCommand, EditorSnapshot } from '../../types/EditorRuntime.js';
+import type { SceneTreeColors } from '../../types/SceneTree.js';
 import type {
   BuildLayerId,
   BuildPatchProgress,
@@ -13,6 +14,7 @@ import type {
 export interface EditorContextValue {
   project: EditorSnapshot;
   keybindings: KeybindingMap;
+  sceneTreeColors: SceneTreeColors;
   terrain?: EditorTerrainSource;
   sceneLoad?: EditorLoadProgress;
   setSceneLoad(progress?: EditorLoadProgress): void;
@@ -21,6 +23,8 @@ export interface EditorContextValue {
   cameraFocus?: { entityId: string };
   setCameraFocus(request?: { entityId: string }): void;
   showViewportStats: boolean;
+  showOcclusionOctants: boolean;
+  setShowOcclusionOctants(value: boolean): void;
   busy: boolean;
   hostAvailable: boolean;
   buildProgress?: BuildPatchProgress;

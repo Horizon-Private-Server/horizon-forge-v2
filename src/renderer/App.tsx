@@ -106,6 +106,7 @@ export function App() {
           ? <EditorWorkspace
             project={activeProject}
             keybindings={keybindings}
+            sceneTreeColors={sceneTreeColors}
             hostStatus={hostStatus}
             layoutAction={layoutAction}
             showViewportStats={showViewportStats}

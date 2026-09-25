@@ -56,8 +56,30 @@ public sealed record EditorEntityStatus(
     bool Hidden,
     bool Disabled,
     bool Locked,
+    bool ReadOnly,
     bool Invalid,
     bool MissingAsset);
+
+public enum EditorGeometryKind : byte
+{
+    Cuboid = 1,
+    Spline = 2,
+    Area = 3,
+    Sphere = 4,
+    Cylinder = 5,
+    Pill = 6,
+    GrindPath = 7,
+    DirectionalLight = 8,
+    PointLight = 9,
+    EnvironmentSample = 10,
+    EnvironmentTransition = 11,
+    Camera = 12,
+    AmbientSound = 13,
+}
+
+public sealed record EditorEntityGeometry(
+    EditorGeometryKind Kind,
+    IReadOnlyList<ProjectVector4> Points);
 
 public sealed record EditorEntitySnapshot(
     EntityId EntityId,
@@ -67,6 +89,7 @@ public sealed record EditorEntitySnapshot(
     ProjectAssetReference? Asset,
     ProjectEntityProvenance? Provenance,
     int? SourceClassId,
+    EditorEntityGeometry? Geometry,
     EditorEntityStatus State);
 
 public sealed record EditorEvent(

@@ -100,10 +100,8 @@ app.whenReady().then(async () => {
       if (enabled && (channel === 'stable' || channel === 'nightly')) void updates.check(false, channel);
     };
     const runUpdateCheck = () => void checkForUpdates().catch((error) => console.warn('Could not read update settings', error));
-    mainWindow?.webContents.once('did-finish-load', () => {
-      setTimeout(runUpdateCheck, 30_000).unref();
-      setInterval(runUpdateCheck, 6 * 60 * 60_000).unref();
-    });
+    runUpdateCheck();
+    setInterval(runUpdateCheck, 6 * 60 * 60_000).unref();
   }
 
   app.on('activate', () => {

@@ -2,12 +2,15 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 import type { EditorEntity } from '../../types/EditorRuntime.js';
+import type { SceneTreeColors } from '../../types/SceneTree.js';
 import { createPs2OpaquePassMaterial } from '../../utils/Ps2Materials.ts';
 import { ps2PositionToScene } from '../../utils/Scene.ts';
+import { DEFAULT_SCENE_TREE_COLORS } from '../../utils/SceneTreeColors.ts';
 
 const ENTITY_ID_KEY = 'forgeEntityId';
 const INSTANCE_IDS_KEY = 'forgeInstanceIds';
 const MIRRORED_BATCH_KEY = 'forgeMirroredBatch';
+const OWNED_GEOMETRY_KEY = 'forgeOwnedGeometry';
 const PROJECTION_KEY = 'forgeProjectionKey';
 const PS2_TO_SCENE_ROTATION = new THREE.Quaternion(-Math.SQRT1_2, 0, 0, Math.SQRT1_2);
 const SCENE_TO_PS2_ROTATION = PS2_TO_SCENE_ROTATION.clone().invert();
@@ -29,10 +32,35 @@ export class SceneProjection {
   readonly root = new THREE.Group();
 
   private readonly geometry = new THREE.BoxGeometry(16, 16, 16);
-  private readonly assetMaterial = new THREE.MeshBasicMaterial({ color: 0x4dabf7, wireframe: true });
-  private readonly modelLessMaterial = new THREE.MeshBasicMaterial({ color: 0xffc078, wireframe: true });
-  private readonly failedMaterial = new THREE.MeshBasicMaterial({ color: 0xff4dcd, wireframe: true });
-  private readonly selectedMaterial = new THREE.MeshBasicMaterial({ color: SELECTED_COLOR, wireframe: true });
+  private readonly cuboidGeometry = new THREE.BoxGeometry(2, 2, 2);
+  private readonly areaGeometry = new THREE.SphereGeometry(1, 16, 8);
+  private readonly cylinderGeometry = new THREE.CylinderGeometry(1, 1, 2, 16, 1, true);
+  private readonly pillGeometry = new THREE.CapsuleGeometry(0.5, 1, 4, 8).scale(2, 1, 2);
+  private readonly environmentSampleGeometry = new THREE.OctahedronGeometry(1);
+  private readonly cameraGeometry = new THREE.ConeGeometry(2, 4, 4).rotateX(Math.PI / 2);
+  private readonly assetMaterial = new THREE.MeshBasicMaterial({ color: 0x4363d8, wireframe: true, fog: false });
+  private readonly modelLessMaterial = new THREE.MeshBasicMaterial({ color: 0xf032e6, wireframe: true, fog: false });
+  private readonly cuboidMaterial = new THREE.MeshBasicMaterial({ wireframe: true, fog: false });
+  private readonly areaMaterial = new THREE.MeshBasicMaterial({ wireframe: true, fog: false, side: THREE.DoubleSide });
+  private readonly sphereMaterial = new THREE.MeshBasicMaterial({ wireframe: true, fog: false, side: THREE.DoubleSide });
+  private readonly cylinderMaterial = new THREE.MeshBasicMaterial({ wireframe: true, fog: false, side: THREE.DoubleSide });
+  private readonly pillMaterial = new THREE.MeshBasicMaterial({ wireframe: true, fog: false, side: THREE.DoubleSide });
+  private readonly splineMaterial = new THREE.LineBasicMaterial({ fog: false });
+  private readonly grindPathMaterial = new THREE.LineBasicMaterial({ fog: false });
+  private readonly directionalLightMaterial = new THREE.LineBasicMaterial({ fog: false });
+  private readonly pointLightMaterial = new THREE.MeshBasicMaterial({ wireframe: true, fog: false });
+  private readonly environmentSampleMaterial = new THREE.MeshBasicMaterial({ wireframe: true, fog: false });
+  private readonly environmentTransitionMaterial = new THREE.MeshBasicMaterial({ wireframe: true, fog: false });
+  private readonly cameraMaterial = new THREE.MeshBasicMaterial({ wireframe: true, fog: false });
+  private readonly ambientSoundMaterial = new THREE.MeshBasicMaterial({ wireframe: true, fog: false });
+  private readonly failedMaterial = new THREE.MeshBasicMaterial({ color: 0xe6194b, wireframe: true, fog: false });
+  private readonly selectedMaterial = new THREE.MeshBasicMaterial({
+    color: SELECTED_COLOR, wireframe: true, fog: false, side: THREE.DoubleSide,
+  });
+  private readonly selectedGeometryMaterial = new THREE.MeshBasicMaterial({
+    color: SELECTED_COLOR, wireframe: true, fog: false, side: THREE.DoubleSide,
+  });
+  private readonly selectedSplineMaterial = new THREE.LineBasicMaterial({ color: SELECTED_COLOR, fog: false });
   private readonly objects = new Map<string, THREE.Object3D>();
   private readonly instances = new Map<string, InstancedAsset>();
   private readonly templates = new Map<string, THREE.Object3D>();
@@ -49,6 +77,24 @@ export class SceneProjection {
 
   constructor() {
     this.root.name = 'Forge project entities';
+    this.setGeometryColors(DEFAULT_SCENE_TREE_COLORS);
+  }
+
+  setGeometryColors(colors: SceneTreeColors): void {
+    this.modelLessMaterial.color.set(colors.moby);
+    this.cuboidMaterial.color.set(colors.cuboid);
+    this.sphereMaterial.color.set(colors.sphere);
+    this.cylinderMaterial.color.set(colors.cylinder);
+    this.pillMaterial.color.set(colors.pill);
+    this.splineMaterial.color.set(colors.spline);
+    this.grindPathMaterial.color.set(colors.grindPath);
+    this.areaMaterial.color.set(colors.area);
+    this.directionalLightMaterial.color.set(colors.directionalLight);
+    this.pointLightMaterial.color.set(colors.pointLight);
+    this.environmentSampleMaterial.color.set(colors.environmentSample);
+    this.environmentTransitionMaterial.color.set(colors.environmentTransition);
+    this.cameraMaterial.color.set(colors.camera);
+    this.ambientSoundMaterial.color.set(colors.ambientSound);
   }
 
   setAssetTemplates(templates: ReadonlyMap<string, THREE.Object3D>, failedAssets: ReadonlySet<string> = new Set()): void {
@@ -95,7 +141,7 @@ export class SceneProjection {
       let object = this.objects.get(entity.id);
       let isNew = false;
       if (object?.userData[PROJECTION_KEY] !== key) {
-        object?.removeFromParent();
+        if (object) this.removeObject(object);
         object = this.createObject(entity, key);
         this.objects.set(entity.id, object);
         this.root.add(object);
@@ -222,10 +268,31 @@ export class SceneProjection {
     this.clearProjection();
     this.root.removeFromParent();
     this.geometry.dispose();
+    this.cuboidGeometry.dispose();
+    this.areaGeometry.dispose();
+    this.cylinderGeometry.dispose();
+    this.pillGeometry.dispose();
+    this.environmentSampleGeometry.dispose();
+    this.cameraGeometry.dispose();
     this.assetMaterial.dispose();
     this.modelLessMaterial.dispose();
+    this.cuboidMaterial.dispose();
+    this.areaMaterial.dispose();
+    this.sphereMaterial.dispose();
+    this.cylinderMaterial.dispose();
+    this.pillMaterial.dispose();
+    this.splineMaterial.dispose();
+    this.grindPathMaterial.dispose();
+    this.directionalLightMaterial.dispose();
+    this.pointLightMaterial.dispose();
+    this.environmentSampleMaterial.dispose();
+    this.environmentTransitionMaterial.dispose();
+    this.cameraMaterial.dispose();
+    this.ambientSoundMaterial.dispose();
     this.failedMaterial.dispose();
     this.selectedMaterial.dispose();
+    this.selectedGeometryMaterial.dispose();
+    this.selectedSplineMaterial.dispose();
   }
 
   private removeStaleObjects(projected: ReadonlySet<string>, entities: readonly EditorEntity[]): number {
@@ -233,7 +300,7 @@ export class SceneProjection {
     let removed = 0;
     for (const [id, object] of this.objects) {
       if (retained.has(id)) continue;
-      object.removeFromParent();
+      this.removeObject(object);
       this.objects.delete(id);
       removed += 1;
     }
@@ -241,7 +308,40 @@ export class SceneProjection {
   }
 
   private createObject(entity: EditorEntity, key: string): THREE.Object3D {
-    const object = new THREE.Mesh(this.geometry, this.materialFor(entity, false));
+    let object: THREE.Object3D;
+    if (entity.geometry?.kind === 'cuboid') {
+      object = new THREE.Mesh(this.cuboidGeometry, this.cuboidMaterial);
+    } else if (entity.geometry?.kind === 'sphere') {
+      object = new THREE.Mesh(this.areaGeometry, this.sphereMaterial);
+    } else if (entity.geometry?.kind === 'cylinder') {
+      object = new THREE.Mesh(this.cylinderGeometry, this.cylinderMaterial);
+    } else if (entity.geometry?.kind === 'pill') {
+      object = new THREE.Mesh(this.pillGeometry, this.pillMaterial);
+    } else if (entity.geometry?.kind === 'area') {
+      object = new THREE.Mesh(this.areaGeometry, this.areaMaterial);
+    } else if (entity.geometry?.kind === 'pointLight') {
+      object = new THREE.Mesh(this.areaGeometry, this.pointLightMaterial);
+    } else if (entity.geometry?.kind === 'environmentSample') {
+      object = new THREE.Mesh(this.environmentSampleGeometry, this.environmentSampleMaterial);
+    } else if (entity.geometry?.kind === 'environmentTransition') {
+      object = new THREE.Mesh(this.cuboidGeometry, this.environmentTransitionMaterial);
+    } else if (entity.geometry?.kind === 'camera') {
+      object = new THREE.Mesh(this.cameraGeometry, this.cameraMaterial);
+    } else if (entity.geometry?.kind === 'ambientSound') {
+      object = new THREE.Mesh(this.cuboidGeometry, this.ambientSoundMaterial);
+    } else if (entity.geometry?.kind === 'spline' || entity.geometry?.kind === 'grindPath'
+      || entity.geometry?.kind === 'directionalLight') {
+      const points = entity.geometry.points.map((point) => ps2PositionToScene(point, new THREE.Vector3()));
+      object = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(points),
+        entity.geometry.kind === 'grindPath' ? this.grindPathMaterial
+          : entity.geometry.kind === 'directionalLight' ? this.directionalLightMaterial
+            : this.splineMaterial,
+      );
+      object.userData[OWNED_GEOMETRY_KEY] = true;
+    } else {
+      object = new THREE.Mesh(this.geometry, this.materialFor(entity, false));
+    }
     object.userData[ENTITY_ID_KEY] = entity.id;
     object.userData[PROJECTION_KEY] = key;
     return object;
@@ -250,7 +350,9 @@ export class SceneProjection {
   private updateObject(object: THREE.Object3D, entity: EditorEntity, selected: boolean, visible: boolean): boolean {
     this.projectedMatrix(entity);
     const marker = object.children.find((child) => child.userData.selectionMarker);
-    const material = !marker && object instanceof THREE.Mesh ? this.materialFor(entity, selected) : undefined;
+    const material = !marker && (object instanceof THREE.Mesh || object instanceof THREE.Line)
+      ? this.materialFor(entity, selected)
+      : undefined;
     const changed = object.name !== entity.name
       || object.visible !== visible
       || !object.position.equals(this.position)
@@ -264,7 +366,7 @@ export class SceneProjection {
     object.quaternion.copy(this.projectedRotation);
     object.scale.copy(this.scale);
     if (marker) marker.visible = selected;
-    else if (object instanceof THREE.Mesh && material) object.material = material;
+    else if ((object instanceof THREE.Mesh || object instanceof THREE.Line) && material) object.material = material;
     object.updateMatrix();
     return changed;
   }
@@ -317,18 +419,34 @@ export class SceneProjection {
   }
 
   private projectionKey(entity: EditorEntity): string {
+    if (entity.geometry) return `geometry:${JSON.stringify(entity.geometry)}`;
     if (!entity.asset) return 'meshless';
     return this.templates.has(entity.asset.id) ? `asset:${entity.asset.id}` : `proxy:${entity.asset.id}`;
   }
 
   private materialFor(entity: EditorEntity, selected: boolean): THREE.Material {
+    if (entity.geometry?.kind === 'spline') return selected ? this.selectedSplineMaterial : this.splineMaterial;
+    if (entity.geometry?.kind === 'grindPath') return selected ? this.selectedSplineMaterial : this.grindPathMaterial;
+    if (entity.geometry?.kind === 'directionalLight')
+      return selected ? this.selectedSplineMaterial : this.directionalLightMaterial;
+    if (selected && entity.geometry) return this.selectedGeometryMaterial;
     if (selected) return this.selectedMaterial;
+    if (entity.geometry?.kind === 'cuboid') return this.cuboidMaterial;
+    if (entity.geometry?.kind === 'sphere') return this.sphereMaterial;
+    if (entity.geometry?.kind === 'cylinder') return this.cylinderMaterial;
+    if (entity.geometry?.kind === 'pill') return this.pillMaterial;
+    if (entity.geometry?.kind === 'area') return this.areaMaterial;
+    if (entity.geometry?.kind === 'pointLight') return this.pointLightMaterial;
+    if (entity.geometry?.kind === 'environmentSample') return this.environmentSampleMaterial;
+    if (entity.geometry?.kind === 'environmentTransition') return this.environmentTransitionMaterial;
+    if (entity.geometry?.kind === 'camera') return this.cameraMaterial;
+    if (entity.geometry?.kind === 'ambientSound') return this.ambientSoundMaterial;
     if (!entity.asset) return this.modelLessMaterial;
     return this.failedAssets.has(entity.asset.id) ? this.failedMaterial : this.assetMaterial;
   }
 
   private clearProjection(): void {
-    this.objects.forEach((object) => object.removeFromParent());
+    this.objects.forEach((object) => this.removeObject(object));
     this.objects.clear();
     this.instances.forEach((projection) => {
       projection.root.removeFromParent();
@@ -337,6 +455,12 @@ export class SceneProjection {
     this.instances.clear();
     this.pickable.clear();
     this.root.clear();
+  }
+
+  private removeObject(object: THREE.Object3D): void {
+    object.removeFromParent();
+    if (object.userData[OWNED_GEOMETRY_KEY] && (object instanceof THREE.Line || object instanceof THREE.Mesh))
+      object.geometry.dispose();
   }
 }
 

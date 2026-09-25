@@ -18,7 +18,7 @@ but do not own or mutate project state.
   timer for tests; user settings currently constrain it to 5–3600 seconds.
 
 Recovery never replaces the explicit save. It remains a separately selectable
-snapshot under the existing project-format v1 policy.
+snapshot under the existing [project-format v2](project-format-v2.md) policy.
 
 ## Commands
 
@@ -54,8 +54,11 @@ callbacks; JSON is not used on the Electron/.NET wire.
 The snapshot includes project identity and target, complete entities, shared
 selection, dirty/migration state, last event sequence, capabilities, tools, and
 bounded background diagnostics. Entity snapshots include persisted state plus
-derived dirty, invalid, and missing-asset flags. Three.js objects are projections
-keyed by Entity ID and are never returned as authoritative state.
+derived dirty, read-only, invalid, and missing-asset flags. Decoded source geometry
+and lighting expose their overlay kind and path points; source-data edits are rejected until a
+native writer exists, while editor visibility and disabled state remain available.
+Three.js objects are projections keyed by
+Entity ID and are never returned as authoritative state.
 
 Events have a monotonically increasing sequence, Unix-millisecond timestamp,
 kind, optional originating command UUID, affected Entity IDs, and optional

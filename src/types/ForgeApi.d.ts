@@ -30,6 +30,20 @@ export interface KnownSettings {
   'targets.uya.developmentIso': string;
   'ui.editorLayout': string;
   'ui.sceneTreeColors.moby': string;
+  'ui.sceneTreeColors.cuboid': string;
+  'ui.sceneTreeColors.sphere': string;
+  'ui.sceneTreeColors.cylinder': string;
+  'ui.sceneTreeColors.pill': string;
+  'ui.sceneTreeColors.spline': string;
+  'ui.sceneTreeColors.grindPath': string;
+  'ui.sceneTreeColors.area': string;
+  'ui.sceneTreeColors.directionalLight': string;
+  'ui.sceneTreeColors.pointLight': string;
+  'ui.sceneTreeColors.environmentSample': string;
+  'ui.sceneTreeColors.environmentTransition': string;
+  'ui.sceneTreeColors.camera': string;
+  'ui.sceneTreeColors.ambientSound': string;
+  'ui.sceneTreeColors.occlusionOctant': string;
   'ui.sceneTreeColors.object': string;
   'ui.sceneTreeColors.shrub': string;
   'ui.sceneTreeColors.sky': string;
@@ -228,12 +242,23 @@ export interface EditorSceneEnvironment {
   fogFarDistance: number;
   fogNearIntensity: number;
   fogFarIntensity: number;
+  deathHeight?: number;
+  isSphericalWorld?: boolean;
+  sphereCenter?: [number, number, number];
+  shipPosition?: [number, number, number];
+  shipRotationZ?: number;
+  shipPath?: number;
+  shipCameraCuboidStart?: number;
+  shipCameraCuboidEnd?: number;
+  chunkPlaneCount?: number;
+  coreSoundsCount?: number;
 }
 
 export interface EditorTerrainSource {
   urls: string[];
   skyUrl?: string;
   environment?: EditorSceneEnvironment;
+  occlusionOctants: { x: number; y: number; z: number; maskIndex: number }[];
   assets: { assetId: string; kind: 'moby' | 'tie' | 'shrub'; url?: string; error?: string }[];
   cacheHit: boolean;
 }
@@ -241,7 +266,7 @@ export interface EditorTerrainSource {
 export type ForgeDialog = 'setup' | 'settings';
 
 export type EditorLayoutAction = 'resetLayout' | 'showViewport' | 'showSceneTree'
-  | 'showProperties' | 'showDiagnostics' | 'showBuild';
+  | 'showProperties' | 'showLevelSettings' | 'showDiagnostics' | 'showBuild';
 
 export type ForgeAction = ForgeDialog | EditorLayoutAction
   | 'projects' | 'newProject' | 'openProject' | 'saveProject' | 'undoEditor' | 'redoEditor'

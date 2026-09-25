@@ -19,8 +19,9 @@ internal static class UyaBaseLevelService
         var mobyBytes = Required(files, "gameplay/core/moby_instances.bin", level);
         var tieBytes = Required(files, "gameplay/core/tie_instances.bin", level);
         var shrubBytes = Required(files, "gameplay/core/shrub_instances.bin", level);
-        var gameplayPvars = UyaGameplayBlockReader.ReadCore(
-            Required(files, "gameplay/gameplay_core.bin", level)).PvarTables;
+        var gameplay = UyaGameplayBlockReader.ReadCore(
+            Required(files, "gameplay/gameplay_core.bin", level));
+        var gameplayPvars = gameplay.PvarTables;
         var mobyTable = mobyBytes.Length == 0
             ? new UyaMobyInstances(0, 0, 0, 0, [], [])
             : UyaMobyInstancesReader.Read(mobyBytes);
@@ -44,7 +45,18 @@ internal static class UyaBaseLevelService
         var tieAssets = AssetLookup(catalog, AssetKind.Tie, "tie", level);
         var shrubAssets = AssetLookup(catalog, AssetKind.Shrub, "shrub", level);
 
-        var entities = new List<ProjectEntity>(mobys.Count + ties.Count + shrubs.Count);
+        var geometry = gameplay.Geometry;
+        var lighting = gameplay.Lighting;
+        var cameras = gameplay.Blocks.FirstOrDefault(value => value.CameraInstances is not null)?.CameraInstances?.Instances ?? [];
+        var sounds = gameplay.Blocks.FirstOrDefault(value => value.SoundInstances is not null)?.SoundInstances?.Instances ?? [];
+        var cameraCollision = gameplay.Blocks.FirstOrDefault(value => value.CameraCollisionGrid is not null)
+            ?.CameraCollisionGrid?.Primitives ?? [];
+        var entities = new List<ProjectEntity>(
+            mobys.Count + ties.Count + shrubs.Count + geometry.Cuboids.Length + geometry.Spheres.Length
+            + geometry.Cylinders.Length + geometry.Pills.Length + geometry.Splines.Length
+            + geometry.GrindPaths.Length + geometry.Areas.Length + lighting.DirectionalLights.Length
+            + lighting.PointLights.Lights.Length + lighting.EnvironmentSamplePoints.Length
+            + lighting.EnvironmentTransitions.Length + cameras.Count + sounds.Count);
         for (var index = 0; index < mobys.Count; index++)
         {
             var instance = mobys[index];
@@ -65,11 +77,20 @@ internal static class UyaBaseLevelService
 
         var fallbackTransforms = 0;
         for (var index = 0; index < ties.Count; index++)
-            entities.Add(CreateStaticEntity(ties[index].ClassId, ties[index].Transform, ties[index].RawBytes,
-                index, level, "Tie", "ties", "gameplay/core/tie_instances", AssetKind.Tie, tieAssets, ref fallbackTransforms));
+        {
+            var tie = ties[index];
+            entities.Add(CreateStaticEntity(tie.ClassId, tie.Transform, tie.RawBytes,
+                index, level, "Tie", "ties", "gameplay/core/tie_instances", AssetKind.Tie, tieAssets, ref fallbackTransforms) with
+            {
+                TieLighting = new(tie.DirectionalLights, lighting.TieAmbientRgbas[index]),
+            });
+        }
         for (var index = 0; index < shrubs.Count; index++)
             entities.Add(CreateStaticEntity(shrubs[index].ClassId, shrubs[index].Transform, shrubs[index].RawBytes,
                 index, level, "Shrub", "shrubs", "gameplay/core/shrub_instances", AssetKind.Shrub, shrubAssets, ref fallbackTransforms));
+        AddGeometryEntities(entities, geometry, cameraCollision, level, ref fallbackTransforms);
+        AddLightingEntities(entities, lighting, level, ref fallbackTransforms);
+        AddEnvironmentInstances(entities, cameras, sounds, level, ref fallbackTransforms);
 
         var missing = CountMissing(mobys.Select(value => value.ClassId), mobyClasses, mobyAssets)
             + CountMissing(ties.Select(value => value.ClassId), tieClasses, tieAssets)
@@ -79,7 +100,7 @@ internal static class UyaBaseLevelService
             + MissingClasses(shrubs.Select(value => value.ClassId), shrubClasses, shrubAssets);
         return new(
             entities,
-            mobys.Count + ties.Count + shrubs.Count,
+            entities.Count,
             entities.Count(entity => entity.Asset is not null),
             mobys.Count(instance => !mobyClasses.Contains(instance.ClassId)),
             missing,
@@ -97,6 +118,320 @@ internal static class UyaBaseLevelService
             ],
             gameplayPvars);
     }
+
+    private static void AddEnvironmentInstances(
+        ICollection<ProjectEntity> entities,
+        IReadOnlyList<UyaCameraInstance> cameras,
+        IReadOnlyList<UyaSoundInstance> sounds,
+        int level,
+        ref int fallbackTransforms)
+    {
+        for (var index = 0; index < cameras.Count; index++)
+        {
+            var value = cameras[index];
+            entities.Add(new(
+                EntityId.New(),
+                $"Camera 0x{value.Type:X4} #{index}",
+                "cameras",
+                new(
+                    new(value.Position.X, value.Position.Y, value.Position.Z),
+                    FromZyxEuler(new(value.Rotation.X, value.Rotation.Y, value.Rotation.Z)),
+                    new(1, 1, 1)),
+                null,
+                new("UYA", level, "gameplay/core/cameras", index),
+                Source: new(value.Type, value.RawBytes, false),
+                Camera: new(value.PvarIndex, new(value.Rotation.X, value.Rotation.Y, value.Rotation.Z))));
+        }
+        for (var index = 0; index < sounds.Count; index++)
+        {
+            var value = sounds[index];
+            var transform = Decompose(value.Matrix);
+            if (transform is null)
+            {
+                fallbackTransforms++;
+                transform = ProjectTransform.Identity;
+            }
+            entities.Add(new(
+                EntityId.New(),
+                $"Ambient Sound 0x{value.ClassId:X4} #{index}",
+                "ambient sounds",
+                transform,
+                null,
+                new("UYA", level, "gameplay/core/sound_instances", index),
+                Source: new(value.ClassId, value.RawBytes, false),
+                AmbientSound: new(
+                    value.MissionClass, value.UpdateFunctionPointer, value.PvarIndex, value.Range,
+                    value.Matrix, value.InverseRotationMatrix,
+                    new(value.Rotation.X, value.Rotation.Y, value.Rotation.Z), value.Padding)));
+        }
+    }
+
+    private static void AddLightingEntities(
+        ICollection<ProjectEntity> entities,
+        UyaGameplayLighting lighting,
+        int level,
+        ref int fallbackTransforms)
+    {
+        foreach (var value in lighting.DirectionalLights)
+        {
+            entities.Add(new(
+                EntityId.New(),
+                $"Directional Light #{value.Index}",
+                "directional lights",
+                ProjectTransform.Identity,
+                null,
+                new("UYA", level, "gameplay/core/directional_lights", value.Index),
+                Lighting: new(DirectionalLight: new(
+                    Vector(value.TopColor), Vector(value.TopDirection),
+                    Vector(value.InverseColor), Vector(value.InverseDirection)))));
+        }
+        foreach (var value in lighting.PointLights.Lights)
+        {
+            var radius = value.Radius > 0 ? value.Radius : 1;
+            entities.Add(new(
+                EntityId.New(),
+                $"Point Light #{value.Index}",
+                "point lights",
+                new(
+                    new(value.Position.X, value.Position.Y, value.Position.Z),
+                    ProjectTransform.Identity.Rotation,
+                    new(radius, radius, radius)),
+                null,
+                new("UYA", level, "gameplay/core/point_lights", value.Index),
+                Lighting: new(PointLight: new(
+                    value.PositionX, value.PositionY, value.PositionZ, value.PackedRadius,
+                    value.ColorR, value.ColorG, value.ColorB, value.UnknownE))));
+        }
+        foreach (var value in lighting.EnvironmentSamplePoints)
+        {
+            entities.Add(new(
+                EntityId.New(),
+                $"Environment Sample #{value.Index}",
+                "environment samples",
+                new(
+                    new(value.Position.X, value.Position.Y, value.Position.Z),
+                    ProjectTransform.Identity.Rotation,
+                    new(2, 2, 2)),
+                null,
+                new("UYA", level, "gameplay/core/env_sample_points", value.Index),
+                Lighting: new(EnvironmentSamplePoint: new(
+                    value.HeroLight, value.PositionX, value.PositionY, value.PositionZ,
+                    value.ReverbDepth, value.MusicTrack, value.FogNearIntensity, value.FogFarIntensity,
+                    new(value.HeroColor.R, value.HeroColor.G, value.HeroColor.B),
+                    value.ReverbType, value.ReverbDelay, value.ReverbFeedback, value.EnableReverbParameters,
+                    new(value.FogColor.R, value.FogColor.G, value.FogColor.B),
+                    value.FogNearDistance, value.FogFarDistance, value.Unknown1E))));
+        }
+        foreach (var value in lighting.EnvironmentTransitions)
+        {
+            var transform = InvertAndDecompose(value.InverseMatrix);
+            if (transform is null)
+            {
+                fallbackTransforms++;
+                var radius = float.IsFinite(value.BoundingSphere.W) && MathF.Abs(value.BoundingSphere.W) > 0
+                    ? MathF.Abs(value.BoundingSphere.W) : 1;
+                transform = new(
+                    new(value.BoundingSphere.X, value.BoundingSphere.Y, value.BoundingSphere.Z),
+                    ProjectTransform.Identity.Rotation,
+                    new(radius, radius, radius));
+            }
+            entities.Add(new(
+                EntityId.New(),
+                $"Environment Transition #{value.Index}",
+                "environment transitions",
+                transform,
+                null,
+                new("UYA", level, "gameplay/core/env_transitions", value.Index),
+                Lighting: new(EnvironmentTransition: new(
+                    Vector(value.BoundingSphere), value.InverseMatrix,
+                    Color(value.HeroColor1), Color(value.HeroColor2), value.HeroLight1, value.HeroLight2,
+                    value.Flags, Color(value.FogColor1), Color(value.FogColor2),
+                    value.FogNearDistance1, value.FogNearIntensity1, value.FogFarDistance1, value.FogFarIntensity1,
+                    value.FogNearDistance2, value.FogNearIntensity2, value.FogFarDistance2, value.FogFarIntensity2,
+                    value.Unknown7C))));
+        }
+    }
+
+    private static ProjectVector4 Vector(GameplayVector4 value) => new(value.X, value.Y, value.Z, value.W);
+
+    private static ProjectRgba32 Color(UyaRgba32 value) => new(value.R, value.G, value.B, value.A);
+
+    private static ProjectTransform? InvertAndDecompose(IReadOnlyList<float> inverse)
+    {
+        if (inverse.Count != 16) return null;
+        var source = new Matrix4x4(
+            inverse[0], inverse[1], inverse[2], inverse[3],
+            inverse[4], inverse[5], inverse[6], inverse[7],
+            inverse[8], inverse[9], inverse[10], inverse[11],
+            inverse[12], inverse[13], inverse[14], inverse[15]);
+        if (!Matrix4x4.Invert(source, out var matrix)) return null;
+        return Decompose([
+            matrix.M11, matrix.M12, matrix.M13, matrix.M14,
+            matrix.M21, matrix.M22, matrix.M23, matrix.M24,
+            matrix.M31, matrix.M32, matrix.M33, matrix.M34,
+            matrix.M41, matrix.M42, matrix.M43, matrix.M44,
+        ]);
+    }
+
+    private static void AddGeometryEntities(
+        ICollection<ProjectEntity> entities,
+        GameplayGeometry geometry,
+        IReadOnlyList<UyaCameraCollisionPrimitive> cameraCollision,
+        int level,
+        ref int fallbackTransforms)
+    {
+        var collision = cameraCollision.ToDictionary(value => (value.Type, value.Index));
+        var cuboids = new List<ProjectEntity>(geometry.Cuboids.Length);
+        foreach (var value in geometry.Cuboids)
+        {
+            var transform = Decompose(value.Matrix);
+            if (transform is null)
+            {
+                fallbackTransforms++;
+                transform = ProjectTransform.Identity;
+            }
+            collision.TryGetValue((3, value.Index), out var cameraCollisionPrimitive);
+            cuboids.Add(new(
+                EntityId.New(),
+                ShapeName("Cuboid", value.Index, cameraCollisionPrimitive),
+                "cuboids",
+                transform,
+                null,
+                new("UYA", level, "gameplay/core/cuboids", value.Index),
+                null,
+                Geometry: new(Cuboid: new(
+                    value.Matrix,
+                    value.InverseRotationMatrix,
+                    new(value.Rotation.X, value.Rotation.Y, value.Rotation.Z),
+                    CameraCollision(cameraCollisionPrimitive)))));
+        }
+        foreach (var cuboid in cuboids) entities.Add(cuboid);
+
+        var spheres = AddShapes(entities, geometry.Spheres, collision, 5, level, "Sphere", "spheres", "spheres",
+            shape => new(Sphere: shape), ref fallbackTransforms);
+        var cylinders = AddShapes(entities, geometry.Cylinders, collision, 6, level, "Cylinder", "cylinders", "cylinders",
+            shape => new(Cylinder: shape), ref fallbackTransforms);
+        AddShapes(entities, geometry.Pills, collision, 7, level, "Pill", "pills", "pills",
+            shape => new(Pill: shape), ref fallbackTransforms);
+
+        var splines = geometry.Splines.Select(value => new ProjectEntity(
+            EntityId.New(),
+            $"Spline #{value.Index}",
+            "splines",
+            ProjectTransform.Identity,
+            null,
+            new("UYA", level, "gameplay/core/splines", value.Index),
+            null,
+            Geometry: new(Spline: new(value.Points.Select(point =>
+                new ProjectVector4(point.X, point.Y, point.Z, point.W)).ToArray())))).ToArray();
+        foreach (var spline in splines) entities.Add(spline);
+
+        foreach (var value in geometry.GrindPaths)
+        {
+            var bounds = new ProjectVector4(
+                value.BoundingSphere.X, value.BoundingSphere.Y, value.BoundingSphere.Z, value.BoundingSphere.W);
+            entities.Add(new(
+                EntityId.New(),
+                $"Grind Path #{value.Index}",
+                "grind paths",
+                ProjectTransform.Identity,
+                null,
+                new("UYA", level, "gameplay/core/grind_splines", value.Index),
+                null,
+                Geometry: new(GrindPath: new(
+                    bounds,
+                    value.Unknown4,
+                    value.Wrap,
+                    value.Inactive,
+                    value.Points.Select(point => new ProjectVector4(point.X, point.Y, point.Z, point.W)).ToArray()))));
+        }
+
+        var cuboidIds = cuboids.ToDictionary(value => value.Provenance!.SourceIndex, value => value.EntityId);
+        var sphereIds = spheres.ToDictionary(value => value.Provenance!.SourceIndex, value => value.EntityId);
+        var cylinderIds = cylinders.ToDictionary(value => value.Provenance!.SourceIndex, value => value.EntityId);
+        var splineIds = splines.ToDictionary(value => value.Provenance!.SourceIndex, value => value.EntityId);
+        foreach (var value in geometry.Areas)
+        {
+            var bounds = new ProjectVector4(
+                value.BoundingSphere.X, value.BoundingSphere.Y, value.BoundingSphere.Z, value.BoundingSphere.W);
+            var radius = float.IsFinite(bounds.W) && MathF.Abs(bounds.W) > 0 ? MathF.Abs(bounds.W) : 1;
+            entities.Add(new(
+                EntityId.New(),
+                $"Area #{value.Index}",
+                "areas",
+                new(
+                    new(bounds.X, bounds.Y, bounds.Z),
+                    new(0, 0, 0, 1),
+                    new(radius, radius, radius)),
+                null,
+                new("UYA", level, "gameplay/core/areas", value.Index),
+                null,
+                Geometry: new(Area: new(
+                    bounds,
+                    value.LastUpdateTime,
+                    Links(value.SplineIndices, splineIds),
+                    Links(value.CuboidIndices, cuboidIds),
+                    Links(value.SphereIndices, sphereIds),
+                    Links(value.CylinderIndices, cylinderIds),
+                    Links(value.NegativeCuboidIndices, cuboidIds)))));
+        }
+    }
+
+    private static List<ProjectEntity> AddShapes(
+        ICollection<ProjectEntity> entities,
+        IReadOnlyList<GameplayShape> shapes,
+        IReadOnlyDictionary<(int Type, int Index), UyaCameraCollisionPrimitive> cameraCollision,
+        int cameraCollisionType,
+        int level,
+        string name,
+        string layer,
+        string section,
+        Func<ProjectShapeGeometry, ProjectEntityGeometry> geometry,
+        ref int fallbackTransforms)
+    {
+        var added = new List<ProjectEntity>(shapes.Count);
+        foreach (var value in shapes)
+        {
+            cameraCollision.TryGetValue((cameraCollisionType, value.Index), out var cameraCollisionPrimitive);
+            var transform = Decompose(value.Matrix);
+            if (transform is null)
+            {
+                fallbackTransforms++;
+                transform = ProjectTransform.Identity;
+            }
+            added.Add(new(
+                EntityId.New(),
+                ShapeName(name, value.Index, cameraCollisionPrimitive),
+                layer,
+                transform,
+                null,
+                new("UYA", level, $"gameplay/core/{section}", value.Index),
+                null,
+                Geometry: geometry(new(
+                    value.Matrix,
+                    value.InverseRotationMatrix,
+                    new(value.Rotation.X, value.Rotation.Y, value.Rotation.Z),
+                    CameraCollision(cameraCollisionPrimitive)))));
+        }
+        foreach (var entity in added) entities.Add(entity);
+        return added;
+    }
+
+    private static string ShapeName(string name, int index, UyaCameraCollisionPrimitive? collision) =>
+        collision is null ? $"{name} #{index}" : $"{name} #{index} · Camera Collision";
+
+    private static ProjectCameraCollision? CameraCollision(UyaCameraCollisionPrimitive? value) => value is null
+        ? null
+        : new(value.Flags, value.IntValue, value.FloatValue,
+            new(value.BoundingSphere.X, value.BoundingSphere.Y, value.BoundingSphere.Z, value.BoundingSphere.W));
+
+    private static ProjectGeometryLink[] Links(
+        IEnumerable<int> sourceIndices,
+        IReadOnlyDictionary<int, EntityId>? entities = null) => sourceIndices
+        .Select(index => new ProjectGeometryLink(
+            index,
+            entities is not null && entities.TryGetValue(index, out var entityId) ? entityId : null))
+        .ToArray();
 
     private static ProjectEntity CreateStaticEntity(
         int classId,
@@ -135,14 +470,29 @@ internal static class UyaBaseLevelService
         var basisX = new Vector3(value.BasisX.X, value.BasisX.Y, value.BasisX.Z);
         var basisY = new Vector3(value.BasisY.X, value.BasisY.Y, value.BasisY.Z);
         var basisZ = new Vector3(value.BasisZ.X, value.BasisZ.Y, value.BasisZ.Z);
+        var position = new Vector3(value.Position.X, value.Position.Y, value.Position.Z);
+        return Decompose(basisX, basisY, basisZ, position);
+    }
+
+    private static ProjectTransform? Decompose(IReadOnlyList<float> matrix)
+    {
+        if (matrix.Count != 16) return null;
+        return Decompose(
+            new(matrix[0], matrix[1], matrix[2]),
+            new(matrix[4], matrix[5], matrix[6]),
+            new(matrix[8], matrix[9], matrix[10]),
+            new(matrix[12], matrix[13], matrix[14]));
+    }
+
+    private static ProjectTransform? Decompose(Vector3 basisX, Vector3 basisY, Vector3 basisZ, Vector3 position)
+    {
         var scale = new Vector3(basisX.Length(), basisY.Length(), basisZ.Length());
         var matrix = new Matrix4x4(
-            value.BasisX.X, value.BasisX.Y, value.BasisX.Z, 0,
-            value.BasisY.X, value.BasisY.Y, value.BasisY.Z, 0,
-            value.BasisZ.X, value.BasisZ.Y, value.BasisZ.Z, 0,
-            value.Position.X, value.Position.Y, value.Position.Z, 1);
+            basisX.X, basisX.Y, basisX.Z, 0,
+            basisY.X, basisY.Y, basisY.Z, 0,
+            basisZ.X, basisZ.Y, basisZ.Z, 0,
+            position.X, position.Y, position.Z, 1);
         if (matrix.GetDeterminant() < 0) scale.X = -scale.X;
-        var position = new Vector3(value.Position.X, value.Position.Y, value.Position.Z);
         if (scale.X == 0 || scale.Y == 0 || scale.Z == 0 || !Finite(scale) || !Finite(position)) return null;
         var rotation = Quaternion.CreateFromRotationMatrix(new(
             basisX.X / scale.X, basisX.Y / scale.X, basisX.Z / scale.X, 0,

@@ -240,14 +240,21 @@ public sealed class ForgeProjectWorkspace
             var key = (entity.Provenance.Section, entity.Provenance.SourceIndex);
             existingSources.Add(key);
             return importedBySource.TryGetValue(key, out var imported)
-                ? entity with { Source = imported.Source }
+                ? entity with
+                {
+                    Name = imported.Geometry is null ? entity.Name : imported.Name,
+                    Source = imported.Source,
+                    Geometry = imported.Geometry,
+                    Lighting = imported.Lighting,
+                    TieLighting = imported.TieLighting,
+                    Camera = imported.Camera,
+                    AmbientSound = imported.AmbientSound,
+                }
                 : entity;
         });
-        Content = Content with
-        {
-            Entities = updated.Concat(entities.Where(entity => entity.Provenance is not null
-                && existingSources.Add((entity.Provenance.Section, entity.Provenance.SourceIndex)))).ToArray(),
-        };
+        var merged = updated.Concat(entities.Where(entity => entity.Provenance is not null
+            && existingSources.Add((entity.Provenance.Section, entity.Provenance.SourceIndex)))).ToArray();
+        Content = Content with { Entities = RemapGeometryLinks(merged) };
         Manifest = Manifest with
         {
             BaseLevel = Manifest.BaseLevel with
@@ -257,6 +264,38 @@ public sealed class ForgeProjectWorkspace
             },
         };
     }
+
+    private static ProjectEntity[] RemapGeometryLinks(ProjectEntity[] entities)
+    {
+        var cuboids = entities.Where(entity => entity.Geometry?.Cuboid is not null && entity.Provenance is not null)
+            .ToDictionary(entity => entity.Provenance!.SourceIndex, entity => entity.EntityId);
+        var spheres = entities.Where(entity => entity.Geometry?.Sphere is not null && entity.Provenance is not null)
+            .ToDictionary(entity => entity.Provenance!.SourceIndex, entity => entity.EntityId);
+        var cylinders = entities.Where(entity => entity.Geometry?.Cylinder is not null && entity.Provenance is not null)
+            .ToDictionary(entity => entity.Provenance!.SourceIndex, entity => entity.EntityId);
+        var splines = entities.Where(entity => entity.Geometry?.Spline is not null && entity.Provenance is not null)
+            .ToDictionary(entity => entity.Provenance!.SourceIndex, entity => entity.EntityId);
+        return entities.Select(entity => entity.Geometry?.Area is not { } area ? entity : entity with
+        {
+            Geometry = entity.Geometry with
+            {
+                Area = area with
+                {
+                    Splines = Remap(area.Splines, splines),
+                    Cuboids = Remap(area.Cuboids, cuboids),
+                    Spheres = Remap(area.Spheres, spheres),
+                    Cylinders = Remap(area.Cylinders, cylinders),
+                    NegativeCuboids = Remap(area.NegativeCuboids, cuboids),
+                },
+            },
+        }).ToArray();
+    }
+
+    private static ProjectGeometryLink[] Remap(
+        IReadOnlyList<ProjectGeometryLink> links,
+        IReadOnlyDictionary<int, EntityId> entities) => links
+        .Select(link => link with { EntityId = entities.GetValueOrDefault(link.SourceIndex) })
+        .ToArray();
 
     public void Rename(string name)
     {
@@ -466,6 +505,9 @@ public sealed class ForgeProjectWorkspace
                 if (entity.Source.ClassId < 0 || entity.Source.RawRecord is null || entity.Source.RawRecord.Length is 0 or > 4_096)
                     throw new InvalidDataException($"Entity {entity.EntityId} source record is invalid.");
             }
+            ValidateGeometry(entity, Content.Entities);
+            ValidateLighting(entity);
+            ValidateEnvironmentInstance(entity);
         }
         if (Content.Assets.Any(asset => asset is null)) throw new InvalidDataException("Project assets cannot contain null entries.");
         if (Content.Assets.Select(asset => asset.Id).Distinct().Count() != Content.Assets.Count)
@@ -495,6 +537,130 @@ public sealed class ForgeProjectWorkspace
         if (transform.Rotation is { X: 0, Y: 0, Z: 0, W: 0 }) throw new InvalidDataException("Entity rotation cannot be an empty quaternion.");
         if (transform.Scale.X == 0 || transform.Scale.Y == 0 || transform.Scale.Z == 0)
             throw new InvalidDataException("Entity scale cannot contain zero.");
+    }
+
+    private static void ValidateGeometry(ProjectEntity entity, IReadOnlyList<ProjectEntity> entities)
+    {
+        if (entity.Geometry is null) return;
+        if (entity.Asset is not null || entity.Source is not null || entity.Lighting is not null)
+            throw new InvalidDataException($"Geometry entity {entity.EntityId} cannot reference a model asset or class record.");
+        var geometry = entity.Geometry;
+        if ((geometry.Cuboid is not null ? 1 : 0) + (geometry.Sphere is not null ? 1 : 0)
+            + (geometry.Cylinder is not null ? 1 : 0) + (geometry.Pill is not null ? 1 : 0)
+            + (geometry.Spline is not null ? 1 : 0) + (geometry.GrindPath is not null ? 1 : 0)
+            + (geometry.Area is not null ? 1 : 0) != 1)
+            throw new InvalidDataException($"Entity {entity.EntityId} must contain exactly one geometry kind.");
+        foreach (var (name, shape) in new[]
+        {
+            ("cuboid", geometry.Cuboid),
+            ("sphere", geometry.Sphere),
+            ("cylinder", geometry.Cylinder),
+            ("pill", geometry.Pill),
+        })
+        {
+            if (shape is null) continue;
+            if (shape.Matrix is null || shape.Matrix.Count != 16
+                || shape.InverseRotationMatrix is null || shape.InverseRotationMatrix.Count != 12
+                || shape.EulerRotation is null
+                || shape.Matrix.Concat(shape.InverseRotationMatrix)
+                    .Append(shape.EulerRotation.X).Append(shape.EulerRotation.Y)
+                    .Append(shape.EulerRotation.Z).Any(value => !float.IsFinite(value)))
+                throw new InvalidDataException($"Entity {entity.EntityId} {name} geometry is invalid.");
+            if (shape.CameraCollision is { } cameraCollision
+                && (!float.IsFinite(cameraCollision.FloatValue) || !ValidVector(cameraCollision.BoundingSphere)))
+                throw new InvalidDataException($"Entity {entity.EntityId} camera collision metadata is invalid.");
+        }
+        if (geometry.Spline is not null)
+        {
+            if (!ValidPoints(geometry.Spline.Points))
+                throw new InvalidDataException($"Entity {entity.EntityId} spline geometry is invalid.");
+        }
+        if (geometry.GrindPath is not null
+            && (!ValidVector(geometry.GrindPath.BoundingSphere) || !ValidPoints(geometry.GrindPath.Points)))
+            throw new InvalidDataException($"Entity {entity.EntityId} grind path geometry is invalid.");
+        if (geometry.Area is not null)
+        {
+            var area = geometry.Area;
+            if (area.BoundingSphere is null
+                || area.Splines is null || area.Cuboids is null || area.Spheres is null
+                || area.Cylinders is null || area.NegativeCuboids is null
+                || new[] { area.BoundingSphere.X, area.BoundingSphere.Y, area.BoundingSphere.Z, area.BoundingSphere.W }
+                    .Any(value => !float.IsFinite(value)))
+                throw new InvalidDataException($"Entity {entity.EntityId} area bounds are invalid.");
+            var known = entities.Select(value => value.EntityId).ToHashSet();
+            foreach (var link in area.Splines.Concat(area.Cuboids).Concat(area.Spheres)
+                .Concat(area.Cylinders).Concat(area.NegativeCuboids))
+            {
+                if (link is null || link.EntityId is not null && !known.Contains(link.EntityId.Value))
+                    throw new InvalidDataException($"Entity {entity.EntityId} area link is invalid.");
+            }
+        }
+    }
+
+    private static bool ValidPoints(IReadOnlyList<ProjectVector4>? points) => points is not null
+        && points.Count <= 100_000
+        && points.All(ValidVector);
+
+    private static bool ValidVector(ProjectVector4? value) => value is not null
+        && new[] { value.X, value.Y, value.Z, value.W }.All(float.IsFinite);
+
+    private static bool ValidVector(ProjectVector3? value) => value is not null
+        && new[] { value.X, value.Y, value.Z }.All(float.IsFinite);
+
+    private static void ValidateLighting(ProjectEntity entity)
+    {
+        if (entity.Lighting is not null)
+        {
+            if (entity.Asset is not null || entity.Source is not null || entity.Geometry is not null)
+                throw new InvalidDataException($"Lighting entity {entity.EntityId} cannot reference another entity payload.");
+            var lighting = entity.Lighting;
+            if ((lighting.DirectionalLight is not null ? 1 : 0) + (lighting.PointLight is not null ? 1 : 0)
+                + (lighting.EnvironmentSamplePoint is not null ? 1 : 0)
+                + (lighting.EnvironmentTransition is not null ? 1 : 0) != 1)
+                throw new InvalidDataException($"Entity {entity.EntityId} must contain exactly one lighting kind.");
+            if (lighting.DirectionalLight is { } directional
+                && !new[] { directional.TopColor, directional.TopDirection,
+                    directional.InverseColor, directional.InverseDirection }.All(ValidVector))
+                throw new InvalidDataException($"Entity {entity.EntityId} directional light is invalid.");
+            if (lighting.EnvironmentSamplePoint is { HeroColor: null } or { FogColor: null })
+                throw new InvalidDataException($"Entity {entity.EntityId} environment sample point is invalid.");
+            if (lighting.EnvironmentTransition is { } transition
+                && (!ValidVector(transition.BoundingSphere)
+                    || transition.InverseMatrix is null || transition.InverseMatrix.Count != 16
+                    || transition.InverseMatrix.Any(value => !float.IsFinite(value))
+                    || transition.HeroColor1 is null || transition.HeroColor2 is null
+                    || transition.FogColor1 is null || transition.FogColor2 is null
+                    || new[] { transition.FogNearDistance1, transition.FogNearIntensity1,
+                        transition.FogFarDistance1, transition.FogFarIntensity1,
+                        transition.FogNearDistance2, transition.FogNearIntensity2,
+                        transition.FogFarDistance2, transition.FogFarIntensity2 }.Any(value => !float.IsFinite(value))))
+                throw new InvalidDataException($"Entity {entity.EntityId} environment transition is invalid.");
+        }
+        if (entity.TieLighting is not null
+            && (entity.Provenance?.Section != "gameplay/core/tie_instances"
+                || entity.Source is null || entity.TieLighting.AmbientRgbas is null
+                || entity.TieLighting.AmbientRgbas.Length % 2 != 0))
+            throw new InvalidDataException($"Entity {entity.EntityId} tie lighting is invalid.");
+    }
+
+    private static void ValidateEnvironmentInstance(ProjectEntity entity)
+    {
+        if (entity.Camera is not null && entity.AmbientSound is not null)
+            throw new InvalidDataException($"Entity {entity.EntityId} cannot be both a camera and ambient sound.");
+        if (entity.Camera is { } camera
+            && (entity.Asset is not null || entity.Geometry is not null || entity.Lighting is not null
+                || entity.Provenance?.Section != "gameplay/core/cameras" || entity.Source is null
+                || !ValidVector(camera.EulerRotation)))
+            throw new InvalidDataException($"Entity {entity.EntityId} camera data is invalid.");
+        if (entity.AmbientSound is { } sound
+            && (entity.Asset is not null || entity.Geometry is not null || entity.Lighting is not null
+                || entity.Provenance?.Section != "gameplay/core/sound_instances" || entity.Source is null
+                || !float.IsFinite(sound.Range) || sound.Range < 0
+                || sound.Matrix is null || sound.Matrix.Count != 16
+                || sound.InverseRotationMatrix is null || sound.InverseRotationMatrix.Count != 12
+                || sound.Matrix.Concat(sound.InverseRotationMatrix).Any(value => !float.IsFinite(value))
+                || !ValidVector(sound.EulerRotation) || !float.IsFinite(sound.Padding)))
+            throw new InvalidDataException($"Entity {entity.EntityId} ambient sound data is invalid.");
     }
 
     private static void ValidateText(string value, string name)

@@ -41,6 +41,7 @@ export class RenderAssetProtocol {
       urls: value.terrainPaths.map(url),
       skyUrl: value.skyPath ? url(value.skyPath) : undefined,
       environment: value.environment,
+      occlusionOctants: value.occlusionOctants,
       assets: value.assets.map((asset) => ({
         assetId: asset.assetId,
         kind: asset.kind,

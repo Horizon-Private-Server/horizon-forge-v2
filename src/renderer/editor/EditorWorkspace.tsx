@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { KeybindingMap } from '../../types/Keybindings.js';
 import type { EditorSnapshot } from '../../types/EditorRuntime.js';
 import type { EditorCommand } from '../../types/EditorRuntime.js';
+import type { SceneTreeColors } from '../../types/SceneTree.js';
 import type {
   BuildPatchProgress,
   BuildPatchResult,
@@ -26,6 +27,7 @@ import {
 import {
   DiagnosticsPanel,
   EditorWatermark,
+  LevelSettingsPanel,
   PropertiesPanel,
   SceneTreePanel,
   ViewportPanel,
@@ -36,6 +38,7 @@ import { EditorStatusBar } from './EditorStatusBar.tsx';
 interface EditorWorkspaceProps {
   project: EditorSnapshot;
   keybindings: KeybindingMap;
+  sceneTreeColors: SceneTreeColors;
   hostStatus?: ForgeHostStatus;
   layoutAction?: { id: number; action: EditorLayoutAction };
   showViewportStats: boolean;
@@ -46,6 +49,7 @@ const components = {
   viewport: ViewportPanel,
   sceneTree: SceneTreePanel,
   properties: PropertiesPanel,
+  levelSettings: LevelSettingsPanel,
   diagnostics: DiagnosticsPanel,
   build: BuildPanel,
 };
@@ -53,6 +57,7 @@ const components = {
 export function EditorWorkspace({
   project,
   keybindings,
+  sceneTreeColors,
   hostStatus,
   layoutAction,
   showViewportStats,
@@ -69,6 +74,7 @@ export function EditorWorkspace({
   const [sceneLoad, setSceneLoad] = useState<EditorLoadProgress>();
   const [skyPieces, setSkyPieces] = useState<string[]>([]);
   const [cameraFocus, setCameraFocus] = useState<{ entityId: string }>();
+  const [showOcclusionOctants, setShowOcclusionOctants] = useState(false);
   const onReady = useCallback((event: DockviewReadyEvent) => setApi(event.api), []);
 
   useEffect(() => {
@@ -114,10 +120,19 @@ export function EditorWorkspace({
       if (disposed) return;
       const stored = settings.entries.find((entry) => entry.key === 'ui.editorLayout')?.value;
       const layout = typeof stored === 'string' ? decodeEditorLayout(stored) : undefined;
+      let migratedLayout = false;
       try {
         if (layout) api.fromJSON(layout);
         else createDefaultEditorLayout(api);
+        if (!api.getPanel('levelSettings')) showEditorPanel(api, 'levelSettings');
         if (!api.getPanel('build')) showEditorPanel(api, 'build');
+        const levelSettings = api.getPanel('levelSettings');
+        const properties = api.getPanel('properties');
+        const sceneTree = api.getPanel('sceneTree');
+        if (levelSettings && properties && sceneTree && levelSettings.group === properties.group) {
+          levelSettings.api.moveTo({ group: sceneTree.group, position: 'bottom' });
+          migratedLayout = true;
+        }
       } catch {
         createDefaultEditorLayout(api);
       }
@@ -131,6 +146,7 @@ export function EditorWorkspace({
           if (value) void save(value);
         }, 250);
       });
+      if (migratedLayout) void save(JSON.stringify(api.toJSON()));
       setInitialized(true);
     }).catch((cause) => {
       if (disposed) return;
@@ -181,6 +197,7 @@ export function EditorWorkspace({
   const context = useMemo(() => ({
     project,
     keybindings,
+    sceneTreeColors,
     terrain,
     sceneLoad,
     setSceneLoad,
@@ -189,6 +206,8 @@ export function EditorWorkspace({
     cameraFocus,
     setCameraFocus,
     showViewportStats,
+    showOcclusionOctants,
+    setShowOcclusionOctants,
     busy,
     hostAvailable: Boolean(hostStatus),
     buildProgress,
@@ -214,7 +233,7 @@ export function EditorWorkspace({
       finally { setBusy(false); }
     },
   }), [buildAndPatch, buildProgress, buildResult, busy, cameraFocus, hostStatus, keybindings, onProjectChange,
-    project, sceneLoad, showViewportStats, skyPieces, terrain]);
+    project, sceneLoad, sceneTreeColors, showOcclusionOctants, showViewportStats, skyPieces, terrain]);
 
   return <EditorContext.Provider value={context}>
     <div className="editor-workspace">

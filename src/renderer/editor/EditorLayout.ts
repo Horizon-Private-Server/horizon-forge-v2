@@ -8,6 +8,7 @@ export const EDITOR_PANELS = {
   viewport: { component: 'viewport', title: 'Viewport' },
   sceneTree: { component: 'sceneTree', title: 'Scene' },
   properties: { component: 'properties', title: 'Properties' },
+  levelSettings: { component: 'levelSettings', title: 'Level Settings' },
   diagnostics: { component: 'diagnostics', title: 'Diagnostics' },
   build: { component: 'build', title: 'Build' },
 } as const;
@@ -45,6 +46,10 @@ export function createDefaultEditorLayout(api: DockviewApi): void {
     position: { referencePanel: 'viewport', direction: 'below' }, initialHeight: 180,
   });
   api.addPanel({
+    id: 'levelSettings', ...EDITOR_PANELS.levelSettings,
+    position: { referencePanel: 'sceneTree', direction: 'below' }, initialHeight: 280,
+  });
+  api.addPanel({
     id: 'build', ...EDITOR_PANELS.build,
     position: { referencePanel: 'properties', direction: 'within' },
   });
@@ -62,6 +67,11 @@ export function showEditorPanel(api: DockviewApi, id: EditorPanelId): void {
     api.addPanel({ id, ...definition, position: { referencePanel: properties.id, direction: 'within' } });
     return;
   }
+  const sceneTree = id === 'levelSettings' ? api.getPanel('sceneTree') : undefined;
+  if (sceneTree) {
+    api.addPanel({ id, ...definition, position: { referencePanel: sceneTree.id, direction: 'below' } });
+    return;
+  }
   api.addPanel(api.getPanel('viewport') && id !== 'viewport'
     ? { id, ...definition, position: { referencePanel: 'viewport', direction: panelDirection(id) } }
     : { id, ...definition });
@@ -76,6 +86,7 @@ export function panelForLayoutAction(action: Exclude<EditorLayoutAction, 'resetL
     showViewport: 'viewport',
     showSceneTree: 'sceneTree',
     showProperties: 'properties',
+    showLevelSettings: 'levelSettings',
     showDiagnostics: 'diagnostics',
     showBuild: 'build',
   };

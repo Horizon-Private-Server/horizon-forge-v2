@@ -6,6 +6,7 @@ import { SceneProjection } from '../src/renderer/editor/SceneProjection.ts';
 import { buildGroundPlacement } from '../src/renderer/editor/ScenePlacement.ts';
 import { resolvePointerSnapTarget, VertexSnapIndex } from '../src/renderer/editor/SceneSnapping.ts';
 import type { EditorEntity } from '../src/types/EditorRuntime.js';
+import { DEFAULT_SCENE_TREE_COLORS } from '../src/utils/SceneTreeColors.ts';
 import {
   applySceneEnvironment,
   configureSkybox,
@@ -36,7 +37,8 @@ function entity(id: string, x = 0, asset = true, state: Partial<EditorEntity['st
     },
     asset: asset ? { id: 'asset', kind: 'moby' } : undefined,
     state: {
-      dirty: false, hidden: false, disabled: false, locked: false, invalid: false, missingAsset: false, ...state,
+      dirty: false, hidden: false, disabled: false, locked: false, readOnly: false,
+      invalid: false, missingAsset: false, ...state,
     },
   };
 }
@@ -48,6 +50,11 @@ test('scene projection diffs entities by ID and updates transforms in place', ()
   });
 
   const first = projection.getObject('a') as THREE.Mesh;
+  assert.equal((first.material as THREE.MeshBasicMaterial).fog, false);
+  assert.equal((first.material as THREE.MeshBasicMaterial).color.getHexString(), '4363d8');
+  const meshlessMaterial = (projection.getObject('b') as THREE.Mesh).material as THREE.MeshBasicMaterial;
+  assert.equal(meshlessMaterial.fog, false);
+  assert.equal(meshlessMaterial.color.getHexString(), 'ff9d00');
   const geometry = first.geometry;
   assert.equal(projection.resolveEntityId(first), 'a');
   assert.deepEqual(projection.sync([entity('a', 20), entity('c')]), {
@@ -77,6 +84,125 @@ test('scene projection converts PS2 Z-up transforms to Three.js Y-up', () => {
   const rotatedX = new THREE.Vector3(1, 0, 0).applyQuaternion(object.quaternion);
   assert.ok(rotatedX.distanceTo(new THREE.Vector3(0, 0, -1)) < 1e-6);
   assert.deepEqual(object.scale.toArray(), [2, 4, 3]);
+  projection.dispose();
+});
+
+test('scene projection renders decoded geometry and lighting markers', () => {
+  const projection = new SceneProjection();
+  projection.setGeometryColors({
+    ...DEFAULT_SCENE_TREE_COLORS,
+    cuboid: '#112233',
+    sphere: '#aa0000',
+    cylinder: '#00aa00',
+    pill: '#0000aa',
+    spline: '#445566',
+    grindPath: '#aabbcc',
+    area: '#778899',
+    directionalLight: '#123456',
+    pointLight: '#654321',
+    environmentSample: '#abcdef',
+    environmentTransition: '#fedcba',
+    camera: '#1122aa',
+    ambientSound: '#aa22aa',
+  });
+  const cuboid = entity('cuboid', 0, false, { readOnly: true });
+  cuboid.geometry = { kind: 'cuboid', points: [] };
+  cuboid.transform.position = { x: 10, y: 20, z: 30 };
+  cuboid.transform.scale = { x: 2, y: 3, z: 4 };
+  const spline = entity('spline', 0, false, { readOnly: true });
+  spline.geometry = {
+    kind: 'spline',
+    points: [{ x: 1, y: 2, z: 3, w: 4 }, { x: 5, y: 6, z: 7, w: 8 }],
+  };
+  spline.transform = {
+    position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 }, scale: { x: 1, y: 1, z: 1 },
+  };
+  const sphere = entity('sphere', 0, false, { readOnly: true });
+  sphere.geometry = { kind: 'sphere', points: [] };
+  const cylinder = entity('cylinder', 0, false, { readOnly: true });
+  cylinder.geometry = { kind: 'cylinder', points: [] };
+  const pill = entity('pill', 0, false, { readOnly: true });
+  pill.geometry = { kind: 'pill', points: [] };
+  const grindPath = entity('grind-path', 0, false, { readOnly: true });
+  grindPath.geometry = {
+    kind: 'grindPath',
+    points: [{ x: 9, y: 10, z: 11, w: 12 }, { x: 13, y: 14, z: 15, w: 16 }],
+  };
+  grindPath.transform = {
+    position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 }, scale: { x: 1, y: 1, z: 1 },
+  };
+  const area = entity('area', 0, false, { readOnly: true });
+  area.geometry = { kind: 'area', points: [] };
+  area.transform.position = { x: 40, y: 50, z: 60 };
+  area.transform.scale = { x: 7, y: 7, z: 7 };
+  const directionalLight = entity('directional-light', 0, false, { readOnly: true });
+  directionalLight.geometry = {
+    kind: 'directionalLight', points: [{ x: 0, y: 0, z: 0, w: 1 }, { x: 1, y: 2, z: 3, w: 1 }],
+  };
+  const pointLight = entity('point-light', 0, false, { readOnly: true });
+  pointLight.geometry = { kind: 'pointLight', points: [] };
+  const environmentSample = entity('environment-sample', 0, false, { readOnly: true });
+  environmentSample.geometry = { kind: 'environmentSample', points: [] };
+  const environmentTransition = entity('environment-transition', 0, false, { readOnly: true });
+  environmentTransition.geometry = { kind: 'environmentTransition', points: [] };
+  const camera = entity('camera', 0, false, { readOnly: true });
+  camera.geometry = { kind: 'camera', points: [] };
+  const ambientSound = entity('ambient-sound', 0, false, { readOnly: true });
+  ambientSound.geometry = { kind: 'ambientSound', points: [] };
+  ambientSound.transform.scale = { x: 2, y: 3, z: 4 };
+
+  const entities = [cuboid, sphere, cylinder, pill, spline, grindPath, area,
+    directionalLight, pointLight, environmentSample, environmentTransition, camera, ambientSound];
+  projection.sync(entities);
+  const cuboidObject = projection.getObject('cuboid') as THREE.Mesh;
+  assert.ok(cuboidObject instanceof THREE.Mesh);
+  assert.equal((cuboidObject.material as THREE.MeshBasicMaterial).color.getHexString(), '112233');
+  assert.equal((cuboidObject.material as THREE.MeshBasicMaterial).fog, false);
+  assert.deepEqual(projection.getObject('cuboid')!.position.toArray(), [10, 30, -20]);
+  assert.deepEqual(projection.getObject('cuboid')!.scale.toArray(), [2, 4, 3]);
+  const line = projection.getObject('spline') as THREE.Line;
+  assert.ok(line instanceof THREE.Line);
+  assert.equal((line.material as THREE.LineBasicMaterial).color.getHexString(), '445566');
+  assert.equal((line.material as THREE.LineBasicMaterial).fog, false);
+  assert.deepEqual(Array.from(line.geometry.getAttribute('position').array), [1, 3, -2, 5, 7, -6]);
+  assert.equal(((projection.getObject('sphere') as THREE.Mesh).material as THREE.MeshBasicMaterial)
+    .color.getHexString(), 'aa0000');
+  assert.equal(((projection.getObject('cylinder') as THREE.Mesh).material as THREE.MeshBasicMaterial)
+    .color.getHexString(), '00aa00');
+  assert.equal(((projection.getObject('pill') as THREE.Mesh).material as THREE.MeshBasicMaterial)
+    .color.getHexString(), '0000aa');
+  const grindLine = projection.getObject('grind-path') as THREE.Line;
+  assert.ok(grindLine instanceof THREE.Line);
+  assert.equal((grindLine.material as THREE.LineBasicMaterial).color.getHexString(), 'aabbcc');
+  assert.deepEqual(Array.from(grindLine.geometry.getAttribute('position').array), [9, 11, -10, 13, 15, -14]);
+  const areaObject = projection.getObject('area') as THREE.Mesh;
+  assert.ok(areaObject instanceof THREE.Mesh);
+  assert.equal((areaObject.material as THREE.MeshBasicMaterial).color.getHexString(), '778899');
+  assert.equal((areaObject.material as THREE.MeshBasicMaterial).fog, false);
+  assert.deepEqual(areaObject.position.toArray(), [40, 60, -50]);
+  assert.equal(projection.resolvePick([{ object: line }] as unknown as THREE.Intersection[]), 'spline');
+  const directionalObject = projection.getObject('directional-light') as THREE.Line;
+  assert.equal((directionalObject.material as THREE.LineBasicMaterial).color.getHexString(), '123456');
+  assert.deepEqual(Array.from(directionalObject.geometry.getAttribute('position').array), [0, 0, 0, 1, 3, -2]);
+  assert.equal(((projection.getObject('point-light') as THREE.Mesh).material as THREE.MeshBasicMaterial)
+    .color.getHexString(), '654321');
+  assert.equal(((projection.getObject('environment-sample') as THREE.Mesh).material as THREE.MeshBasicMaterial)
+    .color.getHexString(), 'abcdef');
+  assert.equal(((projection.getObject('environment-transition') as THREE.Mesh).material as THREE.MeshBasicMaterial)
+    .color.getHexString(), 'fedcba');
+  assert.equal(((projection.getObject('camera') as THREE.Mesh).material as THREE.MeshBasicMaterial)
+    .color.getHexString(), '1122aa');
+  const soundObject = projection.getObject('ambient-sound') as THREE.Mesh;
+  assert.equal((soundObject.material as THREE.MeshBasicMaterial).color.getHexString(), 'aa22aa');
+  assert.equal(soundObject.geometry.type, 'BoxGeometry');
+  assert.deepEqual(soundObject.scale.toArray(), [2, 4, 3]);
+  assert.equal((soundObject.material as THREE.MeshBasicMaterial).fog, false);
+  assert.equal((directionalObject.material as THREE.LineBasicMaterial).fog, false);
+  projection.sync(entities, ['area']);
+  assert.equal((areaObject.material as THREE.MeshBasicMaterial).fog, false);
+  projection.root.updateMatrixWorld(true);
+  const insideArea = new THREE.Raycaster(areaObject.position.clone(), new THREE.Vector3(1, 0, 0));
+  assert.equal(projection.resolvePick(insideArea.intersectObject(projection.root, true)), 'area');
   projection.dispose();
 });
 
@@ -112,6 +238,8 @@ test('scene projection applies entity states and picks the nearest eligible enti
     (projection.getObject(selected.id) as THREE.Mesh).material,
     (projection.getObject(normal.id) as THREE.Mesh).material,
   );
+  assert.equal(((projection.getObject(selected.id) as THREE.Mesh).material as THREE.MeshBasicMaterial).fog, false);
+  assert.equal(((projection.getObject(normal.id) as THREE.Mesh).material as THREE.MeshBasicMaterial).fog, false);
   assert.equal(projection.getObject(locked.id)?.visible, true);
   assert.equal(projection.getObject(hidden.id)?.visible, false);
   assert.equal(projection.getObject(disabled.id)?.visible, false);

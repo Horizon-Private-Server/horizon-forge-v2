@@ -8,6 +8,10 @@ export interface ProjectQuaternion extends ProjectVector3 {
   w: number;
 }
 
+export interface ProjectVector4 extends ProjectVector3 {
+  w: number;
+}
+
 export interface ProjectTransform {
   position: ProjectVector3;
   rotation: ProjectQuaternion;
@@ -27,11 +31,18 @@ export interface EditorEntity {
   asset?: { id: string; kind: string };
   provenance?: { game: string; level: number; section: string; sourceIndex: number };
   sourceClassId?: number;
+  geometry?: {
+    kind: 'cuboid' | 'sphere' | 'cylinder' | 'pill' | 'spline' | 'grindPath' | 'area'
+      | 'directionalLight' | 'pointLight' | 'environmentSample' | 'environmentTransition'
+      | 'camera' | 'ambientSound';
+    points: ProjectVector4[];
+  };
   state: {
     dirty: boolean;
     hidden: boolean;
     disabled: boolean;
     locked: boolean;
+    readOnly: boolean;
     invalid: boolean;
     missingAsset: boolean;
   };

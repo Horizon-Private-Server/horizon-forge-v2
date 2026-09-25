@@ -1,4 +1,9 @@
-import { Alert, Badge, Button, Checkbox, Code, Group, NumberInput, Stack, Text, TextInput } from '@mantine/core';
+import { EyeIcon } from '@phosphor-icons/react/dist/csr/Eye';
+import { EyeSlashIcon } from '@phosphor-icons/react/dist/csr/EyeSlash';
+import { PowerIcon } from '@phosphor-icons/react/dist/csr/Power';
+import {
+  ActionIcon, Alert, Badge, Button, Checkbox, Code, ColorInput, Group, NumberInput, Slider, Stack, Text, TextInput,
+} from '@mantine/core';
 import type { TreeNodeData } from '@mantine/core';
 import type { ReactNode } from 'react';
 import { useLayoutEffect, useMemo, useState } from 'react';
@@ -27,16 +32,18 @@ import { SceneViewport } from './SceneViewport.tsx';
 
 export function ViewportPanel() {
   const {
-    project, keybindings, terrain, cameraFocus, setCameraFocus, setSceneLoad, setSkyPieces,
-    execute, busy, showViewportStats,
+    project, keybindings, sceneTreeColors, terrain, cameraFocus, setCameraFocus, setSceneLoad, setSkyPieces,
+    execute, busy, showViewportStats, showOcclusionOctants,
   } = useEditor();
   return <SceneViewport
     disabled={busy}
     entities={project.entities}
     keybindings={keybindings}
+    sceneTreeColors={sceneTreeColors}
     focusEntityId={cameraFocus?.entityId}
     selection={project.selection}
     showStats={showViewportStats}
+    showOcclusionOctants={showOcclusionOctants}
     terrain={terrain}
     onFocusHandled={() => setCameraFocus(undefined)}
     onLoadProgress={setSceneLoad}
@@ -51,6 +58,64 @@ export function ViewportPanel() {
   />;
 }
 
+export function LevelSettingsPanel() {
+  const { terrain, showOcclusionOctants, setShowOcclusionOctants } = useEditor();
+  const settings = terrain?.environment;
+  if (!settings) return <EditorPanel label="Level settings">
+    <EditorEmptyState message="Level settings are unavailable." />
+  </EditorPanel>;
+  const rgb = (value: readonly number[]) => `rgb(${value.join(', ')})`;
+  const vector = (value: readonly number[]) => value.map((item) => item.toFixed(2)).join(', ');
+  const fogDistanceMax = Math.max(1, settings.fogNearDistance, settings.fogFarDistance);
+  return <EditorPanel label="Level settings">
+    <Stack>
+      <Text size="xs" c="yellow">Imported settings are read-only until native writing is available.</Text>
+      <Checkbox
+        checked={showOcclusionOctants}
+        label={`Show occlusion octants (${terrain.occlusionOctants.length.toLocaleString()})`}
+        onChange={(event) => setShowOcclusionOctants(event.currentTarget.checked)}
+      />
+      <ColorInput
+        label="Background color"
+        value={rgb(settings.backgroundColor)}
+        format="rgb"
+        readOnly
+        withEyeDropper={false}
+      />
+      <ColorInput label="Fog color" value={rgb(settings.fogColor)} format="rgb" readOnly withEyeDropper={false} />
+      <LevelSlider label="Fog near distance" value={settings.fogNearDistance} max={fogDistanceMax} precision={2} />
+      <LevelSlider label="Fog far distance" value={settings.fogFarDistance} max={fogDistanceMax} precision={2} />
+      <LevelSlider label="Fog near intensity" value={settings.fogNearIntensity} max={255} />
+      <LevelSlider label="Fog far intensity" value={settings.fogFarIntensity} max={255} />
+      <EditorPropertyGrid>
+        <EditorProperty label="Death height">{(settings.deathHeight ?? 0).toFixed(2)}</EditorProperty>
+        <EditorProperty label="Spherical world">{settings.isSphericalWorld ? 'Yes' : 'No'}</EditorProperty>
+        <EditorProperty label="Sphere center"><Code>{vector(settings.sphereCenter ?? [0, 0, 0])}</Code></EditorProperty>
+        <EditorProperty label="Ship position"><Code>{vector(settings.shipPosition ?? [0, 0, 0])}</Code></EditorProperty>
+        <EditorProperty label="Ship rotation Z">{(settings.shipRotationZ ?? 0).toFixed(3)}</EditorProperty>
+        <EditorProperty label="Ship path">{settings.shipPath ?? -1}</EditorProperty>
+        <EditorProperty label="Ship camera cuboids">
+          {settings.shipCameraCuboidStart ?? -1} → {settings.shipCameraCuboidEnd ?? -1}
+        </EditorProperty>
+        <EditorProperty label="Chunk planes">{settings.chunkPlaneCount ?? 0}</EditorProperty>
+        <EditorProperty label="Core sounds">{settings.coreSoundsCount ?? 0}</EditorProperty>
+      </EditorPropertyGrid>
+    </Stack>
+  </EditorPanel>;
+}
+
+function LevelSlider({ label, value, max, precision = 0 }: {
+  label: string;
+  value: number;
+  max: number;
+  precision?: number;
+}) {
+  return <Stack gap={2}>
+    <Group justify="space-between"><Text size="xs" fw={500}>{label}</Text><Code>{value.toFixed(precision)}</Code></Group>
+    <Slider disabled min={0} max={max} step={precision ? 0.01 : 1} value={value} thumbLabel={label} />
+  </Stack>;
+}
+
 export function SceneTreePanel() {
   const { project, terrain, skyPieces, setCameraFocus, execute, busy } = useEditor();
   const [filter, setFilter] = useState('');
@@ -58,7 +123,6 @@ export function SceneTreePanel() {
   const tfrags = useMemo(() => buildTerrainTreeItems(terrain?.urls ?? [], filter), [filter, terrain]);
   const sky = useMemo(() => buildSkyTreeItems(skyPieces, filter), [filter, skyPieces]);
   const entityIds = useMemo(() => new Set(project.entities.map((entity) => entity.id)), [project.entities]);
-  const selected = project.entities.filter((entity) => project.selection.includes(entity.id));
   const nodes: TreeNodeData[] = [
     ...(tfrags.length ? [{
       value: 'render:tfrags',
@@ -80,10 +144,14 @@ export function SceneTreePanel() {
     }] : []),
     ...model.groups.map((group) => ({
       value: `layer:${group.layer}`,
-      label: <SceneTreeLabel kind={groupTreeKind(group.entities)}>({group.entities.length})</SceneTreeLabel>,
+      label: <SceneTreeNode entities={group.entities} disabled={busy}>
+        <SceneTreeLabel kind={groupTreeKind(group.entities)}>({group.entities.length})</SceneTreeLabel>
+      </SceneTreeNode>,
       children: group.entities.map((entity) => ({
         value: entity.id,
-        label: <SceneTreeLabel kind={entityTreeKind(entity)} dot>{entityTreeText(entity)}</SceneTreeLabel>,
+        label: <SceneTreeNode entities={[entity]} disabled={busy}>
+          <SceneTreeLabel kind={entityTreeKind(entity)} dot>{entityTreeText(entity)}</SceneTreeLabel>
+        </SceneTreeNode>,
       })),
     })),
   ];
@@ -97,7 +165,6 @@ export function SceneTreePanel() {
         <Text size="xs" c="dimmed">{matched} matches</Text>
       </Group>
       <EditorFilter label="Filter scene hierarchy" value={filter} onChange={setFilter} />
-      {selected.length > 0 && <EntityStateControls entities={selected} disabled={busy} />}
       {nodes.length
         ? <EditorTree
           label="Scene hierarchy"
@@ -114,6 +181,58 @@ export function SceneTreePanel() {
         : <EditorEmptyState message="No matching scene objects." />}
     </Stack>
   </EditorPanel>;
+}
+
+function SceneTreeNode({ entities, disabled, children }: {
+  entities: readonly EditorEntity[];
+  disabled: boolean;
+  children: ReactNode;
+}) {
+  const { execute } = useEditor();
+  const ids = entities.map((entity) => entity.id);
+  const allHidden = entities.every((entity) => entity.state.hidden);
+  const allDisabled = entities.every((entity) => entity.state.disabled);
+  const locked = entities.some((entity) => entity.state.locked);
+  const description = entities.length === 1 ? entities[0].name : `${entities.length} objects`;
+  const change = (state: { hidden?: boolean; disabled?: boolean }) => void execute({
+    id: crypto.randomUUID(),
+    kind: 'setEntityState',
+    entityIds: ids,
+    state,
+  });
+  return <span className="scene-tree-node">
+    {children}
+    <span className="scene-tree-actions">
+      <ActionIcon
+        aria-label={`${allHidden ? 'Show' : 'Hide'} ${description}`}
+        color={allHidden ? 'gray' : 'blue'}
+        disabled={disabled || locked}
+        size="xs"
+        title={`${allHidden ? 'Show' : 'Hide'} ${description}`}
+        variant="subtle"
+        onClick={(event) => {
+          event.stopPropagation();
+          change({ hidden: !allHidden });
+        }}
+      >
+        {allHidden ? <EyeSlashIcon size={13} /> : <EyeIcon size={13} />}
+      </ActionIcon>
+      <ActionIcon
+        aria-label={`${allDisabled ? 'Enable' : 'Disable'} ${description}`}
+        color={allDisabled ? 'gray' : 'teal'}
+        disabled={disabled || locked}
+        size="xs"
+        title={`${allDisabled ? 'Enable' : 'Disable'} ${description}`}
+        variant="subtle"
+        onClick={(event) => {
+          event.stopPropagation();
+          change({ disabled: !allDisabled });
+        }}
+      >
+        <PowerIcon size={13} weight={allDisabled ? 'regular' : 'fill'} />
+      </ActionIcon>
+    </span>
+  </span>;
 }
 
 function SceneTreeLabel({ kind, children, dot = false }: { kind: string; children: ReactNode; dot?: boolean }) {
@@ -158,7 +277,7 @@ export function PropertiesPanel() {
 
 function SingleEntityProperties({ entity }: { entity: EditorEntity }) {
   const { execute, busy } = useEditor();
-  const locked = entity.state.locked;
+  const locked = entity.state.locked || entity.state.readOnly;
   return <Stack>
     <EntityTextEditor
       identity={entity.id}
@@ -174,12 +293,14 @@ function SingleEntityProperties({ entity }: { entity: EditorEntity }) {
       disabled={busy || locked}
       onApply={(text) => execute({ id: crypto.randomUUID(), kind: 'setEntityLayer', entityIds: [entity.id], text })}
     />
-    <EntityStateControls entities={[entity]} disabled={busy} />
-    {locked && <Text size="xs" c="yellow">Unlock this entity to edit its properties.</Text>}
+    <EntityStateControls entities={[entity]} disabled={busy || entity.state.readOnly} />
+    {entity.state.readOnly
+      ? <Text size="xs" c="yellow">This decoded source geometry is read-only until its native writer is available.</Text>
+      : locked && <Text size="xs" c="yellow">Unlock this entity to edit its properties.</Text>}
     <TransformEditor entity={entity} disabled={busy || locked} />
     <EditorPropertyGrid>
       <EditorProperty label="Entity ID"><Code>{entity.id}</Code></EditorProperty>
-      <EditorProperty label="Type">{entity.asset?.kind ?? 'model-less moby'}</EditorProperty>
+      <EditorProperty label="Type">{entity.geometry?.kind ?? entity.asset?.kind ?? 'model-less moby'}</EditorProperty>
       <EditorProperty label="Asset">{entity.asset ? <Code>{entity.asset.id}</Code> : 'None'}</EditorProperty>
       <EditorProperty label="Source">{entity.provenance
         ? `${entity.provenance.game} level ${entity.provenance.level}, ${entity.provenance.section} #${entity.provenance.sourceIndex}`
@@ -190,7 +311,8 @@ function SingleEntityProperties({ entity }: { entity: EditorEntity }) {
 
 function MultiEntityProperties({ entities }: { entities: EditorEntity[] }) {
   const { execute, busy } = useEditor();
-  const locked = entities.some((entity) => entity.state.locked);
+  const readOnly = entities.some((entity) => entity.state.readOnly);
+  const locked = readOnly || entities.some((entity) => entity.state.locked);
   const layer = entities.every((entity) => entity.layer === entities[0].layer) ? entities[0].layer : '';
   const ids = entities.map((entity) => entity.id);
   return <Stack>
@@ -203,8 +325,10 @@ function MultiEntityProperties({ entities }: { entities: EditorEntity[] }) {
       disabled={busy || locked}
       onApply={(text) => execute({ id: crypto.randomUUID(), kind: 'setEntityLayer', entityIds: ids, text })}
     />
-    <EntityStateControls entities={entities} disabled={busy} />
-    {locked && <Text size="xs" c="yellow">Unlock all selected entities before changing their shared layer.</Text>}
+    <EntityStateControls entities={entities} disabled={busy || readOnly} />
+    {readOnly
+      ? <Text size="xs" c="yellow">Decoded source geometry is read-only until its native writer is available.</Text>
+      : locked && <Text size="xs" c="yellow">Unlock all selected entities before changing their shared layer.</Text>}
   </Stack>;
 }
 

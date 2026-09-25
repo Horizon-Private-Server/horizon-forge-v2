@@ -24,7 +24,7 @@ export function buildGroundPlacement(
 ): GroundPlacementResult {
   const selectedIds = new Set(selection);
   const selected = entities.filter((entity) => selectedIds.has(entity.id)
-    && !entity.state.locked && !entity.state.hidden && !entity.state.disabled);
+    && !entity.state.locked && !entity.state.readOnly && !entity.state.hidden && !entity.state.disabled);
   if (!selected.length) return { message: 'Select an unlocked object to place.', updates: [] };
 
   bounds.makeEmpty();

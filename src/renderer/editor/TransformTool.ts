@@ -118,7 +118,7 @@ export class TransformTool {
     const byId = new Map(entities.map((entity) => [entity.id, entity]));
     this.activeIds = selection.filter((id) => {
       const entity = byId.get(id);
-      return entity && !entity.state.locked && !entity.state.hidden && !entity.state.disabled;
+      return entity && !entity.state.locked && !entity.state.readOnly && !entity.state.hidden && !entity.state.disabled;
     });
     this.refreshAttachment();
   }

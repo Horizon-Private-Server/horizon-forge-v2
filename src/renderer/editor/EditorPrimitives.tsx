@@ -77,7 +77,7 @@ export function EditorTree({ label, nodes, selected = [], multiple = false, onAc
     allowRangeSelection={false}
     className="editor-tree"
     data={nodes}
-    levelOffset="sm"
+    levelOffset="lg"
     selectOnClick={false}
     tree={tree}
     onClick={(event) => {
@@ -85,6 +85,7 @@ export function EditorTree({ label, nodes, selected = [], multiple = false, onAc
     }}
     onKeyDownCapture={(event) => {
       if (event.key !== 'Enter' && event.key !== ' ') return;
+      if ((event.target as HTMLElement).closest('button, input, select, textarea, a')) return;
       const value = (event.target as HTMLElement).closest<HTMLElement>('[role="treeitem"]')?.dataset.value;
       if (!value || !valueSet.has(value)) return;
       event.preventDefault();
@@ -98,16 +99,16 @@ export function EditorTree({ label, nodes, selected = [], multiple = false, onAc
         event.stopPropagation();
         if (event.detail > 1) return;
         if (hasChildren) controller.toggleExpanded(node.value);
-        else select(node.value, event);
+        select(node.value, event);
         event.currentTarget.closest<HTMLElement>('[role="treeitem"]')?.focus();
       }}
       onDoubleClick={(event) => {
         event.stopPropagation();
-        if (valueSet.has(node.value)) onActivate?.(node.value);
+        if (!hasChildren && valueSet.has(node.value)) onActivate?.(node.value);
       }}
     >
       <span aria-hidden="true" className="editor-tree-chevron">{hasChildren ? (expanded ? '▾' : '▸') : ''}</span>
-      <span>{node.label}</span>
+      <span className="editor-tree-content">{node.label}</span>
     </div>}
   />;
 }

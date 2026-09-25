@@ -161,6 +161,7 @@ internal static class ForgeProjectPersistence
         var manifest = manifestVersion switch
         {
             0 => Migrate(Deserialize<ManifestV0>(manifestBytes, "Project manifest")),
+            1 => Migrate(Deserialize<ForgeProjectManifest>(manifestBytes, "Project manifest")),
             ProjectSchema.CurrentVersion => Deserialize<ForgeProjectManifest>(manifestBytes, "Project manifest"),
             _ => throw new UnsupportedProjectSchemaException(manifestVersion),
         };
@@ -170,6 +171,7 @@ internal static class ForgeProjectPersistence
         var content = contentVersion switch
         {
             0 => Migrate(Deserialize<ContentV0>(contentBytes, "Project content")),
+            1 => Migrate(Deserialize<ForgeProjectContent>(contentBytes, "Project content")),
             ProjectSchema.CurrentVersion => Deserialize<ForgeProjectContent>(contentBytes, "Project content"),
             _ => throw new UnsupportedProjectSchemaException(contentVersion),
         };
@@ -196,6 +198,12 @@ internal static class ForgeProjectPersistence
         ProjectSchema.ContentDocumentType,
         value.Entities,
         value.Assets);
+
+    private static ForgeProjectManifest Migrate(ForgeProjectManifest value) =>
+        value with { SchemaVersion = ProjectSchema.CurrentVersion };
+
+    private static ForgeProjectContent Migrate(ForgeProjectContent value) =>
+        value with { SchemaVersion = ProjectSchema.CurrentVersion };
 
     internal static T Deserialize<T>(byte[] bytes, string description) =>
         JsonSerializer.Deserialize<T>(bytes, JsonOptions)

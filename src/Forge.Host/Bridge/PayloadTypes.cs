@@ -80,7 +80,22 @@ public sealed record UyaRenderEnvironmentPayload(
     float FogNearDistance,
     float FogFarDistance,
     float FogNearIntensity,
-    float FogFarIntensity);
+    float FogFarIntensity,
+    float DeathHeight = 0,
+    bool IsSphericalWorld = false,
+    float SphereCenterX = 0,
+    float SphereCenterY = 0,
+    float SphereCenterZ = 0,
+    float ShipPositionX = 0,
+    float ShipPositionY = 0,
+    float ShipPositionZ = 0,
+    float ShipRotationZ = 0,
+    int ShipPath = -1,
+    int ShipCameraCuboidStart = -1,
+    int ShipCameraCuboidEnd = -1,
+    int ChunkPlaneCount = 0,
+    int CoreSoundsCount = 0);
+public readonly record struct UyaRenderOcclusionOctantPayload(int X, int Y, int Z, int MaskIndex);
 public sealed record UyaRenderPackageResultPayload(
     string RootPath,
     string CacheKey,
@@ -88,7 +103,8 @@ public sealed record UyaRenderPackageResultPayload(
     string? SkyPath,
     UyaRenderEnvironmentPayload? Environment,
     IReadOnlyList<UyaRenderAssetPayload> Assets,
-    bool CacheHit);
+    bool CacheHit,
+    IReadOnlyList<UyaRenderOcclusionOctantPayload>? OcclusionOctants = null);
 public sealed record CatalogMaintenancePayload(
     uint ProjectCount,
     uint CatalogAssetCount,

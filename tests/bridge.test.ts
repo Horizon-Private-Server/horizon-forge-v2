@@ -79,7 +79,7 @@ interface GoldenFrame {
 }
 
 const vectors = JSON.parse(
-  readFileSync(new URL('./fixtures/bridge-v1.json', import.meta.url), 'utf8'),
+  readFileSync(new URL('./fixtures/bridge-v2.json', import.meta.url), 'utf8'),
 ) as GoldenFrame[];
 
 function frameFrom(vector: GoldenFrame): BridgeFrame {
@@ -139,7 +139,7 @@ test('invalid headers fail before payload allocation', () => {
   expectProtocolError(BridgeErrorCode.InvalidMagic, () => new BridgeFrameDecoder().push(badMagic));
 
   const badVersion = Buffer.from(valid);
-  badVersion.writeUInt16LE(2, 4);
+  badVersion.writeUInt16LE(1, 4);
   expectProtocolError(BridgeErrorCode.UnsupportedVersion, () => new BridgeFrameDecoder().push(badVersion));
 
   const badOpcode = Buffer.from(valid);
@@ -270,11 +270,22 @@ test('operation payloads round trip and reject trailing data', () => {
       fogFarDistance: 175,
       fogNearIntensity: 255,
       fogFarIntensity: 0,
+      deathHeight: -20,
+      isSphericalWorld: false,
+      sphereCenter: [0, 0, 0] as [number, number, number],
+      shipPosition: [1, 2, 3] as [number, number, number],
+      shipRotationZ: 1.5,
+      shipPath: 2,
+      shipCameraCuboidStart: 3,
+      shipCameraCuboidEnd: 4,
+      chunkPlaneCount: 2,
+      coreSoundsCount: 5,
     },
     assets: [
       { assetId: 'a'.repeat(64), kind: 'moby' as const, path: 'entities/a/model.gltf' },
       { assetId: 'b'.repeat(64), kind: 'tie' as const, error: 'missing asset' },
     ],
+    occlusionOctants: [{ x: 1, y: 2, z: 3, maskIndex: 4 }],
     cacheHit: true,
   };
   assert.deepEqual(decodeUyaRenderPackageResult(encodeUyaRenderPackageResult(renderResult)), renderResult);

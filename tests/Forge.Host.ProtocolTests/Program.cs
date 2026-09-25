@@ -12,7 +12,7 @@ internal static class Program
     {
         try
         {
-            var json = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "fixtures", "bridge-v1.json"));
+            var json = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "fixtures", "bridge-v2.json"));
             var vectors = JsonSerializer.Deserialize<List<GoldenFrame>>(json, new JsonSerializerOptions
             {
                 PropertyNameCaseInsensitive = true,
@@ -85,7 +85,7 @@ internal static class Program
         Expect(BridgeErrorCode.InvalidMagic, () => new BridgeFrameDecoder().Push(badMagic));
 
         var badVersion = validHeader.ToArray();
-        BinaryPrimitives.WriteUInt16LittleEndian(badVersion.AsSpan(4), 2);
+        BinaryPrimitives.WriteUInt16LittleEndian(badVersion.AsSpan(4), 1);
         Expect(BridgeErrorCode.UnsupportedVersion, () => new BridgeFrameDecoder().Push(badVersion));
 
         var badOpcode = validHeader.ToArray();
@@ -210,24 +210,29 @@ internal static class Program
         var renderResult = new UyaRenderPackageResultPayload(
             "render-cache/key", "key", ["tfrag/tfrag.gltf", "tfrag/chunks/chunk1/tfrag.gltf"],
             "assets/skybox/skybox.gltf",
-            new(57, 65, 50, 40, 50, 40, 10, 175, 255, 0),
+            new(57, 65, 50, 40, 50, 40, 10, 175, 255, 0,
+                -20, false, 0, 0, 0, 1, 2, 3, 1.5f, 2, 3, 4, 2, 5),
             [
                 new(new string('a', 64), "moby", "entities/a/model.gltf", null),
                 new(new string('b', 64), "tie", null, "missing asset"),
             ],
-            true);
+            true,
+            [new(1, 2, 3, 4)]);
         var decodedRenderResult = BridgePayloadCodec.DecodeUyaRenderPackageResult(
             BridgePayloadCodec.EncodeUyaRenderPackageResult(renderResult));
         Equal(renderResult with
             {
                 TerrainPaths = decodedRenderResult.TerrainPaths,
                 Assets = decodedRenderResult.Assets,
+                OcclusionOctants = decodedRenderResult.OcclusionOctants,
             },
             decodedRenderResult, "render-package result payload");
         Equal(true, renderResult.TerrainPaths.SequenceEqual(decodedRenderResult.TerrainPaths),
             "render-package terrain paths");
         Equal(true, renderResult.Assets.SequenceEqual(decodedRenderResult.Assets),
             "render-package assets");
+        Equal(true, renderResult.OcclusionOctants!.SequenceEqual(decodedRenderResult.OcclusionOctants!),
+            "render-package occlusion octants");
 
         var buildRequest = new UyaBuildPatchRequestPayload(
             "project", "catalog", "clean.iso", "development.iso", new string('a', 32), ["WARN-1"], false,
@@ -301,7 +306,8 @@ internal static class Program
         {
         }
 
-        var futureBytes = "{\"schemaVersion\":2,\"futureData\":true}"u8.ToArray();
+        var futureBytes = System.Text.Encoding.UTF8.GetBytes(
+            $"{{\"schemaVersion\":{ProjectSchema.CurrentVersion + 1},\"futureData\":true}}");
         var checksum = SHA256.HashData(futureBytes);
         try
         {

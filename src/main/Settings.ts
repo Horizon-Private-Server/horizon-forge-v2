@@ -163,8 +163,11 @@ function createDefinitions(paths: ApplicationPaths, defaultUpdateChannel: Update
       validate: (value): value is boolean => typeof value === 'boolean',
     },
     ...SCENE_TREE_KINDS.map((kind): SettingDefinition => ({
-      key: SCENE_TREE_COLOR_KEYS[kind], group: 'Customization', label: `${SCENE_TREE_LABELS[kind]} tree color`,
-      type: 'text', description: `Color used for ${SCENE_TREE_LABELS[kind].toLocaleLowerCase()} items in the scene tree.`,
+      key: SCENE_TREE_COLOR_KEYS[kind], group: 'Customization',
+      label: kind === 'occlusionOctant' ? 'Occlusion octant color' : `${SCENE_TREE_LABELS[kind]} tree color`,
+      type: 'text', description: kind === 'occlusionOctant'
+        ? 'Color used for occlusion octants in the viewport.'
+        : `Color used for ${SCENE_TREE_LABELS[kind].toLocaleLowerCase()} items in the scene tree.`,
       defaultValue: DEFAULT_SCENE_TREE_COLORS[kind], restartRequired: false, machineSpecific: false, editable: true,
       validate: isHexColor,
     })),

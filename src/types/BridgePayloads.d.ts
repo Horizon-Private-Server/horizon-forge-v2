@@ -84,7 +84,18 @@ export interface UyaRenderPackageResult {
     fogFarDistance: number;
     fogNearIntensity: number;
     fogFarIntensity: number;
+    deathHeight: number;
+    isSphericalWorld: boolean;
+    sphereCenter: [number, number, number];
+    shipPosition: [number, number, number];
+    shipRotationZ: number;
+    shipPath: number;
+    shipCameraCuboidStart: number;
+    shipCameraCuboidEnd: number;
+    chunkPlaneCount: number;
+    coreSoundsCount: number;
   };
+  occlusionOctants: { x: number; y: number; z: number; maskIndex: number }[];
   assets: { assetId: string; kind: 'moby' | 'tie' | 'shrub'; path?: string; error?: string }[];
   cacheHit: boolean;
 }

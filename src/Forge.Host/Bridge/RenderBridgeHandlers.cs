@@ -26,9 +26,17 @@ internal static class RenderBridgeHandlers
                 environment.BackgroundRed, environment.BackgroundGreen, environment.BackgroundBlue,
                 environment.FogRed, environment.FogGreen, environment.FogBlue,
                 environment.FogNearDistance, environment.FogFarDistance,
-                environment.FogNearIntensity, environment.FogFarIntensity) : null,
+                environment.FogNearIntensity, environment.FogFarIntensity,
+                environment.DeathHeight, environment.IsSphericalWorld,
+                environment.SphereCenterX, environment.SphereCenterY, environment.SphereCenterZ,
+                environment.ShipPositionX, environment.ShipPositionY, environment.ShipPositionZ,
+                environment.ShipRotationZ, environment.ShipPath,
+                environment.ShipCameraCuboidStart, environment.ShipCameraCuboidEnd,
+                environment.ChunkPlaneCount, environment.CoreSoundsCount) : null,
             result.Assets.Select(asset => new UyaRenderAssetPayload(
                 asset.AssetId, asset.Kind, asset.Path, asset.Error)).ToArray(),
-            result.CacheHit));
+            result.CacheHit,
+            result.OcclusionOctants?.Select(value => new UyaRenderOcclusionOctantPayload(
+                value.X, value.Y, value.Z, value.MaskIndex)).ToArray()));
     }
 }

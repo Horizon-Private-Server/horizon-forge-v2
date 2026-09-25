@@ -5,6 +5,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 import type { EditorEntity, EditorTransformUpdate } from '../../types/EditorRuntime.js';
 import type { KeybindingMap } from '../../types/Keybindings.js';
+import type { SceneTreeColors } from '../../types/SceneTree.js';
 import type { EditorLoadProgress, EditorTerrainSource } from '../../types/ForgeApi.js';
 import type { EditorSnapSource, EditorSnapTarget } from '../../types/EditorViewport.js';
 import {
@@ -34,11 +35,13 @@ import { ViewportToolbar } from './ViewportToolbar.tsx';
 interface SceneViewportProps {
   entities: readonly EditorEntity[];
   keybindings: KeybindingMap;
+  sceneTreeColors: SceneTreeColors;
   focusEntityId?: string;
   selection: readonly string[];
   terrain?: EditorTerrainSource;
   disabled: boolean;
   showStats: boolean;
+  showOcclusionOctants: boolean;
   onFocusHandled(): void;
   onLoadProgress(progress?: EditorLoadProgress): void;
   onSkyPiecesChange(values: string[]): void;
@@ -49,11 +52,13 @@ interface SceneViewportProps {
 export function SceneViewport({
   entities,
   keybindings,
+  sceneTreeColors,
   focusEntityId,
   selection,
   terrain: terrainSource,
   disabled,
   showStats,
+  showOcclusionOctants,
   onFocusHandled,
   onLoadProgress,
   onSkyPiecesChange,
@@ -97,6 +102,7 @@ export function SceneViewport({
     transformTool: TransformTool;
     content: THREE.Group;
     terrain: THREE.Group;
+    occlusion: THREE.Group;
     sky: THREE.Group;
     skyEye: THREE.Vector3;
     velocity: THREE.Vector3;
@@ -117,10 +123,13 @@ export function SceneViewport({
     content.name = 'Forge scene content';
     const terrain = new THREE.Group();
     terrain.name = 'UYA terrain';
+    const occlusion = new THREE.Group();
+    occlusion.name = 'UYA occlusion octants';
+    occlusion.visible = showOcclusionOctants;
     const sky = new THREE.Group();
     sky.name = 'UYA sky';
     const currentProjection = new SceneProjection();
-    content.add(terrain, currentProjection.root);
+    content.add(terrain, occlusion, currentProjection.root);
     skyScene.add(sky);
     scene.add(content);
 
@@ -189,6 +198,7 @@ export function SceneViewport({
       transformTool,
       content,
       terrain,
+      occlusion,
       sky,
       skyEye: new THREE.Vector3(),
       velocity,
@@ -268,6 +278,7 @@ export function SceneViewport({
     renderer.domElement.tabIndex = 0;
 
     const raycaster = new THREE.Raycaster();
+    raycaster.params.Line.threshold = 8;
     const pointer = new THREE.Vector2();
     let pointerStart: { x: number; y: number } | undefined;
     let lookPointerId: number | undefined;
@@ -421,6 +432,11 @@ export function SceneViewport({
     onSkyPiecesChange([]);
     let disposed = false;
     const loadedScenes: THREE.Object3D[] = [];
+    const octants = createOcclusionOverlay(terrainSource.occlusionOctants, sceneTreeColors.occlusionOctant);
+    if (octants) {
+      viewport.current!.occlusion.add(octants);
+      loadedScenes.push(octants);
+    }
     const total = terrainSource.urls.length + terrainSource.assets.length + (terrainSource.skyUrl ? 1 : 0);
     let completed = 0;
     const reportLoaded = () => {
@@ -519,6 +535,7 @@ export function SceneViewport({
     return () => {
       disposed = true;
       viewport.current?.projection.setAssetTemplates(new Map());
+      octants?.removeFromParent();
       if (viewport.current) {
         viewport.current.skyEye.set(0, 0, 0);
         applySceneEnvironment(viewport.current.scene, undefined, viewport.current.skyScene);
@@ -541,6 +558,19 @@ export function SceneViewport({
       current.framed = true;
     }
   }, [entities, selection]);
+
+  useEffect(() => {
+    const current = viewport.current;
+    if (!current) return;
+    current.projection.setGeometryColors(sceneTreeColors);
+    current.occlusion.traverse((object) => {
+      if (object instanceof THREE.Mesh && object.material instanceof THREE.MeshBasicMaterial)
+        object.material.color.set(sceneTreeColors.occlusionOctant);
+      if (object instanceof THREE.LineSegments && object.material instanceof THREE.LineBasicMaterial)
+        object.material.color.set(sceneTreeColors.occlusionOctant);
+    });
+  }, [sceneTreeColors]);
+  useEffect(() => { if (viewport.current) viewport.current.occlusion.visible = showOcclusionOctants; }, [showOcclusionOctants]);
 
   useEffect(() => { if (!showStats) setStats(undefined); }, [showStats]);
 
@@ -600,6 +630,44 @@ export function SceneViewport({
       </div>}
     </div>
   );
+}
+
+function createOcclusionOverlay(
+  octants: readonly { x: number; y: number; z: number; maskIndex: number }[],
+  color: string,
+): THREE.Group | undefined {
+  if (!octants.length) return undefined;
+  const geometry = new THREE.BoxGeometry(4, 4, 4);
+  const fill = new THREE.InstancedMesh(geometry, new THREE.MeshBasicMaterial({
+    color, depthWrite: false, fog: false, opacity: 0.08, transparent: true,
+  }), octants.length);
+  const edgeGeometry = new THREE.EdgesGeometry(geometry);
+  const edgeVertices = edgeGeometry.getAttribute('position');
+  const edgePositions = new Float32Array(octants.length * edgeVertices.count * 3);
+  const matrix = new THREE.Matrix4();
+  octants.forEach((octant, index) => {
+    const x = octant.x * 4 + 2;
+    const y = octant.z * 4 + 2;
+    const z = -(octant.y * 4 + 2);
+    matrix.makeTranslation(x, y, z);
+    fill.setMatrixAt(index, matrix);
+    for (let vertex = 0; vertex < edgeVertices.count; vertex += 1) {
+      const offset = (index * edgeVertices.count + vertex) * 3;
+      edgePositions[offset] = edgeVertices.getX(vertex) + x;
+      edgePositions[offset + 1] = edgeVertices.getY(vertex) + y;
+      edgePositions[offset + 2] = edgeVertices.getZ(vertex) + z;
+    }
+  });
+  fill.instanceMatrix.needsUpdate = true;
+  edgeGeometry.setAttribute('position', new THREE.BufferAttribute(edgePositions, 3));
+  edgeGeometry.computeBoundingSphere();
+  const edges = new THREE.LineSegments(edgeGeometry, new THREE.LineBasicMaterial({
+    color, fog: false, opacity: 0.55, transparent: true,
+  }));
+  const overlay = new THREE.Group();
+  overlay.name = 'Occlusion octants';
+  overlay.add(fill, edges);
+  return overlay;
 }
 
 const MOVEMENT_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'Space', 'ShiftLeft', 'ShiftRight']);

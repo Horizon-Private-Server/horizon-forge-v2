@@ -29,6 +29,7 @@ function entity(index: number): EditorEntity {
       hidden: false,
       disabled: false,
       locked: index === 42,
+      readOnly: false,
       invalid: false,
       missingAsset: index === 42,
     },
@@ -50,6 +51,7 @@ test('scene tree grouping filters, labels states, and returns every result', () 
   assert.ok(filtered.groups.flatMap((group) => group.entities).every((value) => value.name.includes('42')));
   assert.equal(entityStateLabel(entity(42)), 'Moby 42 [dirty, locked, missing asset]');
   assert.equal(entityTreeKind(entity(42)), 'moby');
+  assert.equal(entityTreeKind({ ...entity(42), asset: undefined, geometry: { kind: 'cuboid', points: [] } }), 'cuboid');
   assert.equal(entityTreeText({ ...entity(42), name: 'Moby 0x002A #42' }),
     '0x002A #42 [dirty, locked, missing asset]');
   assert.equal(entityTreeText(entity(42)), 'Moby 42 [dirty, locked, missing asset]');

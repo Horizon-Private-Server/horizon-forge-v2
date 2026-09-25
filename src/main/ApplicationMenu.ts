@@ -83,6 +83,7 @@ export function installApplicationMenu(runAction: (action: ForgeAction) => void)
             { label: 'Viewport', click: () => runAction('showViewport') },
             { label: 'Scene', click: () => runAction('showSceneTree') },
             { label: 'Properties', click: () => runAction('showProperties') },
+            { label: 'Level Settings', click: () => runAction('showLevelSettings') },
             { label: 'Diagnostics', click: () => runAction('showDiagnostics') },
             { label: 'Build', click: () => runAction('showBuild') },
           ],

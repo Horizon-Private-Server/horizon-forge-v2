@@ -56,7 +56,12 @@ public sealed record ProjectEntity(
     ProjectAssetReference? Asset,
     ProjectEntityProvenance? Provenance = null,
     ProjectEntityState? State = null,
-    ProjectEntitySource? Source = null);
+    ProjectEntitySource? Source = null,
+    ProjectEntityGeometry? Geometry = null,
+    ProjectEntityLighting? Lighting = null,
+    ProjectTieLighting? TieLighting = null,
+    ProjectCameraInstance? Camera = null,
+    ProjectAmbientSoundInstance? AmbientSound = null);
 
 public sealed record ProjectAttachedAsset(
     AssetId Id,

@@ -352,8 +352,11 @@ public sealed class EditorRuntime : IAsyncDisposable
                     entity.Asset,
                     entity.Provenance,
                     entity.Source?.ClassId,
+                    Visualization(entity),
                     new(!_savedEntities.TryGetValue(entity.EntityId, out var saved) || saved != entity,
-                        state.Hidden, state.Disabled, state.Locked, false,
+                        state.Hidden, state.Disabled, state.Locked,
+                        IsReadOnlySource(entity),
+                        HasInvalidGeometryLinks(entity),
                         entity.Asset is not null && _missingAssets.Contains(entity.Asset.Id)));
             }).ToArray(),
             _selection.ToArray(),
@@ -366,6 +369,42 @@ public sealed class EditorRuntime : IAsyncDisposable
             RuntimeCapabilities.ToArray(),
             RuntimeTools.ToArray(),
             _diagnostics.ToArray());
+    }
+
+    private static EditorEntityGeometry? Visualization(ProjectEntity entity)
+    {
+        var geometry = entity.Geometry;
+        if (geometry?.Cuboid is not null) return new(EditorGeometryKind.Cuboid, []);
+        if (geometry?.Spline is not null) return new(EditorGeometryKind.Spline, geometry.Spline.Points);
+        if (geometry?.Area is not null) return new(EditorGeometryKind.Area, []);
+        if (geometry?.Sphere is not null) return new(EditorGeometryKind.Sphere, []);
+        if (geometry?.Cylinder is not null) return new(EditorGeometryKind.Cylinder, []);
+        if (geometry?.Pill is not null) return new(EditorGeometryKind.Pill, []);
+        if (geometry?.GrindPath is not null) return new(EditorGeometryKind.GrindPath, geometry.GrindPath.Points);
+        var lighting = entity.Lighting;
+        if (lighting?.DirectionalLight is { } directional)
+            return new(EditorGeometryKind.DirectionalLight,
+            [
+                new(0, 0, 0, 1),
+                new(directional.TopDirection.X * 12, directional.TopDirection.Y * 12,
+                    directional.TopDirection.Z * 12, directional.TopDirection.W),
+            ]);
+        if (lighting?.PointLight is not null) return new(EditorGeometryKind.PointLight, []);
+        if (lighting?.EnvironmentSamplePoint is not null) return new(EditorGeometryKind.EnvironmentSample, []);
+        if (lighting?.EnvironmentTransition is not null) return new(EditorGeometryKind.EnvironmentTransition, []);
+        if (entity.Camera is not null) return new(EditorGeometryKind.Camera, []);
+        if (entity.AmbientSound is not null) return new(EditorGeometryKind.AmbientSound, []);
+        return null;
+    }
+
+    private static bool IsReadOnlySource(ProjectEntity entity) => entity.Geometry is not null
+        || entity.Lighting is not null || entity.Camera is not null || entity.AmbientSound is not null;
+
+    private static bool HasInvalidGeometryLinks(ProjectEntity entity)
+    {
+        var area = entity.Geometry?.Area;
+        return area is not null && area.Splines.Concat(area.Cuboids).Concat(area.Spheres)
+            .Concat(area.Cylinders).Concat(area.NegativeCuboids).Any(link => link.EntityId is null);
     }
 
     private static void ValidateCommand(EditorCommand command, ForgeProjectWorkspace workspace)
@@ -384,6 +423,16 @@ public sealed class EditorRuntime : IAsyncDisposable
             .Where(entity => entity.State?.Locked == true)
             .Select(entity => entity.EntityId)
             .ToHashSet();
+        var readOnly = workspace.Content.Entities
+            .Where(IsReadOnlySource)
+            .Select(entity => entity.EntityId)
+            .ToHashSet();
+        var readOnlyStateChange = command.Kind == EditorCommandKind.SetEntityState
+            && command.State is { Locked: null };
+        if (command.EntityIds.Any(readOnly.Contains)
+            && command.Kind != EditorCommandKind.SetSelection
+            && !readOnlyStateChange)
+            throw new ArgumentException("Decoded source data is read-only until its native writer is available.", nameof(command));
         if (command.EntityIds.Any(locked.Contains)
             && command.Kind is EditorCommandKind.UpdateTransform or EditorCommandKind.UpdateTransforms
                 or EditorCommandKind.RenameEntity

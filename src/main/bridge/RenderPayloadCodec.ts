@@ -41,6 +41,16 @@ export function encodeUyaRenderPackageResult(value: UyaRenderPackageResult): Buf
     writer.writeFloat32(value.environment.fogFarDistance);
     writer.writeFloat32(value.environment.fogNearIntensity);
     writer.writeFloat32(value.environment.fogFarIntensity);
+    writer.writeFloat32(value.environment.deathHeight);
+    writer.writeBoolean(value.environment.isSphericalWorld);
+    value.environment.sphereCenter.forEach((coordinate) => writer.writeFloat32(coordinate));
+    value.environment.shipPosition.forEach((coordinate) => writer.writeFloat32(coordinate));
+    writer.writeFloat32(value.environment.shipRotationZ);
+    writer.writeInt32(value.environment.shipPath);
+    writer.writeInt32(value.environment.shipCameraCuboidStart);
+    writer.writeInt32(value.environment.shipCameraCuboidEnd);
+    writer.writeInt32(value.environment.chunkPlaneCount);
+    writer.writeInt32(value.environment.coreSoundsCount);
   }
   writer.writeUInt32(value.assets.length);
   value.assets.forEach((asset) => {
@@ -50,6 +60,13 @@ export function encodeUyaRenderPackageResult(value: UyaRenderPackageResult): Buf
     if (asset.path !== undefined) writer.writeString(asset.path);
     writer.writeBoolean(asset.error !== undefined);
     if (asset.error !== undefined) writer.writeString(asset.error);
+  });
+  writer.writeUInt32(value.occlusionOctants.length);
+  value.occlusionOctants.forEach((octant) => {
+    writer.writeInt32(octant.x);
+    writer.writeInt32(octant.y);
+    writer.writeInt32(octant.z);
+    writer.writeInt32(octant.maskIndex);
   });
   writer.writeBoolean(value.cacheHit);
   return writer.toBuffer();
@@ -68,6 +85,16 @@ export function decodeUyaRenderPackageResult(payload: Uint8Array): UyaRenderPack
     fogFarDistance: reader.readFloat32(),
     fogNearIntensity: reader.readFloat32(),
     fogFarIntensity: reader.readFloat32(),
+    deathHeight: reader.readFloat32(),
+    isSphericalWorld: reader.readBoolean(),
+    sphereCenter: [reader.readFloat32(), reader.readFloat32(), reader.readFloat32()] as [number, number, number],
+    shipPosition: [reader.readFloat32(), reader.readFloat32(), reader.readFloat32()] as [number, number, number],
+    shipRotationZ: reader.readFloat32(),
+    shipPath: reader.readInt32(),
+    shipCameraCuboidStart: reader.readInt32(),
+    shipCameraCuboidEnd: reader.readInt32(),
+    chunkPlaneCount: reader.readInt32(),
+    coreSoundsCount: reader.readInt32(),
   } : undefined;
   const assetCount = reader.readUInt32();
   if (assetCount > 100_000) throw new Error('Render asset list exceeds item limit');
@@ -80,7 +107,15 @@ export function decodeUyaRenderPackageResult(payload: Uint8Array): UyaRenderPack
     if (reader.readBoolean()) asset.error = reader.readString();
     return asset;
   });
-  const value = { rootPath, cacheKey, terrainPaths, skyPath, environment, assets, cacheHit: reader.readBoolean() };
+  const octantCount = reader.readUInt32();
+  if (octantCount > 1_000_000) malformed('Occlusion octant list exceeds item limit');
+  const occlusionOctants = Array.from({ length: octantCount }, () => ({
+    x: reader.readInt32(), y: reader.readInt32(), z: reader.readInt32(), maskIndex: reader.readInt32(),
+  }));
+  const value = {
+    rootPath, cacheKey, terrainPaths, skyPath, environment, assets, occlusionOctants,
+    cacheHit: reader.readBoolean(),
+  };
   reader.complete();
   return value;
 }

@@ -31,6 +31,6 @@ Entity ID while asset references may remain unchanged.
 Every `forge-project.json` contains an integer `schemaVersion`. Missing,
 non-integer, and negative versions are invalid. Version zero remains a frozen
 migration fixture; current behavior is documented in
-[Forge project format v1](project-format-v1.md). A version greater than the
+[Forge project format v2](project-format-v2.md). A version greater than the
 application supports is rejected before any migration or write, so unknown future
 data is never overwritten.

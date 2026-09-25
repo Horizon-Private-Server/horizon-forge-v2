@@ -66,7 +66,8 @@ export function buildSceneEntityGroups(
   const query = filter.trim().toLocaleLowerCase();
   const groups = new Map<string, EditorEntity[]>();
   for (const entity of entities) {
-    if (query && !`${entity.name} ${entity.layer} ${entity.asset?.kind ?? ''}`.toLocaleLowerCase().includes(query)) continue;
+    if (query && !`${entity.name} ${entity.layer} ${entity.asset?.kind ?? ''} ${entity.geometry?.kind ?? ''}`
+      .toLocaleLowerCase().includes(query)) continue;
     const group = groups.get(entity.layer);
     if (group) group.push(entity);
     else groups.set(entity.layer, [entity]);
@@ -84,6 +85,7 @@ export function entityStateLabel(entity: EditorEntity): string {
     entity.state.hidden && 'hidden',
     entity.state.disabled && 'disabled',
     entity.state.locked && 'locked',
+    entity.state.readOnly && 'read-only',
     entity.state.invalid && 'invalid',
     entity.state.missingAsset && 'missing asset',
   ].filter(Boolean);
@@ -91,6 +93,7 @@ export function entityStateLabel(entity: EditorEntity): string {
 }
 
 export function entityTreeKind(entity: EditorEntity): string {
+  if (entity.geometry) return entity.geometry.kind;
   if (entity.asset?.kind) return entity.asset.kind.toLocaleLowerCase();
   return entity.layer.toLocaleLowerCase().replace(/s$/, '');
 }
