@@ -13,6 +13,14 @@ const FOG_PATCH_KEY = 'forgePs2Fog';
 const OPAQUE_ALPHA_CUTOFF = 254 / 255;
 const alphaCompile = new WeakMap<THREE.Material, THREE.Material['onBeforeCompile']>();
 const alphaCacheKey = new WeakMap<THREE.Material, THREE.Material['customProgramCacheKey']>();
+const fogStates = new WeakMap<THREE.Material, FogState>();
+
+interface FogState {
+  near: { value: number };
+  far: { value: number };
+  nearAmount: { value: number };
+  farAmount: { value: number };
+}
 
 export function configurePs2MaterialAlpha(root: THREE.Object3D, family: Ps2MaterialFamily): void {
   const materials = new Set<THREE.Material>();
@@ -30,31 +38,59 @@ export function configurePs2MaterialFog(root: THREE.Object3D, environment?: Edit
   const nearAmount = fogAmount(environment.fogNearIntensity);
   const farAmount = fogAmount(environment.fogFarIntensity);
   if (![near, far, nearAmount, farAmount].every(Number.isFinite) || far <= near) return;
-  const signature = `${near}:${far}:${nearAmount}:${farAmount}`;
   const materials = new Set<THREE.Material>();
   root.traverse((object) => {
     if (!(object instanceof THREE.Mesh)) return;
     for (const material of Array.isArray(object.material) ? object.material : [object.material]) materials.add(material);
   });
   materials.forEach((material) => {
-    if (material.userData[FOG_PATCH_KEY] === signature) return;
+    const existing = fogStates.get(material);
+    if (existing) {
+      setFogState(existing, near, far, nearAmount, farAmount);
+      return;
+    }
+    if (material.userData[FOG_PATCH_KEY] === true) return;
+    const state: FogState = {
+      near: { value: near }, far: { value: far },
+      nearAmount: { value: nearAmount }, farAmount: { value: farAmount },
+    };
+    fogStates.set(material, state);
     const previousCompile = material.onBeforeCompile.bind(material);
     const previousCacheKey = material.customProgramCacheKey.bind(material);
     material.onBeforeCompile = (shader, renderer) => {
       previousCompile(shader, renderer);
+      shader.uniforms.forgeFogNear = state.near;
+      shader.uniforms.forgeFogFar = state.far;
+      shader.uniforms.forgeFogNearAmount = state.nearAmount;
+      shader.uniforms.forgeFogFarAmount = state.farAmount;
+      shader.fragmentShader = shader.fragmentShader.replace('#include <fog_pars_fragment>', `
+#include <fog_pars_fragment>
+#ifdef USE_FOG
+  uniform float forgeFogNear;
+  uniform float forgeFogFar;
+  uniform float forgeFogNearAmount;
+  uniform float forgeFogFarAmount;
+#endif`);
       shader.fragmentShader = shader.fragmentShader.replace('#include <fog_fragment>', `
 #ifdef USE_FOG
-  float forgeFogDistanceMix = clamp((vFogDepth - ${near.toFixed(8)}) / ${(far - near).toFixed(8)}, 0.0, 1.0);
-  float forgeFogFactor = clamp(mix(${nearAmount.toFixed(8)}, ${farAmount.toFixed(8)}, forgeFogDistanceMix), 0.0, 1.0);
+  float forgeFogDistanceMix = clamp((vFogDepth - forgeFogNear) / (forgeFogFar - forgeFogNear), 0.0, 1.0);
+  float forgeFogFactor = clamp(mix(forgeFogNearAmount, forgeFogFarAmount, forgeFogDistanceMix), 0.0, 1.0);
   gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, forgeFogFactor);
 #endif`);
     };
-    material.customProgramCacheKey = () => `${previousCacheKey()}-forge-ps2-fog-${signature}`;
-    material.userData[FOG_PATCH_KEY] = signature;
+    material.customProgramCacheKey = () => `${previousCacheKey()}-forge-ps2-fog`;
+    material.userData[FOG_PATCH_KEY] = true;
     material.needsUpdate = true;
     alphaCompile.set(material, material.onBeforeCompile);
     alphaCacheKey.set(material, material.customProgramCacheKey);
   });
+}
+
+function setFogState(state: FogState, near: number, far: number, nearAmount: number, farAmount: number): void {
+  state.near.value = near;
+  state.far.value = far;
+  state.nearAmount.value = nearAmount;
+  state.farAmount.value = farAmount;
 }
 
 function configureMaterial(material: THREE.Material, family: Ps2MaterialFamily): void {
@@ -86,6 +122,8 @@ export function createPs2OpaquePassMaterial(source: THREE.Material): THREE.Mater
   material.name = `${source.name || 'model'}_alpha_opaque_pass`;
   material.onBeforeCompile = alphaCompile.get(source) ?? source.onBeforeCompile;
   material.customProgramCacheKey = alphaCacheKey.get(source) ?? source.customProgramCacheKey;
+  const fogState = fogStates.get(source);
+  if (fogState) fogStates.set(material, fogState);
   material.transparent = false;
   material.blending = THREE.NoBlending;
   material.depthWrite = true;

@@ -21,7 +21,7 @@ internal static class UyaBaseLevelService
         var shrubBytes = Required(files, "gameplay/core/shrub_instances.bin", level);
         var gameplay = UyaGameplayBlockReader.ReadCore(
             Required(files, "gameplay/gameplay_core.bin", level));
-        var gameplayPvars = gameplay.PvarTables;
+        var levelSettings = gameplay.Blocks.SingleOrDefault(value => value.SemanticName == "level_settings")?.LevelSettings;
         var mobyTable = mobyBytes.Length == 0
             ? new UyaMobyInstances(0, 0, 0, 0, [], [])
             : UyaMobyInstancesReader.Read(mobyBytes);
@@ -116,8 +116,23 @@ internal static class UyaBaseLevelService
                 new(BakeLayerId.Mobys, UyaMobyInstancesReader.RecordSize,
                     [mobyTable.SpawnableMobyCount, mobyTable.Pad8, mobyTable.PadC], mobyTable.TrailingBytes),
             ],
-            gameplayPvars);
+            gameplay,
+            levelSettings is null ? null : ProjectSettings(levelSettings));
     }
+
+    private static ProjectLevelSettings ProjectSettings(UyaLevelSettings value) => new(
+        new((byte)Math.Clamp(value.BackgroundColor.Red, 0, 255),
+            (byte)Math.Clamp(value.BackgroundColor.Green, 0, 255),
+            (byte)Math.Clamp(value.BackgroundColor.Blue, 0, 255)),
+        new((byte)Math.Clamp(value.FogColor.Red, 0, 255),
+            (byte)Math.Clamp(value.FogColor.Green, 0, 255),
+            (byte)Math.Clamp(value.FogColor.Blue, 0, 255)),
+        Math.Max(0, Finite(value.FogNearDistance) / 1024),
+        Math.Max(0, Finite(value.FogFarDistance) / 1024),
+        Math.Clamp(Finite(value.FogNearIntensity), 0, 255),
+        Math.Clamp(Finite(value.FogFarIntensity), 0, 255));
+
+    private static float Finite(float value) => float.IsFinite(value) ? value : 0;
 
     private static void AddEnvironmentInstances(
         ICollection<ProjectEntity> entities,
@@ -465,7 +480,7 @@ internal static class UyaBaseLevelService
             Source: new(classId, rawRecord));
     }
 
-    private static ProjectTransform? Decompose(UyaInstanceTransform value)
+    internal static ProjectTransform? Decompose(UyaInstanceTransform value)
     {
         var basisX = new Vector3(value.BasisX.X, value.BasisX.Y, value.BasisX.Z);
         var basisY = new Vector3(value.BasisY.X, value.BasisY.Y, value.BasisY.Z);
@@ -474,7 +489,7 @@ internal static class UyaBaseLevelService
         return Decompose(basisX, basisY, basisZ, position);
     }
 
-    private static ProjectTransform? Decompose(IReadOnlyList<float> matrix)
+    internal static ProjectTransform? Decompose(IReadOnlyList<float> matrix)
     {
         if (matrix.Count != 16) return null;
         return Decompose(
@@ -512,7 +527,7 @@ internal static class UyaBaseLevelService
     private static bool Finite(Vector3 value) =>
         float.IsFinite(value.X) && float.IsFinite(value.Y) && float.IsFinite(value.Z);
 
-    private static ProjectQuaternion FromZyxEuler(UyaVector3 rotation)
+    internal static ProjectQuaternion FromZyxEuler(UyaVector3 rotation)
     {
         var c1 = MathF.Cos(rotation.X / 2);
         var c2 = MathF.Cos(rotation.Y / 2);
@@ -585,4 +600,5 @@ internal sealed record UyaBaseLevelData(
     IReadOnlyList<OpaqueSectionCapture> OpaqueSections,
     IReadOnlyList<UyaBaseLayerPayload> BaseLayers,
     IReadOnlyList<UyaStaticLayerSourceRecord> StaticLayers,
-    GameplayPvarTables? GameplayPvars);
+    UyaGameplayBlocks Gameplay,
+    ProjectLevelSettings? LevelSettings);

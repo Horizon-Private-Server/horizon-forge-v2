@@ -83,7 +83,8 @@ public sealed record ForgeProjectContent(
     int SchemaVersion,
     string DocumentType,
     IReadOnlyList<ProjectEntity> Entities,
-    IReadOnlyList<ProjectAttachedAsset> Assets);
+    IReadOnlyList<ProjectAttachedAsset> Assets,
+    ProjectLevelSettings? LevelSettings = null);
 
 public sealed record ProjectRecoverySnapshot(
     string Id,

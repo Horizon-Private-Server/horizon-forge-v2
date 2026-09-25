@@ -1,16 +1,23 @@
 import { EyeIcon } from '@phosphor-icons/react/dist/csr/Eye';
 import { EyeSlashIcon } from '@phosphor-icons/react/dist/csr/EyeSlash';
 import { PowerIcon } from '@phosphor-icons/react/dist/csr/Power';
+import { ArrowDownIcon } from '@phosphor-icons/react/dist/csr/ArrowDown';
+import { ArrowUpIcon } from '@phosphor-icons/react/dist/csr/ArrowUp';
+import { PlusIcon } from '@phosphor-icons/react/dist/csr/Plus';
+import { TrashIcon } from '@phosphor-icons/react/dist/csr/Trash';
 import {
-  ActionIcon, Alert, Badge, Button, Checkbox, Code, ColorInput, Group, NumberInput, Slider, Stack, Text, TextInput,
+  ActionIcon, Alert, Badge, Button, Checkbox, Code, Group, NumberInput, Slider, Stack, Text, TextInput,
 } from '@mantine/core';
 import type { TreeNodeData } from '@mantine/core';
 import type { ReactNode } from 'react';
-import { useLayoutEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
 
-import type { EditorEntity, ProjectQuaternion, ProjectTransform, ProjectVector3 } from '../../types/EditorRuntime.js';
+import type {
+  EditorEntity, EditorLevelSettings, ProjectQuaternion, ProjectTransform, ProjectVector3, ProjectVector4,
+} from '../../types/EditorRuntime.js';
 import type { SceneTreeKind } from '../../types/SceneTree.js';
 import { DEFAULT_SCENE_TREE_COLORS, SCENE_TREE_LABELS } from '../../utils/SceneTreeColors.ts';
+import { ColorPickerInput } from '../ColorPickerInput.tsx';
 import { useEditor } from './EditorContext.ts';
 import {
   buildSceneEntityGroups,
@@ -35,6 +42,10 @@ export function ViewportPanel() {
     project, keybindings, sceneTreeColors, terrain, cameraFocus, setCameraFocus, setSceneLoad, setSkyPieces,
     execute, busy, showViewportStats, showOcclusionOctants,
   } = useEditor();
+  const levelSettingsSignature = JSON.stringify(project.levelSettings);
+  const environment = useMemo(() => project.levelSettings
+    ? { ...terrain?.environment, ...project.levelSettings }
+    : terrain?.environment, [levelSettingsSignature, terrain?.environment]);
   return <SceneViewport
     disabled={busy}
     entities={project.entities}
@@ -45,6 +56,7 @@ export function ViewportPanel() {
     showStats={showViewportStats}
     showOcclusionOctants={showOcclusionOctants}
     terrain={terrain}
+    environment={environment}
     onFocusHandled={() => setCameraFocus(undefined)}
     onLoadProgress={setSceneLoad}
     onSkyPiecesChange={setSkyPieces}
@@ -59,34 +71,42 @@ export function ViewportPanel() {
 }
 
 export function LevelSettingsPanel() {
-  const { terrain, showOcclusionOctants, setShowOcclusionOctants } = useEditor();
-  const settings = terrain?.environment;
+  const { project, terrain, execute, busy, showOcclusionOctants, setShowOcclusionOctants } = useEditor();
+  const editable = project.levelSettings;
+  const settings = editable ? { ...terrain?.environment, ...editable } : terrain?.environment;
   if (!settings) return <EditorPanel label="Level settings">
     <EditorEmptyState message="Level settings are unavailable." />
   </EditorPanel>;
+  const update = (value: Partial<EditorLevelSettings>) => {
+    if (!editable) return;
+    void execute({
+      id: crypto.randomUUID(), kind: 'updateLevelSettings', entityIds: [],
+      levelSettings: { ...editable, ...value },
+    });
+  };
   const rgb = (value: readonly number[]) => `rgb(${value.join(', ')})`;
   const vector = (value: readonly number[]) => value.map((item) => item.toFixed(2)).join(', ');
-  const fogDistanceMax = Math.max(1, settings.fogNearDistance, settings.fogFarDistance);
+  const fogDistanceMax = Math.max(1000, settings.fogNearDistance, settings.fogFarDistance);
   return <EditorPanel label="Level settings">
     <Stack>
-      <Text size="xs" c="yellow">Imported settings are read-only until native writing is available.</Text>
+      {!editable && <Text size="xs" c="yellow">Migrate this project to edit imported level settings.</Text>}
       <Checkbox
         checked={showOcclusionOctants}
-        label={`Show occlusion octants (${terrain.occlusionOctants.length.toLocaleString()})`}
+        label={`Show occlusion octants (${(terrain?.occlusionOctants.length ?? 0).toLocaleString()})`}
         onChange={(event) => setShowOcclusionOctants(event.currentTarget.checked)}
       />
-      <ColorInput
-        label="Background color"
-        value={rgb(settings.backgroundColor)}
-        format="rgb"
-        readOnly
-        withEyeDropper={false}
-      />
-      <ColorInput label="Fog color" value={rgb(settings.fogColor)} format="rgb" readOnly withEyeDropper={false} />
-      <LevelSlider label="Fog near distance" value={settings.fogNearDistance} max={fogDistanceMax} precision={2} />
-      <LevelSlider label="Fog far distance" value={settings.fogFarDistance} max={fogDistanceMax} precision={2} />
-      <LevelSlider label="Fog near intensity" value={settings.fogNearIntensity} max={255} />
-      <LevelSlider label="Fog far intensity" value={settings.fogFarIntensity} max={255} />
+      <LevelColorInput label="Background color" value={rgb(settings.backgroundColor)} disabled={!editable || busy}
+        onCommit={(value) => update({ backgroundColor: value })} />
+      <LevelColorInput label="Fog color" value={rgb(settings.fogColor)} disabled={!editable || busy}
+        onCommit={(value) => update({ fogColor: value })} />
+      <LevelSlider label="Fog near distance" value={settings.fogNearDistance} max={fogDistanceMax}
+        precision={2} disabled={!editable || busy} onCommit={(value) => update({ fogNearDistance: value })} />
+      <LevelSlider label="Fog far distance" value={settings.fogFarDistance} max={fogDistanceMax}
+        precision={2} disabled={!editable || busy} onCommit={(value) => update({ fogFarDistance: value })} />
+      <LevelSlider label="Fog near intensity" value={settings.fogNearIntensity} max={255}
+        disabled={!editable || busy} onCommit={(value) => update({ fogNearIntensity: value })} />
+      <LevelSlider label="Fog far intensity" value={settings.fogFarIntensity} max={255}
+        disabled={!editable || busy} onCommit={(value) => update({ fogFarIntensity: value })} />
       <EditorPropertyGrid>
         <EditorProperty label="Death height">{(settings.deathHeight ?? 0).toFixed(2)}</EditorProperty>
         <EditorProperty label="Spherical world">{settings.isSphericalWorld ? 'Yes' : 'No'}</EditorProperty>
@@ -104,16 +124,41 @@ export function LevelSettingsPanel() {
   </EditorPanel>;
 }
 
-function LevelSlider({ label, value, max, precision = 0 }: {
+function LevelColorInput({ label, value, disabled, onCommit }: {
+  label: string;
+  value: string;
+  disabled: boolean;
+  onCommit(value: [number, number, number]): void;
+}) {
+  const [draft, setDraft] = useState(value);
+  useEffect(() => setDraft(value), [value]);
+  return <ColorPickerInput
+    label={label} value={draft} format="rgb" disabled={disabled}
+    onChange={setDraft} onChangeEnd={(next) => onCommit(parseRgb(next))}
+  />;
+}
+
+function LevelSlider({ label, value, max, precision = 0, disabled, onCommit }: {
   label: string;
   value: number;
   max: number;
   precision?: number;
+  disabled: boolean;
+  onCommit(value: number): void;
 }) {
+  const [draft, setDraft] = useState(value);
+  useEffect(() => setDraft(value), [value]);
   return <Stack gap={2}>
-    <Group justify="space-between"><Text size="xs" fw={500}>{label}</Text><Code>{value.toFixed(precision)}</Code></Group>
-    <Slider disabled min={0} max={max} step={precision ? 0.01 : 1} value={value} thumbLabel={label} />
+    <Group justify="space-between"><Text size="xs" fw={500}>{label}</Text><Code>{draft.toFixed(precision)}</Code></Group>
+    <Slider disabled={disabled} min={0} max={max} step={precision ? 0.01 : 1} value={draft}
+      thumbLabel={label} onChange={setDraft} onChangeEnd={onCommit} />
   </Stack>;
+}
+
+function parseRgb(value: string): [number, number, number] {
+  const channels = value.match(/\d+/g)?.slice(0, 3).map(Number);
+  return channels?.length === 3 ? channels.map((channel) => Math.min(255, channel)) as [number, number, number]
+    : [0, 0, 0];
 }
 
 export function SceneTreePanel() {
@@ -298,6 +343,8 @@ function SingleEntityProperties({ entity }: { entity: EditorEntity }) {
       ? <Text size="xs" c="yellow">This decoded source geometry is read-only until its native writer is available.</Text>
       : locked && <Text size="xs" c="yellow">Unlock this entity to edit its properties.</Text>}
     <TransformEditor entity={entity} disabled={busy || locked} />
+    {entity.geometry?.kind === 'spline'
+      && <SplinePointsEditor entity={entity} disabled={busy || locked} />}
     <EditorPropertyGrid>
       <EditorProperty label="Entity ID"><Code>{entity.id}</Code></EditorProperty>
       <EditorProperty label="Type">{entity.geometry?.kind ?? entity.asset?.kind ?? 'model-less moby'}</EditorProperty>
@@ -404,6 +451,61 @@ function TransformEditor({ entity, disabled }: { entity: EditorEntity; disabled:
       id: crypto.randomUUID(), kind: 'updateTransform', entityIds: [entity.id], transform,
     })}>Apply transform</Button>
     {!valid && <Text size="xs" c="red">Values must be finite; scale and quaternion cannot be zero.</Text>}
+  </Stack>;
+}
+
+function SplinePointsEditor({ entity, disabled }: { entity: EditorEntity; disabled: boolean }) {
+  const { execute } = useEditor();
+  const source = entity.geometry?.points ?? [];
+  const signature = JSON.stringify(source);
+  const [points, setPoints] = useState<ProjectVector4[]>(() => source.map((point) => ({ ...point })));
+  useLayoutEffect(() => setPoints(source.map((point) => ({ ...point }))), [entity.id, signature]);
+  const update = (index: number, axis: keyof ProjectVector4, value: string | number) => setPoints(points.map(
+    (point, pointIndex) => pointIndex === index
+      ? { ...point, [axis]: typeof value === 'number' ? value : Number.NaN }
+      : point,
+  ));
+  const move = (index: number, offset: number) => {
+    const next = [...points];
+    [next[index], next[index + offset]] = [next[index + offset], next[index]];
+    setPoints(next);
+  };
+  const valid = points.every((point) => Object.values(point).every(Number.isFinite));
+  return <Stack gap="xs">
+    <Group justify="space-between">
+      <Text size="sm" fw={500}>Spline points ({points.length})</Text>
+      <Button size="xs" variant="default" leftSection={<PlusIcon size={14} />} disabled={disabled}
+        onClick={() => setPoints([...points, { ...(points.at(-1) ?? { x: 0, y: 0, z: 0, w: 0 }) }])}>
+        Add point
+      </Button>
+    </Group>
+    {points.map((point, index) => <Group key={index} align="flex-end" wrap="nowrap">
+      {(['x', 'y', 'z', 'w'] as const).map((axis) => <NumberInput
+        key={axis}
+        label={`${index} ${axis.toUpperCase()}`}
+        value={point[axis]}
+        disabled={disabled}
+        onChange={(value) => update(index, axis, value)}
+        style={{ minWidth: 0 }}
+      />)}
+      <ActionIcon variant="default" disabled={disabled || index === 0} aria-label={`Move point ${index} up`}
+        onClick={() => move(index, -1)}><ArrowUpIcon size={16} /></ActionIcon>
+      <ActionIcon variant="default" disabled={disabled || index === points.length - 1}
+        aria-label={`Move point ${index} down`} onClick={() => move(index, 1)}>
+        <ArrowDownIcon size={16} />
+      </ActionIcon>
+      <ActionIcon color="red" variant="subtle" disabled={disabled} aria-label={`Delete point ${index}`}
+        onClick={() => setPoints(points.filter((_, pointIndex) => pointIndex !== index))}>
+        <TrashIcon size={16} />
+      </ActionIcon>
+    </Group>)}
+    <Text size="xs" c="dimmed">
+      W is gameplay metadata: some camera paths use positive marker values, while other systems replace it with segment length.
+    </Text>
+    <Button disabled={disabled || !valid || JSON.stringify(points) === signature} onClick={() => void execute({
+      id: crypto.randomUUID(), kind: 'updateSplinePoints', entityIds: [entity.id], points,
+    })}>Apply spline points</Button>
+    {!valid && <Text size="xs" c="red">Point values must be finite.</Text>}
   </Stack>;
 }
 

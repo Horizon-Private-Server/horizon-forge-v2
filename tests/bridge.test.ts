@@ -15,6 +15,7 @@ import {
   BridgeProtocolError,
   type BridgeFrame,
 } from '../src/main/bridge/BridgeProtocol.ts';
+import { isEditorCommand } from '../src/utils/EditorCommandValidation.ts';
 import {
   decodeEchoRequest,
   decodeDevelopmentIso,
@@ -113,6 +114,39 @@ test('shared golden vectors encode and decode exactly', () => {
     assertFrame(decoded!, vector);
   }
   assert.equal(decodeErrorMessage(frameFrom(vectors.at(-1)!).payload), 'bad');
+});
+
+test('level settings commands pass IPC boundary validation', () => {
+  assert.equal(isEditorCommand({
+    id: '30000000-0000-4000-8000-00000000000d',
+    kind: 'updateLevelSettings',
+    entityIds: [],
+    levelSettings: {
+      backgroundColor: [57, 65, 50], fogColor: [40, 50, 40],
+      fogNearDistance: 10, fogFarDistance: 175, fogNearIntensity: 255, fogFarIntensity: 0,
+    },
+  }), true);
+  assert.equal(isEditorCommand({
+    id: '30000000-0000-4000-8000-00000000000d',
+    kind: 'updateLevelSettings',
+    entityIds: [],
+    levelSettings: { backgroundColor: [999, 0, 0] },
+  }), false);
+});
+
+test('spline point commands pass IPC boundary validation', () => {
+  assert.equal(isEditorCommand({
+    id: '30000000-0000-4000-8000-00000000000e',
+    kind: 'updateSplinePoints',
+    entityIds: ['spline'],
+    points: [{ x: 1, y: 2, z: 3, w: 4 }, { x: 5, y: 6, z: 7, w: -8 }],
+  }), true);
+  assert.equal(isEditorCommand({
+    id: '30000000-0000-4000-8000-00000000000e',
+    kind: 'updateSplinePoints',
+    entityIds: ['spline'],
+    points: [{ x: 1, y: Number.NaN, z: 3, w: 4 }],
+  }), false);
 });
 
 test('fragmented and coalesced reads retain frame boundaries', () => {

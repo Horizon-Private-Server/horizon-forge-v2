@@ -1,8 +1,7 @@
-# Forge project format v2
+# Forge project format v3
 
-Version two extends [version one](project-format-v1.md) with optional typed editor
-geometry and lighting on project entities. It does not change Asset IDs or copy
-retail payloads into the project content document.
+Version three extends version two with editable project-level environment settings.
+It does not change Asset IDs or copy retail payloads into the project content document.
 
 ## Typed source geometry
 
@@ -19,10 +18,12 @@ Each area membership retains its source index and, when the target was decoded, 
 stable Entity ID. Missing or out-of-range targets remain present with a null Entity
 ID so Forge can diagnose them instead of dropping the relationship.
 
-The original UYA gameplay blocks remain immutable opaque content and the sole bake
-authority. Decoded geometry is read-only until a verified native writer explicitly
-replaces that ownership. Renderer snapshots contain only the geometry kind and
-path points needed for volume, path, and area overlays.
+The retained UYA gameplay blocks remain bake authority. Shapes use verified
+patch-in-place transform writers. Ordinary splines expose every native point component,
+including `w`, and their writer supports point insertion, deletion, reordering, and
+transforms while preserving record padding. Grind paths, areas, and unsupported fields
+remain read-only. Renderer snapshots contain only the geometry kind and path points
+needed for volume, path, and area overlays.
 Shape records optionally carry camera-collision flags, integer/float parameters, and
 the grid primitive's bounding sphere; the 64×64 lookup table remains derived data.
 
@@ -43,15 +44,27 @@ authority until verified writers replace them.
 
 Camera entities preserve their type, position, Euler rotation, Pvar index, and raw
 record. Ambient sounds preserve class, mission class, update pointer, Pvar index,
-range, native matrix/inverse rotation, Euler rotation, padding, and raw record. Both
-are read-only views; their original gameplay blocks remain bake authority.
+range, native matrix/inverse rotation, Euler rotation, padding, and raw record. Their
+transforms use patch-in-place native writers while structural edits remain unsupported.
+
+## Level settings
+
+The optional project-level `levelSettings` object owns background and fog colors,
+distances, and intensities in editor units. The World bake layer patches those fields
+into the retained native block and preserves every unsupported byte. Remaining world,
+ship, chunk-plane, and sound-count fields stay read-only in the render snapshot.
 
 ## Migration
 
-Both documents use `schemaVersion: 2`. Version-zero and version-one documents are
+Both documents use `schemaVersion: 3`. Version-zero through version-two documents are
 migrated in memory and are written only through the existing explicit journaled save
-path. UYA base entity version `7` requires a verified source-ISO-backed upgrade to add
+path. UYA base entity version `9` requires a verified source-ISO-backed upgrade to add
 the supported volume, path, area, lighting, environment, per-tie ambient, camera, and
-ambient-sound records plus camera-collision metadata while preserving existing Entity
-IDs and user deletions. Area links are remapped to the retained Entity IDs during that
-upgrade.
+ambient-sound records, camera-collision metadata, and editable level settings while
+preserving existing Entity IDs and user deletions. Area links are remapped to the
+retained Entity IDs during that upgrade.
+
+Cuboid, sphere, cylinder, pill, camera, and ambient-sound transforms have native
+patch-in-place writers. Ordinary splines additionally support editing and resizing their
+ordered `vec4` point arrays. Spline-instance insertion/deletion and camera-collision grid
+regeneration remain unsupported.

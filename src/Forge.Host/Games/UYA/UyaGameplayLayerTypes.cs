@@ -38,11 +38,18 @@ public sealed record UyaGameplayBakeManifest(
     string DocumentType,
     string Encoding,
     IReadOnlyList<UyaGameplayBakeSection> Sections,
-    IReadOnlyList<UyaGameplayMobyReference> Mobys);
+    IReadOnlyList<UyaGameplayMobyReference> Mobys,
+    IReadOnlyList<UyaGameplayInstanceReference> Instances);
+
+public sealed record UyaGameplayInstanceReference(
+    string Section,
+    int SourceIndex,
+    EntityId EntityId,
+    ProjectTransform Transform);
 
 public static class UyaGameplayLayerSchema
 {
-    public const int CurrentVersion = 1;
+    public const int CurrentVersion = 3;
     public const string SourceDocumentType = "horizon-forge-uya-gameplay-source";
     public const string BakeDocumentType = "horizon-forge-uya-gameplay-bake";
     public const string Encoding = "uya-ntsc-u-native-v1";
@@ -50,5 +57,13 @@ public static class UyaGameplayLayerSchema
     public const string ManifestFileName = "manifest.json";
 
     public static IReadOnlyList<string> SectionNames { get; } =
-        ["pvar_moby_links", "pvar_table", "pvar_data", "pvar_relative_pointers"];
+    [
+        "pvar_moby_links", "pvar_table", "pvar_data", "pvar_relative_pointers",
+        "cameras", "sound_instances", "cuboids", "spheres", "cylinders", "pills", "splines",
+    ];
+
+    public static IReadOnlyList<string> WritableInstanceSections { get; } =
+    [
+        "cameras", "sound_instances", "cuboids", "spheres", "cylinders", "pills", "splines",
+    ];
 }

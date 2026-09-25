@@ -103,6 +103,7 @@ public static class UyaProjectService
             new("UYA", "NTSC-U", request.Revision, request.Level, request.Fingerprint.ToLowerInvariant(),
                 baseData.MissingInstanceCount, ProjectSchema.CurrentBaseEntityVersion),
             entities,
+            baseData.LevelSettings,
             cancellationToken);
         await OpaqueContentStore.WriteAsync(
             workspace.RootPath,
@@ -123,7 +124,7 @@ public static class UyaProjectService
         await UyaGameplayLayerStore.WriteSourceAsync(
             workspace.RootPath,
             OpaqueSource(request.Revision, request.Level, request.Fingerprint),
-            baseData.GameplayPvars,
+            baseData.Gameplay,
             cancellationToken);
         await ReportAsync(progress, 4, 4);
         return await InspectAsync(workspace.RootPath, catalog, warnings, cancellationToken);
@@ -270,7 +271,10 @@ public static class UyaProjectService
         {
             var baseData = ReadBase(iso, catalog, workspace.Manifest.BaseLevel.Level);
             if (workspace.Manifest.BaseLevel.EntityVersion < ProjectSchema.CurrentBaseEntityVersion)
+            {
                 workspace.CompleteBaseEntityImport(baseData.Entities, baseData.MissingInstanceCount);
+                if (baseData.LevelSettings is not null) workspace.UpdateLevelSettings(baseData.LevelSettings);
+            }
             await OpaqueContentStore.WriteAsync(
                 workspace.RootPath,
                 OpaqueSource(
@@ -302,7 +306,7 @@ public static class UyaProjectService
                     workspace.Manifest.BaseLevel.Revision,
                     workspace.Manifest.BaseLevel.Level,
                     workspace.Manifest.BaseLevel.SourceFingerprint),
-                baseData.GameplayPvars,
+                baseData.Gameplay,
                 cancellationToken);
         }
         return await SaveMigrationAsync(workspace, catalog, cancellationToken);

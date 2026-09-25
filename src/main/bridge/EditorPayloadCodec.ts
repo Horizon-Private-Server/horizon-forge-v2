@@ -2,6 +2,7 @@ import type {
   EditorCommand,
   EditorEntity,
   EditorEvent,
+  EditorLevelSettings,
   EditorSnapshot,
   ProjectTransform,
   ProjectVector3,
@@ -24,6 +25,8 @@ const commandKinds = {
   duplicateEntities: 11,
   copyEntities: 12,
   pasteEntities: 13,
+  updateLevelSettings: 14,
+  updateSplinePoints: 15,
 } as const;
 const eventKinds: Record<number, EditorEvent['kind']> = {
   1: 'projectOpened', 2: 'projectChanged', 3: 'selectionChanged', 4: 'projectSaved',
@@ -68,6 +71,18 @@ export function encodeEditorCommand(value: EditorCommand): Buffer {
     writeOptionalBoolean(writer, value.state.disabled);
     writeOptionalBoolean(writer, value.state.locked);
   }
+  writer.writeBoolean(value.kind === 'updateLevelSettings');
+  if (value.kind === 'updateLevelSettings') writeLevelSettings(writer, value.levelSettings);
+  writer.writeBoolean(value.kind === 'updateSplinePoints');
+  if (value.kind === 'updateSplinePoints') {
+    writer.writeUInt32(value.points.length);
+    value.points.forEach((point) => {
+      writer.writeFloat32(point.x);
+      writer.writeFloat32(point.y);
+      writer.writeFloat32(point.z);
+      writer.writeFloat32(point.w);
+    });
+  }
   return writer.toBuffer();
 }
 
@@ -91,6 +106,7 @@ export function decodeEditorSnapshot(payload: Uint8Array): EditorSnapshot {
     game: reader.readString(), region: reader.readString(), revision: reader.readString(),
     level: reader.readUInt32(), sourceFingerprint: reader.readString(), missingAssetCount: reader.readUInt32(),
   };
+  const levelSettings = reader.readBoolean() ? readLevelSettings(reader) : undefined;
   const entities = readList(reader, MAX_ENTITIES, () => readEntity(reader));
   const selection = readStrings(reader, MAX_ENTITIES);
   const isDirty = reader.readBoolean();
@@ -109,7 +125,7 @@ export function decodeEditorSnapshot(payload: Uint8Array): EditorSnapshot {
   }));
   reader.complete();
   return {
-    projectPath, projectId, projectName, target, baseLevel, entities, selection, isDirty,
+    projectPath, projectId, projectName, target, baseLevel, levelSettings, entities, selection, isDirty,
     migrationPending, canUndo, canRedo, canPaste, lastEventSequence, capabilities, tools, diagnostics,
   };
 }
@@ -162,6 +178,26 @@ function readEntity(reader: PayloadReader): EditorEntity {
 function writeOptionalBoolean(writer: PayloadWriter, value: boolean | undefined): void {
   writer.writeBoolean(value !== undefined);
   if (value !== undefined) writer.writeBoolean(value);
+}
+
+function writeLevelSettings(writer: PayloadWriter, value: EditorLevelSettings): void {
+  value.backgroundColor.forEach((channel) => writer.writeUInt32(channel));
+  value.fogColor.forEach((channel) => writer.writeUInt32(channel));
+  writer.writeFloat32(value.fogNearDistance);
+  writer.writeFloat32(value.fogFarDistance);
+  writer.writeFloat32(value.fogNearIntensity);
+  writer.writeFloat32(value.fogFarIntensity);
+}
+
+function readLevelSettings(reader: PayloadReader): EditorLevelSettings {
+  return {
+    backgroundColor: [reader.readUInt32(), reader.readUInt32(), reader.readUInt32()],
+    fogColor: [reader.readUInt32(), reader.readUInt32(), reader.readUInt32()],
+    fogNearDistance: reader.readFloat32(),
+    fogFarDistance: reader.readFloat32(),
+    fogNearIntensity: reader.readFloat32(),
+    fogFarIntensity: reader.readFloat32(),
+  };
 }
 
 function writeTransform(writer: PayloadWriter, value: ProjectTransform): void {

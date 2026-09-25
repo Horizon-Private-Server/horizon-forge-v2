@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using Forge.Host.Domain;
 using RatchetPs2.Core.Games;
+using RatchetPs2.Core.Gameplay;
 using RatchetPs2.Core.IO;
 using RatchetPs2.Core.LevelAssets;
 using RatchetPs2.Core.Textures.Palettes;
@@ -108,6 +109,23 @@ internal static class UyaBakeWorkflowTests
             };
             Equal(1, paletteIds.Distinct().Count(), "installed moby, tie, and shrub textures share one palette");
 
+            var workspace = await ForgeProjectWorkspace.OpenAsync(project);
+            var spline = workspace.Content.Entities.Single(value => value.Geometry?.Spline is not null);
+            var editedSplinePoints = spline.Geometry!.Spline!.Points
+                .Select((value, index) => index == 0 ? value with { W = value.W + 1 } : value).ToArray();
+            workspace.UpdateSplinePoints(spline.EntityId, editedSplinePoints);
+            await workspace.SaveAsync();
+            var splineBake = await UyaBakeService.BakeAsync(project, catalog, context);
+            Equal(true, splineBake.WrittenLayers.Select(value => value.Layer).SequenceEqual([BakeLayerId.Gameplay]),
+                "spline edit rebuilds only gameplay");
+            var packedSpline = await UyaLevelPackService.PackAsync(project, catalog, sourceLevelWad, context);
+            Equal(true, packedSpline.Succeeded, "edited spline staging packs: "
+                + string.Join(" | ", packedSpline.Diagnostics.Select(value => value.Cause)));
+            var packedSplineBytes = UyaLevelWadUnpacker.Unpack(packedSpline.OutputBytes!).Files
+                .Single(value => value.Path == "gameplay/core/splines.bin").Bytes;
+            Equal(editedSplinePoints[0].W, GameplayGeometryReader.ReadSplines(packedSplineBytes).Single().Points[0].W,
+                "packed WAD preserves edited spline data");
+
             var crossLevelTie = await PutAsync(catalog, AssetKind.Tie, 200, 0x44, "level45");
             var contentPath = (await ForgeProjectWorkspace.OpenAsync(project)).ContentFilePath;
             await File.WriteAllTextAsync(contentPath,
@@ -144,7 +162,7 @@ internal static class UyaBakeWorkflowTests
             Equal(true, firstManifest.SequenceEqual(ManifestBytes(noOp.Manifest)),
                 "no-op bake preserves manifest bytes");
 
-            var workspace = await ForgeProjectWorkspace.OpenAsync(project);
+            workspace = await ForgeProjectWorkspace.OpenAsync(project);
             var tie = workspace.Content.Entities.Single(value => value.Layer == "ties");
             workspace.UpdateTransform(tie.EntityId, tie.Transform with
             {

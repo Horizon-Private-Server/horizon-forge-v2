@@ -15,6 +15,8 @@ public enum EditorCommandKind : byte
     DuplicateEntities = 11,
     CopyEntities = 12,
     PasteEntities = 13,
+    UpdateLevelSettings = 14,
+    UpdateSplinePoints = 15,
 }
 
 public enum EditorEventKind : byte
@@ -42,7 +44,9 @@ public sealed record EditorCommand(
     ProjectTransform? Transform = null,
     string? Text = null,
     EditorEntityStateChange? State = null,
-    IReadOnlyList<EditorTransformUpdate>? Transforms = null);
+    IReadOnlyList<EditorTransformUpdate>? Transforms = null,
+    ProjectLevelSettings? LevelSettings = null,
+    IReadOnlyList<ProjectVector4>? Points = null);
 
 public sealed record EditorTransformUpdate(EntityId EntityId, ProjectTransform Transform);
 
@@ -116,6 +120,7 @@ public sealed record EditorSnapshot(
     string ProjectName,
     ProjectTargetProfile Target,
     ProjectBaseLevel BaseLevel,
+    ProjectLevelSettings? LevelSettings,
     IReadOnlyList<EditorEntitySnapshot> Entities,
     IReadOnlyList<EntityId> Selection,
     bool IsDirty,

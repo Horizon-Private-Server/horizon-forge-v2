@@ -54,6 +54,10 @@ internal static class UyaProjectTests
                 new MemoryStream(iso, writable: false), catalog, request);
             Equal(17, descriptor.EntityCount, "base entity count");
             Equal(0, descriptor.MissingAssetCount, "base missing assets");
+            var workspace = await ForgeProjectWorkspace.OpenAsync(projectPath);
+            Equal(new ProjectRgb24(0, 0, 0), workspace.Content.LevelSettings!.BackgroundColor,
+                "level settings imported into project content");
+            Equal(0f, workspace.Content.LevelSettings.FogNearDistance, "level settings distance uses editor units");
 
             var opaque = await OpaqueContentStore.InspectAsync(projectPath);
             Equal(true, opaque.IsValid, "opaque content captured");
@@ -71,6 +75,8 @@ internal static class UyaProjectTests
                 "native lighting asset count");
             Equal(false, opaque.Manifest.Sections.Any(section => section.Name == "gameplay/directional_lights"),
                 "lighting is not duplicated as opaque content");
+            Equal(false, opaque.Manifest.Sections.Any(section => section.Name == "gameplay/splines"),
+                "writable splines are not duplicated as opaque content");
             var opaqueInput = await OpaqueContentStore.CreateBakeInputAsync(projectPath);
             var baseInputs = await UyaBaseLayerStore.CreateBakeInputsAsync(projectPath, catalog);
             var authoredInputs = baseInputs.Append(opaqueInput).ToDictionary(input => input.Id);
@@ -123,6 +129,44 @@ internal static class UyaProjectTests
                 var checksum = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
                 Equal(expectedBaseHashes[layer], checksum, $"{layer} golden output");
             }
+
+            var originalSettings = workspace.Content.LevelSettings!;
+            var editedSettings = originalSettings with
+            {
+                BackgroundColor = new(1, 2, 3),
+                FogColor = new(4, 5, 6),
+                FogNearDistance = 25,
+                FogFarDistance = 200,
+                FogNearIntensity = 127.5f,
+                FogFarIntensity = 32,
+            };
+            workspace.UpdateLevelSettings(editedSettings);
+            await workspace.SaveAsync();
+            var editedBaseInputs = await UyaBaseLayerStore.CreateBakeInputsAsync(projectPath, catalog);
+            var editedInputs = editedBaseInputs.Append(opaqueInput).ToDictionary(input => input.Id);
+            var editedBakeInputs = Enum.GetValues<BakeLayerId>().Select(layer => editedInputs.GetValueOrDefault(layer)
+                ?? new BakeLayerInput(layer, System.Text.Encoding.UTF8.GetBytes(layer.ToString()), [], ReadOnlyMemory<byte>.Empty))
+                .ToArray();
+            var editedPlan = BakeLayerGraph.CreatePlan(bakeContext, editedBakeInputs, staging.Manifest, rebuildAll: true);
+            var editedWorld = await UyaBaseLayerStore.StageAsync(
+                projectPath, catalog, staging, editedPlan.Layers.Single(value => value.Layer == BakeLayerId.World));
+            var editedWorldBytes = await File.ReadAllBytesAsync(
+                Path.Combine(staging.RootPath, editedWorld.RelativePath, "level-settings.bin"));
+            var editedNativeSettings = UyaLevelSettingsReader.Read(editedWorldBytes);
+            Equal(new UyaRgb96(1, 2, 3), editedNativeSettings.BackgroundColor,
+                "level settings background color serialized");
+            Equal(new UyaRgb96(4, 5, 6), editedNativeSettings.FogColor, "level settings fog color serialized");
+            Equal(25 * 1024f, editedNativeSettings.FogNearDistance, "level settings near distance serialized");
+            Equal(200 * 1024f, editedNativeSettings.FogFarDistance, "level settings far distance serialized");
+            var worldAsset = baseInspection.Manifest.Layers.Single(value => value.Layer == BakeLayerId.World).Assets.Single();
+            var worldSource = await File.ReadAllBytesAsync(catalog.ResolveBlobPath(worldAsset.Asset.Id)!);
+            Equal(true, editedWorldBytes.AsSpan(0x28).SequenceEqual(worldSource.AsSpan(0x28)),
+                "level settings unsupported bytes preserved");
+            workspace.UpdateLevelSettings(originalSettings);
+            await workspace.SaveAsync();
+            var restoredPlan = BakeLayerGraph.CreatePlan(bakeContext, bakeInputs, staging.Manifest);
+            await UyaBaseLayerStore.StageAsync(
+                projectPath, catalog, staging, restoredPlan.Layers.Single(value => value.Layer == BakeLayerId.World));
             var maintenance = await AssetCatalogMaintenance.PreviewAsync(
                 catalog.RootPath,
                 [projectPath],
@@ -212,24 +256,51 @@ internal static class UyaProjectTests
             {
                 var snapshot = await runtime.OpenAsync(projectPath, TimeSpan.Zero);
                 Equal(13, snapshot.Entities.Count(value => value.Geometry is not null), "visualizations reach editor snapshot");
-                Equal(true, snapshot.Entities.Where(value => value.Geometry is not null).All(value => value.State.ReadOnly),
-                    "editor reports decoded visualizations read-only");
+                Equal(false, snapshot.Entities.Single(value => value.EntityId == cuboid.EntityId).State.ReadOnly,
+                    "editor exposes writable shape transforms");
+                Equal(false, snapshot.Entities.Single(value => value.EntityId == camera.EntityId).State.ReadOnly,
+                    "editor exposes writable camera transforms");
+                Equal(false, snapshot.Entities.Single(value => value.EntityId == ambientSound.EntityId).State.ReadOnly,
+                    "editor exposes writable sound transforms");
+                Equal(false, snapshot.Entities.Single(value => value.EntityId == spline.EntityId).State.ReadOnly,
+                    "editor exposes writable spline transforms");
                 Equal(EditorGeometryKind.Camera,
                     snapshot.Entities.Single(value => value.EntityId == camera.EntityId).Geometry!.Kind,
                     "camera reaches editor snapshot");
                 Equal(EditorGeometryKind.AmbientSound,
                     snapshot.Entities.Single(value => value.EntityId == ambientSound.EntityId).Geometry!.Kind,
                     "ambient sound reaches editor snapshot");
+                var editedSplinePoints = new ProjectVector4[]
+                {
+                    new(9, 8, 7, 6),
+                    new(5, 4, 3, 2),
+                    new(1, 0, -1, -2),
+                };
+                snapshot = await runtime.ExecuteAsync(new(
+                    Guid.NewGuid().ToString("D"), EditorCommandKind.UpdateSplinePoints, [spline.EntityId],
+                    Points: editedSplinePoints));
+                Equal(true, snapshot.Entities.Single(value => value.EntityId == spline.EntityId)
+                    .Geometry!.Points.SequenceEqual(editedSplinePoints), "spline points are fully editable");
+                snapshot = await runtime.ExecuteAsync(new(
+                    Guid.NewGuid().ToString("D"), EditorCommandKind.Undo, []));
+                Equal(2, snapshot.Entities.Single(value => value.EntityId == spline.EntityId).Geometry!.Points.Count,
+                    "spline point edits are undoable");
                 snapshot = await runtime.ExecuteAsync(new(
                     Guid.NewGuid().ToString("D"), EditorCommandKind.SetEntityState, [cuboid.EntityId],
-                    State: new(Hidden: true, Disabled: true)));
-                Equal(true, snapshot.Entities.Single(value => value.EntityId == cuboid.EntityId).State is
-                    { Hidden: true, Disabled: true }, "read-only geometry accepts editor state changes");
+                    State: new(Hidden: true)));
+                Equal(true, snapshot.Entities.Single(value => value.EntityId == cuboid.EntityId).State.Hidden,
+                    "writable geometry accepts visibility changes");
+                snapshot = await runtime.ExecuteAsync(new(
+                    Guid.NewGuid().ToString("D"), EditorCommandKind.UpdateTransform, [cuboid.EntityId],
+                    cuboid.Transform with { Position = new(400, 500, 600) }));
+                Equal(new ProjectVector3(400, 500, 600),
+                    snapshot.Entities.Single(value => value.EntityId == cuboid.EntityId).Transform.Position,
+                    "writable geometry accepts transform changes");
                 await ThrowsAsync<ArgumentException>(() => runtime.ExecuteAsync(new(
-                    Guid.NewGuid().ToString("D"), EditorCommandKind.UpdateTransform, [cuboid.EntityId], cuboid.Transform)));
+                    Guid.NewGuid().ToString("D"), EditorCommandKind.DeleteEntities, [cuboid.EntityId])));
                 await ThrowsAsync<ArgumentException>(() => runtime.ExecuteAsync(new(
                     Guid.NewGuid().ToString("D"), EditorCommandKind.SetEntityState, [cuboid.EntityId],
-                    State: new(Locked: true))));
+                    State: new(Disabled: true))));
             }
             Equal(10f, entity.Transform.Position.X, "entity position");
             Near(0.0342708f, entity.Transform.Rotation.X, "ZYX rotation X");

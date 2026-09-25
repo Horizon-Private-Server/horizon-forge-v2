@@ -38,8 +38,12 @@ export function createDefaultEditorLayout(api: DockviewApi): void {
     position: { referencePanel: 'viewport', direction: 'left' }, initialWidth: 240,
   });
   api.addPanel({
-    id: 'properties', ...EDITOR_PANELS.properties,
+    id: 'build', ...EDITOR_PANELS.build,
     position: { referencePanel: 'viewport', direction: 'right' }, initialWidth: 280,
+  });
+  api.addPanel({
+    id: 'properties', ...EDITOR_PANELS.properties,
+    position: { referencePanel: 'build', direction: 'below' }, initialHeight: 280,
   });
   api.addPanel({
     id: 'diagnostics', ...EDITOR_PANELS.diagnostics,
@@ -48,10 +52,6 @@ export function createDefaultEditorLayout(api: DockviewApi): void {
   api.addPanel({
     id: 'levelSettings', ...EDITOR_PANELS.levelSettings,
     position: { referencePanel: 'sceneTree', direction: 'below' }, initialHeight: 280,
-  });
-  api.addPanel({
-    id: 'build', ...EDITOR_PANELS.build,
-    position: { referencePanel: 'properties', direction: 'within' },
   });
 }
 
@@ -62,6 +62,11 @@ export function showEditorPanel(api: DockviewApi, id: EditorPanelId): void {
     return;
   }
   const definition = EDITOR_PANELS[id];
+  const build = id === 'properties' ? api.getPanel('build') : undefined;
+  if (build) {
+    api.addPanel({ id, ...definition, position: { referencePanel: build.id, direction: 'below' } });
+    return;
+  }
   const properties = id === 'build' ? api.getPanel('properties') : undefined;
   if (properties) {
     api.addPanel({ id, ...definition, position: { referencePanel: properties.id, direction: 'within' } });

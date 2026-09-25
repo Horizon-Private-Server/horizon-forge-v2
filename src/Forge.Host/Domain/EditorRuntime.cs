@@ -8,7 +8,8 @@ public sealed class EditorRuntime : IAsyncDisposable
     [
         "editor.query", "editor.selection", "editor.project.rename", "editor.transform.update",
         "editor.entity.rename", "editor.entity.layer", "editor.entity.state", "editor.entity.delete",
-        "editor.entity.duplicate", "editor.clipboard", "editor.history", "editor.save", "editor.recovery",
+        "editor.entity.duplicate", "editor.level-settings.update", "editor.clipboard", "editor.history",
+        "editor.save", "editor.recovery",
     ];
     private static readonly EditorTool[] RuntimeTools =
     [
@@ -164,6 +165,16 @@ public sealed class EditorRuntime : IAsyncDisposable
                     _selection = workspace.AddCopies(_clipboard).Select(entity => entity.EntityId).ToArray();
                     historyEntityIds = _selection;
                     AddEvent(EditorEventKind.ProjectChanged, command.Id, _selection, "Entities pasted");
+                    ScheduleAutosave();
+                    break;
+                case EditorCommandKind.UpdateLevelSettings:
+                    workspace.UpdateLevelSettings(command.LevelSettings!);
+                    AddEvent(EditorEventKind.ProjectChanged, command.Id, [], "Level settings updated");
+                    ScheduleAutosave();
+                    break;
+                case EditorCommandKind.UpdateSplinePoints:
+                    workspace.UpdateSplinePoints(command.EntityIds[0], command.Points!);
+                    AddEvent(EditorEventKind.ProjectChanged, command.Id, command.EntityIds, "Spline points updated");
                     ScheduleAutosave();
                     break;
                 default:
@@ -341,6 +352,7 @@ public sealed class EditorRuntime : IAsyncDisposable
             workspace.Manifest.Name,
             workspace.Manifest.Target,
             workspace.Manifest.BaseLevel,
+            workspace.Content.LevelSettings,
             workspace.Content.Entities.Select(entity =>
             {
                 var state = entity.State ?? new();
@@ -397,8 +409,21 @@ public sealed class EditorRuntime : IAsyncDisposable
         return null;
     }
 
-    private static bool IsReadOnlySource(ProjectEntity entity) => entity.Geometry is not null
+    private static bool IsReadOnlySource(ProjectEntity entity) => IsDecodedSource(entity) && !HasTransformWriter(entity);
+
+    private static bool IsDecodedSource(ProjectEntity entity) => entity.Geometry is not null
         || entity.Lighting is not null || entity.Camera is not null || entity.AmbientSound is not null;
+
+    private static bool HasTransformWriter(ProjectEntity entity)
+    {
+        if (entity.Provenance is not { Game: "UYA" }) return false;
+        if (entity.Camera is not null || entity.AmbientSound is not null) return true;
+        if (entity.Geometry?.Spline is not null) return true;
+        var shape = entity.Geometry is { } geometry
+            ? geometry.Cuboid ?? geometry.Sphere ?? geometry.Cylinder ?? geometry.Pill
+            : null;
+        return shape is not null && shape.CameraCollision is null;
+    }
 
     private static bool HasInvalidGeometryLinks(ProjectEntity entity)
     {
@@ -419,6 +444,10 @@ public sealed class EditorRuntime : IAsyncDisposable
         var known = workspace.Content.Entities.Select(entity => entity.EntityId).ToHashSet();
         if (command.EntityIds.Any(id => !known.Contains(id)))
             throw new ArgumentException("Command references an entity that is not present in the active project.", nameof(command));
+        if (command.Kind != EditorCommandKind.UpdateLevelSettings && command.LevelSettings is not null)
+            throw new ArgumentException("Only level setting commands can contain level settings.", nameof(command));
+        if (command.Kind != EditorCommandKind.UpdateSplinePoints && command.Points is not null)
+            throw new ArgumentException("Only spline point commands can contain points.", nameof(command));
         var locked = workspace.Content.Entities
             .Where(entity => entity.State?.Locked == true)
             .Select(entity => entity.EntityId)
@@ -427,18 +456,28 @@ public sealed class EditorRuntime : IAsyncDisposable
             .Where(IsReadOnlySource)
             .Select(entity => entity.EntityId)
             .ToHashSet();
+        var transformOnly = workspace.Content.Entities
+            .Where(HasTransformWriter)
+            .Select(entity => entity.EntityId)
+            .ToHashSet();
         var readOnlyStateChange = command.Kind == EditorCommandKind.SetEntityState
             && command.State is { Locked: null };
         if (command.EntityIds.Any(readOnly.Contains)
             && command.Kind != EditorCommandKind.SetSelection
             && !readOnlyStateChange)
             throw new ArgumentException("Decoded source data is read-only until its native writer is available.", nameof(command));
+        if (command.EntityIds.Any(transformOnly.Contains)
+            && (command.Kind is EditorCommandKind.DeleteEntities or EditorCommandKind.DuplicateEntities
+                or EditorCommandKind.CopyEntities
+                || command.Kind == EditorCommandKind.SetEntityState && command.State?.Disabled is not null))
+            throw new ArgumentException("This decoded source type supports transform edits but not structural changes.", nameof(command));
         if (command.EntityIds.Any(locked.Contains)
             && command.Kind is EditorCommandKind.UpdateTransform or EditorCommandKind.UpdateTransforms
                 or EditorCommandKind.RenameEntity
                 or EditorCommandKind.SetEntityLayer
                 or EditorCommandKind.DeleteEntities
-                or EditorCommandKind.DuplicateEntities)
+                or EditorCommandKind.DuplicateEntities
+                or EditorCommandKind.UpdateSplinePoints)
             throw new ArgumentException("Locked entities cannot be modified.", nameof(command));
         if (command.EntityIds.Any(locked.Contains)
             && command.Kind == EditorCommandKind.SetEntityState
@@ -480,6 +519,15 @@ public sealed class EditorRuntime : IAsyncDisposable
             case EditorCommandKind.PasteEntities when command.EntityIds.Count != 0 || command.Transform is not null
                 || command.Text is not null || command.State is not null || command.Transforms?.Count > 0:
                 throw new ArgumentException("Paste commands cannot contain mutation data.", nameof(command));
+            case EditorCommandKind.UpdateLevelSettings when command.EntityIds.Count != 0 || command.Transform is not null
+                || command.Text is not null || command.State is not null || command.Transforms?.Count > 0
+                || command.LevelSettings is null:
+                throw new ArgumentException("Level setting commands require only level settings.", nameof(command));
+            case EditorCommandKind.UpdateSplinePoints when command.EntityIds.Count != 1 || command.Transform is not null
+                || command.Text is not null || command.State is not null || command.Transforms?.Count > 0
+                || command.LevelSettings is not null || command.Points is null
+                || workspace.Content.Entities.Single(entity => entity.EntityId == command.EntityIds[0]).Geometry?.Spline is null:
+                throw new ArgumentException("Spline point commands require one spline and its points.", nameof(command));
         }
     }
 
@@ -503,6 +551,7 @@ public sealed class EditorRuntime : IAsyncDisposable
         256L + (long)before.Content.Entities.Count * IntPtr.Size
         + (long)command.EntityIds.Count * 16
         + (long)(command.Transforms?.Count ?? 0) * 64
+        + (long)(command.Points?.Count ?? 0) * 16
         + (command.Text?.Length ?? 0) * sizeof(char);
 
     private static HashSet<AssetId> FindMissingAssets(ForgeProjectWorkspace workspace, AssetCatalogStore catalog) =>

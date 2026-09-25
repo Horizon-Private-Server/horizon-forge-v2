@@ -162,6 +162,7 @@ internal static class ForgeProjectPersistence
         {
             0 => Migrate(Deserialize<ManifestV0>(manifestBytes, "Project manifest")),
             1 => Migrate(Deserialize<ForgeProjectManifest>(manifestBytes, "Project manifest")),
+            2 => Migrate(Deserialize<ForgeProjectManifest>(manifestBytes, "Project manifest")),
             ProjectSchema.CurrentVersion => Deserialize<ForgeProjectManifest>(manifestBytes, "Project manifest"),
             _ => throw new UnsupportedProjectSchemaException(manifestVersion),
         };
@@ -172,6 +173,7 @@ internal static class ForgeProjectPersistence
         {
             0 => Migrate(Deserialize<ContentV0>(contentBytes, "Project content")),
             1 => Migrate(Deserialize<ForgeProjectContent>(contentBytes, "Project content")),
+            2 => Migrate(Deserialize<ForgeProjectContent>(contentBytes, "Project content")),
             ProjectSchema.CurrentVersion => Deserialize<ForgeProjectContent>(contentBytes, "Project content"),
             _ => throw new UnsupportedProjectSchemaException(contentVersion),
         };
@@ -197,7 +199,8 @@ internal static class ForgeProjectPersistence
         ProjectSchema.CurrentVersion,
         ProjectSchema.ContentDocumentType,
         value.Entities,
-        value.Assets);
+        value.Assets,
+        value.LevelSettings);
 
     private static ForgeProjectManifest Migrate(ForgeProjectManifest value) =>
         value with { SchemaVersion = ProjectSchema.CurrentVersion };
@@ -343,7 +346,8 @@ internal static class ForgeProjectPersistence
     private sealed record ContentV0(
         int SchemaVersion,
         IReadOnlyList<ProjectEntity> Entities,
-        IReadOnlyList<ProjectAttachedAsset> Assets);
+        IReadOnlyList<ProjectAttachedAsset> Assets,
+        ProjectLevelSettings? LevelSettings = null);
 }
 
 internal sealed record LoadedProject(

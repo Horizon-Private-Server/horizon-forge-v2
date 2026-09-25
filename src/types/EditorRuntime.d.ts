@@ -23,6 +23,15 @@ export interface EditorTransformUpdate {
   transform: ProjectTransform;
 }
 
+export interface EditorLevelSettings {
+  backgroundColor: [number, number, number];
+  fogColor: [number, number, number];
+  fogNearDistance: number;
+  fogFarDistance: number;
+  fogNearIntensity: number;
+  fogFarIntensity: number;
+}
+
 export interface EditorEntity {
   id: string;
   name: string;
@@ -62,7 +71,9 @@ export type EditorCommand =
     state: { hidden?: boolean; disabled?: boolean; locked?: boolean };
   }
   | { id: string; kind: 'undo' | 'redo' | 'pasteEntities'; entityIds: [] }
-  | { id: string; kind: 'deleteEntities' | 'duplicateEntities' | 'copyEntities'; entityIds: string[] };
+  | { id: string; kind: 'deleteEntities' | 'duplicateEntities' | 'copyEntities'; entityIds: string[] }
+  | { id: string; kind: 'updateLevelSettings'; entityIds: []; levelSettings: EditorLevelSettings }
+  | { id: string; kind: 'updateSplinePoints'; entityIds: [string]; points: ProjectVector4[] };
 
 export interface EditorEvent {
   sequence: number;
@@ -87,6 +98,7 @@ export interface EditorSnapshot {
     sourceFingerprint: string;
     missingAssetCount: number;
   };
+  levelSettings?: EditorLevelSettings;
   entities: EditorEntity[];
   selection: string[];
   isDirty: boolean;

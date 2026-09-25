@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as THREE from 'three';
+import { Line2 } from 'three/addons/lines/Line2.js';
+import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 
 import { SceneProjection } from '../src/renderer/editor/SceneProjection.ts';
 import { buildGroundPlacement } from '../src/renderer/editor/ScenePlacement.ts';
@@ -160,21 +162,26 @@ test('scene projection renders decoded geometry and lighting markers', () => {
   assert.equal((cuboidObject.material as THREE.MeshBasicMaterial).fog, false);
   assert.deepEqual(projection.getObject('cuboid')!.position.toArray(), [10, 30, -20]);
   assert.deepEqual(projection.getObject('cuboid')!.scale.toArray(), [2, 4, 3]);
-  const line = projection.getObject('spline') as THREE.Line;
-  assert.ok(line instanceof THREE.Line);
-  assert.equal((line.material as THREE.LineBasicMaterial).color.getHexString(), '445566');
-  assert.equal((line.material as THREE.LineBasicMaterial).fog, false);
-  assert.deepEqual(Array.from(line.geometry.getAttribute('position').array), [1, 3, -2, 5, 7, -6]);
+  const line = projection.getObject('spline') as Line2;
+  assert.ok(line instanceof Line2);
+  assert.equal((line.material as LineMaterial).color.getHexString(), '445566');
+  assert.equal((line.material as LineMaterial).linewidth, 5);
+  assert.equal((line.material as LineMaterial).fog, false);
+  assert.deepEqual(Array.from(line.geometry.getAttribute('instanceStart').array), [1, 3, -2, 5, 7, -6]);
+  assert.deepEqual(projection.getWorldVertices(['spline']).map((point) => point.toArray()), [
+    [1, 3, -2], [5, 7, -6],
+  ]);
   assert.equal(((projection.getObject('sphere') as THREE.Mesh).material as THREE.MeshBasicMaterial)
     .color.getHexString(), 'aa0000');
   assert.equal(((projection.getObject('cylinder') as THREE.Mesh).material as THREE.MeshBasicMaterial)
     .color.getHexString(), '00aa00');
   assert.equal(((projection.getObject('pill') as THREE.Mesh).material as THREE.MeshBasicMaterial)
     .color.getHexString(), '0000aa');
-  const grindLine = projection.getObject('grind-path') as THREE.Line;
-  assert.ok(grindLine instanceof THREE.Line);
-  assert.equal((grindLine.material as THREE.LineBasicMaterial).color.getHexString(), 'aabbcc');
-  assert.deepEqual(Array.from(grindLine.geometry.getAttribute('position').array), [9, 11, -10, 13, 15, -14]);
+  const grindLine = projection.getObject('grind-path') as Line2;
+  assert.ok(grindLine instanceof Line2);
+  assert.equal((grindLine.material as LineMaterial).color.getHexString(), 'aabbcc');
+  assert.equal((grindLine.material as LineMaterial).linewidth, 5);
+  assert.deepEqual(Array.from(grindLine.geometry.getAttribute('instanceStart').array), [9, 11, -10, 13, 15, -14]);
   const areaObject = projection.getObject('area') as THREE.Mesh;
   assert.ok(areaObject instanceof THREE.Mesh);
   assert.equal((areaObject.material as THREE.MeshBasicMaterial).color.getHexString(), '778899');
@@ -202,7 +209,32 @@ test('scene projection renders decoded geometry and lighting markers', () => {
   assert.equal((areaObject.material as THREE.MeshBasicMaterial).fog, false);
   projection.root.updateMatrixWorld(true);
   const insideArea = new THREE.Raycaster(areaObject.position.clone(), new THREE.Vector3(1, 0, 0));
-  assert.equal(projection.resolvePick(insideArea.intersectObject(projection.root, true)), 'area');
+  assert.equal(projection.resolvePick(insideArea.intersectObject(areaObject)), 'area');
+  projection.dispose();
+});
+
+test('spline picking matches its five-pixel visible stroke', () => {
+  const projection = new SceneProjection();
+  const spline = entity('spline', 0, false);
+  spline.geometry = {
+    kind: 'spline',
+    points: [{ x: -1, y: 0, z: 0, w: 0 }, { x: 1, y: 0, z: 0, w: 0 }],
+  };
+  spline.transform = {
+    position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 }, scale: { x: 1, y: 1, z: 1 },
+  };
+  projection.sync([spline]);
+  projection.root.updateMatrixWorld(true);
+  const line = projection.getObject('spline') as Line2;
+  line.material.resolution.set(1000, 1000);
+  const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
+  camera.position.z = 10;
+  camera.updateMatrixWorld();
+  const raycaster = new THREE.Raycaster();
+  raycaster.setFromCamera(new THREE.Vector2(0, 0.004), camera);
+  assert.equal(projection.resolvePick(raycaster.intersectObject(projection.root, true)), 'spline');
+  raycaster.setFromCamera(new THREE.Vector2(0, 0.012), camera);
+  assert.equal(projection.resolvePick(raycaster.intersectObject(projection.root, true)), undefined);
   projection.dispose();
 });
 
@@ -349,11 +381,27 @@ test('PS2 fog clamps to the game far intensity instead of increasing to full fog
     backgroundColor: [0, 0, 0], fogColor: [40, 50, 40],
     fogNearDistance: 10, fogFarDistance: 175, fogNearIntensity: 255, fogFarIntensity: 128,
   });
-  const shader = { fragmentShader: '#include <fog_fragment>' };
+  const shader = {
+    fragmentShader: '#include <fog_pars_fragment>\n#include <fog_fragment>',
+    uniforms: {} as Record<string, { value: number }>,
+  };
   material.onBeforeCompile(shader as never, {} as never);
   assert.doesNotMatch(shader.fragmentShader, /#include <fog_fragment>/);
-  assert.match(shader.fragmentShader, /vFogDepth - 9\.00000000/);
-  assert.match(shader.fragmentShader, /mix\(0\.00390625, 0\.50000000/);
+  assert.match(shader.fragmentShader, /vFogDepth - forgeFogNear/);
+  assert.equal(shader.uniforms.forgeFogNear.value, 9);
+  assert.equal(shader.uniforms.forgeFogFar.value, 157.5);
+  assert.equal(shader.uniforms.forgeFogNearAmount.value, 1 / 256);
+  assert.equal(shader.uniforms.forgeFogFarAmount.value, 0.5);
+  const compile = material.onBeforeCompile;
+  configurePs2MaterialFog(root, {
+    backgroundColor: [0, 0, 0], fogColor: [1, 2, 3],
+    fogNearDistance: 20, fogFarDistance: 200, fogNearIntensity: 128, fogFarIntensity: 64,
+  });
+  assert.equal(material.onBeforeCompile, compile);
+  assert.equal(shader.uniforms.forgeFogNear.value, 18);
+  assert.equal(shader.uniforms.forgeFogFar.value, 180);
+  assert.equal(shader.uniforms.forgeFogNearAmount.value, 0.5);
+  assert.equal(shader.uniforms.forgeFogFarAmount.value, 0.75);
   disposeObject(root);
 });
 

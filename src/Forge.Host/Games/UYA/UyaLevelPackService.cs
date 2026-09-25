@@ -219,7 +219,8 @@ public static class UyaLevelPackService
                 await File.ReadAllBytesAsync(
                     ForgeProjectPersistence.ResolveRelativePath(gameplayRoot, section.Path), cancellationToken));
 
-        ValidateOpaque(SnapshotRoot(staging, BakeLayerId.Opaque), sourceLevelWad, sourcePackage);
+        ValidateOpaque(SnapshotRoot(staging, BakeLayerId.Opaque), sourceLevelWad, sourcePackage,
+            ReplacedOpaqueSections(replacements));
         return replacements;
     }
 
@@ -238,7 +239,8 @@ public static class UyaLevelPackService
                 throw new InvalidDataException($"Packed output does not contain staged payload {replacement.Key}.");
         }
         var outputPackage = UyaLevelWadUnpacker.Unpack(output);
-        ValidateOpaque(SnapshotRoot(staging, BakeLayerId.Opaque), output, outputPackage);
+        ValidateOpaque(SnapshotRoot(staging, BakeLayerId.Opaque), output, outputPackage,
+            ReplacedOpaqueSections(replacements));
 
         var expectedBase = UyaBaseLayerSchema.Layers.SelectMany(layer =>
         {
@@ -260,14 +262,17 @@ public static class UyaLevelPackService
     private static void ValidateOpaque(
         string stagedRoot,
         ReadOnlyMemory<byte> levelWad,
-        UyaLevelWadPackage package)
+        UyaLevelWadPackage package,
+        IReadOnlySet<string> replacedSections)
     {
         var manifest = Read<OpaqueContentManifest>(stagedRoot, OpaqueContentStore.ManifestFileName, "staged opaque layer");
         var source = UyaOpaqueContentService.Capture(levelWad.Span, package)
+            .Where(value => !replacedSections.Contains(value.Name))
             .ToDictionary(value => value.Name, StringComparer.Ordinal);
-        if (manifest.Sections.Count != source.Count)
+        var sections = manifest.Sections.Where(value => !replacedSections.Contains(value.Name)).ToArray();
+        if (sections.Length != source.Count)
             throw new InvalidDataException("Opaque staged section inventory does not match the source level.");
-        foreach (var section in manifest.Sections)
+        foreach (var section in sections)
         {
             if (!source.TryGetValue(section.Name, out var captured)
                 || captured.Bytes.LongLength != section.Size
@@ -275,6 +280,13 @@ public static class UyaLevelPackService
                 throw new InvalidDataException($"Opaque section {section.Name} does not match the staged source hash.");
         }
     }
+
+    private static HashSet<string> ReplacedOpaqueSections(
+        IReadOnlyDictionary<string, ReadOnlyMemory<byte>> replacements) => replacements.Keys
+        .Where(value => value.StartsWith("gameplay/core/", StringComparison.Ordinal)
+            && value.EndsWith(".bin", StringComparison.Ordinal))
+        .Select(value => $"gameplay/{Path.GetFileNameWithoutExtension(value)}")
+        .ToHashSet(StringComparer.Ordinal);
 
     private static string SnapshotRoot(BakeStagingStore staging, BakeLayerId layer) =>
         ForgeProjectPersistence.ResolveRelativePath(

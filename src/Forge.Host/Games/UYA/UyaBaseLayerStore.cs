@@ -135,6 +135,7 @@ public static class UyaBaseLayerStore
         CancellationToken cancellationToken = default)
     {
         var inspection = await InspectAsync(projectRoot, catalog, cancellationToken);
+        var workspace = await ForgeProjectWorkspace.OpenAsync(projectRoot, cancellationToken);
         return UyaBaseLayerSchema.Layers.Select(layer =>
         {
             var record = inspection.Manifest?.Layers?.SingleOrDefault(value => value.Layer == layer);
@@ -149,7 +150,9 @@ public static class UyaBaseLayerStore
                 layer,
                 content,
                 record?.Assets?.Select(value => value.Asset.Id).ToArray() ?? [],
-                ReadOnlyMemory<byte>.Empty,
+                layer == BakeLayerId.World && workspace.Content.LevelSettings is not null
+                    ? ForgeProjectPersistence.Serialize(workspace.Content.LevelSettings)
+                    : ReadOnlyMemory<byte>.Empty,
                 inspection.Blockers[layer]);
         }).ToArray();
     }
@@ -182,7 +185,15 @@ public static class UyaBaseLayerStore
             {
                 var source = workspace.ResolveAssetPath(asset.Asset.Id, catalog)
                     ?? throw new FileNotFoundException($"Base-layer asset {asset.Asset.Id} disappeared during bake.");
-                await CopyFileAsync(source, Path.Combine(output, asset.Name), token);
+                if (plan.Layer == BakeLayerId.World && workspace.Content.LevelSettings is { } settings)
+                {
+                    var bytes = WriteLevelSettings(await File.ReadAllBytesAsync(source, token), settings);
+                    await ForgeProjectPersistence.WriteFileSafelyAsync(Path.Combine(output, asset.Name), bytes, token);
+                }
+                else
+                {
+                    await CopyFileAsync(source, Path.Combine(output, asset.Name), token);
+                }
             }
         }, async (output, token) =>
         {
@@ -193,11 +204,28 @@ public static class UyaBaseLayerStore
             {
                 var bytes = await File.ReadAllBytesAsync(Path.Combine(output, asset.Name), token);
                 ValidatePayload(plan.Layer, asset.Name, bytes);
-                if (AssetId.Compute(asset.Asset.Kind, asset.CanonicalFormatVersion, bytes) != asset.Asset.Id)
+                if (plan.Layer == BakeLayerId.World && workspace.Content.LevelSettings is { } settings)
+                {
+                    var source = workspace.ResolveAssetPath(asset.Asset.Id, catalog)
+                        ?? throw new FileNotFoundException($"Base-layer asset {asset.Asset.Id} disappeared during validation.");
+                    var expected = WriteLevelSettings(await File.ReadAllBytesAsync(source, token), settings);
+                    if (!bytes.SequenceEqual(expected))
+                        throw new InvalidDataException("World staged level settings changed during write.");
+                }
+                else if (AssetId.Compute(asset.Asset.Kind, asset.CanonicalFormatVersion, bytes) != asset.Asset.Id)
                     throw new InvalidDataException($"{plan.Layer} staged asset {asset.Name} failed identity validation.");
             }
         }, cancellationToken);
     }
+
+    private static byte[] WriteLevelSettings(byte[] source, ProjectLevelSettings settings) =>
+        UyaLevelSettingsWriter.Write(source, new(
+            new(settings.BackgroundColor.R, settings.BackgroundColor.G, settings.BackgroundColor.B),
+            new(settings.FogColor.R, settings.FogColor.G, settings.FogColor.B),
+            settings.FogNearDistance * 1024,
+            settings.FogFarDistance * 1024,
+            settings.FogNearIntensity,
+            settings.FogFarIntensity));
 
     private static void ValidateManifest(
         UyaBaseLayerManifest manifest,

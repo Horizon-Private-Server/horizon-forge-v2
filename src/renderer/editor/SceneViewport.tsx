@@ -6,7 +6,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type { EditorEntity, EditorTransformUpdate } from '../../types/EditorRuntime.js';
 import type { KeybindingMap } from '../../types/Keybindings.js';
 import type { SceneTreeColors } from '../../types/SceneTree.js';
-import type { EditorLoadProgress, EditorTerrainSource } from '../../types/ForgeApi.js';
+import type { EditorLoadProgress, EditorSceneEnvironment, EditorTerrainSource } from '../../types/ForgeApi.js';
 import type { EditorSnapSource, EditorSnapTarget } from '../../types/EditorViewport.js';
 import {
   disposeObject,
@@ -39,6 +39,7 @@ interface SceneViewportProps {
   focusEntityId?: string;
   selection: readonly string[];
   terrain?: EditorTerrainSource;
+  environment?: EditorSceneEnvironment;
   disabled: boolean;
   showStats: boolean;
   showOcclusionOctants: boolean;
@@ -56,6 +57,7 @@ export function SceneViewport({
   focusEntityId,
   selection,
   terrain: terrainSource,
+  environment,
   disabled,
   showStats,
   showOcclusionOctants,
@@ -80,6 +82,7 @@ export function SceneViewport({
   const currentSelection = useRef(selection);
   const currentEntities = useRef(entities);
   const currentKeybindings = useRef(keybindings);
+  const currentEnvironment = useRef(environment);
   const focusHandled = useRef(onFocusHandled);
   const loadProgressChanged = useRef(onLoadProgress);
   const selectionChanged = useRef(onSelectionChange);
@@ -87,6 +90,7 @@ export function SceneViewport({
   currentSelection.current = selection;
   currentEntities.current = entities;
   currentKeybindings.current = keybindings;
+  currentEnvironment.current = environment;
   currentShowStats.current = showStats;
   focusHandled.current = onFocusHandled;
   loadProgressChanged.current = onLoadProgress;
@@ -448,7 +452,7 @@ export function SceneViewport({
     loadProgressChanged.current({
       status: 'loading', label: 'Loading terrain, sky, and entity meshes…', completed, total,
     });
-    applySceneEnvironment(viewport.current!.scene, terrainSource.environment, viewport.current!.skyScene);
+    applySceneEnvironment(viewport.current!.scene, currentEnvironment.current, viewport.current!.skyScene);
     void Promise.resolve().then(async () => {
       if (!terrainSource.urls.length) throw new Error('The render package contains no terrain');
       const loader = new GLTFLoader();
@@ -472,7 +476,7 @@ export function SceneViewport({
         ?? new Error('Could not load terrain');
       for (const scene of loaded) {
         configurePs2MaterialAlpha(scene, 'tfrag');
-        configurePs2MaterialFog(scene, terrainSource.environment);
+        configurePs2MaterialFog(scene, currentEnvironment.current);
         scene.traverse((object) => { if (/^lod_[1-9]/i.test(object.name)) object.visible = false; });
         viewport.current.terrain.add(scene);
         loadedScenes.push(scene);
@@ -492,7 +496,7 @@ export function SceneViewport({
         const asset = terrainSource.assets[index];
         if (result.status === 'fulfilled') {
           configurePs2MaterialAlpha(result.value.scene, asset.kind);
-          configurePs2MaterialFog(result.value.scene, terrainSource.environment);
+          configurePs2MaterialFog(result.value.scene, currentEnvironment.current);
           templates.set(asset.assetId, result.value.scene);
           loadedScenes.push(result.value.scene);
         } else {
@@ -543,6 +547,13 @@ export function SceneViewport({
       for (const scene of loadedScenes) disposeObject(scene);
     };
   }, [onSkyPiecesChange, terrainSource]);
+
+  useEffect(() => {
+    const current = viewport.current;
+    if (!current) return;
+    applySceneEnvironment(current.scene, environment, current.skyScene);
+    configurePs2MaterialFog(current.content, environment);
+  }, [environment]);
 
   useEffect(() => {
     const current = viewport.current;

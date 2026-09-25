@@ -42,8 +42,19 @@ internal static class EditorPayloadCodec
             transforms[index] = new(EntityId.Parse(reader.ReadString()), ReadTransform(ref reader));
         var text = reader.ReadBoolean() ? reader.ReadString() : null;
         var state = reader.ReadBoolean() ? ReadStateChange(ref reader) : null;
+        var levelSettings = reader.ReadBoolean() ? ReadLevelSettings(ref reader) : null;
+        IReadOnlyList<ProjectVector4>? points = null;
+        if (reader.ReadBoolean())
+        {
+            var pointCount = reader.ReadUInt32();
+            if (pointCount > MaxEntities) PayloadFormat.Malformed("Spline point list exceeds item limit");
+            var values = new ProjectVector4[pointCount];
+            for (var index = 0; index < values.Length; index++)
+                values[index] = new(reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle());
+            points = values;
+        }
         reader.Complete();
-        return new(id, kind, entities, transform, text, state, transforms);
+        return new(id, kind, entities, transform, text, state, transforms, levelSettings, points);
     }
 
     public static byte[] EncodeSnapshot(EditorSnapshot value)
@@ -54,6 +65,8 @@ internal static class EditorPayloadCodec
         writer.WriteString(value.ProjectName);
         WriteTarget(writer, value.Target);
         WriteBaseLevel(writer, value.BaseLevel);
+        writer.WriteBoolean(value.LevelSettings is not null);
+        if (value.LevelSettings is not null) WriteLevelSettings(writer, value.LevelSettings);
         if (value.Entities.Count > MaxEntities) PayloadFormat.Malformed("Entity list exceeds item limit");
         writer.WriteUInt32((uint)value.Entities.Count);
         foreach (var entity in value.Entities) WriteEntity(writer, entity);
@@ -168,6 +181,25 @@ internal static class EditorPayloadCodec
         reader.ReadBoolean() ? reader.ReadBoolean() : null,
         reader.ReadBoolean() ? reader.ReadBoolean() : null,
         reader.ReadBoolean() ? reader.ReadBoolean() : null);
+
+    private static ProjectLevelSettings ReadLevelSettings(ref PayloadReader reader) => new(
+        new(checked((byte)reader.ReadUInt32()), checked((byte)reader.ReadUInt32()), checked((byte)reader.ReadUInt32())),
+        new(checked((byte)reader.ReadUInt32()), checked((byte)reader.ReadUInt32()), checked((byte)reader.ReadUInt32())),
+        reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle());
+
+    private static void WriteLevelSettings(PayloadWriter writer, ProjectLevelSettings value)
+    {
+        writer.WriteUInt32(value.BackgroundColor.R);
+        writer.WriteUInt32(value.BackgroundColor.G);
+        writer.WriteUInt32(value.BackgroundColor.B);
+        writer.WriteUInt32(value.FogColor.R);
+        writer.WriteUInt32(value.FogColor.G);
+        writer.WriteUInt32(value.FogColor.B);
+        writer.WriteSingle(value.FogNearDistance);
+        writer.WriteSingle(value.FogFarDistance);
+        writer.WriteSingle(value.FogNearIntensity);
+        writer.WriteSingle(value.FogFarIntensity);
+    }
 
     private static void WriteTransform(PayloadWriter writer, ProjectTransform value)
     {

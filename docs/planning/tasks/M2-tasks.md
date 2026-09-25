@@ -492,6 +492,12 @@ opaque sections remain bake authority. The camera-collision grid is now bounds-c
 and its flags/scalars attach to the referenced native volumes; grid regeneration and
 native writing remain open.
 
+Transform-only native writers now cover cuboids, spheres, cylinders, and pills that
+are not linked to camera collision. Ordinary splines support editing, inserting,
+deleting, and reordering all four point components; their writer rebuilds variable-size
+point arrays while retaining record padding. Spline-instance structural edits and
+camera-collision regeneration remain open.
+
 ## M2-016 — Import cameras, sound emitters, groups, and shared references
 
 Requirements: FR-PROJ-001, FR-PROJ-002, FR-SCENE-002, FR-SCENE-005,
@@ -524,6 +530,9 @@ Forge entities. Camera type/transform/Pvar data and sound class/range/matrix/Pva
 survive save/reopen and appear as distinct, selectable, fog-free read-only markers.
 The source blocks remain opaque bake authority. Groups, shared-data ownership, Pvar
 link resolution, and their mutation diagnostics remain open.
+
+Camera and ambient-sound transforms now have patch-in-place native writers backed by
+retained source records. Structural edits and shared Pvar/reference mutation remain open.
 
 ## M2-017 — Import UYA lighting, environment, and per-tie ambient data
 
@@ -591,9 +600,10 @@ Acceptance:
 Verification: settings boundary fixtures, stable-reference migration tests, chunk-plane
 count/terminator cases, and render-environment snapshot parity.
 
-Progress: the editor now exposes a dedicated read-only Level Settings panel for the
-decoded environment, world, ship, chunk-plane, and sound-count fields. Stable entity
-references, project persistence, diagnostics, and native writing remain open.
+Progress: project schema v3 persists background/fog colors, distances, and intensities;
+the editor updates them through the typed command/history path and the World bake layer
+patches only those native fields while preserving unsupported bytes. World/ship fields,
+stable path/cuboid references, chunk planes, and remaining diagnostics/writers stay open.
 
 ## M2-019 — Decode UYA occlusion octants and instance mappings safely
 

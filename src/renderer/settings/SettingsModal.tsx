@@ -1,4 +1,4 @@
-import { Alert, Button, ColorInput, Modal, Select, SimpleGrid, Stack, Switch, Tabs, TextInput } from '@mantine/core';
+import { Alert, Button, Modal, Select, SimpleGrid, Stack, Switch, Tabs, TextInput } from '@mantine/core';
 import { useEffect, useState } from 'react';
 
 import type { KeybindingMap, KeybindingOverrides } from '../../types/Keybindings.js';
@@ -13,6 +13,7 @@ import {
   SCENE_TREE_KINDS,
   SCENE_TREE_LABELS,
 } from '../../utils/SceneTreeColors.ts';
+import { ColorPickerInput } from '../ColorPickerInput.tsx';
 import { KeybindingsSettings } from './KeybindingsSettings.tsx';
 
 interface SettingsModalProps {
@@ -143,12 +144,11 @@ export function SettingsModal({
         </Tabs.Panel>
         <Tabs.Panel value="customization" pt="sm">
           <SimpleGrid cols={{ base: 1, sm: 2 }}>
-            {SCENE_TREE_KINDS.map((kind) => <ColorInput
+            {SCENE_TREE_KINDS.map((kind) => <ColorPickerInput
               key={kind}
               label={kind === 'occlusionOctant' ? 'Occlusion octant color' : `${SCENE_TREE_LABELS[kind]} tree color`}
               value={sceneTreeColors[kind]}
               format="hex"
-              withEyeDropper={false}
               onChange={(value) => {
                 if (isHexColor(value)) onSceneTreeColorsChange({ ...sceneTreeColors, [kind]: value });
               }}

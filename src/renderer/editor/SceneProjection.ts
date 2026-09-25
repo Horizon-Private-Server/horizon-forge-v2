@@ -1,4 +1,7 @@
 import * as THREE from 'three';
+import { Line2 } from 'three/addons/lines/Line2.js';
+import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
+import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 import type { EditorEntity } from '../../types/EditorRuntime.js';
@@ -17,6 +20,7 @@ const SCENE_TO_PS2_ROTATION = PS2_TO_SCENE_ROTATION.clone().invert();
 const NORMAL_COLOR = new THREE.Color(0xffffff);
 const SELECTED_COLOR = new THREE.Color(0x22d3ee);
 const INSTANCE_MIRROR = new THREE.Matrix4().makeScale(-1, 1, 1);
+const SPLINE_LINE_WIDTH = 5;
 
 interface InstancedAsset {
   root: THREE.Group;
@@ -45,8 +49,8 @@ export class SceneProjection {
   private readonly sphereMaterial = new THREE.MeshBasicMaterial({ wireframe: true, fog: false, side: THREE.DoubleSide });
   private readonly cylinderMaterial = new THREE.MeshBasicMaterial({ wireframe: true, fog: false, side: THREE.DoubleSide });
   private readonly pillMaterial = new THREE.MeshBasicMaterial({ wireframe: true, fog: false, side: THREE.DoubleSide });
-  private readonly splineMaterial = new THREE.LineBasicMaterial({ fog: false });
-  private readonly grindPathMaterial = new THREE.LineBasicMaterial({ fog: false });
+  private readonly splineMaterial = new LineMaterial({ linewidth: SPLINE_LINE_WIDTH, fog: false });
+  private readonly grindPathMaterial = new LineMaterial({ linewidth: SPLINE_LINE_WIDTH, fog: false });
   private readonly directionalLightMaterial = new THREE.LineBasicMaterial({ fog: false });
   private readonly pointLightMaterial = new THREE.MeshBasicMaterial({ wireframe: true, fog: false });
   private readonly environmentSampleMaterial = new THREE.MeshBasicMaterial({ wireframe: true, fog: false });
@@ -60,7 +64,10 @@ export class SceneProjection {
   private readonly selectedGeometryMaterial = new THREE.MeshBasicMaterial({
     color: SELECTED_COLOR, wireframe: true, fog: false, side: THREE.DoubleSide,
   });
-  private readonly selectedSplineMaterial = new THREE.LineBasicMaterial({ color: SELECTED_COLOR, fog: false });
+  private readonly selectedSplineMaterial = new LineMaterial({
+    color: SELECTED_COLOR, linewidth: SPLINE_LINE_WIDTH, fog: false,
+  });
+  private readonly selectedLineMaterial = new THREE.LineBasicMaterial({ color: SELECTED_COLOR, fog: false });
   private readonly objects = new Map<string, THREE.Object3D>();
   private readonly instances = new Map<string, InstancedAsset>();
   private readonly templates = new Map<string, THREE.Object3D>();
@@ -293,6 +300,7 @@ export class SceneProjection {
     this.selectedMaterial.dispose();
     this.selectedGeometryMaterial.dispose();
     this.selectedSplineMaterial.dispose();
+    this.selectedLineMaterial.dispose();
   }
 
   private removeStaleObjects(projected: ReadonlySet<string>, entities: readonly EditorEntity[]): number {
@@ -329,15 +337,16 @@ export class SceneProjection {
       object = new THREE.Mesh(this.cameraGeometry, this.cameraMaterial);
     } else if (entity.geometry?.kind === 'ambientSound') {
       object = new THREE.Mesh(this.cuboidGeometry, this.ambientSoundMaterial);
-    } else if (entity.geometry?.kind === 'spline' || entity.geometry?.kind === 'grindPath'
-      || entity.geometry?.kind === 'directionalLight') {
+    } else if (entity.geometry?.kind === 'spline' || entity.geometry?.kind === 'grindPath') {
       const points = entity.geometry.points.map((point) => ps2PositionToScene(point, new THREE.Vector3()));
-      object = new THREE.Line(
-        new THREE.BufferGeometry().setFromPoints(points),
-        entity.geometry.kind === 'grindPath' ? this.grindPathMaterial
-          : entity.geometry.kind === 'directionalLight' ? this.directionalLightMaterial
-            : this.splineMaterial,
+      object = new Line2(
+        new LineGeometry().setFromPoints(points),
+        entity.geometry.kind === 'grindPath' ? this.grindPathMaterial : this.splineMaterial,
       );
+      object.userData[OWNED_GEOMETRY_KEY] = true;
+    } else if (entity.geometry?.kind === 'directionalLight') {
+      const points = entity.geometry.points.map((point) => ps2PositionToScene(point, new THREE.Vector3()));
+      object = new THREE.Line(new THREE.BufferGeometry().setFromPoints(points), this.directionalLightMaterial);
       object.userData[OWNED_GEOMETRY_KEY] = true;
     } else {
       object = new THREE.Mesh(this.geometry, this.materialFor(entity, false));
@@ -428,7 +437,7 @@ export class SceneProjection {
     if (entity.geometry?.kind === 'spline') return selected ? this.selectedSplineMaterial : this.splineMaterial;
     if (entity.geometry?.kind === 'grindPath') return selected ? this.selectedSplineMaterial : this.grindPathMaterial;
     if (entity.geometry?.kind === 'directionalLight')
-      return selected ? this.selectedSplineMaterial : this.directionalLightMaterial;
+      return selected ? this.selectedLineMaterial : this.directionalLightMaterial;
     if (selected && entity.geometry) return this.selectedGeometryMaterial;
     if (selected) return this.selectedMaterial;
     if (entity.geometry?.kind === 'cuboid') return this.cuboidMaterial;
@@ -523,9 +532,19 @@ function appendWorldVertices(
   matrix: THREE.Matrix4,
   target: THREE.Vector3[],
 ): void {
+  const starts = geometry.getAttribute('instanceStart');
+  const ends = geometry.getAttribute('instanceEnd');
+  if (starts && ends) {
+    for (let index = 0; index < starts.count; index += 1)
+      target.push(new THREE.Vector3().fromBufferAttribute(starts, index).applyMatrix4(matrix));
+    if (ends.count > 0)
+      target.push(new THREE.Vector3().fromBufferAttribute(ends, ends.count - 1).applyMatrix4(matrix));
+    return;
+  }
   const position = geometry.getAttribute('position');
+  if (!position) return;
   for (let index = 0; index < position.count; index += 1)
-    target.push(new THREE.Vector3().fromBufferAttribute(position as THREE.BufferAttribute, index).applyMatrix4(matrix));
+    target.push(new THREE.Vector3().fromBufferAttribute(position, index).applyMatrix4(matrix));
 }
 
 function addInstancedMesh(

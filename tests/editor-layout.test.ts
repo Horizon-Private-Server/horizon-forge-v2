@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { decodeEditorLayout } from '../src/renderer/editor/EditorLayout.ts';
+import { createDefaultEditorLayout, decodeEditorLayout } from '../src/renderer/editor/EditorLayout.ts';
 
 function layout(panels: Record<string, unknown>): string {
   return JSON.stringify({
@@ -20,4 +20,16 @@ test('editor layout restore accepts hidden panels and rejects stale or malformed
   assert.equal(decodeEditorLayout(layout({ toString: { id: 'toString' } })), undefined);
   assert.equal(decodeEditorLayout('{broken'), undefined);
   assert.equal(decodeEditorLayout('x'.repeat(1024 * 1024 + 1)), undefined);
+});
+
+test('default editor layout places properties below the right-hand build panel', () => {
+  const panels: Array<Record<string, unknown>> = [];
+  createDefaultEditorLayout({
+    clear: () => panels.splice(0),
+    addPanel: (panel: Record<string, unknown>) => panels.push(panel),
+  } as never);
+  assert.deepEqual(panels.find((panel) => panel.id === 'build')?.position,
+    { referencePanel: 'viewport', direction: 'right' });
+  assert.deepEqual(panels.find((panel) => panel.id === 'properties')?.position,
+    { referencePanel: 'build', direction: 'below' });
 });

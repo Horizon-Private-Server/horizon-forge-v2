@@ -6,6 +6,7 @@ import path from 'node:path';
 import type { EditorCommand, EditorSnapshot, ProjectHubState } from '../types/ForgeApi.js';
 import { safeProjectDirectoryName } from '../utils/ApplicationPaths.js';
 import { showOpenDialog, showSaveDialog } from '../utils/ElectronDialogs.js';
+import { isEditorCommand } from '../utils/EditorCommandValidation.js';
 import { errorMessage } from '../utils/Errors.js';
 import { availableBytes, fileExists, writeJsonSafely } from '../utils/FileSystem.js';
 import { isTrustedSender } from '../utils/Security.js';
@@ -150,18 +151,7 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
   }
 
   function assertEditorCommand(value: unknown): asserts value is EditorCommand {
-    if (!value || typeof value !== 'object') throw new TypeError('Editor command is invalid');
-    const command = value as Record<string, unknown>;
-    if (typeof command.id !== 'string'
-      || ![
-        'setSelection', 'renameProject', 'updateTransform', 'updateTransforms',
-        'renameEntity', 'setEntityLayer', 'setEntityState', 'undo', 'redo',
-        'deleteEntities', 'duplicateEntities', 'copyEntities', 'pasteEntities',
-      ].includes(String(command.kind))
-      || !Array.isArray(command.entityIds)
-      || command.entityIds.some((id) => typeof id !== 'string')) {
-      throw new TypeError('Editor command is invalid');
-    }
+    if (!isEditorCommand(value)) throw new TypeError('Editor command is invalid');
   }
 
   ipcMain.handle('forge:host-status', async (event) => {

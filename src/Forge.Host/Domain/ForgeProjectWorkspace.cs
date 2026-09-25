@@ -59,6 +59,16 @@ public sealed class ForgeProjectWorkspace
         ProjectTargetProfile target,
         ProjectBaseLevel baseLevel,
         IReadOnlyList<ProjectEntity> entities,
+        CancellationToken cancellationToken = default) => await CreateAsync(
+            rootPath, name, target, baseLevel, entities, null, cancellationToken);
+
+    public static async Task<ForgeProjectWorkspace> CreateAsync(
+        string rootPath,
+        string name,
+        ProjectTargetProfile target,
+        ProjectBaseLevel baseLevel,
+        IReadOnlyList<ProjectEntity> entities,
+        ProjectLevelSettings? levelSettings,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(target);
@@ -70,7 +80,7 @@ public sealed class ForgeProjectWorkspace
         var workspace = new ForgeProjectWorkspace(
             root,
             new(ProjectSchema.CurrentVersion, ProjectSchema.ManifestDocumentType, EntityId.New(), name, target, baseLevel, DefaultContentPath),
-            new(ProjectSchema.CurrentVersion, ProjectSchema.ContentDocumentType, entities.ToArray(), []));
+            new(ProjectSchema.CurrentVersion, ProjectSchema.ContentDocumentType, entities.ToArray(), [], levelSettings));
         workspace.Validate();
         await workspace.SaveAsync(cancellationToken);
         return workspace;
@@ -154,6 +164,26 @@ public sealed class ForgeProjectWorkspace
                 ? entity with { Transform = transform }
                 : entity).ToArray(),
         };
+    }
+
+    public void UpdateLevelSettings(ProjectLevelSettings settings)
+    {
+        ValidateLevelSettings(settings);
+        Content = Content with { LevelSettings = settings };
+    }
+
+    public void UpdateSplinePoints(EntityId entityId, IReadOnlyList<ProjectVector4> points)
+    {
+        if (!ValidPoints(points)) throw new InvalidDataException("Spline points must be finite.");
+        var index = FindEntityIndex(entityId);
+        var entity = Content.Entities[index];
+        if (entity.Geometry?.Spline is null) throw new InvalidOperationException("Entity is not a spline.");
+        var entities = Content.Entities.ToArray();
+        entities[index] = entity with
+        {
+            Geometry = entity.Geometry with { Spline = entity.Geometry.Spline with { Points = points.ToArray() } },
+        };
+        Content = Content with { Entities = entities };
     }
 
     public void RenameEntity(EntityId entityId, string name)
@@ -461,6 +491,7 @@ public sealed class ForgeProjectWorkspace
         if (Manifest.ProjectId.Value == Guid.Empty) throw new InvalidDataException("Project ID cannot be empty.");
         if (Manifest.Target is null || Manifest.BaseLevel is null) throw new InvalidDataException("Project target and base level are required.");
         if (Content.Entities is null || Content.Assets is null) throw new InvalidDataException("Project content lists are required.");
+        if (Content.LevelSettings is not null) ValidateLevelSettings(Content.LevelSettings);
         ValidateText(Manifest.Name, nameof(Manifest.Name));
         ValidateText(Manifest.Target.Game, nameof(Manifest.Target.Game));
         ValidateText(Manifest.Target.Region, nameof(Manifest.Target.Region));
@@ -537,6 +568,24 @@ public sealed class ForgeProjectWorkspace
         if (transform.Rotation is { X: 0, Y: 0, Z: 0, W: 0 }) throw new InvalidDataException("Entity rotation cannot be an empty quaternion.");
         if (transform.Scale.X == 0 || transform.Scale.Y == 0 || transform.Scale.Z == 0)
             throw new InvalidDataException("Entity scale cannot contain zero.");
+    }
+
+    private static void ValidateLevelSettings(ProjectLevelSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        if (settings.BackgroundColor is null || settings.FogColor is null)
+            throw new InvalidDataException("Level setting colors are required.");
+        var values = new[]
+        {
+            settings.FogNearDistance, settings.FogFarDistance,
+            settings.FogNearIntensity, settings.FogFarIntensity,
+        };
+        if (values.Any(value => !float.IsFinite(value)))
+            throw new InvalidDataException("Level setting fog values must be finite.");
+        if (settings.FogNearDistance < 0 || settings.FogFarDistance < 0)
+            throw new InvalidDataException("Level setting fog distances cannot be negative.");
+        if (settings.FogNearIntensity is < 0 or > 255 || settings.FogFarIntensity is < 0 or > 255)
+            throw new InvalidDataException("Level setting fog intensities must be between 0 and 255.");
     }
 
     private static void ValidateGeometry(ProjectEntity entity, IReadOnlyList<ProjectEntity> entities)

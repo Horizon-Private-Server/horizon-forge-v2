@@ -19,6 +19,13 @@ internal static class UyaOpaqueContentService
         "directional_lights",
         "point_lights",
         "tie_ambient_rgbas",
+        "cameras",
+        "sound_instances",
+        "cuboids",
+        "spheres",
+        "cylinders",
+        "pills",
+        "splines",
     ];
 
     public static IReadOnlyList<OpaqueSectionCapture> Capture(

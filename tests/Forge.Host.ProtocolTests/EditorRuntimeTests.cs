@@ -64,6 +64,14 @@ internal static class EditorRuntimeTests
                 snapshot.Entities.Single(entity => entity.EntityId == firstId).Transform.Position,
                 "redo restores transform mutation");
             Equal(false, snapshot.CanRedo, "redo consumes redo entry");
+            var levelSettings = new ProjectLevelSettings(new(1, 2, 3), new(4, 5, 6), 10, 175, 255, 0);
+            snapshot = await runtime.ExecuteAsync(new(
+                Guid.NewGuid().ToString("D"), EditorCommandKind.UpdateLevelSettings, [], LevelSettings: levelSettings));
+            Equal(levelSettings, snapshot.LevelSettings, "runtime level settings mutation");
+            snapshot = await runtime.ExecuteAsync(Command(EditorCommandKind.Undo, []));
+            Equal(null, snapshot.LevelSettings, "undo restores level settings");
+            snapshot = await runtime.ExecuteAsync(Command(EditorCommandKind.Redo, []));
+            Equal(levelSettings, snapshot.LevelSettings, "redo restores level settings mutation");
             var secondTransform = ProjectTransform.Identity with { Position = new(40, 50, 60) };
             snapshot = await runtime.ExecuteAsync(new(
                 Guid.NewGuid().ToString("D"), EditorCommandKind.UpdateTransforms, [firstId, secondId],
