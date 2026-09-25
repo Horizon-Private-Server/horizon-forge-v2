@@ -4,6 +4,8 @@ Milestone: [M3 — Incremental bake](../milestones/M3-incremental-bake.md)
 
 ## M3-001 — Build the layer graph and transactional staging writer
 
+Status: ✅ Complete
+
 Requirements: section 8.2, FR-BAKE-001, FR-BAKE-002, FR-BAKE-003, NFR-REL-001
 Depends on: M1-005, M2-001
 
@@ -30,6 +32,8 @@ failed or cancelled writes leave the prior manifest and output usable.
 
 ## M3-002 — Preserve unsupported content as opaque data
 
+Status: ✅ Complete
+
 Requirements: FR-BAKE-005, DR-014
 Depends on: M3-001
 
@@ -55,6 +59,8 @@ an immutable layer snapshot. Parsed gameplay sections are excluded so later bake
 own their supported edits without rewriting unrelated opaque bytes.
 
 ## M3-003 — Bake UYA world, sky, tfrag, and collision layers
+
+Status: ✅ Complete
 
 Requirements: FR-BAKE-001, FR-XLT-001, FR-XLT-003, DR-001
 Depends on: M3-001, M3-002
@@ -87,6 +93,8 @@ capability can accept non-native canonical data.
 
 ## M3-004 — Bake UYA tie and shrub layers
 
+Status: ✅ Complete
+
 Requirements: FR-BAKE-001, FR-XLT-001, FR-XLT-003
 Depends on: M3-001, M3-002, M3A-005
 
@@ -113,6 +121,8 @@ fields while preserving unsupported record bytes. Hidden and locked entities bak
 disabled entities do not. Invalid references block only their owning layer.
 
 ## M3-005 — Bake UYA moby and gameplay layers
+
+Status: ✅ Complete
 
 Requirements: FR-BAKE-001, FR-XLT-001, FR-XLT-003
 Depends on: M3-001, M3-002, M3A-005
@@ -141,6 +151,8 @@ remapping. All other unsupported gameplay sections remain in the opaque layer.
 
 ## M3-006 — Add the independent lighting bake layer
 
+Status: ✅ Complete
+
 Requirements: FR-LIGHT-001, FR-LIGHT-002, FR-LIGHT-003
 Depends on: M3-001, M3-003, M3-004, M3-005
 
@@ -164,6 +176,8 @@ editor-only state and does not affect bake fingerprints. Editable lighting and n
 lighting regeneration are deferred until the end-to-end pack/patch path needs them.
 
 ## M3-007 — Implement bake validation, capabilities, and diagnostics
+
+Status: ✅ Complete
 
 Requirements: FR-BAKE-003, FR-BAKE-004, FR-XLT-003, NFR-REL-002
 Depends on: M3-003, M3-004, M3-005, M3-006
@@ -190,6 +204,8 @@ limits before the shared staging store atomically updates the active manifest;
 validation failure preserves the last successful snapshot.
 
 ## M3-008 — Qualify the end-to-end incremental bake workflow
+
+Status: ✅ Complete
 
 Requirements: FR-BAKE-001 through FR-BAKE-005, NFR-PERF-004, NFR-REL-001
 Depends on: M3-002, M3-003, M3-004, M3-005, M3-006, M3-007

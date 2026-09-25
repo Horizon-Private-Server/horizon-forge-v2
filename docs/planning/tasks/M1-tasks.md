@@ -4,6 +4,8 @@ Milestone: [M1 — Project foundation](../milestones/M1-project-foundation.md)
 
 ## M1-001 — Implement settings and application paths
 
+Status: ✅ Complete
+
 Requirements: FR-SET-001, FR-SET-002, NFR-PORT-001, NFR-UX-002  
 Depends on: M0-001, M0-005
 
@@ -20,6 +22,8 @@ Acceptance:
 Verification: schema/default/unknown-key tests and packaged settings smoke.
 
 ## M1-002 — Build UYA setup and development ISO creation
+
+Status: ✅ Complete
 
 Requirements: FR-APP-003, FR-APP-004, DR-003, DR-004, NFR-REL-001, NFR-UX-003  
 Depends on: M1-001, M0-004
@@ -39,6 +43,8 @@ Verification: synthetic image fixtures, same-file/hard-link checks, disk-full an
 cancellation simulations, and local clean-ISO manual verification.
 
 ## M1-003 — Implement the content-addressed store and catalog
+
+Status: ✅ Complete
 
 Requirements: FR-ASSET-001, FR-ASSET-003, FR-ASSET-004, NFR-REL-001  
 Depends on: M0-005, M1-001
@@ -64,6 +70,8 @@ cancellation, complete-orphan reuse, and catalog commit failure. The frozen layo
 is recorded in [asset catalog v0](../../asset-catalog-v0.md).
 
 ## M1-004 — Import the global UYA asset catalog
+
+Status: ✅ Complete
 
 Requirements: FR-APP-005, FR-ASSET-003, DR-002, NFR-PERF-004  
 Depends on: M1-002, M1-003, M0-004
@@ -92,6 +100,8 @@ The representative clean-disc run is recorded in the
 
 ## M1-005 — Implement project format and isolated overrides
 
+Status: ✅ Complete
+
 Requirements: FR-ASSET-002, FR-ASSET-006, FR-PROJ-002, FR-PROJ-003, NFR-PORT-001  
 Depends on: M0-005, M1-003
 
@@ -119,6 +129,8 @@ isolation. The frozen layout is recorded in
 [Forge project format v0](../../project-format-v0.md).
 
 ## M1-006 — Build project hub and base-level creation
+
+Status: ✅ Complete
 
 Requirements: FR-PROJ-001, FR-PROJ-002, FR-XLT-003, NFR-UX-003  
 Depends on: M1-004, M1-005
@@ -149,6 +161,8 @@ The representative disc check is recorded in the
 
 ## M1-007 — Add safe save, migration, autosave, and recovery
 
+Status: ✅ Complete
+
 Requirements: FR-PROJ-004, NFR-REL-001, NFR-REL-002, NFR-REL-003, NFR-REL-004  
 Depends on: M1-005, M1-006
 
@@ -178,6 +192,8 @@ long-lived authoritative editor state implemented by M2-001.
 
 ## M1-008 — Resolve missing assets and maintain the catalog safely
 
+Status: ✅ Complete
+
 Requirements: FR-ASSET-004, FR-APP-004, NFR-PORT-002, NFR-UX-003  
 Depends on: M1-003, M1-004, M1-006
 
@@ -205,3 +221,102 @@ requires an exact state-derived confirmation token before deleting unreferenced
 entries and blobs. Portable-project fixtures resolve after a filesystem move
 against a separately populated matching catalog. The contract is recorded in
 [asset repair and catalog maintenance v0](../../asset-maintenance-v0.md).
+
+## Future asset-identity follow-ups
+
+## M1-009 — Publish global vanilla asset lookup manifests
+
+Priority: Future
+Requirements: FR-ASSET-001, FR-ASSET-003, FR-ASSET-004, FR-APP-005,
+NFR-PORT-002, NFR-REL-002
+Depends on: M1-003, M1-004, M5-001
+
+Generate and check in a schema-versioned lookup file for each supported
+`GameId`/asset-kind pair, initially UYA mobys, ties, shrubs, and textures. Key
+entries by Forge Asset ID so the lookup remains available when a user's local
+catalog entry or blob is missing.
+
+The current UYA moby, tie, and shrub IDs cover canonical model-plus-texture bundles;
+their identity must not change. Also catalog each normalized texture as an
+`AssetKind.Texture` so the texture lookup uses real resolvable Asset IDs rather than
+an unrelated checksum. Record all source appearances: game, supported revision,
+level, model kind and oClass for model bundles, and owner kind/oClass, role, and
+slot for textures. `commonName` is optional mutable documentation and is excluded
+from identity.
+
+Acceptance:
+
+- Deterministic files exist separately for UYA `moby`, `tie`, `shrub`, and
+  `texture`; their stable ordering makes regeneration reviewable.
+- Each entry records Asset ID, kind, canonical-format version, and every known
+  source appearance. Identical content used by several levels or oClasses remains
+  one entry with several appearances rather than last-write-wins metadata.
+- Existing model-bundle Asset IDs and projects remain valid while standalone
+  normalized PIFs gain `AssetKind.Texture` IDs and catalog provenance.
+- Texture entries use owner, role, and slot metadata instead of inventing a texture
+  oClass. Placeholder textures are marked non-restorable and cannot masquerade as
+  recovered retail content.
+- Manifests contain no asset bytes, ISO fingerprints, user paths, or other
+  machine-local data; adding another game means adding that game's generated files,
+  not weakening the shared schema with guessed fields.
+- Generation rejects kind/format mismatches and invalid Asset IDs, writes through
+  validate-then-atomic-replace, and produces no diff from the same supported source
+  and importer version.
+
+Verification: authored deduplication and multi-appearance fixtures, texture-owner
+fixtures, manifest schema/ordering tests, invalid-entry tests, and a retained local
+full-UYA regeneration report with no proprietary payloads.
+
+## M1-010 — Diagnose and restore missing assets from the global lookup
+
+Priority: Future
+Requirements: FR-ASSET-004, FR-APP-004, FR-APP-005, NFR-PORT-002,
+NFR-REL-001, NFR-UX-003
+Depends on: M1-008, M1-009
+
+Use the checked-in manifests as the fallback when project inspection cannot find an
+Asset ID in the project or per-user catalog. Resolve lookup data in the host and
+return a game-neutral diagnostic to the renderer.
+
+Acceptance:
+
+- A known missing ID displays game, asset kind, oClass or texture-owner details,
+  known levels, optional common name, and the canonical-format version even when
+  the local catalog has no row for it.
+- Diagnostics distinguish a known restorable vanilla asset, a known non-restorable
+  placeholder, a project-owned asset, and an unknown ID; unknown entries retain the
+  existing ID/kind report without guessed provenance.
+- The repair action names the required supported game/revision and source levels,
+  validates the user-selected clean ISO, imports only the required levels, and
+  verifies that the expected Asset ID now resolves before reporting success.
+- A registry match alone never makes an asset repairable when its canonical format
+  or selected source is incompatible. Failure explains whether Forge, the source,
+  or the project backup must be restored or upgraded.
+- The project format remains portable and stores no duplicate lookup metadata or
+  machine-specific source path.
+
+Verification: known-model, known-texture, unknown, project-owned, placeholder,
+wrong-revision, stale-canonical-version, and successful targeted-restore fixtures.
+
+## M1-011 — Curate optional UYA asset common names
+
+Priority: Future
+Requirements: FR-ASSET-003, NFR-PORT-002
+Depends on: M1-009
+
+Add manually reviewed `commonName` values to the checked-in UYA lookup manifests as
+asset documentation becomes available. Keep the work incremental: oClass, owner,
+and level metadata remains the complete fallback for unnamed assets.
+
+Acceptance:
+
+- Names are concise, game-specific, reviewable in ordinary manifest diffs, and do
+  not change Asset IDs, source appearances, repair behavior, or generated ordering.
+- One Asset ID has at most one current common name per game; uncertain or conflicting
+  names remain unset until resolved rather than being presented as fact.
+- Regeneration preserves curated names for still-valid Asset IDs and reports names
+  whose IDs disappeared after an intentional canonical-format/importer change.
+- Forge always shows the oClass or texture-owner fallback alongside a common name so
+  diagnostics remain unambiguous.
+
+Verification: manifest validation plus regeneration/removed-ID preservation fixtures.

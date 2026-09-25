@@ -4,6 +4,8 @@ Milestone: [M5 — Texture optimization](../milestones/M5-texture-optimization.m
 
 ## M5-001 — Inventory every participating vanilla texel
 
+Status: ✅ Complete
+
 Requirements: FR-TEX-001, FR-TEX-005, FR-TEX-006, NFR-SEC-003
 Depends on: M1-004, M3-004, M3-005
 
@@ -38,6 +40,8 @@ native material-slot mapping without a format migration.
 
 ## M5-002 — Optimize exact-color shared palette assignment
 
+Status: ✅ Complete
+
 Requirements: FR-TEX-002, FR-TEX-004, FR-TEX-005, FR-TEX-006
 Depends on: M5-001
 
@@ -68,6 +72,8 @@ packed all 21,721 globally imported textures into 3,610 palettes in 13.3 seconds
 normal per-map inventories are substantially smaller.
 
 ## M5-003 — Write selected vanilla models, optimized palettes, and pixel indices
+
+Status: ✅ Complete
 
 Requirements: FR-TEX-002, FR-TEX-005, FR-TEX-006
 Depends on: M5-002, M3-004, M3-005
@@ -103,6 +109,8 @@ NTSC-U level03 audit composed 334 modeled assets and 758 texture uses into 124 p
 in 0.7 seconds without exceeding UYA's byte-sized family texture tables.
 
 ## M5-004 — Expose palette diagnostics and VRAM estimates
+
+Status: ✅ Complete
 
 Requirements: FR-TEX-003, FR-TEX-004
 Depends on: M5-002, M5-003

@@ -8,6 +8,8 @@ optional diagnostic UX and must not own binary logic.
 
 ## M3A-001 — Inventory the complete UYA level-container graph
 
+Status: ✅ Complete
+
 Requirements: FR-SDK-002, FR-BUILD-002, FR-BUILD-004, DR-018  
 Depends on: M0-002, M3-003
 
@@ -39,6 +41,8 @@ remain visible without becoming invalid slices. Synthetic range fixtures and all
 locally supplied level WADs pass the focused inventory check.
 
 ## M3A-002 — Implement byte-exact uncompressed UYA writers
+
+Status: ✅ Complete
 
 Requirements: FR-SDK-002, FR-BUILD-002, FR-BUILD-004, NFR-REL-001  
 Depends on: M3A-001
@@ -76,6 +80,8 @@ and opaque-byte preservation checks.
 
 ## M3A-003 — Gate WAD compression with semantic verification
 
+Status: ✅ Complete
+
 Requirements: FR-BUILD-003, FR-BAKE-003, NFR-REL-002, NFR-REL-003  
 Depends on: M3A-002
 
@@ -111,6 +117,8 @@ browser SDK generation pass.
 
 ## M3A-004 — Expose the verified in-memory SDK workflow
 
+Status: ✅ Complete
+
 Requirements: FR-SDK-002, FR-BUILD-001 through FR-BUILD-004, NFR-PERF-004  
 Depends on: M3A-002, M3A-003
 
@@ -145,6 +153,8 @@ publication. Forge.Host calls the SDK in-process through
 `UyaArchiveBuildService`; no CLI process or duplicate archive logic is used.
 
 ## M3A-005 — Qualify data cleanliness, memory, and throughput
+
+Status: ✅ Complete
 
 Requirements: FR-BUILD-002 through FR-BUILD-004, NFR-PERF-005, NFR-PERF-006,
 NFR-REL-001 through NFR-REL-003  
@@ -183,6 +193,8 @@ hot-path compressor object, slice-array, and packet-list allocations without
 changing the compressed format.
 
 ## M3A-006 — Compose editable UYA asset and chunk payloads
+
+Status: ✅ Complete
 
 Requirements: FR-SDK-002, FR-BUILD-002 through FR-BUILD-004, NFR-REL-001  
 Depends on: M3A-004

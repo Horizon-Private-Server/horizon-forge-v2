@@ -4,6 +4,8 @@ Milestone: [M4 — Build, patch, and test](../milestones/M4-build-patch.md)
 
 ## M4-001 — Pack staged output into a UYA level WAD
 
+Status: ✅ Complete
+
 Requirements: FR-SDK-002, FR-BUILD-001 through FR-BUILD-004, FR-BAKE-004, NFR-REL-002
 Depends on: M3-008, M3A-006, M5-003
 
@@ -37,6 +39,8 @@ texture IDs are never reused speculatively.
 
 ## M4-002 — Validate the development ISO and create a patch plan
 
+Status: ✅ Complete
+
 Requirements: FR-SDK-002, FR-PATCH-001, FR-PATCH-002, DR-004, DR-008
 Depends on: M4-001, M1-002
 
@@ -67,6 +71,8 @@ A read-only clean-ISO audit resolved level03 to a 0x800-byte header plus 0x10A38
 payload within its declared 8,520-sector capacity.
 
 ## M4-003 — Implement journaled in-place ISO patching
+
+Status: ✅ Complete
 
 Requirements: FR-SDK-002, FR-PATCH-003, NFR-REL-001, NFR-SEC-001
 Depends on: M4-002
@@ -99,6 +105,8 @@ the protected clean ISO remains byte-identical.
 
 ## M4-004 — Add full-image fallback and final ISO verification
 
+Status: ✅ Complete
+
 Requirements: FR-SDK-002, FR-PATCH-003, NFR-REL-001
 Depends on: M4-002, M4-003
 
@@ -126,6 +134,8 @@ Low-space, cancellation, corrupt-output, forced-fallback, repeated-plan, and
 clean-source immutability fixtures retain the previous development image on failure.
 
 ## M4-005 — Build the one-click bake, pack, and patch orchestrator
+
+Status: ✅ Complete
 
 Requirements: FR-PATCH-004, FR-PATCH-005, FR-UI-005
 Depends on: M3-008, M4-001, M4-003, M4-004

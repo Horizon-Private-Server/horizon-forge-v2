@@ -19,6 +19,7 @@ import type { ForgeHostStatus, ForgeProjectDescriptor, ProjectHubState, UyaProje
 import { errorMessage } from '../../utils/Errors.ts';
 import { fileName, formatBytes } from '../../utils/Format.ts';
 import { CatalogMaintenanceModal } from './CatalogMaintenanceModal.tsx';
+import { uyaLevelNames } from './LevelNames.ts';
 import { MissingAssetsModal } from './MissingAssetsModal.tsx';
 
 interface ProjectHubProps {
@@ -266,7 +267,10 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen, 
           <Select
             label="Base level"
             placeholder="Select a level"
-            data={(hub?.creation?.levels ?? []).map((value) => ({ value: String(value), label: `Level ${value}` }))}
+            data={(hub?.creation?.levels ?? []).map((value) => ({
+              value: String(value),
+              label: `${String(value).padStart(2, '0')} - ${uyaLevelNames[value] ?? `Level ${value}`}`,
+            }))}
             value={level}
             onChange={(value) => {
               setLevel(value);

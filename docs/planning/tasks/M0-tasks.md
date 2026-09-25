@@ -4,6 +4,8 @@ Milestone: [M0 — Foundations](../milestones/M0-foundations.md)
 
 ## M0-001 — Scaffold the application boundaries
 
+Status: ✅ Complete
+
 Requirements: FR-APP-001, FR-APP-002, NFR-MAINT-001, NFR-MAINT-002, NFR-MAINT-003  
 Depends on: none
 
@@ -21,6 +23,8 @@ Acceptance:
 Verification: typecheck/build both stacks and launch the development shell.
 
 ## M0-002 — Bootstrap the pinned Ratchet SDK
+
+Status: ✅ Complete
 
 Requirements: FR-SDK-001, DR-015, NFR-REL-004  
 Depends on: M0-001
@@ -41,6 +45,8 @@ negative revision-mismatch check.
 
 ## M0-003 — Specify and implement binary bridge framing
 
+Status: ✅ Complete
+
 Requirements: FR-BRIDGE-001, FR-BRIDGE-002, FR-BRIDGE-003, FR-BRIDGE-004, NFR-SEC-003  
 Depends on: M0-001
 
@@ -58,6 +64,8 @@ Verification: shared golden vectors, fragmented-read tests, oversized/malformed
 frames, and cross-language round trips.
 
 ## M0-004 — Manage the host and secure renderer bridge
+
+Status: ✅ Complete
 
 Requirements: FR-BRIDGE-003, NFR-SEC-001, NFR-SEC-002, NFR-PERF-004, NFR-MAINT-004  
 Depends on: M0-002, M0-003
@@ -77,6 +85,8 @@ backpressure, sender validation, and CSP/navigation checks.
 
 ## M0-005 — Freeze version-zero identity and schema fixtures
 
+Status: ✅ Complete
+
 Requirements: FR-ASSET-001, FR-ASSET-002, NFR-REL-004, NFR-PORT-001  
 Depends on: M0-001
 
@@ -94,6 +104,8 @@ Verification: fixed SHA-256 vectors and project/entity serialization fixtures.
 
 ## M0-006 — Audit map-o-matic reuse
 
+Status: ✅ Complete
+
 Requirements: FR-SCENE-001, FR-SCENE-002, NFR-MAINT-001, NFR-PERF-003, NFR-PERF-005  
 Depends on: M0-001
 
@@ -110,6 +122,8 @@ Acceptance:
 Verification: reviewed ADR linked from the M0 milestone.
 
 ## M0-007 — Benchmark WebGL versus WebGPU
+
+Status: ✅ Complete
 
 Requirements: FR-SCENE-001, NFR-PERF-001, NFR-PERF-003, OD-013  
 Depends on: M0-006
@@ -132,6 +146,8 @@ WebGL for P0. The project owner ended further A/B work after the experimental
 paths proved non-equivalent; the original quantitative comparison is superseded.
 
 ## M0-008 — Package the viewport walking skeleton
+
+Status: ✅ Complete
 
 Requirements: FR-SCENE-001, FR-SCENE-002, FR-BRIDGE-004, NFR-PERF-005  
 Depends on: M0-004, M0-005, M0-006, M0-007

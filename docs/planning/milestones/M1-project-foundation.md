@@ -26,3 +26,10 @@ A base project survives close, filesystem move, and reopen on a clean app sessio
 global assets remain deduplicated; project edits cannot mutate the global cache;
 and no project file contains a machine-specific source/development ISO path.
 
+## Future asset-identity follow-ups
+
+- Checked-in, game-and-kind-partitioned vanilla asset lookup manifests remain
+  available when a user's catalog or blobs are missing.
+- Missing Asset IDs resolve to known game, level, oClass or texture-owner metadata
+  and actionable clean-source restoration guidance without bundling game content.
+- Optional common names improve diagnostics but remain documentation, never identity.

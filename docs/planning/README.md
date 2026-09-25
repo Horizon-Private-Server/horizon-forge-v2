@@ -58,8 +58,9 @@ Each task contains:
 - verification that must remain runnable or be recorded manually.
 
 Recommended task states are `not-started`, `in-progress`, `blocked`, `review`, and
-`done`. State belongs in the issue tracker once tasks are imported; these Markdown
-files remain the planning baseline.
+`done`. In-progress state belongs in the issue tracker once tasks are imported;
+this baseline marks only acceptance-complete tasks with `Status: ✅ Complete`.
+Unmarked tasks are not complete.
 
 ## Definition of ready
 

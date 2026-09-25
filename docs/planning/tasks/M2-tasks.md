@@ -8,6 +8,8 @@ real map projection rather than temporary proxy geometry.
 
 ## M2-001 — Implement the typed editor runtime
 
+Status: ✅ Complete
+
 Requirements: section 6.4, FR-EDIT-001, FR-COLLAB-001, FR-PLUGIN-001  
 Depends on: M1-005
 
@@ -37,6 +39,8 @@ Undo/redo and common edit operations remain scoped to M2-008.
 
 ## M2-002 — Build docking shell and shared Mantine components
 
+Status: ✅ Complete
+
 Requirements: FR-UI-001, FR-UI-002, NFR-UX-001, NFR-UX-002  
 Depends on: M2-001
 
@@ -63,6 +67,8 @@ the supported detachable form for P0. The decision is recorded in
 
 ## M2-003 — Project authoritative state into Three.js
 
+Status: ✅ Complete
+
 Requirements: FR-SCENE-001, FR-SCENE-002, NFR-PERF-003, NFR-PERF-005  
 Depends on: M0-008, M2-001
 
@@ -88,6 +94,8 @@ retaining proxies for intentional meshless or failed assets.
 
 ## M2-004 — Implement scene tree, properties, status, and diagnostics
 
+Status: ✅ Complete
+
 Requirements: FR-UI-003, FR-UI-004, FR-UI-005  
 Depends on: M2-002, M2-003
 
@@ -112,6 +120,8 @@ keeps host, target, selection, layer, bake, task, and diagnostic state visible.
 Diagnostics include corrective save guidance and access to the detailed log folder.
 
 ## M2-005 — Implement picking, selection, and entity states
+
+Status: ✅ Complete
 
 Requirements: FR-SCENE-003, FR-SCENE-004, FR-SCENE-007, DR-006  
 Depends on: M2-001, M2-003, M2-004
@@ -140,6 +150,8 @@ M2-008, which owns delete commands.
 
 ## M2-006 — Add transform manipulation modes
 
+Status: ✅ Complete
+
 Requirements: FR-SCENE-005, FR-SCENE-006, FR-SCENE-008  
 Depends on: M2-003, M2-005, M2-012
 
@@ -164,6 +176,8 @@ current UYA P0 entity records support scale; future unsupported kinds must disab
 that mode. Rebindable mode shortcuts remain owned by M2-009's keybinding system.
 
 ## M2-007 — Add snapping and Page Down placement
+
+Status: ✅ Complete
 
 Requirements: FR-SCENE-009, FR-SCENE-010, DR-009, NFR-PERF-002  
 Depends on: M2-006, M2-010, M2-012
@@ -190,6 +204,8 @@ Page Down raycasts beneath the selection, ignores its own geometry, preserves gr
 offsets, commits one batch transform, and reports no-hit results without mutation.
 
 ## M2-008 — Complete command history and common edit operations
+
+Status: ✅ Complete
 
 Requirements: FR-EDIT-001, FR-EDIT-002, FR-EDIT-003, DR-017  
 Depends on: M2-001, M2-004, M2-006
@@ -220,6 +236,8 @@ of scope until attached-asset collection is reliable.
 
 ## M2-009 — Implement contextual keybindings and accessibility baseline
 
+Status: ✅ Complete
+
 Requirements: FR-EDIT-004, NFR-UX-001, NFR-UX-002  
 Depends on: M2-002, M2-005, M2-006, M2-008
 
@@ -246,6 +264,8 @@ cross-platform application commands, 1–4 for select/move/rotate/scale, and Pag
 Down for ground placement.
 
 ## M2-010 — Render cached UYA tfrags in the editor
+
+Status: ✅ Complete
 
 Requirements: FR-SCENE-001, FR-SCENE-002, FR-SCENE-011, FR-BRIDGE-004,
 NFR-PERF-004, NFR-PERF-005
@@ -283,6 +303,8 @@ viewport, and loaded GPU resources are disposed with the viewport.
 
 ## M2-011 — Add tie and shrub entities to base projects
 
+Status: ✅ Complete
+
 Requirements: FR-PROJ-001, FR-PROJ-002, FR-SCENE-002, FR-SCENE-011,
 NFR-REL-004
 Depends on: M1-004, M1-005, M1-006
@@ -315,6 +337,8 @@ deleted base entities from being recreated on later opens. Missing catalog entri
 remain as placeholder-capable entities instead of being dropped.
 
 ## M2-012 — Replace entity proxies with vanilla asset meshes
+
+Status: ✅ Complete
 
 Requirements: FR-SCENE-002, FR-SCENE-003, FR-SCENE-004, FR-SCENE-007,
 FR-SCENE-011, NFR-PERF-001, NFR-PERF-003, NFR-PERF-005
@@ -357,6 +381,8 @@ position and 75th-percentile radius so distant outliers do not hide the main map
 
 ## M2-013 — Add sky and viewport map-fidelity controls
 
+Status: ✅ Complete
+
 Requirements: FR-SCENE-001, FR-SCENE-011, NFR-PERF-001, NFR-UX-002
 Depends on: M2-010, M2-012
 
@@ -387,3 +413,216 @@ session-only controls toggle terrain, ties, shrubs, mobys, sky, and editor marke
 optional FPS, draw-call, and triangle statistics remain off by default. Loading and
 failure reporting identify terrain, sky, and affected asset families without
 preventing the rest of the scene from rendering.
+
+## Remaining UYA data baseline
+
+M2-014 through M2-020 complete base-level import coverage without making an
+unverified writer authoritative. The Ratchet SDK's `UyaGameplayLayout` identifies
+39 core pointer slots. Its current typed readers cover level settings, mobys, ties,
+shrubs, cuboids, ordinary splines, and areas; Forge currently persists only the
+moby/tie/shrub entities and selected base-layer payloads.
+
+The task details below were cross-checked against Map-o-Matic's gameplay geometry
+and tie-lighting paths, Wrench's instance schema and GC/UYA gameplay readers/writers,
+Deadlocked Level Packer's gameplay and occlusion tooling, and the Ratchet SDK's UYA
+layout. Those projects are format evidence, not permission to assume Deadlocked and
+UYA layouts are identical. Synthetic fixtures and the local clean UYA corpus remain
+the acceptance authority.
+
+## M2-014 — Inventory remaining UYA data and freeze import ownership
+
+Requirements: FR-PROJ-001, FR-BAKE-005, FR-XLT-003, NFR-REL-002
+Depends on: M1-006, M2-011
+
+Create a field-level coverage matrix for every UYA gameplay-core slot plus the
+separate level-WAD occlusion payload. Classify each section as typed project data,
+derived index/cache data, asset metadata, or named opaque pass-through, and define
+the minimum versioned SDK and project records needed by M2-015 through M2-020.
+
+Acceptance:
+
+- All 39 core slots and the level-WAD occlusion block have exactly one byte owner;
+  decoded read-only views may reference opaque bytes but cannot silently replace them.
+- The matrix records counts, record sizes, sentinels, alignment, units, quantization,
+  index domains, known fields, retained unknown bytes, and cross-section dependencies.
+- Parsers remain in the Ratchet SDK/.NET boundary, validate bounds and checked
+  arithmetic before allocation, and never add game-binary parsing to TypeScript.
+- Localized help-message blocks remain named opaque content until text editing is in
+  scope; model class lists remain asset metadata rather than duplicate scene entities.
+- Import/edit/bake capabilities are declared separately so a typed reader does not
+  accidentally enable an action without a verified writer.
+
+Verification: authored one-block and malformed fixtures plus a retained, byte-free
+coverage report for every populated level in the clean NTSC-U UYA corpus.
+
+## M2-015 — Import UYA volumes, paths, grind paths, and areas
+
+Requirements: FR-PROJ-001, FR-PROJ-002, FR-SCENE-002, FR-SCENE-005,
+FR-SCENE-006, FR-SCENE-007, FR-XLT-003
+Depends on: M2-001, M2-005, M2-014
+
+Import cuboids, spheres, cylinders, pills, ordinary splines, grind paths, and areas
+as stable project data. Preserve the native matrix, inverse-rotation matrix, Euler
+rotation, spline point `w` values, grind-path flags, area bounds, and source records.
+Translate area membership from source indices to stable Entity-ID references.
+
+Acceptance:
+
+- Every source volume and path receives a deterministic Entity ID, provenance, and
+  the correct box/sphere/cylinder/capsule/path overlay without becoming render geometry.
+- Area links cover paths, cuboids, spheres, cylinders, and negative cuboids; dangling
+  or out-of-range links identify the source area and field instead of being dropped.
+- Camera-collision grid flags and scalar parameters attach to their referenced volume;
+  the spatial grid is treated as derived data, not thousands of fake entities.
+- Empty and reportedly unused pill tables are valid, and non-uniform or mirrored
+  transforms are preserved without lossy decomposition.
+- Unsupported edits remain disabled with an explanation while raw records retain a
+  lossless future bake path.
+
+Verification: per-family parser fixtures, matrix/inverse consistency tests, area-link
+fixtures, camera-collision reference checks, and representative all-family counts.
+
+## M2-016 — Import cameras, sound emitters, groups, and shared references
+
+Requirements: FR-PROJ-001, FR-PROJ-002, FR-SCENE-002, FR-SCENE-005,
+FR-EDIT-002, FR-XLT-003
+Depends on: M2-001, M2-014, M2-015
+
+Import camera and ambient-sound instances with their transforms, class/type fields,
+sound range, Pvar indices, and raw records. Import moby, tie, and shrub groups as
+stable membership relationships, and preserve shared-data entries plus Pvar link
+and relative-pointer tables needed by mobys, cameras, and sounds.
+
+Acceptance:
+
+- Cameras and sounds receive stable Entity IDs and distinct editor markers; the
+  viewport's own navigation camera is never confused with a game camera entity.
+- Group members resolve to Entity IDs while retaining source order and source indices;
+  empty groups and duplicate/invalid membership produce explicit diagnostics.
+- Pvar table entries, payloads, fixups, and shared-data pointer records retain exact
+  bytes and resolve known owning instances without pretending unknown fields are typed.
+- Delete/disable diagnostics report affected groups and known Pvar/shared-data links;
+  no index-bearing payload is silently remapped during import.
+- Read-only types do not gain transform or bake capabilities merely because they can
+  be displayed.
+
+Verification: camera/sound record fixtures, empty and multi-member group fixtures,
+shared-data/Pvar boundary cases, broken-reference diagnostics, and save/reopen checks.
+
+## M2-017 — Import UYA lighting, environment, and per-tie ambient data
+
+Requirements: FR-PROJ-001, FR-SCENE-002, FR-SCENE-005, FR-LIGHT-001,
+FR-LIGHT-002, FR-LIGHT-003, FR-XLT-003
+Depends on: M2-011, M2-012, M2-013, M2-014
+
+Import directional lights, point lights, environment sample points, and environment
+transition volumes as typed lighting-layer data. Import the variable-length tie
+ambient RGBA stream and associate each entry with its stable tie Entity ID rather
+than retaining a fragile parallel source-index array.
+
+Acceptance:
+
+- Directional-light color/direction pairs and point-light position, radius, color,
+  1/64-unit quantization, 16-bit channel values, and 128-slot mask bound are preserved.
+- The UYA point-light X/Y masks remain derived from the typed lights and are validated
+  against source coverage instead of exposed as separate editable objects.
+- Environment sample points preserve hero-light selection, hero/fog colors, reverb,
+  music, and fog ranges; transitions preserve inverse transforms, endpoint lighting,
+  fog values, and enable flags.
+- Each tie owns its ambient word stream, directional-light selector, and provenance.
+  Preview resolves the tie asset's ambient indices/recipes as Map-o-Matic does and
+  avoids applying directional contribution twice.
+- Reordering, deleting, or duplicating ties cannot transfer ambient data to a different
+  tie accidentally; missing/malformed ambient entries name the affected source index.
+- Editor visibility stays separate from bake inclusion, and unsupported mutations are
+  capability-gated until native writers and regeneration are verified.
+
+Verification: light-record fixtures, point-mask coverage tests, environment transition
+fixtures, per-tie reorder/delete/duplicate tests, and Map-o-Matic parity screenshots.
+
+## M2-018 — Import UYA level settings with stable entity references
+
+Requirements: FR-PROJ-001, FR-PROJ-002, FR-SCENE-001, FR-XLT-003
+Depends on: M2-014, M2-015, M2-016
+
+Promote the already decoded UYA level-settings block into versioned project-level
+data instead of representing it as a scene entity. Preserve environment values,
+world/ship configuration, chunk planes, reference fields, and unknown trailing data.
+
+Acceptance:
+
+- Background/fog colors, distances and intensities, death height, spherical-world
+  state and center, ship position/rotation, chunk planes, core-sound count, the UYA
+  third-part value, padding, and trailing bytes round-trip through project save/reopen.
+- Ship path and ship-camera start/end cuboids resolve to stable Entity IDs while also
+  retaining source indices for provenance and exact unchanged output.
+- Missing referenced paths/cuboids produce field-specific diagnostics; `-1`/none
+  sentinels remain valid and are not converted into broken links.
+- Rendering consumes the typed settings snapshot without creating a second mutable
+  environment authority.
+- Fields without a verified native writer remain read-only and retain their original
+  bytes.
+
+Verification: settings boundary fixtures, stable-reference migration tests, chunk-plane
+count/terminator cases, and render-environment snapshot parity.
+
+## M2-019 — Decode UYA occlusion octants and instance mappings safely
+
+Requirements: FR-PROJ-001, FR-SCENE-005, FR-BAKE-005, FR-XLT-003,
+NFR-REL-001, NFR-REL-002
+Depends on: M2-011, M2-014, M2-015
+
+Add a read-only typed view over the level-WAD occlusion tree and gameplay-core
+occlusion mappings. Relate 4x4x4 octants and their 128-byte visibility masks to the
+tfrag, tie, and moby mapping domains and to per-instance occlusion fields. Record
+the coordinate scale/domain and source grid size as explicit baseline settings for
+later visibility regeneration.
+
+Acceptance:
+
+- Sparse X/Y/Z tree offsets, shared mask indices, octant coordinates, mask bytes,
+  mapping counts, and tfrag/tie/moby records are bounds-checked and preserved.
+- Tie and moby mappings resolve to stable Entity IDs; terrain mappings use stable
+  terrain-section keys rather than renderer object identity.
+- The decoded model distinguishes the gameplay mapping table from the separate
+  level-WAD octant tree and reports mismatched counts, IDs, or mask ranges.
+- Octant-to-world scale and source memory usage are explicit metadata; editable
+  generation budgets or heuristics wait for a scoped UYA visibility writer.
+- Deadlocked Level Packer and Wrench behavior is used only as supporting evidence;
+  UYA fixtures must confirm every adopted field and limit.
+- Source occlusion bytes remain the sole bake authority and byte-exact opaque payload
+  until a UYA-specific writer and semantic re-read task explicitly replaces them.
+
+Verification: sparse/shared-mask fixtures, invalid tree/mapping corpus, stable-link
+tests, unchanged opaque hashes, and local multi-level octant/mapping statistics.
+
+## M2-020 — Qualify complete UYA base-data import and migration
+
+Requirements: FR-PROJ-001 through FR-PROJ-004, FR-BAKE-005, FR-XLT-003,
+NFR-REL-001, NFR-REL-004, NFR-PERF-004
+Depends on: M2-015, M2-016, M2-017, M2-018, M2-019
+
+Integrate the new families into base-project creation, project inspection, one-time
+schema migration, scene-tree grouping, properties, diagnostics, and capability
+reporting. Prove complete data ownership across every readable retail UYA level.
+
+Acceptance:
+
+- A generated coverage report lists source/imported counts and reference failures for
+  every typed family and classifies every populated core slot as typed, derived, asset
+  metadata, or named opaque content.
+- Moving a decoded section out of `UyaOpaqueContentService` happens only after its
+  typed capture validates; no bytes disappear and no section has two bake owners.
+- Existing projects offer one explicit source-ISO-backed upgrade. The stored import
+  version prevents later opens from resurrecting user-deleted entities or overwriting
+  accepted project state.
+- Cancellation, malformed data, or migration failure preserves the last known-good
+  project and reports the exact level, section, record, and field where possible.
+- Save/reopen/recovery and Linux/Windows serialization preserve Entity IDs, typed
+  values, raw unknowns, and stable references.
+- Large-level creation remains off the Electron loops and reports bounded progress
+  without one bridge request per instance.
+
+Verification: synthetic full-core fixture, old-project migration/deletion tests,
+save/recovery/portability tests, cancellation and malformed-section injection, and a
+retained all-level import report containing metrics and hashes but no proprietary data.

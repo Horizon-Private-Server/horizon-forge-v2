@@ -17,6 +17,10 @@ bounded command history while viewing the real UYA level rather than editor prox
 - Deterministic Three.js projection/disposal.
 - Versioned host-generated UYA render packages cached outside projects.
 - Actual tfrag, tie, shrub, moby, and sky rendering with Entity-ID mapping.
+- Typed import of the remaining UYA gameplay instances, volumes, paths, groups,
+  environment data, level settings, and their stable cross-references.
+- Read-only decoded occlusion coverage with explicit ownership until a verified
+  editable UYA writer exists.
 - Scene tree, properties, status, diagnostics, picking, and selection.
 - Hidden/disabled/locked behavior.
 - Translate/rotate/scale, grid/center/vertex snapping, and Page Down placement.
@@ -27,4 +31,5 @@ bounded command history while viewing the real UYA level rather than editor prox
 A representative UYA level renders its terrain, sky, and vanilla instances with
 actual assets and can be edited and recovered without direct Three.js or raw-file
 mutation; selection remains synchronized; every project mutation is undoable where
-specified; and the packaged app passes the editor interaction checks.
+specified; every populated UYA gameplay slot is typed, derived, or explicitly
+opaque; and the packaged app passes the editor interaction checks.
