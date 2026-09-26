@@ -10,6 +10,7 @@ namespace Forge.Host.Games.UYA;
 public static class UyaBaseLayerStore
 {
     public const string RelativeManifestPath = "content/uya-base-layers.json";
+    private const string TieAmbientAssetName = "tie-ambient-rgbas.bin";
 
     internal static async Task WriteAsync(
         string projectRoot,
@@ -150,9 +151,15 @@ public static class UyaBaseLayerStore
                 layer,
                 content,
                 record?.Assets?.Select(value => value.Asset.Id).ToArray() ?? [],
-                layer == BakeLayerId.World && workspace.Content.LevelSettings is not null
-                    ? ForgeProjectPersistence.Serialize(workspace.Content.LevelSettings)
-                    : ReadOnlyMemory<byte>.Empty,
+                layer switch
+                {
+                    BakeLayerId.World when workspace.Content.LevelSettings is not null =>
+                        ForgeProjectPersistence.Serialize(workspace.Content.LevelSettings),
+                    BakeLayerId.Lighting => ForgeProjectPersistence.Serialize(
+                        UyaStaticLayerStore.OrderedEntities(workspace, BakeLayerId.Ties)
+                            .Select(value => new { value.EntityId, AmbientRgbas = value.TieLighting?.AmbientRgbas }).ToArray()),
+                    _ => ReadOnlyMemory<byte>.Empty,
+                },
                 inspection.Blockers[layer]);
         }).ToArray();
     }
@@ -190,6 +197,12 @@ public static class UyaBaseLayerStore
                     var bytes = WriteLevelSettings(await File.ReadAllBytesAsync(source, token), settings);
                     await ForgeProjectPersistence.WriteFileSafelyAsync(Path.Combine(output, asset.Name), bytes, token);
                 }
+                else if (plan.Layer == BakeLayerId.Lighting && asset.Name == TieAmbientAssetName)
+                {
+                    await ForgeProjectPersistence.WriteFileSafelyAsync(
+                        Path.Combine(output, asset.Name),
+                        WriteTieAmbientRgbas(await File.ReadAllBytesAsync(source, token), workspace), token);
+                }
                 else
                 {
                     await CopyFileAsync(source, Path.Combine(output, asset.Name), token);
@@ -212,6 +225,14 @@ public static class UyaBaseLayerStore
                     if (!bytes.SequenceEqual(expected))
                         throw new InvalidDataException("World staged level settings changed during write.");
                 }
+                else if (plan.Layer == BakeLayerId.Lighting && asset.Name == TieAmbientAssetName)
+                {
+                    var source = workspace.ResolveAssetPath(asset.Asset.Id, catalog)
+                        ?? throw new FileNotFoundException($"Base-layer asset {asset.Asset.Id} disappeared during validation.");
+                    var expected = WriteTieAmbientRgbas(await File.ReadAllBytesAsync(source, token), workspace);
+                    if (!bytes.SequenceEqual(expected))
+                        throw new InvalidDataException("Lighting staged tie ambient data changed during write.");
+                }
                 else if (AssetId.Compute(asset.Asset.Kind, asset.CanonicalFormatVersion, bytes) != asset.Asset.Id)
                     throw new InvalidDataException($"{plan.Layer} staged asset {asset.Name} failed identity validation.");
             }
@@ -226,6 +247,24 @@ public static class UyaBaseLayerStore
             settings.FogFarDistance * 1024,
             settings.FogNearIntensity,
             settings.FogFarIntensity));
+
+    private static byte[] WriteTieAmbientRgbas(byte[] source, ForgeProjectWorkspace workspace)
+    {
+        var values = UyaStaticLayerStore.OrderedEntities(workspace, BakeLayerId.Ties)
+            .Select(value => value.TieLighting?.AmbientRgbas
+                ?? throw new InvalidDataException($"Tie {value.EntityId} has no ambient lighting data."))
+            .ToArray();
+        try
+        {
+            var original = UyaGameplayLightingReader.ReadTieAmbientRgbas(source, values.Length);
+            if (original.Zip(values).All(pair => pair.First.SequenceEqual(pair.Second))) return source;
+        }
+        catch (InvalidDataException)
+        {
+            // A removed or reordered tie can make the source indices invalid; rebuild them below.
+        }
+        return UyaTieAmbientRgbasWriter.Write(values);
+    }
 
     private static void ValidateManifest(
         UyaBaseLayerManifest manifest,

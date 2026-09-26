@@ -104,7 +104,7 @@ internal static class UyaProjectTests
             }
             var expectedBaseHashes = new Dictionary<BakeLayerId, string>
             {
-                [BakeLayerId.World] = "e830a58c5fb341b0909304355d8035c82c8f09fcb9da49f537bfc4717a9b246d",
+                [BakeLayerId.World] = "235a7f4dd8af8a77a032c72b99f4537ecb4c1e30067f1ef4c5308689279cb137",
                 [BakeLayerId.Sky] = "66687aadf862bd776c8fc18b8e9f8e20089714856ee233b3902a591d0d5f2925",
                 [BakeLayerId.Tfrags] = "f315f3f6d33215f8777a7d5a4b809f433729d13a86fe6adf3da5c11137e18273",
                 [BakeLayerId.Collision] = "c2f480d4dda9f4522b9f6d590011636d904accfe59f12f9d66a0221c2558e3a2",
@@ -406,10 +406,10 @@ internal static class UyaProjectTests
     internal static byte[] CreateIso()
     {
         const int headerSector = 0x500;
-        var bytes = new byte[(headerSector + 5) * UyaLevelConstants.SectorSize];
+        var bytes = new byte[(headerSector + 6) * UyaLevelConstants.SectorSize];
         var info = UyaLevelConstants.RetailLevelInfoTableOffset + 3 * UyaLevelConstants.LevelInfoSize;
         WriteInt32(bytes, info + 0x08, headerSector);
-        WriteInt32(bytes, info + 0x0c, 5);
+        WriteInt32(bytes, info + 0x0c, 6);
 
         var wad = bytes.AsSpan(headerSector * UyaLevelConstants.SectorSize);
         WriteInt32(wad, 0x00, UyaLevelConstants.LevelWadHeaderSize);
@@ -418,6 +418,8 @@ internal static class UyaProjectTests
         WriteInt32(wad, 0x14, 1);
         WriteInt32(wad, 0x20, 2);
         WriteInt32(wad, 0x24, 3);
+        WriteInt32(wad, 0x28, 5);
+        WriteInt32(wad, 0x2c, 1);
 
         var levelData = wad[UyaLevelConstants.SectorSize..];
         WriteByteBlock(levelData, 0x00, 0x80, 4);
@@ -450,13 +452,14 @@ internal static class UyaProjectTests
         assets[0xa0..0xc0].Fill(0xcc);
 
         var gameplay = wad[(2 * UyaLevelConstants.SectorSize)..];
-        WriteInt32(gameplay, 0x00, 0x10d0);
+        WriteInt32(gameplay, 0x00, 0x11a0);
         WriteInt32(gameplay, 0x04, 0x620);
         WriteInt32(gameplay, 0x08, 0x1000);
         WriteInt32(gameplay, 0x0c, 0x1030);
-        WriteInt32(gameplay, 0x34, 0x9c);
-        WriteInt32(gameplay, 0x40, 0x10c);
-        WriteInt32(gameplay, 0x4c, 0x18c);
+        WriteInt32(gameplay, 0x34, 0xa0);
+        WriteInt32(gameplay, 0x38, 0x10d0);
+        WriteInt32(gameplay, 0x40, 0x110);
+        WriteInt32(gameplay, 0x4c, 0x190);
         WriteInt32(gameplay, 0x68, 0x2b0);
         WriteInt32(gameplay, 0x6c, 0x340);
         WriteInt32(gameplay, 0x70, 0x3d0);
@@ -466,9 +469,10 @@ internal static class UyaProjectTests
         WriteInt32(gameplay, 0x80, 0x750);
         WriteInt32(gameplay, 0x84, 0x6a0);
         WriteInt32(gameplay, 0x8c, 0x670);
+        WriteInt32(gameplay, 0x90, 0x1180);
         WriteInt32(gameplay, 0x94, 0x740);
-        WriteInt32(gameplay, 0x98, 0x5b0);
-        var ties = gameplay[0x9c..];
+        WriteInt32(gameplay, 0x98, 0x1100);
+        var ties = gameplay[0xa0..];
         WriteInt32(ties, 0, 1);
         var tie = ties[0x10..];
         WriteInt32(tie, 0, 200);
@@ -478,8 +482,9 @@ internal static class UyaProjectTests
         WriteSingle(tie, 0x40, 40);
         WriteSingle(tie, 0x44, 50);
         WriteSingle(tie, 0x48, 60);
+        WriteInt32(tie, 0x0c, 77);
         WriteInt32(tie, 0x50, 12);
-        var shrubs = gameplay[0x10c..];
+        var shrubs = gameplay[0x110..];
         WriteInt32(shrubs, 0, 1);
         var shrub = shrubs[0x10..];
         WriteInt32(shrub, 0, 300);
@@ -489,7 +494,7 @@ internal static class UyaProjectTests
         WriteSingle(shrub, 0x40, 70);
         WriteSingle(shrub, 0x44, 80);
         WriteSingle(shrub, 0x48, 90);
-        var mobys = gameplay[0x18c..];
+        var mobys = gameplay[0x190..];
         WriteInt32(mobys, 0x00, 2);
         var instance = mobys[0x10..];
         WriteInt32(instance, 0x00, 0x88);
@@ -560,7 +565,7 @@ internal static class UyaProjectTests
         WriteSingle(grindPaths, 0x60, 5);
         WriteSingle(grindPaths, 0x6c, 8);
 
-        var areas = gameplay[0x5b0..];
+        var areas = gameplay[0x1100..];
         WriteInt32(areas, 0x00, 0x64);
         WriteInt32(areas, 0x04, 1);
         WriteInt32(areas, 0x08, 0x50);
@@ -661,6 +666,31 @@ internal static class UyaProjectTests
         WriteSingle(sounds, 0x90, 0.1f);
         WriteSingle(sounds, 0x94, 0.2f);
         WriteSingle(sounds, 0x98, 0.3f);
+
+        var tieGroups = gameplay[0x10d0..];
+        WriteInt32(tieGroups, 0, 1);
+        WriteInt32(tieGroups, 4, 0x10);
+        WriteInt32(tieGroups, 0x10, 0);
+        WriteUInt16(tieGroups, 0x20, 0x8000);
+
+        var occlusion = gameplay[0x1180..];
+        WriteInt32(occlusion, 4, 1);
+        WriteInt32(occlusion, 0x10, 5);
+        WriteInt32(occlusion, 0x14, 77);
+
+        var occlusionGrid = wad[(5 * UyaLevelConstants.SectorSize)..];
+        WriteInt32(occlusionGrid, 0, 0x30);
+        WriteUInt16(occlusionGrid, 4, 1);
+        WriteUInt16(occlusionGrid, 6, 1);
+        WriteUInt16(occlusionGrid, 8, 3);
+        WriteUInt16(occlusionGrid, 12, 2);
+        WriteUInt16(occlusionGrid, 14, 1);
+        WriteUInt16(occlusionGrid, 16, 5);
+        WriteUInt16(occlusionGrid, 20, 3);
+        WriteUInt16(occlusionGrid, 22, 2);
+        WriteUInt16(occlusionGrid, 24, 0);
+        WriteUInt16(occlusionGrid, 26, 1);
+        occlusionGrid[0x30] = 1 << 5;
         return bytes;
     }
 

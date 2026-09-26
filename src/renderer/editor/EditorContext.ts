@@ -22,6 +22,8 @@ export interface EditorContextValue {
   setSkyPieces(pieces: string[]): void;
   cameraFocus?: { entityId: string };
   setCameraFocus(request?: { entityId: string }): void;
+  splinePointSelection: string[];
+  setSplinePointSelection(values: string[]): void;
   showViewportStats: boolean;
   showOcclusionOctants: boolean;
   setShowOcclusionOctants(value: boolean): void;

@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 
-import type { EditorEntity, EditorTransformUpdate, ProjectTransform } from '../../types/EditorRuntime.js';
+import type { EditorEntity, EditorTransformUpdate, ProjectTransform, ProjectVector4 } from '../../types/EditorRuntime.js';
 import type { EditorSnapSource, EditorSnapTarget } from '../../types/EditorViewport.js';
+import { parseSplinePointId, transformSplinePoints } from '../../utils/SplinePoints.ts';
 import { cloneProjectTransform, projectTransformToSceneMatrix, sceneMatrixToProjectTransform } from '../../utils/Transforms.ts';
 import { VertexSnapIndex } from './SceneSnapping.ts';
 import type { SceneProjection } from './SceneProjection.ts';
@@ -13,6 +14,7 @@ export type EditorTransformSpace = 'world' | 'local';
 interface TransformToolCallbacks {
   preview(entities?: readonly EditorEntity[]): void;
   commit(updates: EditorTransformUpdate[]): void;
+  commitSplinePoints(entityId: string, points: ProjectVector4[]): void;
   collectSnapVertices(entityIds: readonly string[]): THREE.Vector3[];
   resolveSnapTarget(mode: Exclude<EditorSnapTarget, 'grid'>, entityIds: readonly string[]): THREE.Vector3 | undefined;
 }
@@ -37,6 +39,9 @@ export class TransformTool {
   private readonly translationDelta = new THREE.Vector3();
   private entities: readonly EditorEntity[] = [];
   private activeIds: string[] = [];
+  private activePointIds: string[] = [];
+  private activeSpline?: EditorEntity;
+  private originalSplinePoints?: ProjectVector4[];
   private originals = new Map<string, ProjectTransform>();
   private projection?: SceneProjection;
   private mode: EditorTransformMode = 'select';
@@ -116,7 +121,17 @@ export class TransformTool {
     this.projection = projection;
     if (this.controls.dragging) return;
     const byId = new Map(entities.map((entity) => [entity.id, entity]));
-    this.activeIds = selection.filter((id) => {
+    const points = selection.map((id) => ({ id, point: parseSplinePointId(id) }))
+      .filter((value) => value.point !== undefined);
+    const pointEntity = points.length ? byId.get(points.at(-1)!.point!.entityId) : undefined;
+    this.activeSpline = pointEntity?.geometry?.kind === 'spline'
+      && !pointEntity.state.locked && !pointEntity.state.readOnly
+      && !pointEntity.state.hidden && !pointEntity.state.disabled ? pointEntity : undefined;
+    this.activePointIds = this.activeSpline
+      ? points.filter((value) => value.point!.entityId === this.activeSpline!.id
+        && value.point!.index < this.activeSpline!.geometry!.points.length).map((value) => value.id)
+      : [];
+    this.activeIds = this.activePointIds.length ? [] : selection.filter((id) => {
       const entity = byId.get(id);
       return entity && !entity.state.locked && !entity.state.readOnly && !entity.state.hidden && !entity.state.disabled;
     });
@@ -124,7 +139,7 @@ export class TransformTool {
   }
 
   cancel(): boolean {
-    if (!this.controls.dragging || this.originals.size === 0) return false;
+    if (!this.controls.dragging || this.originals.size === 0 && !this.originalSplinePoints) return false;
     this.cancelled = true;
     this.controls.reset();
     this.callbacks.preview();
@@ -150,22 +165,33 @@ export class TransformTool {
     this.sourceOffset.set(0, 0, 0);
     this.vertexIndex = undefined;
     if (this.snapSource === 'origin') {
-      const active = this.entities.find((entity) => entity.id === this.activeIds.at(-1));
+      const active = this.activeSpline ?? this.entities.find((entity) => entity.id === this.activeIds.at(-1));
       if (active) {
         projectTransformToSceneMatrix(active.transform, this.source)
           .decompose(this.pivotPosition, this.pivotRotation, this.pivotScale);
         this.sourceOffset.copy(this.pivotPosition).sub(this.startPivotPosition);
       }
     } else if (this.snapSource === 'vertex') {
-      this.vertexIndex = new VertexSnapIndex(this.callbacks.collectSnapVertices(this.activeIds));
+      this.vertexIndex = new VertexSnapIndex(this.callbacks.collectSnapVertices(
+        this.activePointIds.length ? this.activePointIds : this.activeIds,
+      ));
     }
     this.originals = new Map(this.entities.filter((entity) => this.activeIds.includes(entity.id))
       .map((entity) => [entity.id, cloneProjectTransform(entity.transform)]));
+    this.originalSplinePoints = this.activeSpline?.geometry?.points.map((point) => ({ ...point }));
   };
 
   private readonly handleObjectChange = () => {
-    if (this.originals.size === 0 || this.cancelled) return;
+    if (this.originals.size === 0 && !this.originalSplinePoints || this.cancelled) return;
     this.applyTargetSnap();
+    if (this.originalSplinePoints && this.activeSpline) {
+      const points = this.buildSplinePoints();
+      if (!points) return;
+      this.callbacks.preview(this.entities.map((entity) => entity.id === this.activeSpline!.id
+        ? { ...entity, geometry: { kind: 'spline', points } }
+        : entity));
+      return;
+    }
     const updates = this.buildUpdates();
     const transforms = new Map(updates.map((update) => [update.entityId, update.transform]));
     this.callbacks.preview(this.entities.map((entity) => {
@@ -176,11 +202,15 @@ export class TransformTool {
 
   private readonly handleMouseUp = () => {
     const updates = this.cancelled ? [] : this.buildUpdates();
+    const splinePoints = this.cancelled ? undefined : this.buildSplinePoints();
     const changed = !this.proxy.matrix.equals(this.startPivot);
     this.originals.clear();
     this.vertexIndex = undefined;
     if (this.cancelled) this.callbacks.preview();
+    else if (changed && splinePoints && this.activeSpline)
+      this.callbacks.commitSplinePoints(this.activeSpline.id, splinePoints);
     else if (changed && updates.length) this.callbacks.commit(updates);
+    this.originalSplinePoints = undefined;
     this.cancelled = false;
     queueMicrotask(() => { this.pointerActive = false; });
   };
@@ -198,13 +228,23 @@ export class TransformTool {
     });
   }
 
+  private buildSplinePoints(): ProjectVector4[] | undefined {
+    if (!this.activeSpline || !this.originalSplinePoints) return undefined;
+    this.proxy.updateMatrix();
+    this.inversePivot.copy(this.startPivot).invert();
+    this.delta.copy(this.proxy.matrix).multiply(this.inversePivot);
+    const selected = new Set(this.activePointIds.map((id) => parseSplinePointId(id)!.index));
+    return transformSplinePoints(this.originalSplinePoints, selected, this.activeSpline.transform, this.delta);
+  }
+
   private refreshAttachment(): void {
-    if (this.mode === 'select' || !this.projection || this.activeIds.length === 0 || this.controls.dragging) {
+    if (this.mode === 'select' || !this.projection
+      || this.activeIds.length === 0 && this.activePointIds.length === 0 || this.controls.dragging) {
       if (!this.controls.dragging) this.controls.detach();
       return;
     }
     this.bounds.makeEmpty();
-    for (const id of this.activeIds) {
+    for (const id of [...this.activeIds, ...this.activePointIds]) {
       const value = this.projection.getBounds(id, this.entityBounds);
       if (value) this.bounds.union(value);
     }
@@ -213,7 +253,7 @@ export class TransformTool {
     this.proxy.scale.set(1, 1, 1);
     this.proxy.quaternion.identity();
     if (this.space === 'local') {
-      const active = this.entities.find((entity) => entity.id === this.activeIds.at(-1));
+      const active = this.activeSpline ?? this.entities.find((entity) => entity.id === this.activeIds.at(-1));
       if (active) projectTransformToSceneMatrix(active.transform, this.source)
         .decompose(this.pivotPosition, this.proxy.quaternion, this.pivotScale);
     }
@@ -231,7 +271,10 @@ export class TransformTool {
   private applyTargetSnap(): void {
     if (this.mode !== 'translate' || this.snapTarget === 'grid'
       || this.snapEnabled === this.snapInverted) return;
-    const target = this.callbacks.resolveSnapTarget(this.snapTarget, this.activeIds);
+    const target = this.callbacks.resolveSnapTarget(
+      this.snapTarget,
+      this.activeSpline ? [this.activeSpline.id] : this.activeIds,
+    );
     if (!target) return;
     if (this.snapSource === 'vertex') {
       this.translationDelta.copy(this.proxy.position).sub(this.startPivotPosition);

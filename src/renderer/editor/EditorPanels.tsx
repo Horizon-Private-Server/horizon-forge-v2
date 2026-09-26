@@ -1,23 +1,19 @@
 import { EyeIcon } from '@phosphor-icons/react/dist/csr/Eye';
 import { EyeSlashIcon } from '@phosphor-icons/react/dist/csr/EyeSlash';
 import { PowerIcon } from '@phosphor-icons/react/dist/csr/Power';
-import { ArrowDownIcon } from '@phosphor-icons/react/dist/csr/ArrowDown';
-import { ArrowUpIcon } from '@phosphor-icons/react/dist/csr/ArrowUp';
-import { PlusIcon } from '@phosphor-icons/react/dist/csr/Plus';
-import { TrashIcon } from '@phosphor-icons/react/dist/csr/Trash';
 import {
-  ActionIcon, Alert, Badge, Button, Checkbox, Code, Group, NumberInput, Slider, Stack, Text, TextInput,
+  ActionIcon, Alert, Badge, Button, Checkbox, Code, Group, Slider, Stack, Text,
 } from '@mantine/core';
 import type { TreeNodeData } from '@mantine/core';
 import type { ReactNode } from 'react';
-import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
-import type {
-  EditorEntity, EditorLevelSettings, ProjectQuaternion, ProjectTransform, ProjectVector3, ProjectVector4,
-} from '../../types/EditorRuntime.js';
+import type { EditorEntity, EditorLevelSettings } from '../../types/EditorRuntime.js';
 import type { SceneTreeKind } from '../../types/SceneTree.js';
 import { DEFAULT_SCENE_TREE_COLORS, SCENE_TREE_LABELS } from '../../utils/SceneTreeColors.ts';
+import { parseSplinePointId, splinePointId } from '../../utils/SplinePoints.ts';
 import { ColorPickerInput } from '../ColorPickerInput.tsx';
+import { EntityProperties, MultiEntityProperties } from './EntityProperties.tsx';
 import { useEditor } from './EditorContext.ts';
 import {
   buildSceneEntityGroups,
@@ -40,7 +36,7 @@ import { SceneViewport } from './SceneViewport.tsx';
 export function ViewportPanel() {
   const {
     project, keybindings, sceneTreeColors, terrain, cameraFocus, setCameraFocus, setSceneLoad, setSkyPieces,
-    execute, busy, showViewportStats, showOcclusionOctants,
+    execute, busy, showViewportStats, showOcclusionOctants, splinePointSelection, setSplinePointSelection,
   } = useEditor();
   const levelSettingsSignature = JSON.stringify(project.levelSettings);
   const environment = useMemo(() => project.levelSettings
@@ -52,7 +48,7 @@ export function ViewportPanel() {
     keybindings={keybindings}
     sceneTreeColors={sceneTreeColors}
     focusEntityId={cameraFocus?.entityId}
-    selection={project.selection}
+    selection={splinePointSelection.length ? splinePointSelection : project.selection}
     showStats={showViewportStats}
     showOcclusionOctants={showOcclusionOctants}
     terrain={terrain}
@@ -60,12 +56,23 @@ export function ViewportPanel() {
     onFocusHandled={() => setCameraFocus(undefined)}
     onLoadProgress={setSceneLoad}
     onSkyPiecesChange={setSkyPieces}
-    onSelectionChange={(entityIds) => void execute({
-      id: crypto.randomUUID(), kind: 'setSelection', entityIds,
-    })}
+    onSelectionChange={(values) => {
+      const points = values.filter((value) => parseSplinePointId(value));
+      if (points.length) {
+        const entityId = parseSplinePointId(points.at(-1)!)!.entityId;
+        setSplinePointSelection(points.filter((value) => parseSplinePointId(value)?.entityId === entityId));
+        if (project.selection.length) void execute({ id: crypto.randomUUID(), kind: 'setSelection', entityIds: [] });
+      } else {
+        setSplinePointSelection([]);
+        void execute({ id: crypto.randomUUID(), kind: 'setSelection', entityIds: values });
+      }
+    }}
     onTransformsCommit={(transforms) => execute({
       id: crypto.randomUUID(), kind: 'updateTransforms',
       entityIds: transforms.map((value) => value.entityId), transforms,
+    })}
+    onSplinePointsCommit={(entityId, points) => execute({
+      id: crypto.randomUUID(), kind: 'updateSplinePoints', entityIds: [entityId], points,
     })}
   />;
 }
@@ -162,13 +169,16 @@ function parseRgb(value: string): [number, number, number] {
 }
 
 export function SceneTreePanel() {
-  const { project, terrain, skyPieces, setCameraFocus, execute, busy } = useEditor();
+  const {
+    project, terrain, skyPieces, setCameraFocus, execute, busy,
+    splinePointSelection, setSplinePointSelection,
+  } = useEditor();
   const [filter, setFilter] = useState('');
   const model = useMemo(() => buildSceneEntityGroups(project.entities, filter), [filter, project.entities]);
   const tfrags = useMemo(() => buildTerrainTreeItems(terrain?.urls ?? [], filter), [filter, terrain]);
   const sky = useMemo(() => buildSkyTreeItems(skyPieces, filter), [filter, skyPieces]);
   const entityIds = useMemo(() => new Set(project.entities.map((entity) => entity.id)), [project.entities]);
-  const nodes: TreeNodeData[] = [
+  const nodes = useMemo<TreeNodeData[]>(() => [
     ...(tfrags.length ? [{
       value: 'render:tfrags',
       label: <SceneTreeLabel kind="tfrag">({tfrags.length})</SceneTreeLabel>,
@@ -197,9 +207,18 @@ export function SceneTreePanel() {
         label: <SceneTreeNode entities={[entity]} disabled={busy}>
           <SceneTreeLabel kind={entityTreeKind(entity)} dot>{entityTreeText(entity)}</SceneTreeLabel>
         </SceneTreeNode>,
+        nodeProps: { selectable: entity.geometry?.kind === 'spline' },
+        children: entity.geometry?.kind === 'spline'
+          ? entity.geometry.points.map((point, index) => ({
+            value: splinePointId(entity.id, index),
+            label: <SceneTreeLabel kind="spline" dot>
+              Point {index} · {point.x.toFixed(2)}, {point.y.toFixed(2)}, {point.z.toFixed(2)}
+            </SceneTreeLabel>,
+          }))
+          : undefined,
       })),
     })),
-  ];
+  ], [busy, model.groups, sky, tfrags]);
   const renderItemCount = tfrags.length + sky.length;
   const matched = model.matched + renderItemCount;
 
@@ -214,14 +233,24 @@ export function SceneTreePanel() {
         ? <EditorTree
           label="Scene hierarchy"
           nodes={nodes}
-          selected={project.selection}
+          selected={splinePointSelection.length ? splinePointSelection : project.selection}
           multiple
-          onActivate={(entityId) => setCameraFocus({ entityId })}
-          onSelectionChange={(values) => void execute({
-            id: crypto.randomUUID(),
-            kind: 'setSelection',
-            entityIds: values.filter((value) => entityIds.has(value)),
-          })}
+          onActivate={(value) => setCameraFocus({ entityId: parseSplinePointId(value)?.entityId ?? value })}
+          onSelectionChange={(values) => {
+            const points = values.map(parseSplinePointId).filter((value) => value !== undefined);
+            if (points.length) {
+              const entityId = points.at(-1)!.entityId;
+              setSplinePointSelection(values.filter((value) => parseSplinePointId(value)?.entityId === entityId));
+              if (project.selection.length) void execute({
+                id: crypto.randomUUID(), kind: 'setSelection', entityIds: [],
+              });
+              return;
+            }
+            setSplinePointSelection([]);
+            void execute({
+              id: crypto.randomUUID(), kind: 'setSelection', entityIds: values.filter((value) => entityIds.has(value)),
+            });
+          }}
         />
         : <EditorEmptyState message="No matching scene objects." />}
     </Stack>
@@ -306,248 +335,19 @@ function groupTreeKind(entities: readonly EditorEntity[]): string {
 }
 
 export function PropertiesPanel() {
-  const { project } = useEditor();
-  const entities = project.selection
+  const { project, splinePointSelection } = useEditor();
+  const pointEntityId = parseSplinePointId(splinePointSelection[0] ?? '')?.entityId;
+  const entities = (pointEntityId ? [pointEntityId] : project.selection)
     .map((id) => project.entities.find((entity) => entity.id === id))
     .filter((entity): entity is EditorEntity => Boolean(entity));
 
   return <EditorPanel label="Properties">
     {entities.length === 1
-      ? <SingleEntityProperties entity={entities[0]} />
+      ? <EntityProperties entity={entities[0]} />
       : entities.length > 1
         ? <MultiEntityProperties entities={entities} />
         : <EditorEmptyState message="Select an object to inspect its properties." />}
   </EditorPanel>;
-}
-
-function SingleEntityProperties({ entity }: { entity: EditorEntity }) {
-  const { execute, busy } = useEditor();
-  const locked = entity.state.locked || entity.state.readOnly;
-  return <Stack>
-    <EntityTextEditor
-      identity={entity.id}
-      label="Name"
-      value={entity.name}
-      disabled={busy || locked}
-      onApply={(text) => execute({ id: crypto.randomUUID(), kind: 'renameEntity', entityIds: [entity.id], text })}
-    />
-    <EntityTextEditor
-      identity={entity.id}
-      label="Layer"
-      value={entity.layer}
-      disabled={busy || locked}
-      onApply={(text) => execute({ id: crypto.randomUUID(), kind: 'setEntityLayer', entityIds: [entity.id], text })}
-    />
-    <EntityStateControls entities={[entity]} disabled={busy || entity.state.readOnly} />
-    {entity.state.readOnly
-      ? <Text size="xs" c="yellow">This decoded source geometry is read-only until its native writer is available.</Text>
-      : locked && <Text size="xs" c="yellow">Unlock this entity to edit its properties.</Text>}
-    <TransformEditor entity={entity} disabled={busy || locked} />
-    {entity.geometry?.kind === 'spline'
-      && <SplinePointsEditor entity={entity} disabled={busy || locked} />}
-    <EditorPropertyGrid>
-      <EditorProperty label="Entity ID"><Code>{entity.id}</Code></EditorProperty>
-      <EditorProperty label="Type">{entity.geometry?.kind ?? entity.asset?.kind ?? 'model-less moby'}</EditorProperty>
-      <EditorProperty label="Asset">{entity.asset ? <Code>{entity.asset.id}</Code> : 'None'}</EditorProperty>
-      <EditorProperty label="Source">{entity.provenance
-        ? `${entity.provenance.game} level ${entity.provenance.level}, ${entity.provenance.section} #${entity.provenance.sourceIndex}`
-        : 'Project-created'}</EditorProperty>
-    </EditorPropertyGrid>
-  </Stack>;
-}
-
-function MultiEntityProperties({ entities }: { entities: EditorEntity[] }) {
-  const { execute, busy } = useEditor();
-  const readOnly = entities.some((entity) => entity.state.readOnly);
-  const locked = readOnly || entities.some((entity) => entity.state.locked);
-  const layer = entities.every((entity) => entity.layer === entities[0].layer) ? entities[0].layer : '';
-  const ids = entities.map((entity) => entity.id);
-  return <Stack>
-    <Text size="sm">{entities.length} objects selected</Text>
-    <EntityTextEditor
-      identity={ids.join()}
-      label="Shared layer"
-      value={layer}
-      placeholder={layer ? undefined : 'Multiple values'}
-      disabled={busy || locked}
-      onApply={(text) => execute({ id: crypto.randomUUID(), kind: 'setEntityLayer', entityIds: ids, text })}
-    />
-    <EntityStateControls entities={entities} disabled={busy || readOnly} />
-    {readOnly
-      ? <Text size="xs" c="yellow">Decoded source geometry is read-only until its native writer is available.</Text>
-      : locked && <Text size="xs" c="yellow">Unlock all selected entities before changing their shared layer.</Text>}
-  </Stack>;
-}
-
-function EntityTextEditor({ identity, label, value, placeholder, disabled, onApply }: {
-  identity: string;
-  label: string;
-  value: string;
-  placeholder?: string;
-  disabled: boolean;
-  onApply(value: string): Promise<unknown>;
-}) {
-  const [text, setText] = useState(value);
-  useLayoutEffect(() => setText(value), [identity, value]);
-  const trimmed = text.trim();
-  const error = !trimmed ? `${label} is required` : trimmed.length > 256 ? `${label} is too long` : undefined;
-  return <Group align="flex-end" wrap="nowrap">
-    <TextInput
-      label={label}
-      value={text}
-      placeholder={placeholder}
-      error={error}
-      disabled={disabled}
-      onChange={(event) => setText(event.currentTarget.value)}
-      style={{ flex: 1 }}
-    />
-    <Button disabled={disabled || Boolean(error) || trimmed === value} onClick={() => void onApply(trimmed)}>Apply</Button>
-  </Group>;
-}
-
-function EntityStateControls({ entities, disabled }: { entities: EditorEntity[]; disabled: boolean }) {
-  const { execute } = useEditor();
-  const ids = entities.map((entity) => entity.id);
-  const control = (key: 'hidden' | 'disabled' | 'locked', label: string) => {
-    const enabled = entities.filter((entity) => entity.state[key]).length;
-    return <Checkbox
-      key={key}
-      label={label}
-      checked={enabled === entities.length}
-      indeterminate={enabled > 0 && enabled < entities.length}
-      disabled={disabled}
-      onChange={(event) => void execute({
-        id: crypto.randomUUID(),
-        kind: 'setEntityState',
-        entityIds: ids,
-        state: { [key]: event.currentTarget.checked },
-      })}
-    />;
-  };
-  return <Group>{control('hidden', 'Hidden')}{control('disabled', 'Disabled')}{control('locked', 'Locked')}</Group>;
-}
-
-function TransformEditor({ entity, disabled }: { entity: EditorEntity; disabled: boolean }) {
-  const { execute } = useEditor();
-  const [transform, setTransform] = useState<ProjectTransform>(() => cloneTransform(entity.transform));
-  const sourceTransform = JSON.stringify(entity.transform);
-  useLayoutEffect(() => setTransform(cloneTransform(entity.transform)), [entity.id, sourceTransform]);
-  const values = [
-    ...Object.values(transform.position),
-    ...Object.values(transform.rotation),
-    ...Object.values(transform.scale),
-  ];
-  const valid = values.every(Number.isFinite)
-    && Object.values(transform.scale).every((value) => value !== 0)
-    && Object.values(transform.rotation).some((value) => value !== 0);
-  return <Stack>
-    <VectorInputs label="Position" value={transform.position} disabled={disabled}
-      onChange={(position) => setTransform({ ...transform, position })} />
-    <QuaternionInputs value={transform.rotation} disabled={disabled}
-      onChange={(rotation) => setTransform({ ...transform, rotation })} />
-    <VectorInputs label="Scale" value={transform.scale} disabled={disabled}
-      onChange={(scale) => setTransform({ ...transform, scale })} />
-    <Button disabled={disabled || !valid} onClick={() => void execute({
-      id: crypto.randomUUID(), kind: 'updateTransform', entityIds: [entity.id], transform,
-    })}>Apply transform</Button>
-    {!valid && <Text size="xs" c="red">Values must be finite; scale and quaternion cannot be zero.</Text>}
-  </Stack>;
-}
-
-function SplinePointsEditor({ entity, disabled }: { entity: EditorEntity; disabled: boolean }) {
-  const { execute } = useEditor();
-  const source = entity.geometry?.points ?? [];
-  const signature = JSON.stringify(source);
-  const [points, setPoints] = useState<ProjectVector4[]>(() => source.map((point) => ({ ...point })));
-  useLayoutEffect(() => setPoints(source.map((point) => ({ ...point }))), [entity.id, signature]);
-  const update = (index: number, axis: keyof ProjectVector4, value: string | number) => setPoints(points.map(
-    (point, pointIndex) => pointIndex === index
-      ? { ...point, [axis]: typeof value === 'number' ? value : Number.NaN }
-      : point,
-  ));
-  const move = (index: number, offset: number) => {
-    const next = [...points];
-    [next[index], next[index + offset]] = [next[index + offset], next[index]];
-    setPoints(next);
-  };
-  const valid = points.every((point) => Object.values(point).every(Number.isFinite));
-  return <Stack gap="xs">
-    <Group justify="space-between">
-      <Text size="sm" fw={500}>Spline points ({points.length})</Text>
-      <Button size="xs" variant="default" leftSection={<PlusIcon size={14} />} disabled={disabled}
-        onClick={() => setPoints([...points, { ...(points.at(-1) ?? { x: 0, y: 0, z: 0, w: 0 }) }])}>
-        Add point
-      </Button>
-    </Group>
-    {points.map((point, index) => <Group key={index} align="flex-end" wrap="nowrap">
-      {(['x', 'y', 'z', 'w'] as const).map((axis) => <NumberInput
-        key={axis}
-        label={`${index} ${axis.toUpperCase()}`}
-        value={point[axis]}
-        disabled={disabled}
-        onChange={(value) => update(index, axis, value)}
-        style={{ minWidth: 0 }}
-      />)}
-      <ActionIcon variant="default" disabled={disabled || index === 0} aria-label={`Move point ${index} up`}
-        onClick={() => move(index, -1)}><ArrowUpIcon size={16} /></ActionIcon>
-      <ActionIcon variant="default" disabled={disabled || index === points.length - 1}
-        aria-label={`Move point ${index} down`} onClick={() => move(index, 1)}>
-        <ArrowDownIcon size={16} />
-      </ActionIcon>
-      <ActionIcon color="red" variant="subtle" disabled={disabled} aria-label={`Delete point ${index}`}
-        onClick={() => setPoints(points.filter((_, pointIndex) => pointIndex !== index))}>
-        <TrashIcon size={16} />
-      </ActionIcon>
-    </Group>)}
-    <Text size="xs" c="dimmed">
-      W is gameplay metadata: some camera paths use positive marker values, while other systems replace it with segment length.
-    </Text>
-    <Button disabled={disabled || !valid || JSON.stringify(points) === signature} onClick={() => void execute({
-      id: crypto.randomUUID(), kind: 'updateSplinePoints', entityIds: [entity.id], points,
-    })}>Apply spline points</Button>
-    {!valid && <Text size="xs" c="red">Point values must be finite.</Text>}
-  </Stack>;
-}
-
-function VectorInputs({ label, value, disabled, onChange }: {
-  label: string;
-  value: ProjectVector3;
-  disabled: boolean;
-  onChange(value: ProjectVector3): void;
-}) {
-  return <Group grow wrap="nowrap">
-    {(['x', 'y', 'z'] as const).map((axis) => <NumberInput
-      key={axis}
-      label={`${label} ${axis.toUpperCase()}`}
-      value={value[axis]}
-      disabled={disabled}
-      onChange={(next) => onChange({ ...value, [axis]: typeof next === 'number' ? next : Number.NaN })}
-    />)}
-  </Group>;
-}
-
-function QuaternionInputs({ value, disabled, onChange }: {
-  value: ProjectQuaternion;
-  disabled: boolean;
-  onChange(value: ProjectQuaternion): void;
-}) {
-  return <Group grow wrap="nowrap">
-    {(['x', 'y', 'z', 'w'] as const).map((axis) => <NumberInput
-      key={axis}
-      label={`Rotation ${axis.toUpperCase()}`}
-      value={value[axis]}
-      disabled={disabled}
-      onChange={(next) => onChange({ ...value, [axis]: typeof next === 'number' ? next : Number.NaN })}
-    />)}
-  </Group>;
-}
-
-function cloneTransform(value: ProjectTransform): ProjectTransform {
-  return {
-    position: { ...value.position },
-    rotation: { ...value.rotation },
-    scale: { ...value.scale },
-  };
 }
 
 export function DiagnosticsPanel() {

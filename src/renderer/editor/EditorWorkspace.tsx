@@ -3,8 +3,7 @@ import type { DockviewApi, DockviewReadyEvent } from 'dockview-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { KeybindingMap } from '../../types/Keybindings.js';
-import type { EditorSnapshot } from '../../types/EditorRuntime.js';
-import type { EditorCommand } from '../../types/EditorRuntime.js';
+import type { EditorCommand, EditorSnapshot, ProjectVector4 } from '../../types/EditorRuntime.js';
 import type { SceneTreeColors } from '../../types/SceneTree.js';
 import type {
   BuildPatchProgress,
@@ -15,7 +14,10 @@ import type {
   EditorTerrainSource,
   ForgeHostStatus,
 } from '../../types/ForgeApi.js';
+import { isTextInput } from '../../utils/Dom.ts';
 import { errorMessage } from '../../utils/Errors.ts';
+import { findKeybindingCommand, forgeActionForKeybinding } from '../../utils/Keybindings.ts';
+import { parseSplinePointId, removeSplinePoints, splinePointId } from '../../utils/SplinePoints.ts';
 import { EditorContext } from './EditorContext.ts';
 import { BuildPanel } from './BuildPanel.tsx';
 import {
@@ -74,6 +76,8 @@ export function EditorWorkspace({
   const [sceneLoad, setSceneLoad] = useState<EditorLoadProgress>();
   const [skyPieces, setSkyPieces] = useState<string[]>([]);
   const [cameraFocus, setCameraFocus] = useState<{ entityId: string }>();
+  const [splinePointSelection, setSplinePointSelection] = useState<string[]>([]);
+  const splinePointClipboard = useRef<ProjectVector4[]>([]);
   const [showOcclusionOctants, setShowOcclusionOctants] = useState(false);
   const onReady = useCallback((event: DockviewReadyEvent) => setApi(event.api), []);
 
@@ -82,6 +86,8 @@ export function EditorWorkspace({
     setTerrain(undefined);
     setSkyPieces([]);
     setCameraFocus(undefined);
+    setSplinePointSelection([]);
+    splinePointClipboard.current = [];
     setSceneLoad({ status: 'loading', label: 'Preparing UYA render package…', completed: 0, total: 1 });
     const stopProgress = window.forge.onEditorTerrainProgress((progress) => {
       if (!disposed) setSceneLoad({ status: 'loading', label: 'Preparing UYA render package…', ...progress });
@@ -194,6 +200,64 @@ export function EditorWorkspace({
     }
   }, [onProjectChange]);
 
+  const execute = useCallback(async (command: EditorCommand) => {
+    setError(undefined);
+    try {
+      onProjectChange(await window.forge.executeEditorCommand(command));
+      return true;
+    }
+    catch (cause) {
+      setError(errorMessage(cause));
+      return false;
+    }
+  }, [onProjectChange]);
+
+  useEffect(() => {
+    if (!splinePointSelection.length) return;
+    const keyDown = (event: KeyboardEvent) => {
+      if (event.repeat || isTextInput(event.target) || document.querySelector('[role="dialog"]')) return;
+      const action = forgeActionForKeybinding(findKeybindingCommand(keybindings, event, 'global'));
+      if (!['copyEntities', 'pasteEntities', 'deleteEntities'].includes(action ?? '')) return;
+      const references = splinePointSelection.map(parseSplinePointId).filter((value) => value !== undefined);
+      const entityId = references.at(-1)?.entityId;
+      const entity = project.entities.find((value) => value.id === entityId && value.geometry?.kind === 'spline');
+      if (!entity || action !== 'copyEntities' && (entity.state.locked || entity.state.readOnly)) return;
+      const selected = new Set(references.filter((value) => value.entityId === entity.id).map((value) => value.index));
+      if (action === 'copyEntities' && window.getSelection()?.toString()) return;
+      if (action === 'pasteEntities' && splinePointClipboard.current.length === 0) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (action === 'copyEntities') {
+        splinePointClipboard.current = entity.geometry!.points
+          .filter((_, index) => selected.has(index))
+          .map((point) => ({ ...point }));
+        return;
+      }
+      if (action === 'pasteEntities') {
+        const insertAt = Math.max(...selected) + 1;
+        const copied = splinePointClipboard.current.map((point) => ({ ...point }));
+        const points = [...entity.geometry!.points.slice(0, insertAt), ...copied,
+          ...entity.geometry!.points.slice(insertAt)];
+        void execute({
+          id: crypto.randomUUID(), kind: 'updateSplinePoints', entityIds: [entity.id], points,
+        }).then((committed) => {
+          if (committed) setSplinePointSelection(copied.map((_, index) => splinePointId(entity.id, insertAt + index)));
+        });
+        return;
+      }
+      void execute({
+        id: crypto.randomUUID(), kind: 'updateSplinePoints', entityIds: [entity.id],
+        points: removeSplinePoints(entity.geometry!.points, selected),
+      }).then(async (committed) => {
+        if (!committed) return;
+        if (await execute({ id: crypto.randomUUID(), kind: 'setSelection', entityIds: [entity.id] }))
+          setSplinePointSelection([]);
+      });
+    };
+    window.addEventListener('keydown', keyDown, true);
+    return () => window.removeEventListener('keydown', keyDown, true);
+  }, [execute, keybindings, project.entities, splinePointSelection]);
+
   const context = useMemo(() => ({
     project,
     keybindings,
@@ -205,6 +269,8 @@ export function EditorWorkspace({
     setSkyPieces,
     cameraFocus,
     setCameraFocus,
+    splinePointSelection,
+    setSplinePointSelection,
     showViewportStats,
     showOcclusionOctants,
     setShowOcclusionOctants,
@@ -214,17 +280,7 @@ export function EditorWorkspace({
     buildResult,
     build: buildAndPatch,
     cancelBuild: () => window.forge.cancelBuildAndPatch(),
-    execute: async (command: EditorCommand) => {
-      setError(undefined);
-      try {
-        onProjectChange(await window.forge.executeEditorCommand(command));
-        return true;
-      }
-      catch (cause) {
-        setError(errorMessage(cause));
-        return false;
-      }
-    },
+    execute,
     save: async () => {
       setBusy(true);
       setError(undefined);
@@ -232,8 +288,9 @@ export function EditorWorkspace({
       catch (cause) { setError(errorMessage(cause)); }
       finally { setBusy(false); }
     },
-  }), [buildAndPatch, buildProgress, buildResult, busy, cameraFocus, hostStatus, keybindings, onProjectChange,
-    project, sceneLoad, sceneTreeColors, showOcclusionOctants, showViewportStats, skyPieces, terrain]);
+  }), [buildAndPatch, buildProgress, buildResult, busy, cameraFocus, execute, hostStatus, keybindings,
+    project, sceneLoad, sceneTreeColors, showOcclusionOctants, showViewportStats, skyPieces, splinePointSelection,
+    terrain]);
 
   return <EditorContext.Provider value={context}>
     <div className="editor-workspace">

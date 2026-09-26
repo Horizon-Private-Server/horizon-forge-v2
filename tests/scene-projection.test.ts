@@ -3,6 +3,7 @@ import test from 'node:test';
 import * as THREE from 'three';
 import { Line2 } from 'three/addons/lines/Line2.js';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
+import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 
 import { SceneProjection } from '../src/renderer/editor/SceneProjection.ts';
 import { buildGroundPlacement } from '../src/renderer/editor/ScenePlacement.ts';
@@ -25,6 +26,7 @@ import {
   createPs2OpaquePassMaterial,
 } from '../src/utils/Ps2Materials.ts';
 import { projectTransformToSceneMatrix, sceneMatrixToProjectTransform } from '../src/utils/Transforms.ts';
+import { splinePointId, transformSplinePoints } from '../src/utils/SplinePoints.ts';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 function entity(id: string, x = 0, asset = true, state: Partial<EditorEntity['state']> = {}): EditorEntity {
@@ -91,6 +93,7 @@ test('scene projection converts PS2 Z-up transforms to Three.js Y-up', () => {
 
 test('scene projection renders decoded geometry and lighting markers', () => {
   const projection = new SceneProjection();
+  projection.setViewportSize(1000, 1000);
   projection.setGeometryColors({
     ...DEFAULT_SCENE_TREE_COLORS,
     cuboid: '#112233',
@@ -167,6 +170,15 @@ test('scene projection renders decoded geometry and lighting markers', () => {
   assert.equal((line.material as LineMaterial).color.getHexString(), '445566');
   assert.equal((line.material as LineMaterial).linewidth, 5);
   assert.equal((line.material as LineMaterial).fog, false);
+  const splineNodes = line.children.find((child) => child instanceof THREE.Points) as THREE.Points;
+  assert.ok(splineNodes instanceof THREE.Points);
+  assert.equal((splineNodes.material as THREE.PointsMaterial).size, 12);
+  assert.equal((splineNodes.material as THREE.PointsMaterial).sizeAttenuation, false);
+  assert.equal((splineNodes.material as THREE.PointsMaterial).color.getHexString(), '445566');
+  assert.deepEqual(Array.from(splineNodes.geometry.getAttribute('position').array), [1, 3, -2, 5, 7, -6]);
+  assert.equal(projection.resolvePick([{
+    object: splineNodes, index: 1,
+  } as unknown as THREE.Intersection]), splinePointId('spline', 1));
   assert.deepEqual(Array.from(line.geometry.getAttribute('instanceStart').array), [1, 3, -2, 5, 7, -6]);
   assert.deepEqual(projection.getWorldVertices(['spline']).map((point) => point.toArray()), [
     [1, 3, -2], [5, 7, -6],
@@ -197,20 +209,45 @@ test('scene projection renders decoded geometry and lighting markers', () => {
     .color.getHexString(), 'abcdef');
   assert.equal(((projection.getObject('environment-transition') as THREE.Mesh).material as THREE.MeshBasicMaterial)
     .color.getHexString(), 'fedcba');
-  assert.equal(((projection.getObject('camera') as THREE.Mesh).material as THREE.MeshBasicMaterial)
-    .color.getHexString(), '1122aa');
+  const cameraObject = projection.getObject('camera') as THREE.Mesh;
+  assert.equal((cameraObject.material as THREE.MeshBasicMaterial).color.getHexString(), '1122aa');
+  assert.equal(projection.resolvePick([
+    { object: cameraObject }, { object: splineNodes, index: 1 },
+  ] as unknown as THREE.Intersection[]), 'camera');
   const soundObject = projection.getObject('ambient-sound') as THREE.Mesh;
   assert.equal((soundObject.material as THREE.MeshBasicMaterial).color.getHexString(), 'aa22aa');
   assert.equal(soundObject.geometry.type, 'BoxGeometry');
   assert.deepEqual(soundObject.scale.toArray(), [2, 4, 3]);
   assert.equal((soundObject.material as THREE.MeshBasicMaterial).fog, false);
   assert.equal((directionalObject.material as THREE.LineBasicMaterial).fog, false);
+  projection.sync(entities, ['spline']);
+  assert.equal((splineNodes.material as THREE.PointsMaterial).color.getHexString(), '22d3ee');
+  projection.sync(entities, [splinePointId('spline', 1)]);
+  const selectedSplineNodes = line.children.find(
+    (child) => child instanceof THREE.Points && child !== splineNodes,
+  ) as THREE.Points;
+  assert.deepEqual(Array.from(selectedSplineNodes.geometry.getAttribute('position').array), [5, 7, -6]);
   projection.sync(entities, ['area']);
   assert.equal((areaObject.material as THREE.MeshBasicMaterial).fog, false);
   projection.root.updateMatrixWorld(true);
-  const insideArea = new THREE.Raycaster(areaObject.position.clone(), new THREE.Vector3(1, 0, 0));
+  const insideCamera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
+  insideCamera.position.copy(areaObject.position);
+  insideCamera.lookAt(areaObject.position.clone().add(new THREE.Vector3(1, 0, 0)));
+  insideCamera.updateMatrixWorld();
+  const insideArea = new THREE.Raycaster();
+  insideArea.setFromCamera(new THREE.Vector2(), insideCamera);
   assert.equal(projection.resolvePick(insideArea.intersectObject(areaObject)), 'area');
   projection.dispose();
+});
+
+test('spline point transforms preserve unselected points and gameplay metadata', () => {
+  const points = [{ x: 0, y: 0, z: 0, w: 7 }, { x: 4, y: 5, z: 6, w: 8 }];
+  const transform = {
+    position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 }, scale: { x: 1, y: 1, z: 1 },
+  };
+  const result = transformSplinePoints(points, new Set([0]), transform,
+    new THREE.Matrix4().makeTranslation(1, 2, 3));
+  assert.deepEqual(result, [{ x: 1, y: -3, z: 2, w: 7 }, points[1]]);
 });
 
 test('spline picking matches its five-pixel visible stroke', () => {
@@ -280,6 +317,38 @@ test('scene projection applies entity states and picks the nearest eligible enti
   })) as unknown as THREE.Intersection[];
   assert.equal(projection.resolvePick(intersections), normal.id);
   assert.equal(projection.resolvePick(intersections.slice(0, 3)), undefined);
+  projection.dispose();
+});
+
+test('enclosing wireframe volumes do not block picking their contents', () => {
+  const projection = new SceneProjection();
+  projection.setViewportSize(1000, 1000);
+  const volume = entity('volume');
+  volume.geometry = { kind: 'ambientSound', points: [] };
+  const spline = entity('spline');
+  spline.geometry = { kind: 'spline', points: [{ x: 0, y: 0, z: 0, w: 0 }] };
+  projection.sync([volume, spline]);
+  const volumeObject = projection.getObject(volume.id)!;
+  const edgePicker = volumeObject.children.find((child) => child instanceof LineSegments2)!;
+  const volumeHit = { object: volumeObject } as THREE.Intersection;
+  const splineHit = { object: projection.getObject(spline.id)! } as THREE.Intersection;
+
+  assert.equal(projection.resolvePick([volumeHit, splineHit]), spline.id);
+  assert.equal(projection.resolvePick([volumeHit]), volume.id);
+  const edgeHit = { object: edgePicker } as unknown as THREE.Intersection;
+  assert.equal(projection.resolvePick([edgeHit, splineHit]), volume.id);
+
+  volumeObject.updateMatrixWorld(true);
+  const camera = new THREE.PerspectiveCamera(120, 1, 0.1, 10);
+  camera.position.copy(volumeObject.position);
+  camera.lookAt(volumeObject.localToWorld(new THREE.Vector3(0, 0, -1)));
+  camera.updateMatrixWorld();
+  const corner = volumeObject.localToWorld(new THREE.Vector3(1, 1, -1)).project(camera);
+  const raycaster = new THREE.Raycaster();
+  raycaster.setFromCamera(new THREE.Vector2(corner.x, corner.y), camera);
+  const edgeHits = raycaster.intersectObject(edgePicker);
+  assert.ok(edgeHits.length > 0);
+  assert.equal(projection.resolvePick(edgeHits), volume.id);
   projection.dispose();
 });
 

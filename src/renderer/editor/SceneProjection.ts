@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { Line2 } from 'three/addons/lines/Line2.js';
 import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
+import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
+import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 import type { EditorEntity } from '../../types/EditorRuntime.js';
@@ -9,18 +11,25 @@ import type { SceneTreeColors } from '../../types/SceneTree.js';
 import { createPs2OpaquePassMaterial } from '../../utils/Ps2Materials.ts';
 import { ps2PositionToScene } from '../../utils/Scene.ts';
 import { DEFAULT_SCENE_TREE_COLORS } from '../../utils/SceneTreeColors.ts';
+import { parseSplinePointId, splinePointId } from '../../utils/SplinePoints.ts';
 
 const ENTITY_ID_KEY = 'forgeEntityId';
 const INSTANCE_IDS_KEY = 'forgeInstanceIds';
 const MIRRORED_BATCH_KEY = 'forgeMirroredBatch';
 const OWNED_GEOMETRY_KEY = 'forgeOwnedGeometry';
+const PICK_THROUGH_KEY = 'forgePickThrough';
 const PROJECTION_KEY = 'forgeProjectionKey';
+const SPLINE_NODES_KEY = 'forgeSplineNodes';
+const SPLINE_SELECTED_NODES_KEY = 'forgeSelectedSplineNodes';
+const VOLUME_EDGE_PICKER_KEY = 'forgeVolumeEdgePicker';
 const PS2_TO_SCENE_ROTATION = new THREE.Quaternion(-Math.SQRT1_2, 0, 0, Math.SQRT1_2);
 const SCENE_TO_PS2_ROTATION = PS2_TO_SCENE_ROTATION.clone().invert();
 const NORMAL_COLOR = new THREE.Color(0xffffff);
 const SELECTED_COLOR = new THREE.Color(0x22d3ee);
 const INSTANCE_MIRROR = new THREE.Matrix4().makeScale(-1, 1, 1);
 const SPLINE_LINE_WIDTH = 5;
+const SPLINE_NODE_SIZE = 12;
+const VOLUME_PICK_WIDTH = 8;
 
 interface InstancedAsset {
   root: THREE.Group;
@@ -42,6 +51,11 @@ export class SceneProjection {
   private readonly pillGeometry = new THREE.CapsuleGeometry(0.5, 1, 4, 8).scale(2, 1, 2);
   private readonly environmentSampleGeometry = new THREE.OctahedronGeometry(1);
   private readonly cameraGeometry = new THREE.ConeGeometry(2, 4, 4).rotateX(Math.PI / 2);
+  private readonly cuboidPickerGeometry = createEdgePickerGeometry(this.cuboidGeometry);
+  private readonly areaPickerGeometry = createEdgePickerGeometry(this.areaGeometry);
+  private readonly cylinderPickerGeometry = createEdgePickerGeometry(this.cylinderGeometry);
+  private readonly pillPickerGeometry = createEdgePickerGeometry(this.pillGeometry);
+  private readonly splineNodeTexture = createSplineNodeTexture();
   private readonly assetMaterial = new THREE.MeshBasicMaterial({ color: 0x4363d8, wireframe: true, fog: false });
   private readonly modelLessMaterial = new THREE.MeshBasicMaterial({ color: 0xf032e6, wireframe: true, fog: false });
   private readonly cuboidMaterial = new THREE.MeshBasicMaterial({ wireframe: true, fog: false });
@@ -50,6 +64,9 @@ export class SceneProjection {
   private readonly cylinderMaterial = new THREE.MeshBasicMaterial({ wireframe: true, fog: false, side: THREE.DoubleSide });
   private readonly pillMaterial = new THREE.MeshBasicMaterial({ wireframe: true, fog: false, side: THREE.DoubleSide });
   private readonly splineMaterial = new LineMaterial({ linewidth: SPLINE_LINE_WIDTH, fog: false });
+  private readonly splineNodeMaterial = new THREE.PointsMaterial({
+    alphaTest: 0.5, fog: false, map: this.splineNodeTexture, size: SPLINE_NODE_SIZE, sizeAttenuation: false,
+  });
   private readonly grindPathMaterial = new LineMaterial({ linewidth: SPLINE_LINE_WIDTH, fog: false });
   private readonly directionalLightMaterial = new THREE.LineBasicMaterial({ fog: false });
   private readonly pointLightMaterial = new THREE.MeshBasicMaterial({ wireframe: true, fog: false });
@@ -57,6 +74,7 @@ export class SceneProjection {
   private readonly environmentTransitionMaterial = new THREE.MeshBasicMaterial({ wireframe: true, fog: false });
   private readonly cameraMaterial = new THREE.MeshBasicMaterial({ wireframe: true, fog: false });
   private readonly ambientSoundMaterial = new THREE.MeshBasicMaterial({ wireframe: true, fog: false });
+  private readonly volumePickerMaterial = new LineMaterial({ linewidth: VOLUME_PICK_WIDTH, visible: false });
   private readonly failedMaterial = new THREE.MeshBasicMaterial({ color: 0xe6194b, wireframe: true, fog: false });
   private readonly selectedMaterial = new THREE.MeshBasicMaterial({
     color: SELECTED_COLOR, wireframe: true, fog: false, side: THREE.DoubleSide,
@@ -66,6 +84,10 @@ export class SceneProjection {
   });
   private readonly selectedSplineMaterial = new LineMaterial({
     color: SELECTED_COLOR, linewidth: SPLINE_LINE_WIDTH, fog: false,
+  });
+  private readonly selectedSplineNodeMaterial = new THREE.PointsMaterial({
+    alphaTest: 0.5, color: SELECTED_COLOR, fog: false, map: this.splineNodeTexture,
+    size: SPLINE_NODE_SIZE, sizeAttenuation: false,
   });
   private readonly selectedLineMaterial = new THREE.LineBasicMaterial({ color: SELECTED_COLOR, fog: false });
   private readonly objects = new Map<string, THREE.Object3D>();
@@ -94,6 +116,7 @@ export class SceneProjection {
     this.cylinderMaterial.color.set(colors.cylinder);
     this.pillMaterial.color.set(colors.pill);
     this.splineMaterial.color.set(colors.spline);
+    this.splineNodeMaterial.color.set(colors.spline);
     this.grindPathMaterial.color.set(colors.grindPath);
     this.areaMaterial.color.set(colors.area);
     this.directionalLightMaterial.color.set(colors.directionalLight);
@@ -102,6 +125,10 @@ export class SceneProjection {
     this.environmentTransitionMaterial.color.set(colors.environmentTransition);
     this.cameraMaterial.color.set(colors.camera);
     this.ambientSoundMaterial.color.set(colors.ambientSound);
+  }
+
+  setViewportSize(width: number, height: number): void {
+    this.volumePickerMaterial.resolution.set(Math.max(width, 1), Math.max(height, 1));
   }
 
   setAssetTemplates(templates: ReadonlyMap<string, THREE.Object3D>, failedAssets: ReadonlySet<string> = new Set()): void {
@@ -123,6 +150,14 @@ export class SceneProjection {
   ) {
     if (this.disposed) throw new Error('Scene projection is disposed');
     const selected = new Set(selection);
+    const selectedPoints = new Map<string, number[]>();
+    selection.forEach((value) => {
+      const point = parseSplinePointId(value);
+      if (!point) return;
+      const indices = selectedPoints.get(point.entityId);
+      if (indices) indices.push(point.index);
+      else selectedPoints.set(point.entityId, [point.index]);
+    });
     const staticGroups = new Map<string, EditorEntity[]>();
     const projected = new Set<string>();
     this.pickable.clear();
@@ -158,8 +193,9 @@ export class SceneProjection {
       if (this.updateObject(
         object,
         entity,
-        selected.has(entity.id),
+        selected.has(entity.id) && !selectedPoints.has(entity.id),
         this.isVisible(entity, false, visibleLayers, showMarkers),
+        selectedPoints.get(entity.id) ?? [],
       ) && !isNew) updated += 1;
     }
 
@@ -201,6 +237,11 @@ export class SceneProjection {
   }
 
   getBounds(entityId: string, target = new THREE.Box3()): THREE.Box3 | undefined {
+    const point = parseSplinePointId(entityId);
+    if (point) {
+      const position = this.getSplinePointPosition(point.entityId, point.index, this.position);
+      return position ? target.set(position, position) : undefined;
+    }
     const object = this.objects.get(entityId);
     if (object) return target.setFromObject(object);
     target.makeEmpty();
@@ -228,11 +269,27 @@ export class SceneProjection {
   }
 
   resolvePick(intersections: readonly THREE.Intersection[]): string | undefined {
+    for (let index = 0; index < intersections.length; index += 1) {
+      const intersection = intersections[index];
+      if (!intersection.object.userData[SPLINE_NODES_KEY] || intersection.index === undefined) continue;
+      const entityId = this.resolveEntityId(intersection.object);
+      if (!entityId || !this.pickable.has(entityId)) continue;
+      const blocked = intersections.slice(0, index).some((prior) => {
+        const priorId = this.resolveIntersectionEntityId(prior);
+        return priorId && this.pickable.has(priorId) && priorId !== entityId
+          && (prior.object.userData[VOLUME_EDGE_PICKER_KEY] || !this.isPickThrough(prior.object));
+      });
+      if (!blocked) return splinePointId(entityId, intersection.index);
+    }
+    let fallback: string | undefined;
     for (const intersection of intersections) {
       const id = this.resolveIntersectionEntityId(intersection);
-      if (id && this.pickable.has(id)) return id;
+      if (!id || !this.pickable.has(id)) continue;
+      if (intersection.object.userData[VOLUME_EDGE_PICKER_KEY]) return id;
+      if (!this.isPickThrough(intersection.object)) return id;
+      fallback ??= id;
     }
-    return undefined;
+    return fallback;
   }
 
   resolveIntersectionEntityId(intersection: THREE.Intersection): string | undefined {
@@ -242,8 +299,14 @@ export class SceneProjection {
       : this.resolveEntityId(intersection.object);
   }
 
+  private isPickThrough(object: THREE.Object3D): boolean {
+    for (let current: THREE.Object3D | null = object; current && current !== this.root; current = current.parent)
+      if (current.userData[PICK_THROUGH_KEY]) return true;
+    return false;
+  }
+
   getWorldVertices(entityIds: readonly string[]): THREE.Vector3[] {
-    const selected = new Set(entityIds);
+    const selected = new Set(entityIds.filter((id) => !parseSplinePointId(id)));
     const seen = new Set<string>();
     const vertices: THREE.Vector3[] = [];
     this.root.updateMatrixWorld(true);
@@ -263,10 +326,28 @@ export class SceneProjection {
       const object = this.objects.get(id);
       object?.updateMatrixWorld(true);
       object?.traverse((child) => {
-        if (child instanceof THREE.Mesh) appendWorldVertices(child.geometry, child.matrixWorld, vertices);
+        if (child instanceof THREE.Mesh
+          && !child.userData[SPLINE_NODES_KEY] && !child.userData[VOLUME_EDGE_PICKER_KEY])
+          appendWorldVertices(child.geometry, child.matrixWorld, vertices);
       });
     }
+    entityIds.forEach((id) => {
+      const point = parseSplinePointId(id);
+      if (point) {
+        const position = this.getSplinePointPosition(point.entityId, point.index, new THREE.Vector3());
+        if (position) vertices.push(position);
+      }
+    });
     return vertices;
+  }
+
+  getSplinePointPosition(entityId: string, index: number, target = new THREE.Vector3()): THREE.Vector3 | undefined {
+    const object = this.objects.get(entityId);
+    const nodes = object?.children.find((child) => child.userData[SPLINE_NODES_KEY]);
+    const positions = nodes instanceof THREE.Points ? nodes.geometry.getAttribute('position') : undefined;
+    if (!nodes || !positions || index >= positions.count) return undefined;
+    object!.updateMatrixWorld(true);
+    return target.fromBufferAttribute(positions, index).applyMatrix4(nodes.matrixWorld);
   }
 
   dispose(): void {
@@ -281,6 +362,11 @@ export class SceneProjection {
     this.pillGeometry.dispose();
     this.environmentSampleGeometry.dispose();
     this.cameraGeometry.dispose();
+    this.cuboidPickerGeometry.dispose();
+    this.areaPickerGeometry.dispose();
+    this.cylinderPickerGeometry.dispose();
+    this.pillPickerGeometry.dispose();
+    this.splineNodeTexture.dispose();
     this.assetMaterial.dispose();
     this.modelLessMaterial.dispose();
     this.cuboidMaterial.dispose();
@@ -289,6 +375,7 @@ export class SceneProjection {
     this.cylinderMaterial.dispose();
     this.pillMaterial.dispose();
     this.splineMaterial.dispose();
+    this.splineNodeMaterial.dispose();
     this.grindPathMaterial.dispose();
     this.directionalLightMaterial.dispose();
     this.pointLightMaterial.dispose();
@@ -296,10 +383,12 @@ export class SceneProjection {
     this.environmentTransitionMaterial.dispose();
     this.cameraMaterial.dispose();
     this.ambientSoundMaterial.dispose();
+    this.volumePickerMaterial.dispose();
     this.failedMaterial.dispose();
     this.selectedMaterial.dispose();
     this.selectedGeometryMaterial.dispose();
     this.selectedSplineMaterial.dispose();
+    this.selectedSplineNodeMaterial.dispose();
     this.selectedLineMaterial.dispose();
   }
 
@@ -339,10 +428,19 @@ export class SceneProjection {
       object = new THREE.Mesh(this.cuboidGeometry, this.ambientSoundMaterial);
     } else if (entity.geometry?.kind === 'spline' || entity.geometry?.kind === 'grindPath') {
       const points = entity.geometry.points.map((point) => ps2PositionToScene(point, new THREE.Vector3()));
-      object = new Line2(
+      const line = new Line2(
         new LineGeometry().setFromPoints(points),
         entity.geometry.kind === 'grindPath' ? this.grindPathMaterial : this.splineMaterial,
       );
+      if (entity.geometry.kind === 'spline' && points.length > 0) {
+        const nodes = new THREE.Points(new THREE.BufferGeometry().setFromPoints(points), this.splineNodeMaterial);
+        nodes.userData[SPLINE_NODES_KEY] = true;
+        const selectedNodes = new THREE.Points(new THREE.BufferGeometry(), this.selectedSplineNodeMaterial);
+        selectedNodes.raycast = () => {};
+        selectedNodes.userData[SPLINE_SELECTED_NODES_KEY] = true;
+        line.add(nodes, selectedNodes);
+      }
+      object = line;
       object.userData[OWNED_GEOMETRY_KEY] = true;
     } else if (entity.geometry?.kind === 'directionalLight') {
       const points = entity.geometry.points.map((point) => ps2PositionToScene(point, new THREE.Vector3()));
@@ -351,23 +449,48 @@ export class SceneProjection {
     } else {
       object = new THREE.Mesh(this.geometry, this.materialFor(entity, false));
     }
+    const pickerGeometry = this.volumePickerGeometry(entity);
+    if (pickerGeometry) {
+      const picker = new LineSegments2(pickerGeometry, this.volumePickerMaterial);
+      picker.userData[VOLUME_EDGE_PICKER_KEY] = true;
+      object.add(picker);
+    }
     object.userData[ENTITY_ID_KEY] = entity.id;
+    object.userData[PICK_THROUGH_KEY] = entity.geometry !== undefined
+      && ['cuboid', 'sphere', 'cylinder', 'pill', 'area', 'pointLight', 'environmentTransition', 'ambientSound']
+        .includes(entity.geometry.kind);
     object.userData[PROJECTION_KEY] = key;
     return object;
   }
 
-  private updateObject(object: THREE.Object3D, entity: EditorEntity, selected: boolean, visible: boolean): boolean {
+  private updateObject(
+    object: THREE.Object3D,
+    entity: EditorEntity,
+    selected: boolean,
+    visible: boolean,
+    selectedPointIndices: readonly number[],
+  ): boolean {
     this.projectedMatrix(entity);
     const marker = object.children.find((child) => child.userData.selectionMarker);
+    const splineNodes = object.children.find((child) => child.userData[SPLINE_NODES_KEY]) as
+      THREE.Points | undefined;
+    const selectedSplineNodes = object.children.find((child) => child.userData[SPLINE_SELECTED_NODES_KEY]) as
+      THREE.Points | undefined;
     const material = !marker && (object instanceof THREE.Mesh || object instanceof THREE.Line)
       ? this.materialFor(entity, selected)
       : undefined;
+    const nodeMaterial = splineNodes
+      ? selected ? this.selectedSplineNodeMaterial : this.splineNodeMaterial
+      : undefined;
+    const pointSelection = selectedPointIndices.join(',');
     const changed = object.name !== entity.name
       || object.visible !== visible
       || !object.position.equals(this.position)
       || !object.quaternion.equals(this.projectedRotation)
       || !object.scale.equals(this.scale)
       || material !== undefined && (object as THREE.Mesh).material !== material
+      || nodeMaterial !== undefined && splineNodes!.material !== nodeMaterial
+      || selectedSplineNodes !== undefined && selectedSplineNodes.userData.pointSelection !== pointSelection
       || marker !== undefined && marker.visible !== selected;
     object.name = entity.name;
     object.visible = visible;
@@ -376,8 +499,32 @@ export class SceneProjection {
     object.scale.copy(this.scale);
     if (marker) marker.visible = selected;
     else if ((object instanceof THREE.Mesh || object instanceof THREE.Line) && material) object.material = material;
+    if (splineNodes && nodeMaterial) splineNodes.material = nodeMaterial;
+    if (splineNodes && selectedSplineNodes && selectedSplineNodes.userData.pointSelection !== pointSelection) {
+      const positions = splineNodes.geometry.getAttribute('position');
+      const indices = selectedPointIndices.filter((index) => index < positions.count);
+      const selectedPositions = new Float32Array(indices.length * 3);
+      indices.forEach((index, selectedIndex) => {
+        selectedPositions[selectedIndex * 3] = positions.getX(index);
+        selectedPositions[selectedIndex * 3 + 1] = positions.getY(index);
+        selectedPositions[selectedIndex * 3 + 2] = positions.getZ(index);
+      });
+      selectedSplineNodes.geometry.setAttribute('position', new THREE.BufferAttribute(selectedPositions, 3));
+      selectedSplineNodes.geometry.computeBoundingSphere();
+      selectedSplineNodes.userData.pointSelection = pointSelection;
+    }
     object.updateMatrix();
     return changed;
+  }
+
+  private volumePickerGeometry(entity: EditorEntity): LineSegmentsGeometry | undefined {
+    switch (entity.geometry?.kind) {
+      case 'cuboid': case 'environmentTransition': case 'ambientSound': return this.cuboidPickerGeometry;
+      case 'sphere': case 'area': case 'pointLight': return this.areaPickerGeometry;
+      case 'cylinder': return this.cylinderPickerGeometry;
+      case 'pill': return this.pillPickerGeometry;
+      default: return undefined;
+    }
   }
 
   private updateInstances(
@@ -468,9 +615,40 @@ export class SceneProjection {
 
   private removeObject(object: THREE.Object3D): void {
     object.removeFromParent();
+    object.traverse((child) => {
+      if (child instanceof THREE.Points
+        && (child.userData[SPLINE_NODES_KEY] || child.userData[SPLINE_SELECTED_NODES_KEY])) child.geometry.dispose();
+    });
     if (object.userData[OWNED_GEOMETRY_KEY] && (object instanceof THREE.Line || object instanceof THREE.Mesh))
       object.geometry.dispose();
   }
+}
+
+function createEdgePickerGeometry(source: THREE.BufferGeometry): LineSegmentsGeometry {
+  const edges = new THREE.EdgesGeometry(source);
+  const geometry = new LineSegmentsGeometry().fromEdgesGeometry(edges);
+  edges.dispose();
+  return geometry;
+}
+
+function createSplineNodeTexture(): THREE.DataTexture {
+  const size = 32;
+  const data = new Uint8Array(size * size * 4);
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const dx = (x + 0.5) / size * 2 - 1;
+      const dy = (y + 0.5) / size * 2 - 1;
+      const radiusSquared = dx * dx + dy * dy;
+      if (radiusSquared > 1) continue;
+      const shade = 0.65 + Math.sqrt(1 - radiusSquared) * 0.35;
+      const offset = (y * size + x) * 4;
+      data[offset] = data[offset + 1] = data[offset + 2] = Math.round(shade * 255);
+      data[offset + 3] = 255;
+    }
+  }
+  const texture = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
+  texture.needsUpdate = true;
+  return texture;
 }
 
 function createInstancedAsset(

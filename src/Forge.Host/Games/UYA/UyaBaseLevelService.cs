@@ -477,7 +477,7 @@ internal static class UyaBaseLevelService
             transform,
             Reference(assets, classId, kind),
             new("UYA", level, section, index),
-            Source: new(classId, rawRecord));
+            Source: new(classId, rawRecord, SourceIndex: index));
     }
 
     internal static ProjectTransform? Decompose(UyaInstanceTransform value)

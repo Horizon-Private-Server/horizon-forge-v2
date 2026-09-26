@@ -12,6 +12,7 @@ import {
   nextViewportSelection,
 } from '../src/renderer/editor/EditorPanelState.ts';
 import type { EditorEntity } from '../src/types/EditorRuntime.js';
+import { parseSplinePointId, removeSplinePoints, splinePointId } from '../src/utils/SplinePoints.ts';
 
 function entity(index: number): EditorEntity {
   return {
@@ -110,4 +111,15 @@ test('viewport selection replaces, adds, toggles, and clears predictably', () =>
   assert.deepEqual(nextViewportSelection(['a', 'b'], 'a', { toggle: true, add: false }), ['b']);
   assert.deepEqual(nextViewportSelection(['a'], undefined, { toggle: false, add: false }), []);
   assert.deepEqual(nextViewportSelection(['a'], undefined, { toggle: true, add: false }), ['a']);
+});
+
+test('spline point tree IDs round-trip without constraining entity IDs', () => {
+  const value = splinePointId('entity:with:colons', 42);
+  assert.deepEqual(parseSplinePointId(value), { entityId: 'entity:with:colons', index: 42 });
+  assert.equal(parseSplinePointId('entity'), undefined);
+  assert.deepEqual(removeSplinePoints([
+    { x: 0, y: 0, z: 0, w: 0 },
+    { x: 1, y: 1, z: 1, w: 1 },
+    { x: 2, y: 2, z: 2, w: 2 },
+  ], new Set([0, 2])), [{ x: 1, y: 1, z: 1, w: 1 }]);
 });

@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-import type { EditorEntity, EditorTransformUpdate } from '../../types/EditorRuntime.js';
+import type { EditorEntity, EditorTransformUpdate, ProjectVector4 } from '../../types/EditorRuntime.js';
 import type { KeybindingMap } from '../../types/Keybindings.js';
 import type { SceneTreeColors } from '../../types/SceneTree.js';
 import type { EditorLoadProgress, EditorSceneEnvironment, EditorTerrainSource } from '../../types/ForgeApi.js';
@@ -48,6 +48,7 @@ interface SceneViewportProps {
   onSkyPiecesChange(values: string[]): void;
   onSelectionChange(values: string[]): void;
   onTransformsCommit(values: EditorTransformUpdate[]): Promise<boolean>;
+  onSplinePointsCommit(entityId: string, points: ProjectVector4[]): Promise<boolean>;
 }
 
 export function SceneViewport({
@@ -66,6 +67,7 @@ export function SceneViewport({
   onSkyPiecesChange,
   onSelectionChange,
   onTransformsCommit,
+  onSplinePointsCommit,
 }: SceneViewportProps) {
   const container = useRef<HTMLDivElement>(null);
   const [mode, setMode] = useState<EditorTransformMode>('select');
@@ -87,6 +89,7 @@ export function SceneViewport({
   const loadProgressChanged = useRef(onLoadProgress);
   const selectionChanged = useRef(onSelectionChange);
   const transformsCommitted = useRef(onTransformsCommit);
+  const splinePointsCommitted = useRef(onSplinePointsCommit);
   currentSelection.current = selection;
   currentEntities.current = entities;
   currentKeybindings.current = keybindings;
@@ -96,6 +99,7 @@ export function SceneViewport({
   loadProgressChanged.current = onLoadProgress;
   selectionChanged.current = onSelectionChange;
   transformsCommitted.current = onTransformsCommit;
+  splinePointsCommitted.current = onSplinePointsCommit;
   const viewport = useRef<{
     projection: SceneProjection;
     scene: THREE.Scene;
@@ -172,6 +176,16 @@ export function SceneViewport({
               currentEntities.current,
               currentSelection.current,
             );
+            transformTool.sync(currentEntities.current, currentSelection.current, currentProjection);
+          });
+        });
+      },
+      commitSplinePoints: (entityId, points) => {
+        void splinePointsCommitted.current(entityId, points).then((committed) => {
+          if (committed) return;
+          requestAnimationFrame(() => {
+            if (viewport.current?.projection !== currentProjection) return;
+            currentProjection.sync(currentEntities.current, currentSelection.current);
             transformTool.sync(currentEntities.current, currentSelection.current, currentProjection);
           });
         });
@@ -357,6 +371,7 @@ export function SceneViewport({
       camera.aspect = clientWidth / Math.max(clientHeight, 1);
       camera.updateProjectionMatrix();
       renderer.setSize(clientWidth, clientHeight, false);
+      currentProjection.setViewportSize(clientWidth, clientHeight);
     };
 
     const observer = new ResizeObserver(resize);

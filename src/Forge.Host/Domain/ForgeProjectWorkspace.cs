@@ -251,6 +251,10 @@ public sealed class ForgeProjectWorkspace
             Name = entity.Name.Length <= 251 ? $"{entity.Name} copy" : $"{entity.Name[..251]} copy",
             Provenance = null,
             State = (entity.State ?? new()) with { Locked = false },
+            Source = entity.Source is null ? null : entity.Source with
+            {
+                SourceIndex = entity.Source.SourceIndex ?? entity.Provenance?.SourceIndex,
+            },
         }).ToArray();
         Content = Content with { Entities = Content.Entities.Concat(copies).ToArray() };
         return copies;
@@ -535,6 +539,8 @@ public sealed class ForgeProjectWorkspace
             {
                 if (entity.Source.ClassId < 0 || entity.Source.RawRecord is null || entity.Source.RawRecord.Length is 0 or > 4_096)
                     throw new InvalidDataException($"Entity {entity.EntityId} source record is invalid.");
+                if (entity.Source.SourceIndex < 0)
+                    throw new InvalidDataException($"Entity {entity.EntityId} source index cannot be negative.");
             }
             ValidateGeometry(entity, Content.Entities);
             ValidateLighting(entity);
@@ -686,8 +692,9 @@ public sealed class ForgeProjectWorkspace
                 throw new InvalidDataException($"Entity {entity.EntityId} environment transition is invalid.");
         }
         if (entity.TieLighting is not null
-            && (entity.Provenance?.Section != "gameplay/core/tie_instances"
-                || entity.Source is null || entity.TieLighting.AmbientRgbas is null
+            && (entity.Layer != "ties" || entity.Source is null
+                || entity.Provenance is not null && entity.Provenance.Section != "gameplay/core/tie_instances"
+                || entity.TieLighting.AmbientRgbas is null
                 || entity.TieLighting.AmbientRgbas.Length % 2 != 0))
             throw new InvalidDataException($"Entity {entity.EntityId} tie lighting is invalid.");
     }

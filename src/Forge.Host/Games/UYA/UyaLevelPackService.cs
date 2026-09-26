@@ -1,4 +1,5 @@
 using Forge.Host.Domain;
+using System.Buffers.Binary;
 using System.Security.Cryptography;
 using RatchetPs2.Core.Games;
 using RatchetPs2.Core.IO;
@@ -6,6 +7,7 @@ using RatchetPs2.Core.LevelAssets;
 using RatchetPs2.Core.Textures.Palettes;
 using RatchetPs2.Core.Wad;
 using RatchetPs2.Core.Wad.Models;
+using RatchetPs2.Games.UYA.Gameplay;
 using RatchetPs2.Games.UYA.Level;
 using RatchetPs2.Sdk;
 
@@ -184,6 +186,19 @@ public static class UyaLevelPackService
             }
             replacements.Add($"gameplay/core/{layer.ToString().ToLowerInvariant().TrimEnd('s')}_instances.bin",
                 await File.ReadAllBytesAsync(Path.Combine(root, "instances.bin"), cancellationToken));
+            if (layer == BakeLayerId.Ties)
+            {
+                foreach (var (name, path) in new[]
+                    {
+                        ("groups.bin", "gameplay/core/tie_groups.bin"),
+                        ("occlusion.bin", "gameplay/core/occlusion.bin"),
+                    })
+                {
+                    var staged = Path.Combine(root, name);
+                    if (File.Exists(staged))
+                        replacements.Add(path, await File.ReadAllBytesAsync(staged, cancellationToken));
+                }
+            }
         }
         var staticComposition = StaticAssetComposer.Compose(
             GameId.UYA,
@@ -239,8 +254,9 @@ public static class UyaLevelPackService
                 throw new InvalidDataException($"Packed output does not contain staged payload {replacement.Key}.");
         }
         var outputPackage = UyaLevelWadUnpacker.Unpack(output);
+        ValidateTieReferences(outputPackage);
         ValidateOpaque(SnapshotRoot(staging, BakeLayerId.Opaque), output, outputPackage,
-            ReplacedOpaqueSections(replacements));
+            ReplacedOpaqueSections(replacements), allowAlignmentPadding: true);
 
         var expectedBase = UyaBaseLayerSchema.Layers.SelectMany(layer =>
         {
@@ -259,11 +275,32 @@ public static class UyaLevelPackService
             throw new InvalidDataException("Packed output does not semantically match the staged base-layer payloads.");
     }
 
+    private static void ValidateTieReferences(UyaLevelWadPackage package)
+    {
+        var files = package.Files.ToDictionary(value => value.Path, StringComparer.Ordinal);
+        if (!files.TryGetValue("gameplay/core/tie_instances.bin", out var ties)) return;
+        var tieInstances = UyaTieInstancesReader.Read(ties.Bytes);
+        var tieCount = tieInstances.Count;
+        if (files.TryGetValue("gameplay/core/tie_groups.bin", out var groups)
+            && UyaTieGroupsReader.Read(groups.Bytes).Groups.SelectMany(value => value).Any(value => value >= tieCount))
+            throw new InvalidDataException("Packed tie groups reference a missing tie instance.");
+        if (!files.TryGetValue("gameplay/core/occlusion.bin", out var occlusion)) return;
+        var tieMappings = UyaOcclusionMappingsReader.Read(occlusion.Bytes).Ties;
+        if (tieMappings.Count != tieCount)
+            throw new InvalidDataException("Packed tie occlusion mapping count does not match the tie instance count.");
+        var instanceOcclusionIds = tieInstances.Instances.Select(value => BinaryPrimitives.ReadInt32LittleEndian(
+            value.RawBytes.AsSpan(UyaTieInstancesReader.OcclusionIdOffset))).ToArray();
+        if (!tieMappings.Select(value => value.OcclusionId).Order()
+                .SequenceEqual(instanceOcclusionIds.Order()))
+            throw new InvalidDataException("Packed tie occlusion IDs do not match their instances.");
+    }
+
     private static void ValidateOpaque(
         string stagedRoot,
         ReadOnlyMemory<byte> levelWad,
         UyaLevelWadPackage package,
-        IReadOnlySet<string> replacedSections)
+        IReadOnlySet<string> replacedSections,
+        bool allowAlignmentPadding = false)
     {
         var manifest = Read<OpaqueContentManifest>(stagedRoot, OpaqueContentStore.ManifestFileName, "staged opaque layer");
         var source = UyaOpaqueContentService.Capture(levelWad.Span, package)
@@ -274,19 +311,34 @@ public static class UyaLevelPackService
             throw new InvalidDataException("Opaque staged section inventory does not match the source level.");
         foreach (var section in sections)
         {
-            if (!source.TryGetValue(section.Name, out var captured)
-                || captured.Bytes.LongLength != section.Size
-                || Convert.ToHexString(SHA256.HashData(captured.Bytes)).ToLowerInvariant() != section.Checksum)
+            if (!source.TryGetValue(section.Name, out var captured))
+                throw new InvalidDataException($"Opaque section {section.Name} does not match the staged source hash.");
+            if (captured.Bytes.LongLength == section.Size
+                && Convert.ToHexString(SHA256.HashData(captured.Bytes)).ToLowerInvariant() == section.Checksum)
+                continue;
+            var staged = File.ReadAllBytes(ForgeProjectPersistence.ResolveRelativePath(stagedRoot, section.Blob));
+            if (!allowAlignmentPadding || !EquivalentWithTrailingZeroPadding(staged, captured.Bytes))
                 throw new InvalidDataException($"Opaque section {section.Name} does not match the staged source hash.");
         }
     }
 
+    private static bool EquivalentWithTrailingZeroPadding(ReadOnlySpan<byte> left, ReadOnlySpan<byte> right)
+    {
+        var common = Math.Min(left.Length, right.Length);
+        return left[..common].SequenceEqual(right[..common])
+            && (left.Length > common ? left[common..] : right[common..]).ContainsAnyExcept((byte)0) == false;
+    }
+
     private static HashSet<string> ReplacedOpaqueSections(
-        IReadOnlyDictionary<string, ReadOnlyMemory<byte>> replacements) => replacements.Keys
-        .Where(value => value.StartsWith("gameplay/core/", StringComparison.Ordinal)
-            && value.EndsWith(".bin", StringComparison.Ordinal))
-        .Select(value => $"gameplay/{Path.GetFileNameWithoutExtension(value)}")
-        .ToHashSet(StringComparer.Ordinal);
+        IReadOnlyDictionary<string, ReadOnlyMemory<byte>> replacements)
+    {
+        var sections = replacements.Keys
+            .Where(value => value.StartsWith("gameplay/core/", StringComparison.Ordinal)
+                && value.EndsWith(".bin", StringComparison.Ordinal))
+            .Select(value => $"gameplay/{Path.GetFileNameWithoutExtension(value)}")
+            .ToHashSet(StringComparer.Ordinal);
+        return sections;
+    }
 
     private static string SnapshotRoot(BakeStagingStore staging, BakeLayerId layer) =>
         ForgeProjectPersistence.ResolveRelativePath(

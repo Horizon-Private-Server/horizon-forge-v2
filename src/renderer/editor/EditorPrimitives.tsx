@@ -104,7 +104,7 @@ export function EditorTree({ label, nodes, selected = [], multiple = false, onAc
       }}
       onDoubleClick={(event) => {
         event.stopPropagation();
-        if (!hasChildren && valueSet.has(node.value)) onActivate?.(node.value);
+        if (valueSet.has(node.value)) onActivate?.(node.value);
       }}
     >
       <span aria-hidden="true" className="editor-tree-chevron">{hasChildren ? (expanded ? '▾' : '▸') : ''}</span>
@@ -114,9 +114,11 @@ export function EditorTree({ label, nodes, selected = [], multiple = false, onAc
 }
 
 function selectableTreeValues(nodes: TreeNodeData[]): string[] {
-  return nodes.flatMap((node) => node.children?.length
-    ? selectableTreeValues(node.children)
-    : node.nodeProps?.selectable === false ? [] : [node.value]);
+  return nodes.flatMap((node) => [
+    ...(node.nodeProps?.selectable === true || !node.children?.length && node.nodeProps?.selectable !== false
+      ? [node.value] : []),
+    ...selectableTreeValues(node.children ?? []),
+  ]);
 }
 
 export function EditorPropertyGrid({ children }: { children: ReactNode }) {

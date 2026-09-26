@@ -47,6 +47,8 @@ internal static class UyaStaticLayerTests
             await WriteSourceAsync(project);
 
             var inputs = await UyaStaticLayerStore.CreateBakeInputsAsync(project, catalog);
+            Equal(true, inputs.Single(value => value.Id == BakeLayerId.Ties).RelevantSettings.Length > 0,
+                "tie side-table outputs participate in cache invalidation");
             var plan = BakeLayerGraph.CreatePlan(Context(), inputs);
             var staging = await BakeStagingStore.OpenAsync(project);
             var tieSnapshot = await UyaStaticLayerStore.StageAsync(
@@ -98,12 +100,39 @@ internal static class UyaStaticLayerTests
                 project, catalog, staging, Layer(plan, BakeLayerId.Ties));
             Equal(tieSnapshot.OutputFingerprint, repeated.OutputFingerprint, "static output deterministic");
 
+            await VerifyTieClassOrderingAsync(root, tieAsset);
             await VerifyBadReferencesAsync(root, catalog, shrubAsset);
         }
         finally
         {
             if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
         }
+    }
+
+    private static async Task VerifyTieClassOrderingAsync(string root, AssetCatalogEntry tieAsset)
+    {
+        var project = Path.Combine(root, "tie-order-project");
+        var first = Entity("First class", "ties", tieAsset, 0x0200,
+            UyaTieInstancesReader.RecordSize, new(), new(0, 0, 0), new(1, 1, 1), 0);
+        var second = Entity("Second class", "ties", tieAsset, 0x0201,
+            UyaTieInstancesReader.RecordSize, new(), new(0, 0, 0), new(1, 1, 1), 1);
+        var copy = first with
+        {
+            EntityId = EntityId.New(),
+            Name = "First class copy",
+            Provenance = null,
+            Source = first.Source! with { SourceIndex = 0 },
+        };
+        await ForgeProjectWorkspace.CreateAsync(
+            project,
+            "Tie order",
+            new("UYA", "NTSC-U", "1.00", "uya-ntsc-u"),
+            new("UYA", "NTSC-U", "1.00", 3, new string('a', 32), EntityVersion: 1),
+            [first, second, copy]);
+        var workspace = await ForgeProjectWorkspace.OpenAsync(project);
+        Equal(true, UyaStaticLayerStore.OrderedEntities(workspace, BakeLayerId.Ties)
+            .Select(value => value.Name).SequenceEqual(["First class", "First class copy", "Second class"]),
+            "copied ties remain in their source class block");
     }
 
     private static async Task VerifyBadReferencesAsync(

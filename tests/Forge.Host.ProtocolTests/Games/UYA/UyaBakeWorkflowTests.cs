@@ -44,6 +44,63 @@ internal static class UyaBakeWorkflowTests
             Equal(false, unbaked.Succeeded, "unbaked staging cannot pack");
             Equal(null, unbaked.OutputBytes, "failed pack exposes no output");
 
+            var deleteBeforeBakeProject = Path.Combine(root, "delete-before-bake");
+            await UyaProjectService.CreateValidatedAsync(
+                new MemoryStream(iso, writable: false),
+                catalog,
+                new("synthetic.iso", catalog.RootPath, deleteBeforeBakeProject, "Delete before bake",
+                    new string('a', 32), "1.00", 3, true));
+            var deleteBeforeBakeWorkspace = await ForgeProjectWorkspace.OpenAsync(deleteBeforeBakeProject);
+            deleteBeforeBakeWorkspace.RemoveEntity(deleteBeforeBakeWorkspace.Content.Entities
+                .Single(value => value.Layer == "ties").EntityId);
+            await deleteBeforeBakeWorkspace.SaveAsync();
+            Equal(true, (await UyaBakeService.BakeAsync(deleteBeforeBakeProject, catalog, context)).Succeeded,
+                "tie deletion before initial build bakes");
+            var deleteBeforeBakePack = await UyaLevelPackService.PackAsync(
+                deleteBeforeBakeProject, catalog, sourceLevelWad, context);
+            Equal(true, deleteBeforeBakePack.Succeeded, "tie deletion before initial build packs: "
+                + string.Join(" | ", deleteBeforeBakePack.Diagnostics.Select(value => value.Cause)));
+
+            var copyBeforeBakeProject = Path.Combine(root, "copy-before-bake");
+            await UyaProjectService.CreateValidatedAsync(
+                new MemoryStream(iso, writable: false),
+                catalog,
+                new("synthetic.iso", catalog.RootPath, copyBeforeBakeProject, "Copy before bake",
+                    new string('a', 32), "1.00", 3, true));
+            var copyBeforeBakeWorkspace = await ForgeProjectWorkspace.OpenAsync(copyBeforeBakeProject);
+            var copiedTie = copyBeforeBakeWorkspace.AddCopies([
+                copyBeforeBakeWorkspace.Content.Entities.Single(value => value.Layer == "ties"),
+            ]).Single();
+            Equal(null, copiedTie.Provenance, "copied tie clears provenance");
+            Equal(0, copiedTie.Source!.SourceIndex, "copied tie retains source lineage");
+            await copyBeforeBakeWorkspace.SaveAsync();
+            Equal(true, (await UyaBakeService.BakeAsync(copyBeforeBakeProject, catalog, context)).Succeeded,
+                "tie copy before initial build bakes");
+            var copyBeforeBakePack = await UyaLevelPackService.PackAsync(
+                copyBeforeBakeProject, catalog, sourceLevelWad, context);
+            Equal(true, copyBeforeBakePack.Succeeded, "tie copy before initial build packs: "
+                + string.Join(" | ", copyBeforeBakePack.Diagnostics.Select(value => value.Cause)));
+            var copiedTieFiles = UyaLevelWadUnpacker.Unpack(copyBeforeBakePack.OutputBytes!).Files;
+            var copiedTies = UyaTieInstancesReader.Read(copiedTieFiles
+                .Single(value => value.Path == "gameplay/core/tie_instances.bin").Bytes);
+            Equal(2, copiedTies.Count,
+                "packed tie copy adds an instance");
+            Equal(true, copiedTies.Instances.Select(value => BitConverter.ToInt32(
+                    value.RawBytes, UyaTieInstancesReader.OcclusionIdOffset)).SequenceEqual(new[] { 77, 77 }),
+                "packed tie copy reuses its source occlusion ID");
+            var copiedTieAmbient = UyaGameplayLightingReader.ReadTieAmbientRgbas(copiedTieFiles
+                .Single(value => value.Path == "gameplay/core/tie_ambient_rgbas.bin").Bytes, 2);
+            Equal(true, copiedTieAmbient[0].SequenceEqual(copiedTieAmbient[1]),
+                "packed tie copy duplicates ambient lighting");
+            Equal(true, UyaTieGroupsReader.Read(copiedTieFiles
+                .Single(value => value.Path == "gameplay/core/tie_groups.bin").Bytes).Groups.Single()
+                .SequenceEqual(new[] { 0, 1 }), "packed tie copy duplicates group membership");
+            var copiedTieMappings = UyaOcclusionMappingsReader.Read(copiedTieFiles
+                .Single(value => value.Path == "gameplay/core/occlusion.bin").Bytes).Ties;
+            Equal(true, copiedTieMappings.Select(value => (value.BitIndex, value.OcclusionId))
+                    .SequenceEqual(new[] { (5, 77), (5, 77) }),
+                "packed tie copy reuses its source occlusion mapping");
+
             var first = await UyaBakeService.BakeAsync(project, catalog, context);
             Equal(true, first.Succeeded, "initial bake succeeds");
             Equal(10, first.WrittenLayers.Count, "initial bake writes every layer");
@@ -91,7 +148,7 @@ internal static class UyaBakeWorkflowTests
             var packedSource = await UyaLevelPackService.PackAsync(project, catalog, sourceLevelWad, context);
             Equal(true, packedSource.Succeeded, "validated staging packs: "
                 + string.Join(" | ", packedSource.Diagnostics.Select(value => value.Cause)));
-            Equal("350c6a0fe2801b7b62f5993e9324997cd9288af5d954853c5b43745c836fb128",
+            Equal("a9d1947e926c4af31997642154b13820cb05d2fc9aff9d999dfe38cc92918d8b",
                 packedSource.OutputSha256, "unchanged staged project golden WAD");
             _ = UyaLevelWadInventoryReader.Read(packedSource.OutputBytes!);
             var installed = ReadAssets(packedSource.OutputBytes!);
@@ -433,6 +490,36 @@ internal static class UyaBakeWorkflowTests
             var cancelledDevelopment = await File.ReadAllBytesAsync(developmentIso);
             Equal(true, developmentHash.SequenceEqual(SHA256.HashData(cancelledDevelopment)),
                 "cancelled one-click build preserves development ISO");
+
+            workspace = await ForgeProjectWorkspace.OpenAsync(project);
+            tie = workspace.Content.Entities.Single(value => value.Layer == "ties");
+            workspace.RemoveEntity(tie.EntityId);
+            await workspace.SaveAsync();
+            var deletedTieBake = await UyaBakeService.BakeAsync(project, catalog, context);
+            Equal(true, deletedTieBake.Succeeded, "tie deletion bakes");
+            var deletedTiePack = await UyaLevelPackService.PackAsync(project, catalog, sourceLevelWad, context);
+            Equal(true, deletedTiePack.Succeeded, "tie deletion packs: "
+                + string.Join(" | ", deletedTiePack.Diagnostics.Select(value => value.Cause)));
+            var deletedTieFiles = UyaLevelWadUnpacker.Unpack(deletedTiePack.OutputBytes!).Files;
+            Equal(0, UyaTieInstancesReader.Read(deletedTieFiles
+                .Single(value => value.Path == "gameplay/core/tie_instances.bin").Bytes).Instances.Count,
+                "packed tie deletion removes the instance");
+            Equal(0, UyaGameplayLightingReader.ReadTieAmbientRgbas(deletedTieFiles
+                .Single(value => value.Path == "gameplay/core/tie_ambient_rgbas.bin").Bytes, 0).Length,
+                "packed tie deletion removes its ambient-light entry");
+            Equal(0, UyaTieGroupsReader.Read(deletedTieFiles
+                .Single(value => value.Path == "gameplay/core/tie_groups.bin").Bytes).Groups.Single().Length,
+                "packed tie deletion removes its group reference");
+            Equal(0, UyaOcclusionMappingsReader.Read(deletedTieFiles
+                .Single(value => value.Path == "gameplay/core/occlusion.bin").Bytes).Ties.Count,
+                "packed tie deletion removes its occlusion mapping");
+            var deletedTieGameplay = deletedTieFiles
+                .Single(value => value.Path == "gameplay/gameplay_core.bin").Bytes;
+            Equal(true, UyaGameplayLayout.Core.Blocks.All(block =>
+            {
+                var pointer = BinaryPrimitives.ReadInt32LittleEndian(deletedTieGameplay.AsSpan(block.HeaderOffset));
+                return pointer == 0 || pointer % (block.SemanticName == "occlusion" ? 0x40 : 0x10) == 0;
+            }), "packed tie deletion preserves gameplay pointer alignment");
         }
         finally
         {
