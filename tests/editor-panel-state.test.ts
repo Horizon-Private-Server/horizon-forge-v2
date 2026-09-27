@@ -25,6 +25,7 @@ function entity(index: number): EditorEntity {
       scale: { x: 1, y: 1, z: 1 },
     },
     asset: { id: 'asset', kind: 'moby' },
+    transformModes: ['translate', 'rotate', 'scale'],
     state: {
       dirty: index === 42,
       hidden: false,

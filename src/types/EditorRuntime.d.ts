@@ -46,6 +46,7 @@ export interface EditorEntity {
       | 'camera' | 'ambientSound';
     points: ProjectVector4[];
   };
+  transformModes: Array<'translate' | 'rotate' | 'scale'>;
   state: {
     dirty: boolean;
     hidden: boolean;

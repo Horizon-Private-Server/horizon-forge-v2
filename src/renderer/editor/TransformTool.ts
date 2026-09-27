@@ -38,6 +38,7 @@ export class TransformTool {
   private readonly snapQuery = new THREE.Vector3();
   private readonly translationDelta = new THREE.Vector3();
   private entities: readonly EditorEntity[] = [];
+  private selection: readonly string[] = [];
   private activeIds: string[] = [];
   private activePointIds: string[] = [];
   private activeSpline?: EditorEntity;
@@ -84,6 +85,7 @@ export class TransformTool {
     this.mode = mode;
     if (mode === 'select') this.controls.detach();
     else this.controls.setMode(mode);
+    this.updateActiveSelection();
     this.refreshAttachment();
   }
 
@@ -118,24 +120,32 @@ export class TransformTool {
 
   sync(entities: readonly EditorEntity[], selection: readonly string[], projection: SceneProjection): void {
     this.entities = entities;
+    this.selection = selection;
     this.projection = projection;
     if (this.controls.dragging) return;
+    this.updateActiveSelection();
+    this.refreshAttachment();
+  }
+
+  private updateActiveSelection(): void {
+    const { entities, selection } = this;
     const byId = new Map(entities.map((entity) => [entity.id, entity]));
     const points = selection.map((id) => ({ id, point: parseSplinePointId(id) }))
       .filter((value) => value.point !== undefined);
     const pointEntity = points.length ? byId.get(points.at(-1)!.point!.entityId) : undefined;
-    this.activeSpline = pointEntity?.geometry?.kind === 'spline'
+    this.activeSpline = (pointEntity?.geometry?.kind === 'spline' || pointEntity?.geometry?.kind === 'grindPath')
       && !pointEntity.state.locked && !pointEntity.state.readOnly
-      && !pointEntity.state.hidden && !pointEntity.state.disabled ? pointEntity : undefined;
+      && !pointEntity.state.hidden && !pointEntity.state.disabled
+      && (this.mode === 'select' || pointEntity.transformModes.includes(this.mode)) ? pointEntity : undefined;
     this.activePointIds = this.activeSpline
       ? points.filter((value) => value.point!.entityId === this.activeSpline!.id
         && value.point!.index < this.activeSpline!.geometry!.points.length).map((value) => value.id)
       : [];
     this.activeIds = this.activePointIds.length ? [] : selection.filter((id) => {
       const entity = byId.get(id);
-      return entity && !entity.state.locked && !entity.state.readOnly && !entity.state.hidden && !entity.state.disabled;
+      return entity && !entity.state.locked && !entity.state.readOnly && !entity.state.hidden && !entity.state.disabled
+        && (this.mode === 'select' || entity.transformModes.includes(this.mode));
     });
-    this.refreshAttachment();
   }
 
   cancel(): boolean {
@@ -188,7 +198,7 @@ export class TransformTool {
       const points = this.buildSplinePoints();
       if (!points) return;
       this.callbacks.preview(this.entities.map((entity) => entity.id === this.activeSpline!.id
-        ? { ...entity, geometry: { kind: 'spline', points } }
+        ? { ...entity, geometry: { kind: this.activeSpline!.geometry!.kind, points } }
         : entity));
       return;
     }

@@ -147,6 +147,7 @@ export function decodeEditorEvents(payload: Uint8Array): EditorEvent[] {
 function readEntity(reader: PayloadReader): EditorEntity {
   const value: EditorEntity = {
     id: reader.readString(), name: reader.readString(), layer: reader.readString(), transform: readTransform(reader),
+    transformModes: [],
     state: {
       dirty: false, hidden: false, disabled: false, locked: false, readOnly: false,
       invalid: false, missingAsset: false,
@@ -163,6 +164,12 @@ function readEntity(reader: PayloadReader): EditorEntity {
       x: reader.readFloat32(), y: reader.readFloat32(), z: reader.readFloat32(), w: reader.readFloat32(),
     })),
   };
+  const transformCapabilities = reader.readUInt32();
+  value.transformModes = [
+    transformCapabilities & 1 ? 'translate' : undefined,
+    transformCapabilities & 2 ? 'rotate' : undefined,
+    transformCapabilities & 4 ? 'scale' : undefined,
+  ].filter((mode): mode is EditorEntity['transformModes'][number] => mode !== undefined);
   value.state = {
     dirty: reader.readBoolean(),
     hidden: reader.readBoolean(),

@@ -207,11 +207,11 @@ export function SceneTreePanel() {
         label: <SceneTreeNode entities={[entity]} disabled={busy}>
           <SceneTreeLabel kind={entityTreeKind(entity)} dot>{entityTreeText(entity)}</SceneTreeLabel>
         </SceneTreeNode>,
-        nodeProps: { selectable: entity.geometry?.kind === 'spline' },
-        children: entity.geometry?.kind === 'spline'
+        nodeProps: { selectable: true },
+        children: entity.geometry?.kind === 'spline' || entity.geometry?.kind === 'grindPath'
           ? entity.geometry.points.map((point, index) => ({
             value: splinePointId(entity.id, index),
-            label: <SceneTreeLabel kind="spline" dot>
+            label: <SceneTreeLabel kind={entityTreeKind(entity)} dot>
               Point {index} · {point.x.toFixed(2)}, {point.y.toFixed(2)}, {point.z.toFixed(2)}
             </SceneTreeLabel>,
           }))

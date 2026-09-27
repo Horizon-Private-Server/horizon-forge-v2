@@ -432,7 +432,7 @@ export class SceneProjection {
         new LineGeometry().setFromPoints(points),
         entity.geometry.kind === 'grindPath' ? this.grindPathMaterial : this.splineMaterial,
       );
-      if (entity.geometry.kind === 'spline' && points.length > 0) {
+      if (points.length > 0) {
         const nodes = new THREE.Points(new THREE.BufferGeometry().setFromPoints(points), this.splineNodeMaterial);
         nodes.userData[SPLINE_NODES_KEY] = true;
         const selectedNodes = new THREE.Points(new THREE.BufferGeometry(), this.selectedSplineNodeMaterial);

@@ -177,11 +177,15 @@ public sealed class ForgeProjectWorkspace
         if (!ValidPoints(points)) throw new InvalidDataException("Spline points must be finite.");
         var index = FindEntityIndex(entityId);
         var entity = Content.Entities[index];
-        if (entity.Geometry?.Spline is null) throw new InvalidOperationException("Entity is not a spline.");
+        if (entity.Geometry?.Spline is null && entity.Geometry?.GrindPath is null)
+            throw new InvalidOperationException("Entity is not an editable path.");
+        var geometry = entity.Geometry!;
         var entities = Content.Entities.ToArray();
         entities[index] = entity with
         {
-            Geometry = entity.Geometry with { Spline = entity.Geometry.Spline with { Points = points.ToArray() } },
+            Geometry = geometry.Spline is not null
+                ? geometry with { Spline = geometry.Spline with { Points = points.ToArray() } }
+                : geometry with { GrindPath = geometry.GrindPath! with { Points = points.ToArray() } },
         };
         Content = Content with { Entities = entities };
     }

@@ -220,7 +220,8 @@ export function EditorWorkspace({
       if (!['copyEntities', 'pasteEntities', 'deleteEntities'].includes(action ?? '')) return;
       const references = splinePointSelection.map(parseSplinePointId).filter((value) => value !== undefined);
       const entityId = references.at(-1)?.entityId;
-      const entity = project.entities.find((value) => value.id === entityId && value.geometry?.kind === 'spline');
+      const entity = project.entities.find((value) => value.id === entityId
+        && (value.geometry?.kind === 'spline' || value.geometry?.kind === 'grindPath'));
       if (!entity || action !== 'copyEntities' && (entity.state.locked || entity.state.readOnly)) return;
       const selected = new Set(references.filter((value) => value.entityId === entity.id).map((value) => value.index));
       if (action === 'copyEntities' && window.getSelection()?.toString()) return;

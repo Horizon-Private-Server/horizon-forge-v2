@@ -10,6 +10,8 @@ namespace Forge.Host.Games.UYA;
 public static class UyaBaseLayerStore
 {
     public const string RelativeManifestPath = "content/uya-base-layers.json";
+    private const string DirectionalLightsAssetName = "directional-lights.bin";
+    private const string PointLightsAssetName = "point-lights.bin";
     private const string TieAmbientAssetName = "tie-ambient-rgbas.bin";
 
     internal static async Task WriteAsync(
@@ -155,9 +157,14 @@ public static class UyaBaseLayerStore
                 {
                     BakeLayerId.World when workspace.Content.LevelSettings is not null =>
                         ForgeProjectPersistence.Serialize(workspace.Content.LevelSettings),
-                    BakeLayerId.Lighting => ForgeProjectPersistence.Serialize(
-                        UyaStaticLayerStore.OrderedEntities(workspace, BakeLayerId.Ties)
-                            .Select(value => new { value.EntityId, AmbientRgbas = value.TieLighting?.AmbientRgbas }).ToArray()),
+                    BakeLayerId.Lighting => ForgeProjectPersistence.Serialize(new
+                    {
+                        TieAmbient = UyaStaticLayerStore.OrderedEntities(workspace, BakeLayerId.Ties)
+                            .Select(value => new { value.EntityId, AmbientRgbas = value.TieLighting?.AmbientRgbas }).ToArray(),
+                        DirectionalLights = DirectionalLights(workspace)
+                            .Select(value => new { value.EntityId, value.Transform }).ToArray(),
+                        PointLights = PointLights(workspace).Select(value => new { value.EntityId, value.Transform }).ToArray(),
+                    }),
                     _ => ReadOnlyMemory<byte>.Empty,
                 },
                 inspection.Blockers[layer]);
@@ -197,6 +204,18 @@ public static class UyaBaseLayerStore
                     var bytes = WriteLevelSettings(await File.ReadAllBytesAsync(source, token), settings);
                     await ForgeProjectPersistence.WriteFileSafelyAsync(Path.Combine(output, asset.Name), bytes, token);
                 }
+                else if (plan.Layer == BakeLayerId.Lighting && asset.Name == PointLightsAssetName)
+                {
+                    await ForgeProjectPersistence.WriteFileSafelyAsync(
+                        Path.Combine(output, asset.Name),
+                        WritePointLights(await File.ReadAllBytesAsync(source, token), workspace), token);
+                }
+                else if (plan.Layer == BakeLayerId.Lighting && asset.Name == DirectionalLightsAssetName)
+                {
+                    await ForgeProjectPersistence.WriteFileSafelyAsync(
+                        Path.Combine(output, asset.Name),
+                        WriteDirectionalLights(await File.ReadAllBytesAsync(source, token), workspace), token);
+                }
                 else if (plan.Layer == BakeLayerId.Lighting && asset.Name == TieAmbientAssetName)
                 {
                     await ForgeProjectPersistence.WriteFileSafelyAsync(
@@ -224,6 +243,22 @@ public static class UyaBaseLayerStore
                     var expected = WriteLevelSettings(await File.ReadAllBytesAsync(source, token), settings);
                     if (!bytes.SequenceEqual(expected))
                         throw new InvalidDataException("World staged level settings changed during write.");
+                }
+                else if (plan.Layer == BakeLayerId.Lighting && asset.Name == PointLightsAssetName)
+                {
+                    var source = workspace.ResolveAssetPath(asset.Asset.Id, catalog)
+                        ?? throw new FileNotFoundException($"Base-layer asset {asset.Asset.Id} disappeared during validation.");
+                    var expected = WritePointLights(await File.ReadAllBytesAsync(source, token), workspace);
+                    if (!bytes.SequenceEqual(expected))
+                        throw new InvalidDataException("Lighting staged point-light data changed during write.");
+                }
+                else if (plan.Layer == BakeLayerId.Lighting && asset.Name == DirectionalLightsAssetName)
+                {
+                    var source = workspace.ResolveAssetPath(asset.Asset.Id, catalog)
+                        ?? throw new FileNotFoundException($"Base-layer asset {asset.Asset.Id} disappeared during validation.");
+                    var expected = WriteDirectionalLights(await File.ReadAllBytesAsync(source, token), workspace);
+                    if (!bytes.SequenceEqual(expected))
+                        throw new InvalidDataException("Lighting staged directional-light data changed during write.");
                 }
                 else if (plan.Layer == BakeLayerId.Lighting && asset.Name == TieAmbientAssetName)
                 {
@@ -265,6 +300,63 @@ public static class UyaBaseLayerStore
         }
         return UyaTieAmbientRgbasWriter.Write(values);
     }
+
+    private static byte[] WritePointLights(byte[] source, ForgeProjectWorkspace workspace)
+    {
+        var table = UyaGameplayLightingReader.ReadPointLights(source);
+        var entities = PointLights(workspace).ToArray();
+        if (!entities.Select(value => value.Provenance!.SourceIndex)
+                .SequenceEqual(Enumerable.Range(0, table.Lights.Length)))
+            throw new InvalidDataException("Point lights have unsupported inserted, deleted, or reordered instances.");
+        var edits = entities.Select((entity, index) => (entity, source: table.Lights[index]))
+            .Where(value => !EquivalentPointLightTransform(value.entity.Transform, value.source))
+            .Select(value =>
+            {
+                var transform = value.entity.Transform;
+                if (!IdentityRotation(transform.Rotation)
+                    || !Near(transform.Scale.X, transform.Scale.Y)
+                    || !Near(transform.Scale.X, transform.Scale.Z))
+                    throw new InvalidDataException($"Point light {value.entity.EntityId} requires identity rotation and uniform scale.");
+                return new UyaPointLightEdit(value.entity.Provenance!.SourceIndex,
+                    new(transform.Position.X, transform.Position.Y, transform.Position.Z), transform.Scale.X);
+            }).ToArray();
+        return UyaPointLightsWriter.Write(source, edits);
+    }
+
+    private static byte[] WriteDirectionalLights(byte[] source, ForgeProjectWorkspace workspace)
+    {
+        var lights = UyaGameplayLightingReader.ReadDirectionalLights(source);
+        var entities = DirectionalLights(workspace).ToArray();
+        if (!entities.Select(value => value.Provenance!.SourceIndex)
+                .SequenceEqual(Enumerable.Range(0, lights.Length)))
+            throw new InvalidDataException("Directional lights have unsupported inserted, deleted, or reordered instances.");
+        return UyaDirectionalLightsWriter.Write(source, entities
+            .Where(value => !IdentityRotation(value.Transform.Rotation))
+            .Select(value => new UyaDirectionalLightEdit(value.Provenance!.SourceIndex,
+                new(value.Transform.Rotation.X, value.Transform.Rotation.Y,
+                    value.Transform.Rotation.Z, value.Transform.Rotation.W))).ToArray());
+    }
+
+    private static IEnumerable<ProjectEntity> DirectionalLights(ForgeProjectWorkspace workspace) =>
+        workspace.Content.Entities.Where(value => value.Lighting?.DirectionalLight is not null)
+            .OrderBy(value => value.Provenance?.SourceIndex ?? int.MaxValue);
+
+    private static IEnumerable<ProjectEntity> PointLights(ForgeProjectWorkspace workspace) =>
+        workspace.Content.Entities.Where(value => value.Lighting?.PointLight is not null)
+            .OrderBy(value => value.Provenance?.SourceIndex ?? int.MaxValue);
+
+    private static bool EquivalentPointLightTransform(ProjectTransform transform, UyaPointLight source)
+    {
+        var radius = source.Radius > 0 ? source.Radius : 1;
+        return Near(transform.Position.X, source.Position.X) && Near(transform.Position.Y, source.Position.Y)
+            && Near(transform.Position.Z, source.Position.Z) && IdentityRotation(transform.Rotation)
+            && Near(transform.Scale.X, radius) && Near(transform.Scale.Y, radius) && Near(transform.Scale.Z, radius);
+    }
+
+    private static bool IdentityRotation(ProjectQuaternion value) => Near(value.X, 0) && Near(value.Y, 0)
+        && Near(value.Z, 0) && Near(MathF.Abs(value.W), 1);
+
+    private static bool Near(float left, float right) => MathF.Abs(left - right) <= 0.00001f;
 
     private static void ValidateManifest(
         UyaBaseLayerManifest manifest,

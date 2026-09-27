@@ -98,11 +98,37 @@ internal static class UyaGameplayLayerTests
                 }),
             };
             await CreateProjectAsync(collisionProject, [collisionShape]);
+            var collisionGrid = UyaCameraCollisionGridWriter.Write([
+                new(3, 0, 1, 2, 3, new(0, 0, 0), new(0, 0, 0, 1), new(1, 1, 1)),
+            ]);
             await UyaGameplayLayerStore.WriteSourceAsync(
-                collisionProject, Source(), Gameplay(Tables([]), CuboidBytes(), [], []));
+                collisionProject, Source(), Gameplay(Tables([]), CuboidBytes(), [], [], cameraCollision: collisionGrid));
+            await using (var runtime = new EditorRuntime())
+            {
+                var editorSnapshot = await runtime.OpenAsync(collisionProject, TimeSpan.Zero);
+                Equal(EditorTransformCapabilities.Translate | EditorTransformCapabilities.Rotate
+                    | EditorTransformCapabilities.Scale,
+                    editorSnapshot.Entities.Single().TransformCapabilities,
+                    "camera-collision shape exposes full transform support");
+            }
             var collisionInput = await UyaGameplayLayerStore.CreateBakeInputAsync(collisionProject);
-            Equal(true, collisionInput.Blockers!.Any(value => value.Contains(
-                "camera-collision shape", StringComparison.Ordinal)), "moved camera-collision shape blocks serialization");
+            Equal(0, collisionInput.Blockers!.Count, "moved camera-collision shape serializes");
+            var collisionPlan = BakeLayerGraph.CreatePlan(Context(),
+            [
+                new(BakeLayerId.Mobys, "mobys"u8.ToArray(), [], ReadOnlyMemory<byte>.Empty),
+                collisionInput,
+            ]);
+            var collisionStaging = await BakeStagingStore.OpenAsync(collisionProject);
+            var collisionSnapshot = await UyaGameplayLayerStore.StageAsync(collisionProject, collisionStaging,
+                collisionPlan.Layers.Single(value => value.Layer == BakeLayerId.Gameplay));
+            var rebuiltCollision = UyaCameraCollisionGridReader.Read(await File.ReadAllBytesAsync(Path.Combine(
+                collisionStaging.RootPath, collisionSnapshot.RelativePath, "pvars", "camera_collision_grid.bin")));
+            var primitive = rebuiltCollision.Primitives.Single();
+            Equal((3, 0, 1, 2, 3f),
+                (primitive.Type, primitive.Index, primitive.Flags, primitive.IntValue, primitive.FloatValue),
+                "camera-collision metadata preserved");
+            Equal(new UyaVector4(100, 200, 0, MathF.Sqrt(29)), primitive.BoundingSphere,
+                "camera-collision bounds regenerated");
         }
         finally
         {
@@ -245,7 +271,8 @@ internal static class UyaGameplayLayerTests
         byte[] cuboids,
         byte[] cameras,
         byte[] sounds,
-        byte[]? splines = null)
+        byte[]? splines = null,
+        byte[]? cameraCollision = null)
     {
         var values = new (string Name, byte[] Bytes)[]
         {
@@ -257,6 +284,7 @@ internal static class UyaGameplayLayerTests
             ("sound_instances", sounds),
             ("cuboids", cuboids),
             ("splines", splines ?? []),
+            ("camera_collision_grid", cameraCollision ?? []),
         };
         return new(
             "core",

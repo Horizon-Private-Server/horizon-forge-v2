@@ -168,6 +168,7 @@ internal static class EditorPayloadCodec
                 writer.WriteSingle(point.W);
             }
         }
+        writer.WriteUInt32((uint)value.TransformCapabilities);
         writer.WriteBoolean(value.State.Dirty);
         writer.WriteBoolean(value.State.Hidden);
         writer.WriteBoolean(value.State.Disabled);

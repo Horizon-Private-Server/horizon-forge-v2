@@ -167,6 +167,98 @@ internal static class UyaBakeWorkflowTests
             Equal(1, paletteIds.Distinct().Count(), "installed moby, tie, and shrub textures share one palette");
 
             var workspace = await ForgeProjectWorkspace.OpenAsync(project);
+            var directionalLight = workspace.Content.Entities.Single(
+                value => value.Lighting?.DirectionalLight is not null);
+            workspace.UpdateTransform(directionalLight.EntityId, directionalLight.Transform with
+            {
+                Rotation = new(0, 0, 1, 0),
+            });
+            await workspace.SaveAsync();
+            var directionalLightBake = await UyaBakeService.BakeAsync(project, catalog, context);
+            Equal(true, directionalLightBake.WrittenLayers.Select(value => value.Layer)
+                .SequenceEqual([BakeLayerId.Lighting]), "directional-light edit rebuilds only lighting");
+            var packedDirectionalLight = await UyaLevelPackService.PackAsync(project, catalog, sourceLevelWad, context);
+            Equal(true, packedDirectionalLight.Succeeded, "edited directional-light staging packs: "
+                + string.Join(" | ", packedDirectionalLight.Diagnostics.Select(value => value.Cause)));
+            var packedDirectionalLights = UyaGameplayLightingReader.ReadDirectionalLights(UyaLevelWadUnpacker
+                .Unpack(packedDirectionalLight.OutputBytes!).Files
+                .Single(value => value.Path == "gameplay/core/directional_lights.bin").Bytes);
+            Equal(-0.75f, packedDirectionalLights.Single().InverseDirection.X,
+                "packed WAD preserves edited directional-light rotation");
+
+            workspace = await ForgeProjectWorkspace.OpenAsync(project);
+            var pointLight = workspace.Content.Entities.Single(value => value.Lighting?.PointLight is not null);
+            workspace.UpdateTransform(pointLight.EntityId, pointLight.Transform with
+            {
+                Position = new(48, 24, 12),
+                Scale = new(10, 10, 10),
+            });
+            await workspace.SaveAsync();
+            var pointLightBake = await UyaBakeService.BakeAsync(project, catalog, context);
+            Equal(true, pointLightBake.WrittenLayers.Select(value => value.Layer).SequenceEqual([BakeLayerId.Lighting]),
+                "point-light edit rebuilds only lighting");
+            var packedPointLight = await UyaLevelPackService.PackAsync(project, catalog, sourceLevelWad, context);
+            Equal(true, packedPointLight.Succeeded, "edited point-light staging packs: "
+                + string.Join(" | ", packedPointLight.Diagnostics.Select(value => value.Cause)));
+            var packedPointLights = UyaGameplayLightingReader.ReadPointLights(UyaLevelWadUnpacker
+                .Unpack(packedPointLight.OutputBytes!).Files
+                .Single(value => value.Path == "gameplay/core/point_lights.bin").Bytes);
+            Equal(new GameplayVector3(48, 24, 12), packedPointLights.Lights.Single().Position,
+                "packed WAD preserves edited point-light position");
+            Equal(10f, packedPointLights.Lights.Single().Radius,
+                "packed WAD preserves edited point-light radius");
+            Equal(true, packedPointLights.MasksMatchDerived,
+                "packed WAD rebuilds point-light masks");
+
+            workspace = await ForgeProjectWorkspace.OpenAsync(project);
+            var environmentSample = workspace.Content.Entities.Single(
+                value => value.Lighting?.EnvironmentSamplePoint is not null);
+            workspace.UpdateTransform(environmentSample.EntityId, environmentSample.Transform with
+            {
+                Position = new(-1.25f, 2.5f, 3.75f),
+            });
+            await workspace.SaveAsync();
+            var environmentSampleBake = await UyaBakeService.BakeAsync(project, catalog, context);
+            Equal(true, environmentSampleBake.WrittenLayers.Select(value => value.Layer)
+                .SequenceEqual([BakeLayerId.Gameplay]), "environment-sample edit rebuilds only gameplay");
+            var packedEnvironmentSample = await UyaLevelPackService.PackAsync(
+                project, catalog, sourceLevelWad, context);
+            Equal(true, packedEnvironmentSample.Succeeded, "edited environment-sample staging packs: "
+                + string.Join(" | ", packedEnvironmentSample.Diagnostics.Select(value => value.Cause)));
+            var packedEnvironmentSamples = UyaGameplayLightingReader.ReadEnvironmentSamplePoints(
+                UyaLevelWadUnpacker.Unpack(packedEnvironmentSample.OutputBytes!).Files
+                    .Single(value => value.Path == "gameplay/core/env_sample_points.bin").Bytes);
+            Equal(new GameplayVector3(-1.25f, 2.5f, 3.75f), packedEnvironmentSamples.Single().Position,
+                "packed WAD preserves edited environment-sample position");
+
+            workspace = await ForgeProjectWorkspace.OpenAsync(project);
+            var environmentTransition = workspace.Content.Entities.Single(
+                value => value.Lighting?.EnvironmentTransition is not null);
+            workspace.UpdateTransform(environmentTransition.EntityId, environmentTransition.Transform with
+            {
+                Position = new(4, 5, 6),
+                Scale = new(2, 3, 4),
+            });
+            await workspace.SaveAsync();
+            var environmentTransitionBake = await UyaBakeService.BakeAsync(project, catalog, context);
+            Equal(true, environmentTransitionBake.WrittenLayers.Select(value => value.Layer)
+                .SequenceEqual([BakeLayerId.Gameplay]), "environment-transition edit rebuilds only gameplay");
+            var packedEnvironmentTransition = await UyaLevelPackService.PackAsync(
+                project, catalog, sourceLevelWad, context);
+            Equal(true, packedEnvironmentTransition.Succeeded, "edited environment-transition staging packs: "
+                + string.Join(" | ", packedEnvironmentTransition.Diagnostics.Select(value => value.Cause)));
+            var packedEnvironmentTransitions = UyaGameplayLightingReader.ReadEnvironmentTransitions(
+                UyaLevelWadUnpacker.Unpack(packedEnvironmentTransition.OutputBytes!).Files
+                    .Single(value => value.Path == "gameplay/core/env_transitions.bin").Bytes);
+            Equal(new GameplayVector4(4, 5, 6, MathF.Sqrt(29)),
+                packedEnvironmentTransitions.Single().BoundingSphere,
+                "packed WAD rebuilds environment-transition bounds");
+            Equal(new ProjectVector3(4, 5, 6),
+                UyaBaseLevelService.InvertAndDecompose(
+                    packedEnvironmentTransitions.Single().InverseMatrix)!.Position,
+                "packed WAD preserves edited environment-transition transform");
+
+            workspace = await ForgeProjectWorkspace.OpenAsync(project);
             var spline = workspace.Content.Entities.Single(value => value.Geometry?.Spline is not null);
             var editedSplinePoints = spline.Geometry!.Spline!.Points
                 .Select((value, index) => index == 0 ? value with { W = value.W + 1 } : value).ToArray();
@@ -182,6 +274,26 @@ internal static class UyaBakeWorkflowTests
                 .Single(value => value.Path == "gameplay/core/splines.bin").Bytes;
             Equal(editedSplinePoints[0].W, GameplayGeometryReader.ReadSplines(packedSplineBytes).Single().Points[0].W,
                 "packed WAD preserves edited spline data");
+
+            workspace = await ForgeProjectWorkspace.OpenAsync(project);
+            var grindPath = workspace.Content.Entities.Single(value => value.Geometry?.GrindPath is not null);
+            var editedGrindPoints = grindPath.Geometry!.GrindPath!.Points
+                .Append(grindPath.Geometry.GrindPath.Points[^1] with { X = 9, W = 12 }).ToArray();
+            workspace.UpdateSplinePoints(grindPath.EntityId, editedGrindPoints);
+            workspace.UpdateTransform(grindPath.EntityId, grindPath.Transform with { Position = new(10, 20, 30) });
+            await workspace.SaveAsync();
+            var grindPathBake = await UyaBakeService.BakeAsync(project, catalog, context);
+            Equal(true, grindPathBake.WrittenLayers.Select(value => value.Layer).SequenceEqual([BakeLayerId.Gameplay]),
+                "grind-path edit rebuilds only gameplay");
+            var packedGrindPath = await UyaLevelPackService.PackAsync(project, catalog, sourceLevelWad, context);
+            Equal(true, packedGrindPath.Succeeded, "edited grind-path staging packs: "
+                + string.Join(" | ", packedGrindPath.Diagnostics.Select(value => value.Cause)));
+            var packedGrindPaths = GameplayGeometryReader.ReadGrindPaths(UyaLevelWadUnpacker
+                .Unpack(packedGrindPath.OutputBytes!).Files
+                .Single(value => value.Path == "gameplay/core/grind_splines.bin").Bytes);
+            Equal(new GameplayVector4(19, 20, 30, 12), packedGrindPaths.Single().Points[^1],
+                "packed WAD preserves edited and transformed grind-path points");
+            Equal(11, packedGrindPaths.Single().Unknown4, "packed WAD preserves grind-path metadata");
 
             var crossLevelTie = await PutAsync(catalog, AssetKind.Tie, 200, 0x44, "level45");
             var contentPath = (await ForgeProjectWorkspace.OpenAsync(project)).ContentFilePath;

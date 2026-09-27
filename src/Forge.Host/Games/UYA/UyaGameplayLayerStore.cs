@@ -194,7 +194,6 @@ public static class UyaGameplayLayerStore
                 bytes[section.Name] = await File.ReadAllBytesAsync(
                     ForgeProjectPersistence.ResolveRelativePath(root, section.Blob), cancellationToken);
         }
-
         GameplayPvarTables? tables = null;
         if (blockers.Count == 0)
         {
@@ -255,6 +254,7 @@ public static class UyaGameplayLayerStore
         ICollection<string> blockers)
     {
         var references = new List<UyaGameplayInstanceReference>();
+        var rebuildCameraCollision = false;
         foreach (var section in UyaGameplayLayerSchema.WritableInstanceSections)
         {
             var entities = workspace.Content.Entities
@@ -276,32 +276,77 @@ public static class UyaGameplayLayerStore
                 }
                 references.AddRange(entities.Select(value => new UyaGameplayInstanceReference(
                     section, value.Provenance!.SourceIndex, value.EntityId, value.Transform)));
-                if (section == "splines")
+                if (section is "splines" or "grind_splines")
                 {
-                    var sourceSplines = GameplayGeometryReader.ReadSplines(source);
+                    var sourcePoints = section == "splines"
+                        ? GameplayGeometryReader.ReadSplines(source).Select(value => value.Points).ToArray()
+                        : GameplayGeometryReader.ReadGrindPaths(source).Select(value => value.Points).ToArray();
                     var changedSplines = entities.Where(value => !Equivalent(value.Transform, ProjectTransform.Identity)
-                        || !Equivalent(value.Geometry!.Spline!.Points,
-                            sourceSplines[value.Provenance!.SourceIndex].Points)).ToArray();
-                    if (changedSplines.Length > 0) bytes[section] = WriteSplines(source, changedSplines);
+                        || !Equivalent(PathPoints(value), sourcePoints[value.Provenance!.SourceIndex])).ToArray();
+                    if (changedSplines.Length > 0) bytes[section] = section == "splines"
+                        ? WriteSplines(source, changedSplines)
+                        : WriteGrindPaths(source, changedSplines);
                     continue;
                 }
                 var changed = entities.Where(value => !Equivalent(value.Transform, SourceTransform(section, source, value)))
                     .ToArray();
-                if (changed.Any(value => Shape(value)?.CameraCollision is not null))
+                var collisionChanged = changed.Any(value => Shape(value)?.CameraCollision is not null);
+                if (collisionChanged && !bytes.ContainsKey("camera_collision_grid"))
                 {
-                    blockers.Add($"Gameplay section {section} contains a moved camera-collision shape; grid regeneration is not available.");
+                    blockers.Add("Gameplay camera-collision grid is missing; migrate it from the verified source ISO.");
                     continue;
                 }
                 if (changed.Length == 0) continue;
                 bytes[section] = WriteTransforms(section, source, changed);
+                rebuildCameraCollision |= collisionChanged;
             }
             catch (Exception exception) when (exception is InvalidDataException or ArgumentException or OverflowException)
             {
                 blockers.Add($"Gameplay section {section} cannot be serialized ({exception.Message}).");
             }
         }
+        if (rebuildCameraCollision)
+        {
+            try
+            {
+                bytes["camera_collision_grid"] = WriteCameraCollisionGrid(workspace);
+            }
+            catch (Exception exception) when (exception is InvalidDataException or ArgumentException or OverflowException)
+            {
+                blockers.Add($"Gameplay camera-collision grid cannot be serialized ({exception.Message}).");
+            }
+        }
         return references;
     }
+
+    private static byte[] WriteCameraCollisionGrid(ForgeProjectWorkspace workspace) =>
+        UyaCameraCollisionGridWriter.Write(workspace.Content.Entities
+            .Where(value => Shape(value)?.CameraCollision is not null)
+            .Select(value =>
+            {
+                var collision = Shape(value)!.CameraCollision!;
+                var provenance = value.Provenance is { Game: "UYA" } source
+                    ? source
+                    : throw new InvalidDataException($"{value.Name} has camera-collision metadata without UYA provenance.");
+                return new UyaCameraCollisionPrimitiveEdit(
+                    CameraCollisionType(value),
+                    provenance.SourceIndex,
+                    collision.Flags,
+                    collision.IntValue,
+                    collision.FloatValue,
+                    Position(value.Transform.Position),
+                    Rotation(value.Transform.Rotation),
+                    Position(value.Transform.Scale));
+            }).ToArray());
+
+    private static int CameraCollisionType(ProjectEntity entity) => entity.Geometry switch
+    {
+        { Cuboid: not null } => 3,
+        { Sphere: not null } => 5,
+        { Cylinder: not null } => 6,
+        { Pill: not null } => 7,
+        _ => throw new InvalidDataException($"{entity.Name} has camera-collision metadata without a supported shape."),
+    };
 
     private static int SourceCount(string section, byte[] source) => section switch
     {
@@ -312,6 +357,9 @@ public static class UyaGameplayLayerStore
         "cylinders" => GameplayGeometryReader.ReadShapes(source, "cylinder").Length,
         "pills" => GameplayGeometryReader.ReadShapes(source, "pill").Length,
         "splines" => GameplayGeometryReader.ReadSplines(source).Length,
+        "grind_splines" => GameplayGeometryReader.ReadGrindPaths(source).Length,
+        "env_sample_points" => UyaGameplayLightingReader.ReadEnvironmentSamplePoints(source).Length,
+        "env_transitions" => UyaGameplayLightingReader.ReadEnvironmentTransitions(source).Length,
         _ => throw new ArgumentOutOfRangeException(nameof(section)),
     };
 
@@ -324,7 +372,11 @@ public static class UyaGameplayLayerStore
             "sound_instances" => UyaBaseLevelService.Decompose(
                 UyaSoundInstancesReader.Read(source).Instances[index].Matrix)
                 ?? throw new InvalidDataException($"Sound {index} source transform cannot be decomposed."),
-            "splines" => ProjectTransform.Identity,
+            "splines" or "grind_splines" => ProjectTransform.Identity,
+            "env_sample_points" => EnvironmentSampleTransform(
+                UyaGameplayLightingReader.ReadEnvironmentSamplePoints(source)[index]),
+            "env_transitions" => EnvironmentTransitionTransform(
+                UyaGameplayLightingReader.ReadEnvironmentTransitions(source)[index]),
             _ => UyaBaseLevelService.Decompose(ShapeMatrix(section, source, index))
                 ?? throw new InvalidDataException($"Shape {index} source transform cannot be decomposed."),
         };
@@ -343,6 +395,19 @@ public static class UyaGameplayLayerStore
         new(value.Position.X, value.Position.Y, value.Position.Z),
         UyaBaseLevelService.FromZyxEuler(new(value.Rotation.X, value.Rotation.Y, value.Rotation.Z)),
         new(1, 1, 1));
+
+    private static ProjectTransform EnvironmentSampleTransform(UyaEnvironmentSamplePoint value) => new(
+        new(value.Position.X, value.Position.Y, value.Position.Z), ProjectTransform.Identity.Rotation, new(2, 2, 2));
+
+    private static ProjectTransform EnvironmentTransitionTransform(UyaEnvironmentTransition value)
+    {
+        var transform = UyaBaseLevelService.InvertAndDecompose(value.InverseMatrix);
+        if (transform is not null) return transform;
+        var radius = float.IsFinite(value.BoundingSphere.W) && MathF.Abs(value.BoundingSphere.W) > 0
+            ? MathF.Abs(value.BoundingSphere.W) : 1;
+        return new(new(value.BoundingSphere.X, value.BoundingSphere.Y, value.BoundingSphere.Z),
+            ProjectTransform.Identity.Rotation, new(radius, radius, radius));
+    }
 
     private static ProjectShapeGeometry? Shape(ProjectEntity entity) => entity.Geometry is { } geometry
         ? geometry.Cuboid ?? geometry.Sphere ?? geometry.Cylinder ?? geometry.Pill
@@ -364,6 +429,10 @@ public static class UyaGameplayLayerStore
             "spheres" => UyaShapeInstancesWriter.WriteSpheres(source, edits),
             "cylinders" => UyaShapeInstancesWriter.WriteCylinders(source, edits),
             "pills" => UyaShapeInstancesWriter.WritePills(source, edits),
+            "env_sample_points" => UyaEnvironmentSamplePointsWriter.Write(source, entities.Select(value =>
+                new UyaEnvironmentSamplePointEdit(value.Provenance!.SourceIndex,
+                    new(value.Transform.Position.X, value.Transform.Position.Y, value.Transform.Position.Z))).ToArray()),
+            "env_transitions" => UyaEnvironmentTransitionsWriter.Write(source, edits),
             _ => throw new ArgumentOutOfRangeException(nameof(section)),
         };
     }
@@ -375,6 +444,16 @@ public static class UyaGameplayLayerStore
             Position(value.Transform.Position),
             Rotation(value.Transform.Rotation),
             Position(value.Transform.Scale))).ToArray());
+
+    private static byte[] WriteGrindPaths(byte[] source, IReadOnlyList<ProjectEntity> entities) =>
+        UyaGrindPathInstancesWriter.Write(source, entities.Select(value => new UyaSplineInstanceEdit(
+            value.Provenance!.SourceIndex,
+            value.Geometry!.GrindPath!.Points.Select(point => new UyaVector4(point.X, point.Y, point.Z, point.W)).ToArray(),
+            Position(value.Transform.Position), Rotation(value.Transform.Rotation),
+            Position(value.Transform.Scale))).ToArray());
+
+    private static IReadOnlyList<ProjectVector4> PathPoints(ProjectEntity entity) =>
+        entity.Geometry!.Spline?.Points ?? entity.Geometry.GrindPath!.Points;
 
     private static bool Equivalent(IReadOnlyList<ProjectVector4> left, IReadOnlyList<GameplayVector4> right) =>
         left.Count == right.Count && left.Select((point, index) =>

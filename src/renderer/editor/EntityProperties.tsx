@@ -15,7 +15,8 @@ export function EntityProperties({ entity }: { entity: EditorEntity }) {
   const { busy } = useEditor();
   const disabled = busy || entity.state.locked || entity.state.readOnly;
   return <BaseEntityProperties entity={entity} disabled={disabled}>
-    {entity.geometry?.kind === 'spline' && <SplineProperties entity={entity} disabled={disabled} />}
+    {(entity.geometry?.kind === 'spline' || entity.geometry?.kind === 'grindPath')
+      && <SplineProperties entity={entity} disabled={disabled} />}
   </BaseEntityProperties>;
 }
 
@@ -137,11 +138,14 @@ function TransformEditor({ entity, disabled }: { entity: EditorEntity; disabled:
     && Object.values(transform.scale).every((value) => value !== 0)
     && Object.values(transform.rotation).some((value) => value !== 0);
   return <Stack gap="xs">
-    <VectorInputs label="Position" value={transform.position} disabled={disabled}
+    <VectorInputs label="Position" value={transform.position}
+      disabled={disabled || !entity.transformModes.includes('translate')}
       onChange={(position) => setTransform({ ...transform, position })} />
-    <QuaternionInputs value={transform.rotation} disabled={disabled}
+    <QuaternionInputs value={transform.rotation}
+      disabled={disabled || !entity.transformModes.includes('rotate')}
       onChange={(rotation) => setTransform({ ...transform, rotation })} />
-    <VectorInputs label="Scale" value={transform.scale} disabled={disabled}
+    <VectorInputs label="Scale" value={transform.scale}
+      disabled={disabled || !entity.transformModes.includes('scale')}
       onChange={(scale) => setTransform({ ...transform, scale })} />
     <Button size="xs" disabled={disabled || !valid || JSON.stringify(transform) === source}
       onClick={() => void execute({

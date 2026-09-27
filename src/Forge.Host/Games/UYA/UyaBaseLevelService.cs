@@ -271,7 +271,7 @@ internal static class UyaBaseLevelService
 
     private static ProjectRgba32 Color(UyaRgba32 value) => new(value.R, value.G, value.B, value.A);
 
-    private static ProjectTransform? InvertAndDecompose(IReadOnlyList<float> inverse)
+    internal static ProjectTransform? InvertAndDecompose(IReadOnlyList<float> inverse)
     {
         if (inverse.Count != 16) return null;
         var source = new Matrix4x4(

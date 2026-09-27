@@ -264,6 +264,38 @@ internal static class UyaProjectTests
                     "editor exposes writable sound transforms");
                 Equal(false, snapshot.Entities.Single(value => value.EntityId == spline.EntityId).State.ReadOnly,
                     "editor exposes writable spline transforms");
+                Equal(EditorTransformCapabilities.Translate | EditorTransformCapabilities.Rotate
+                    | EditorTransformCapabilities.Scale,
+                    snapshot.Entities.Single(value => value.EntityId == grindPath.EntityId).TransformCapabilities,
+                    "grind path exposes full transform support");
+                Equal(false, snapshot.Entities.Single(value => value.EntityId == pointLight.EntityId).State.ReadOnly,
+                    "editor exposes writable point-light transforms");
+                Equal(EditorTransformCapabilities.Rotate,
+                    snapshot.Entities.Single(value => value.EntityId == directionalLight.EntityId).TransformCapabilities,
+                    "directional light exposes rotation support");
+                Equal(EditorTransformCapabilities.Translate | EditorTransformCapabilities.Scale,
+                    snapshot.Entities.Single(value => value.EntityId == pointLight.EntityId).TransformCapabilities,
+                    "point light exposes only supported transform modes");
+                Equal(EditorTransformCapabilities.Translate,
+                    snapshot.Entities.Single(value => value.EntityId == environmentSample.EntityId).TransformCapabilities,
+                    "environment sample exposes translation support");
+                Equal(EditorTransformCapabilities.Translate | EditorTransformCapabilities.Rotate
+                    | EditorTransformCapabilities.Scale,
+                    snapshot.Entities.Single(value => value.EntityId == environmentTransition.EntityId)
+                        .TransformCapabilities,
+                    "environment transition exposes full transform support");
+                Equal(EditorTransformCapabilities.Translate | EditorTransformCapabilities.Rotate,
+                    snapshot.Entities.Single(value => value.EntityId == camera.EntityId).TransformCapabilities,
+                    "camera exposes only supported transform modes");
+                snapshot = await runtime.ExecuteAsync(new(
+                    Guid.NewGuid().ToString("D"), EditorCommandKind.UpdateTransform, [environmentSample.EntityId],
+                    environmentSample.Transform with { Position = new(11, 22, 33) }));
+                Equal(new ProjectVector3(11, 22, 33), snapshot.Entities
+                    .Single(value => value.EntityId == environmentSample.EntityId).Transform.Position,
+                    "environment sample accepts translation edits");
+                await ThrowsAsync<ArgumentException>(() => runtime.ExecuteAsync(new(
+                    Guid.NewGuid().ToString("D"), EditorCommandKind.UpdateTransform, [environmentSample.EntityId],
+                    environmentSample.Transform with { Rotation = new(0, 0, 1, 0) })));
                 Equal(EditorGeometryKind.Camera,
                     snapshot.Entities.Single(value => value.EntityId == camera.EntityId).Geometry!.Kind,
                     "camera reaches editor snapshot");
@@ -285,6 +317,13 @@ internal static class UyaProjectTests
                     Guid.NewGuid().ToString("D"), EditorCommandKind.Undo, []));
                 Equal(2, snapshot.Entities.Single(value => value.EntityId == spline.EntityId).Geometry!.Points.Count,
                     "spline point edits are undoable");
+                snapshot = await runtime.ExecuteAsync(new(
+                    Guid.NewGuid().ToString("D"), EditorCommandKind.UpdateSplinePoints, [grindPath.EntityId],
+                    Points: editedSplinePoints));
+                Equal(true, snapshot.Entities.Single(value => value.EntityId == grindPath.EntityId)
+                    .Geometry!.Points.SequenceEqual(editedSplinePoints), "grind-path points are fully editable");
+                snapshot = await runtime.ExecuteAsync(new(
+                    Guid.NewGuid().ToString("D"), EditorCommandKind.Undo, []));
                 snapshot = await runtime.ExecuteAsync(new(
                     Guid.NewGuid().ToString("D"), EditorCommandKind.SetEntityState, [cuboid.EntityId],
                     State: new(Hidden: true)));

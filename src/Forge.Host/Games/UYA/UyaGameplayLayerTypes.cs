@@ -59,11 +59,13 @@ public static class UyaGameplayLayerSchema
     public static IReadOnlyList<string> SectionNames { get; } =
     [
         "pvar_moby_links", "pvar_table", "pvar_data", "pvar_relative_pointers",
-        "cameras", "sound_instances", "cuboids", "spheres", "cylinders", "pills", "splines",
+        "cameras", "sound_instances", "cuboids", "spheres", "cylinders", "pills", "splines", "grind_splines",
+        "env_sample_points", "env_transitions", "camera_collision_grid",
     ];
 
     public static IReadOnlyList<string> WritableInstanceSections { get; } =
     [
-        "cameras", "sound_instances", "cuboids", "spheres", "cylinders", "pills", "splines",
+        "cameras", "sound_instances", "cuboids", "spheres", "cylinders", "pills", "splines", "grind_splines",
+        "env_sample_points", "env_transitions",
     ];
 }

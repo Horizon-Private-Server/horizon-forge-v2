@@ -85,6 +85,15 @@ public sealed record EditorEntityGeometry(
     EditorGeometryKind Kind,
     IReadOnlyList<ProjectVector4> Points);
 
+[Flags]
+public enum EditorTransformCapabilities : byte
+{
+    None = 0,
+    Translate = 1,
+    Rotate = 2,
+    Scale = 4,
+}
+
 public sealed record EditorEntitySnapshot(
     EntityId EntityId,
     string Name,
@@ -94,6 +103,7 @@ public sealed record EditorEntitySnapshot(
     ProjectEntityProvenance? Provenance,
     int? SourceClassId,
     EditorEntityGeometry? Geometry,
+    EditorTransformCapabilities TransformCapabilities,
     EditorEntityStatus State);
 
 public sealed record EditorEvent(

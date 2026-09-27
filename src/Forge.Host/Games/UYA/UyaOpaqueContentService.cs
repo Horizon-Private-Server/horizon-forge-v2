@@ -26,6 +26,10 @@ internal static class UyaOpaqueContentService
         "cylinders",
         "pills",
         "splines",
+        "grind_splines",
+        "env_sample_points",
+        "env_transitions",
+        "camera_collision_grid",
     ];
 
     public static IReadOnlyList<OpaqueSectionCapture> Capture(

@@ -59,7 +59,7 @@ export function SplineProperties({ entity, disabled }: { entity: EditorEntity; d
   const start = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
   const end = Math.min(points.length, start + VISIBLE_ROWS + OVERSCAN * 2);
 
-  return <Fieldset legend={`Spline · ${points.length} points`}>
+  return <Fieldset legend={`${entity.geometry?.kind === 'grindPath' ? 'Grind path' : 'Spline'} · ${points.length} points`}>
     <Stack gap={6}>
       <Group justify="space-between" gap="xs">
         <Text size="xs" c="dimmed">Only visible rows are rendered.</Text>

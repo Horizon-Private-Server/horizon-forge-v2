@@ -40,6 +40,7 @@ function entity(id: string, x = 0, asset = true, state: Partial<EditorEntity['st
       scale: { x: 1, y: 1, z: 1 },
     },
     asset: asset ? { id: 'asset', kind: 'moby' } : undefined,
+    transformModes: ['translate', 'rotate', 'scale'],
     state: {
       dirty: false, hidden: false, disabled: false, locked: false, readOnly: false,
       invalid: false, missingAsset: false, ...state,

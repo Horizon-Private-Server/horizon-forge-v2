@@ -365,6 +365,7 @@ public sealed class EditorRuntime : IAsyncDisposable
                     entity.Provenance,
                     entity.Source?.ClassId,
                     Visualization(entity),
+                    TransformCapabilities(entity),
                     new(!_savedEntities.TryGetValue(entity.EntityId, out var saved) || saved != entity,
                         state.Hidden, state.Disabled, state.Locked,
                         IsReadOnlySource(entity),
@@ -409,20 +410,30 @@ public sealed class EditorRuntime : IAsyncDisposable
         return null;
     }
 
-    private static bool IsReadOnlySource(ProjectEntity entity) => IsDecodedSource(entity) && !HasTransformWriter(entity);
+    private static bool IsReadOnlySource(ProjectEntity entity) =>
+        IsDecodedSource(entity) && TransformCapabilities(entity) == EditorTransformCapabilities.None;
 
     private static bool IsDecodedSource(ProjectEntity entity) => entity.Geometry is not null
         || entity.Lighting is not null || entity.Camera is not null || entity.AmbientSound is not null;
 
-    private static bool HasTransformWriter(ProjectEntity entity)
+    private static EditorTransformCapabilities TransformCapabilities(ProjectEntity entity)
     {
-        if (entity.Provenance is not { Game: "UYA" }) return false;
-        if (entity.Camera is not null || entity.AmbientSound is not null) return true;
-        if (entity.Geometry?.Spline is not null) return true;
+        const EditorTransformCapabilities all = EditorTransformCapabilities.Translate
+            | EditorTransformCapabilities.Rotate | EditorTransformCapabilities.Scale;
+        if (!IsDecodedSource(entity)) return all;
+        if (entity.Provenance is not { Game: "UYA" }) return EditorTransformCapabilities.None;
+        if (entity.Camera is not null) return EditorTransformCapabilities.Translate | EditorTransformCapabilities.Rotate;
+        if (entity.AmbientSound is not null || entity.Geometry?.Spline is not null
+            || entity.Geometry?.GrindPath is not null) return all;
+        if (entity.Lighting?.DirectionalLight is not null) return EditorTransformCapabilities.Rotate;
+        if (entity.Lighting?.PointLight is not null)
+            return EditorTransformCapabilities.Translate | EditorTransformCapabilities.Scale;
+        if (entity.Lighting?.EnvironmentSamplePoint is not null) return EditorTransformCapabilities.Translate;
+        if (entity.Lighting?.EnvironmentTransition is not null) return all;
         var shape = entity.Geometry is { } geometry
             ? geometry.Cuboid ?? geometry.Sphere ?? geometry.Cylinder ?? geometry.Pill
             : null;
-        return shape is not null && shape.CameraCollision is null;
+        return shape is not null ? all : EditorTransformCapabilities.None;
     }
 
     private static bool HasInvalidGeometryLinks(ProjectEntity entity)
@@ -457,7 +468,8 @@ public sealed class EditorRuntime : IAsyncDisposable
             .Select(entity => entity.EntityId)
             .ToHashSet();
         var transformOnly = workspace.Content.Entities
-            .Where(HasTransformWriter)
+            .Where(entity => IsDecodedSource(entity)
+                && TransformCapabilities(entity) != EditorTransformCapabilities.None)
             .Select(entity => entity.EntityId)
             .ToHashSet();
         var readOnlyStateChange = command.Kind == EditorCommandKind.SetEntityState
@@ -526,8 +538,34 @@ public sealed class EditorRuntime : IAsyncDisposable
             case EditorCommandKind.UpdateSplinePoints when command.EntityIds.Count != 1 || command.Transform is not null
                 || command.Text is not null || command.State is not null || command.Transforms?.Count > 0
                 || command.LevelSettings is not null || command.Points is null
-                || workspace.Content.Entities.Single(entity => entity.EntityId == command.EntityIds[0]).Geometry?.Spline is null:
-                throw new ArgumentException("Spline point commands require one spline and its points.", nameof(command));
+                || !IsEditablePath(workspace.Content.Entities.Single(
+                    entity => entity.EntityId == command.EntityIds[0])):
+                throw new ArgumentException("Path point commands require one editable path and its points.", nameof(command));
+        }
+        if (command.Kind is EditorCommandKind.UpdateTransform or EditorCommandKind.UpdateTransforms)
+            ValidateTransformCapabilities(command, workspace);
+    }
+
+    private static bool IsEditablePath(ProjectEntity entity) =>
+        entity.Geometry?.Spline is not null || entity.Geometry?.GrindPath is not null;
+
+    private static void ValidateTransformCapabilities(EditorCommand command, ForgeProjectWorkspace workspace)
+    {
+        var entities = workspace.Content.Entities.ToDictionary(entity => entity.EntityId);
+        var updates = command.Kind == EditorCommandKind.UpdateTransform
+            ? [new EditorTransformUpdate(command.EntityIds[0], command.Transform!)]
+            : command.Transforms!;
+        foreach (var update in updates)
+        {
+            var entity = entities[update.EntityId];
+            var capabilities = TransformCapabilities(entity);
+            if (!capabilities.HasFlag(EditorTransformCapabilities.Translate)
+                    && update.Transform.Position != entity.Transform.Position
+                || !capabilities.HasFlag(EditorTransformCapabilities.Rotate)
+                    && update.Transform.Rotation != entity.Transform.Rotation
+                || !capabilities.HasFlag(EditorTransformCapabilities.Scale)
+                    && update.Transform.Scale != entity.Transform.Scale)
+                throw new ArgumentException("Transform command changes an unsupported component.", nameof(command));
         }
     }
 

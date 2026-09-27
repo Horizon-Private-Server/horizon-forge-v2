@@ -495,8 +495,10 @@ native writing remain open.
 Transform-only native writers now cover cuboids, spheres, cylinders, and pills that
 are not linked to camera collision. Ordinary splines support editing, inserting,
 deleting, and reordering all four point components; their writer rebuilds variable-size
-point arrays while retaining record padding. Spline-instance structural edits and
-camera-collision regeneration remain open.
+point arrays while retaining record padding. Grind paths now share the point/node and
+transform editing flow, regenerate their bounds, and preserve gameplay metadata.
+Camera-collision-linked volumes support transform editing and deterministically regenerate
+their spatial grid and bounds. Path-instance structural edits remain open.
 
 ## M2-016 — Import cameras, sound emitters, groups, and shared references
 
@@ -573,6 +575,15 @@ imports the other records as typed, read-only entities with fog-free selectable
 markers. Target-native lighting assets remain bake authority. Accurate model-lighting
 preview, native writers/regeneration, mutation coverage, and Map-o-Matic parity
 screenshots remain open.
+
+Point-light position and radius now support transform editing. The native writer
+requantizes those fields to 1/64 units and regenerates the derived X/Y masks while
+preserving color and unknown fields. Directional lights support rotation editing,
+which rotates both direction vectors while preserving colors and metadata.
+Environment-sample positions now support
+translation editing with signed 1/4-unit requantization; their remaining fields and
+environment-transition volumes now support full transform editing with regenerated
+inverse matrices and bounds. Their remaining fields and other lighting records remain read-only.
 
 ## M2-018 — Import UYA level settings with stable entity references
 
