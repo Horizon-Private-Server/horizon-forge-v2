@@ -557,9 +557,9 @@ internal static class UyaBaseLevelService
         {
             if (asset.CanonicalFormatVersion != UyaAssetImportService.CanonicalFormatVersion) continue;
             var prefix = $"{aliasPrefix}:";
-            var alias = asset.Aliases.FirstOrDefault(value => value.StartsWith(prefix, StringComparison.Ordinal)
-                && !value.StartsWith($"{prefix}0x", StringComparison.Ordinal));
-            if (alias is not null && int.TryParse(alias.AsSpan(prefix.Length), out var classId)) result.TryAdd(classId, asset);
+            foreach (var alias in asset.Aliases.Where(value => value.StartsWith(prefix, StringComparison.Ordinal)
+                         && !value.StartsWith($"{prefix}0x", StringComparison.Ordinal)))
+                if (int.TryParse(alias.AsSpan(prefix.Length), out var classId)) result.TryAdd(classId, asset);
         }
         return result;
     }

@@ -25,7 +25,7 @@ internal static class UyaProjectTests
                 new(
                     "test-importer",
                     new("UYA", "NTSC-U", "1.00", "level03", "level_wad/assets/asset_wad.bin", 0, new string('a', 32)),
-                    ["moby:100", "moby:0x0064"],
+                    ["moby:10", "moby:0x000A", "moby:100", "moby:0x0064"],
                     ["vanilla", "game:UYA", "level:03"]));
             var tieAsset = await catalog.PutAsync(
                 AssetKind.Tie, UyaAssetImportService.CanonicalFormatVersion, CanonicalAsset(AssetKind.Tie, 0x22),
