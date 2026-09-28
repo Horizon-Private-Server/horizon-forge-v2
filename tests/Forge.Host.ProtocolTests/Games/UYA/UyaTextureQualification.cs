@@ -1,9 +1,9 @@
 using Forge.Host.Domain;
+using RatchetPs2.Core.LevelAssets;
 using RatchetPs2.Core.Textures;
 using RatchetPs2.Core.Textures.Palettes;
 using RatchetPs2.Core.Textures.Pif;
 using RatchetPs2.Core.Wad.Models;
-using RatchetPs2.Games.DL.Level;
 using RatchetPs2.Games.UYA.Level;
 
 namespace Forge.Host.ProtocolTests.Games.UYA;
@@ -12,7 +12,7 @@ internal static class UyaTextureQualification
 {
     public static bool MatchesBaseColors(
         UyaLevelAssetSourceFiles source,
-        DlAssetHeader header,
+        LevelAssetHeader header,
         byte[] assetWad,
         AssetKind kind,
         byte marker)
@@ -24,8 +24,8 @@ internal static class UyaTextureQualification
             AssetKind.Shrub => ("shrub", header.ShrubTextureOffset, header.ShrubTextureCount),
             _ => throw new ArgumentOutOfRangeException(nameof(kind)),
         };
-        var definition = DlAssetReader.ReadTextureDefinitions(source.HeaderBytes, offset, count).Single();
-        var texture = PifReader.Read(DlAssetReader.BuildAssetTexture(
+        var definition = LevelAssetReader.ReadTextureDefinitions(source.HeaderBytes, offset, count).Single();
+        var texture = PifReader.Read(LevelAssetReader.BuildAssetTexture(
             family, 0, definition, source.PaletteBytes, assetWad,
             header.TextureDataOffset, isSwizzled: false).PifBytes);
         var colors = texture.PixelData.Select(value =>

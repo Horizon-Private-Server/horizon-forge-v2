@@ -2,7 +2,7 @@ using Forge.Host.Domain;
 using System.Numerics;
 using RatchetPs2.Core.Games;
 using RatchetPs2.Core.Gameplay;
-using RatchetPs2.Games.DL.Level;
+using RatchetPs2.Core.LevelAssets;
 using RatchetPs2.Games.UYA.Gameplay;
 using RatchetPs2.Games.UYA.Level;
 using RatchetPs2.Sdk;
@@ -36,10 +36,10 @@ internal static class UyaBaseLevelService
         var shrubs = shrubTable.Instances;
 
         var source = UyaLevelWadRenderPackageBuilder.ReadAssetSourceFiles(package.Files);
-        var header = DlAssetReader.ReadHeader(source.HeaderBytes);
+        var header = LevelAssetReader.ReadHeader(source.HeaderBytes);
         var mobyClasses = ModelClasses(source.HeaderBytes, header.MobyModelOffset, header.MobyModelCount);
         var tieClasses = ModelClasses(source.HeaderBytes, header.TieModelOffset, header.TieModelCount);
-        var shrubClasses = DlAssetReader.ReadShrubDefinitions(source.HeaderBytes, header.ShrubModelOffset, header.ShrubModelCount)
+        var shrubClasses = LevelAssetReader.ReadShrubDefinitions(source.HeaderBytes, header.ShrubModelOffset, header.ShrubModelCount)
             .Where(model => model.ModelOffset > 0).Select(model => model.ModelId).ToHashSet();
         var mobyAssets = AssetLookup(catalog, AssetKind.Moby, "moby", level);
         var tieAssets = AssetLookup(catalog, AssetKind.Tie, "tie", level);
@@ -543,7 +543,7 @@ internal static class UyaBaseLevelService
     }
 
     private static HashSet<int> ModelClasses(byte[] header, int offset, int count) =>
-        DlAssetReader.ReadModelDefinitions(header, offset, count)
+        LevelAssetReader.ReadModelDefinitions(header, offset, count)
             .Where(model => model.ModelOffset > 0).Select(model => model.ModelId).ToHashSet();
 
     private static IReadOnlyDictionary<int, AssetCatalogEntry> AssetLookup(

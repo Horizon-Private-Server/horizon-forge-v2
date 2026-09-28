@@ -11,6 +11,8 @@ public static class UyaTextureInventoryService
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(catalog);
+        var project = await ForgeProjectWorkspace.OpenAsync(projectRoot, cancellationToken);
+        var sourceLevel = $"level{project.Manifest.BaseLevel.Level:00}";
         var staging = await BakeStagingStore.OpenAsync(projectRoot, cancellationToken);
         var inputs = new List<TextureInventoryInput>();
         foreach (var layer in UyaStaticLayerSchema.Layers)
@@ -32,6 +34,11 @@ public static class UyaTextureInventoryService
                 if (catalogEntry.Tags.Contains("texture:placeholder", StringComparer.Ordinal))
                     throw new InvalidDataException(
                         $"{layer} class 0x{definition.ClassId:X4} uses placeholder texture data and cannot be optimized or injected.");
+                var preserveTextureIndexes = catalogEntry.Sources.Any(value =>
+                    value.Game == project.Manifest.BaseLevel.Game
+                    && value.Region == project.Manifest.BaseLevel.Region
+                    && value.Revision == project.Manifest.BaseLevel.Revision
+                    && value.Level == sourceLevel);
                 var path = ForgeProjectPersistence.ResolveRelativePath(root, definition.Resource);
                 var canonical = UyaCanonicalAssetCodec.Decode(await File.ReadAllBytesAsync(path, cancellationToken));
                 var materialIndex = 0;
@@ -47,7 +54,8 @@ public static class UyaTextureInventoryService
                         textureIndex,
                         role,
                         texture.PifBytes,
-                        role == TextureRole.Material ? [textureIndex] : []));
+                        role == TextureRole.Material ? [textureIndex] : [],
+                        PreserveReferencedPaletteIndexes: role == TextureRole.Material && preserveTextureIndexes));
                 }
             }
         }

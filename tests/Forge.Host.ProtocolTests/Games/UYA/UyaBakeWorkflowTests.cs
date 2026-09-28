@@ -11,7 +11,6 @@ using RatchetPs2.Core.Textures.Palettes;
 using RatchetPs2.Core.Textures.Pif;
 using RatchetPs2.Core.Wad;
 using RatchetPs2.Core.Wad.Models;
-using RatchetPs2.Games.DL.Level;
 using RatchetPs2.Games.UYA.Gameplay;
 using RatchetPs2.Games.UYA.Level;
 
@@ -49,6 +48,19 @@ internal static class UyaBakeWorkflowTests
             Equal(3, retainedAssets.Count, "cross-level composition retains the complete base class inventory");
             Equal(0x44, retainedAssets.Single(value => value.Family == TextureAssetFamily.Tie).ModelBytes.Span[0],
                 "selected cross-level class overlays its base definition");
+            var refreshedAssets = UyaLevelPackService.IncludeSourceStaticAssets(
+                sourceLevelWad,
+                retainedAssets,
+                new HashSet<(TextureAssetFamily, int)> { (TextureAssetFamily.Tie, 200) });
+            var refreshedTie = refreshedAssets.Single(value => value.Family == TextureAssetFamily.Tie);
+            Equal(false, refreshedTie.ModelBytes.Span[0] == 0x44,
+                "source-level catalog classes refresh their model from the clean level");
+            Equal(true, refreshedTie.PreserveTextureIndexes,
+                "source-level catalog classes preserve retail texture sharing");
+            Equal(true, refreshedTie.Textures.Single().PifBytes.Span.SequenceEqual(
+                    retainedAssets.Single(value => value.Family == TextureAssetFamily.Tie)
+                        .Textures.Single().PifBytes.Span),
+                "source-level model refresh preserves its catalog texture");
 
             var unbaked = await UyaLevelPackService.PackAsync(project, catalog, sourceLevelWad, context);
             Equal(false, unbaked.Succeeded, "unbaked staging cannot pack");
@@ -164,10 +176,10 @@ internal static class UyaBakeWorkflowTests
             Equal(paletteReport, first.Manifest.PaletteReport, "bake result exposes its staged palette report");
             Equal(3, paletteReport.InputTextureCount, "palette report input texture count");
             Equal(3, paletteReport.InputPaletteCount, "palette report distinct input palette count");
-            Equal(1, paletteReport.OutputPaletteCount, "palette report optimized palette count");
+            Equal(3, paletteReport.OutputPaletteCount, "palette report optimized palette count");
             Equal(3_072L, paletteReport.InputPaletteBytes, "palette report input VRAM estimate");
-            Equal(1_024L, paletteReport.OutputPaletteBytes, "palette report output VRAM estimate");
-            Equal(2_048L, paletteReport.EstimatedPaletteVramSavingsBytes, "palette report VRAM savings estimate");
+            Equal(3_072L, paletteReport.OutputPaletteBytes, "palette report output VRAM estimate");
+            Equal(0L, paletteReport.EstimatedPaletteVramSavingsBytes, "palette report VRAM savings estimate");
             Equal(true, paletteReport.IsLossless, "vanilla palette report is lossless");
             Equal(0d, paletteReport.ImportedQuantizationError, "vanilla palette report quantization error");
             Equal(PaletteOptimizer.ExactMethod, paletteReport.Optimization.Method,
@@ -176,7 +188,7 @@ internal static class UyaBakeWorkflowTests
             Equal(3, paletteReport.Optimization.Assignments.Count, "palette report traces every texture assignment");
             Equal(6, paletteReport.Optimization.Assignments.Sum(value => value.IndexRemaps.Count),
                 "palette report traces every referenced old-to-new index mapping");
-            Equal("e4a4b98283e7ca9a5ebff40ba1683e3beb34955f92422aba2b254f14276e9d0d", Convert.ToHexString(SHA256.HashData(
+            Equal("874161869e9cc2f3b6232f6a7020b5970aada3851213b250e15bb7bb66c3e22d", Convert.ToHexString(SHA256.HashData(
                 ForgeProjectPersistence.Serialize(paletteReport))).ToLowerInvariant(),
                 "palette report schema snapshot");
             var textureInventory = await UyaTextureInventoryService.BuildAsync(project, catalog);
@@ -184,13 +196,14 @@ internal static class UyaBakeWorkflowTests
             Equal(12L, textureInventory.TexelCount, "texture inventory counts every selected vanilla texel");
             var optimizedPalettes = PaletteOptimizer.Optimize(textureInventory);
             Equal(0, optimizedPalettes.Violations.Count, "staged vanilla textures optimize without violations");
-            Equal(1, optimizedPalettes.Palettes.Count, "compatible staged vanilla textures share one exact palette");
+            Equal(3, optimizedPalettes.Palettes.Count,
+                "source textures preserve their retail palette indexes");
             Equal(3, optimizedPalettes.Assignments.Count, "every staged vanilla texture receives a palette assignment");
             var staleReport = paletteReport with
             {
                 InputPaletteCount = 2,
                 InputPaletteBytes = 2_048,
-                EstimatedPaletteVramSavingsBytes = 1_024,
+                EstimatedPaletteVramSavingsBytes = -1_024,
             };
             var staging = await BakeStagingStore.OpenAsync(project);
             await staging.RestoreManifestAsync(first.Manifest with { PaletteReport = staleReport });
@@ -202,7 +215,7 @@ internal static class UyaBakeWorkflowTests
             var packedSource = await UyaLevelPackService.PackAsync(project, catalog, sourceLevelWad, context);
             Equal(true, packedSource.Succeeded, "validated staging packs: "
                 + string.Join(" | ", packedSource.Diagnostics.Select(value => value.Cause)));
-            Equal("331ae03c833dfa4dd9f569eb0ff174ca0b12673db3a08232933379e4c4301f5a",
+            Equal("50a8e57f4db37f4dab8e670cd2eea775f87d8b7a0afd2a7cf6114c70ae87c0d5",
                 packedSource.OutputSha256, "unchanged staged project golden WAD");
             _ = UyaLevelWadInventoryReader.Read(packedSource.OutputBytes!);
             var packedFiles = UyaLevelWadUnpacker.Unpack(packedSource.OutputBytes!).Files;
@@ -217,19 +230,12 @@ internal static class UyaBakeWorkflowTests
                     .Select(value => value.ClassId).Distinct().Order()),
                 "packed static class lists match their rebuilt instance tables");
             var installed = ReadAssets(packedSource.OutputBytes!);
-            Equal(0x11, installed.AssetWad[installed.Mobys.Single().ModelOffset], "selected moby model is installed");
-            Equal(0x22, installed.AssetWad[installed.Ties.Single().ModelOffset], "selected tie model is installed");
-            Equal(0x33, installed.AssetWad[installed.Shrubs.Single().ModelOffset], "selected shrub model is installed");
-            var paletteIds = new[]
-            {
-                DlAssetReader.ReadTextureDefinitions(installed.Source.HeaderBytes,
-                    installed.Header.MobyTextureOffset, installed.Header.MobyTextureCount).Single().PaletteId,
-                DlAssetReader.ReadTextureDefinitions(installed.Source.HeaderBytes,
-                    installed.Header.TieTextureOffset, installed.Header.TieTextureCount).Single().PaletteId,
-                DlAssetReader.ReadTextureDefinitions(installed.Source.HeaderBytes,
-                    installed.Header.ShrubTextureOffset, installed.Header.ShrubTextureCount).Single().PaletteId,
-            };
-            Equal(1, paletteIds.Distinct().Count(), "installed moby, tie, and shrub textures share one palette");
+            Equal(0, installed.AssetWad[installed.Mobys.Single().ModelOffset], "clean source moby model is installed");
+            Equal(0, installed.AssetWad[installed.Ties.Single().ModelOffset], "clean source tie model is installed");
+            Equal(0, installed.AssetWad[installed.Shrubs.Single().ModelOffset], "clean source shrub model is installed");
+            Equal(true, installed.Header is
+                { MobyTextureCount: 0, TieTextureCount: 0, ShrubTextureCount: 0 },
+                "unchanged source asset payload is retained without recompilation");
 
             var workspace = await ForgeProjectWorkspace.OpenAsync(project);
             var directionalLight = workspace.Content.Entities.Single(
@@ -463,16 +469,16 @@ internal static class UyaBakeWorkflowTests
             var packedAssetWad = BinaryMagic.IsWad(packedAssetFiles.AssetWadBytes)
                 ? WadCompression.Decompress(packedAssetFiles.AssetWadBytes)
                 : packedAssetFiles.AssetWadBytes;
-            var packedHeader = DlAssetReader.ReadHeader(packedAssetFiles.HeaderBytes);
-            var packedMobys = DlAssetReader.ReadModelDefinitions(
+            var packedHeader = LevelAssetReader.ReadHeader(packedAssetFiles.HeaderBytes);
+            var packedMobys = LevelAssetReader.ReadModelDefinitions(
                 packedAssetFiles.HeaderBytes, packedHeader.MobyModelOffset, packedHeader.MobyModelCount);
-            var packedTies = DlAssetReader.ReadModelDefinitions(
+            var packedTies = LevelAssetReader.ReadModelDefinitions(
                 packedAssetFiles.HeaderBytes, packedHeader.TieModelOffset, packedHeader.TieModelCount);
-            var packedShrubs = DlAssetReader.ReadShrubDefinitions(
+            var packedShrubs = LevelAssetReader.ReadShrubDefinitions(
                 packedAssetFiles.HeaderBytes, packedHeader.ShrubModelOffset, packedHeader.ShrubModelCount);
-            var packedOffsets = DlAssetReader.CollectKnownAssetOffsets(
-                GameId.UYA, packedHeader, packedAssetWad.Length, packedMobys, packedTies, packedShrubs);
-            var packedSky = DlAssetReader.ReadAssetSlice(packedAssetWad, packedHeader.SkyOffset, packedOffsets);
+            var packedOffsets = LevelAssetReader.CollectKnownAssetOffsets(
+                packedHeader, packedAssetWad.Length, packedMobys, packedTies, packedShrubs, [packedHeader.SceneViewSize]);
+            var packedSky = LevelAssetReader.ReadAssetSlice(packedAssetWad, packedHeader.SkyOffset, packedOffsets);
             Equal(true, packedSky.SequenceEqual(editedSky), "packed WAD preserves resized sky payload");
 
             workspace = await ForgeProjectWorkspace.OpenAsync(project);
@@ -723,14 +729,14 @@ internal static class UyaBakeWorkflowTests
         var assetWad = BinaryMagic.IsWad(source.AssetWadBytes)
             ? WadCompression.Decompress(source.AssetWadBytes)
             : source.AssetWadBytes;
-        var header = DlAssetReader.ReadHeader(source.HeaderBytes);
+        var header = LevelAssetReader.ReadHeader(source.HeaderBytes);
         return new(
             source,
             header,
             assetWad,
-            DlAssetReader.ReadModelDefinitions(source.HeaderBytes, header.MobyModelOffset, header.MobyModelCount),
-            DlAssetReader.ReadModelDefinitions(source.HeaderBytes, header.TieModelOffset, header.TieModelCount),
-            DlAssetReader.ReadShrubDefinitions(source.HeaderBytes, header.ShrubModelOffset, header.ShrubModelCount));
+            LevelAssetReader.ReadModelDefinitions(source.HeaderBytes, header.MobyModelOffset, header.MobyModelCount),
+            LevelAssetReader.ReadModelDefinitions(source.HeaderBytes, header.TieModelOffset, header.TieModelCount),
+            LevelAssetReader.ReadShrubDefinitions(source.HeaderBytes, header.ShrubModelOffset, header.ShrubModelCount));
     }
 
     private static byte[] CanonicalAsset(AssetKind kind, byte modelByte)
@@ -783,9 +789,9 @@ internal static class UyaBakeWorkflowTests
 
     private sealed record PackedAssets(
         UyaLevelAssetSourceFiles Source,
-        DlAssetHeader Header,
+        LevelAssetHeader Header,
         byte[] AssetWad,
-        IReadOnlyList<DlAssetModelDefinition> Mobys,
-        IReadOnlyList<DlAssetModelDefinition> Ties,
-        IReadOnlyList<DlAssetShrubDefinition> Shrubs);
+        IReadOnlyList<LevelAssetModelDefinition> Mobys,
+        IReadOnlyList<LevelAssetModelDefinition> Ties,
+        IReadOnlyList<LevelAssetShrubDefinition> Shrubs);
 }

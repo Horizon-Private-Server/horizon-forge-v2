@@ -45,6 +45,7 @@ public static class UyaLevelPackService
         try
         {
             var sourcePackage = UyaLevelWadUnpacker.Unpack(sourceLevelWad.ToArray());
+            var workspace = await ForgeProjectWorkspace.OpenAsync(projectRoot, cancellationToken);
             var allowStalePaletteReport = deferredLayers?.Any(UyaStaticLayerSchema.Layers.Contains) ?? false;
             if (!allowStalePaletteReport)
             {
@@ -56,7 +57,7 @@ public static class UyaLevelPackService
                     throw new InvalidDataException("Staged palette report does not match the staged static assets.");
             }
             var replacements = await CreateReplacementsAsync(
-                catalog, staging, sourceLevelWad, sourcePackage,
+                catalog, staging, sourceLevelWad, sourcePackage, workspace.Manifest.BaseLevel,
                 allowStalePaletteReport,
                 cancellationToken);
             var archive = await Task.Run(
@@ -110,6 +111,7 @@ public static class UyaLevelPackService
         BakeStagingStore staging,
         ReadOnlyMemory<byte> sourceLevelWad,
         UyaLevelWadPackage sourcePackage,
+        ProjectBaseLevel baseLevel,
         bool allowStalePaletteReport,
         CancellationToken cancellationToken)
     {
@@ -178,7 +180,8 @@ public static class UyaLevelPackService
                 new(terrain, sky, collision), cancellationToken);
 
         var staticAssets = new List<StaticAssetInput>();
-        var sourceLevel = $"level{sourcePackage.LevelWad.Level:00}";
+        var sourceStaticAssetKeys = new HashSet<(TextureAssetFamily Family, int ClassId)>();
+        var sourceLevel = $"level{baseLevel.Level:00}";
         var staticAssetsChanged = false;
         foreach (var layer in UyaStaticLayerSchema.Layers)
         {
@@ -190,11 +193,15 @@ public static class UyaLevelPackService
                 var entry = catalog.Query(new(Id: definition.Asset.Id)).SingleOrDefault();
                 if (entry is null || entry.CanonicalFormatVersion != UyaAssetImportService.CanonicalFormatVersion)
                     throw new InvalidDataException($"{layer} definition {definition.ClassId:X4} has no current canonical asset.");
-                staticAssetsChanged |= !entry.Sources.Any(value =>
-                    value.Game == "UYA" && value.Region == "NTSC-U" && value.Level == sourceLevel);
+                var fromSourceLevel = entry.Sources.Any(value =>
+                    value.Game == baseLevel.Game
+                    && value.Region == baseLevel.Region
+                    && value.Revision == baseLevel.Revision
+                    && value.Level == sourceLevel);
+                staticAssetsChanged |= !fromSourceLevel;
                 var path = ForgeProjectPersistence.ResolveRelativePath(root, definition.Resource);
                 var canonical = UyaCanonicalAssetCodec.Decode(await File.ReadAllBytesAsync(path, cancellationToken));
-                staticAssets.Add(new(
+                var input = new StaticAssetInput(
                     definition.Asset.Id.ToString(),
                     TextureFamily(layer),
                     definition.ClassId,
@@ -202,7 +209,11 @@ public static class UyaLevelPackService
                     canonical.ModelBytes,
                     canonical.Textures.Select(value => new StaticAssetTexture(
                         value.Role == 0 ? TextureRole.Material : TextureRole.Billboard,
-                        value.PifBytes)).ToArray()));
+                        value.PifBytes)).ToArray(),
+                    PreserveTextureIndexes: fromSourceLevel);
+                staticAssets.Add(input);
+                if (fromSourceLevel)
+                    sourceStaticAssetKeys.Add((input.Family, input.ClassId));
             }
             replacements.Add($"gameplay/core/{familyName}_classes.bin",
                 UyaClassIdListWriter.Write(manifest.Instances.Select(value => value.ClassId)));
@@ -225,7 +236,8 @@ public static class UyaLevelPackService
             }
         }
         if (staticAssetsChanged || visibilityBit is not null)
-            staticAssets = IncludeSourceStaticAssets(sourceLevelWad.Span, staticAssets).ToList();
+            staticAssets = IncludeSourceStaticAssets(sourceLevelWad.Span, staticAssets, sourceStaticAssetKeys)
+                .ToList();
         var staticComposition = StaticAssetComposer.Compose(
             GameId.UYA,
             composed.HeaderBytes,
@@ -267,14 +279,14 @@ public static class UyaLevelPackService
 
     internal static IReadOnlyList<StaticAssetInput> IncludeSourceStaticAssets(
         ReadOnlySpan<byte> sourceLevelWad,
-        IReadOnlyList<StaticAssetInput> selected)
+        IReadOnlyList<StaticAssetInput> selected,
+        IReadOnlySet<(TextureAssetFamily Family, int ClassId)>? sourceAssetKeys = null)
     {
         var extracted = LevelAssetExtractor.ExtractLevelWad(GameId.UYA, sourceLevelWad.ToArray());
         if (extracted.FailedAssetCount > 0)
             throw new InvalidDataException(
                 $"The base level has {extracted.FailedAssetCount} static assets that cannot be retained safely.");
-        var selectedKeys = selected.Select(value => (value.Family, value.ClassId)).ToHashSet();
-        var retained = extracted.Assets
+        var source = extracted.Assets
             .Select(value => new StaticAssetInput(
                 $"source:{value.Kind}:{value.ClassId}:{value.SourceIndex}",
                 value.Kind switch
@@ -291,9 +303,25 @@ public static class UyaLevelPackService
                     texture.Role == 0 ? TextureRole.Material : TextureRole.Billboard,
                     texture.PifBytes ?? throw new InvalidDataException(
                         $"Base {value.Kind} class 0x{value.ClassId:X4} has an unreadable texture and cannot be retained safely.")))
-                    .ToArray()))
-            .Where(value => !selectedKeys.Contains((value.Family, value.ClassId)));
-        return retained.Concat(selected).ToArray();
+                    .ToArray(),
+                PreserveTextureIndexes: true))
+            .ToDictionary(value => (value.Family, value.ClassId));
+        selected = selected.Select(value =>
+        {
+            var key = (value.Family, value.ClassId);
+            return sourceAssetKeys?.Contains(key) == true && source.TryGetValue(key, out var current)
+                ? value with
+                {
+                    DefinitionBytes = current.DefinitionBytes,
+                    ModelBytes = current.ModelBytes,
+                    PreserveTextureIndexes = true,
+                }
+                : value;
+        }).ToArray();
+        var selectedKeys = selected.Select(value => (value.Family, value.ClassId)).ToHashSet();
+        return source.Values.Where(value => !selectedKeys.Contains((value.Family, value.ClassId)))
+            .Concat(selected)
+            .ToArray();
     }
 
     private static void ValidateOutput(

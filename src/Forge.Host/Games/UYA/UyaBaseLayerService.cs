@@ -1,9 +1,9 @@
 using Forge.Host.Domain;
 using RatchetPs2.Core.Games;
 using RatchetPs2.Core.IO;
+using RatchetPs2.Core.LevelAssets;
 using RatchetPs2.Core.Tfrags;
 using RatchetPs2.Core.Wad;
-using RatchetPs2.Games.DL.Level;
 using RatchetPs2.Games.UYA.Level;
 
 namespace Forge.Host.Games.UYA;
@@ -14,14 +14,15 @@ internal static class UyaBaseLayerService
     {
         var files = package.Files.ToDictionary(file => file.Path, StringComparer.Ordinal);
         var source = UyaLevelWadRenderPackageBuilder.ReadAssetSourceFiles(package.Files);
-        var header = DlAssetReader.ReadHeader(source.HeaderBytes);
+        var header = LevelAssetReader.ReadHeader(source.HeaderBytes);
         var assetBytes = BinaryMagic.IsWad(source.AssetWadBytes)
             ? WadCompression.Decompress(source.AssetWadBytes)
             : source.AssetWadBytes;
-        var mobys = DlAssetReader.ReadModelDefinitions(source.HeaderBytes, header.MobyModelOffset, header.MobyModelCount);
-        var ties = DlAssetReader.ReadModelDefinitions(source.HeaderBytes, header.TieModelOffset, header.TieModelCount);
-        var shrubs = DlAssetReader.ReadShrubDefinitions(source.HeaderBytes, header.ShrubModelOffset, header.ShrubModelCount);
-        var offsets = DlAssetReader.CollectKnownAssetOffsets(GameId.UYA, header, assetBytes.Length, mobys, ties, shrubs);
+        var mobys = LevelAssetReader.ReadModelDefinitions(source.HeaderBytes, header.MobyModelOffset, header.MobyModelCount);
+        var ties = LevelAssetReader.ReadModelDefinitions(source.HeaderBytes, header.TieModelOffset, header.TieModelCount);
+        var shrubs = LevelAssetReader.ReadShrubDefinitions(source.HeaderBytes, header.ShrubModelOffset, header.ShrubModelCount);
+        var offsets = LevelAssetReader.CollectKnownAssetOffsets(
+            header, assetBytes.Length, mobys, ties, shrubs, [header.SceneViewSize]);
         var payloads = new List<UyaBaseLayerPayload>();
 
         Add(payloads, BakeLayerId.World, "level-settings.bin", AssetKind.World,
@@ -29,13 +30,13 @@ internal static class UyaBaseLayerService
             files.GetValueOrDefault("gameplay/core/level_settings.bin")?.Bytes ?? []);
         Add(payloads, BakeLayerId.Sky, "sky.bin", AssetKind.Sky,
             "level_wad/assets/asset_wad.bin", 0,
-            DlAssetReader.ReadAssetSlice(assetBytes, header.SkyOffset, offsets));
+            LevelAssetReader.ReadAssetSlice(assetBytes, header.SkyOffset, offsets));
         Add(payloads, BakeLayerId.Tfrags, "primary.bin", AssetKind.Tfrag,
             "level_wad/assets/asset_wad.bin", 0,
-            DlAssetReader.ReadAssetSlice(assetBytes, header.TerrainOffset, offsets));
+            LevelAssetReader.ReadAssetSlice(assetBytes, header.TerrainOffset, offsets));
         Add(payloads, BakeLayerId.Collision, "collision.bin", AssetKind.Collision,
             "level_wad/assets/asset_wad.bin", 0,
-            DlAssetReader.ReadAssetSlice(assetBytes, header.CollisionOffset, offsets));
+            LevelAssetReader.ReadAssetSlice(assetBytes, header.CollisionOffset, offsets));
         Add(payloads, BakeLayerId.Lighting, "directional-lights.bin", AssetKind.Lighting,
             "gameplay/core/directional_lights.bin", 0,
             files.GetValueOrDefault("gameplay/core/directional_lights.bin")?.Bytes ?? []);
