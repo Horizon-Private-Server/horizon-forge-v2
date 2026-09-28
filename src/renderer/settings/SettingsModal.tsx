@@ -1,8 +1,9 @@
-import { Alert, Button, Modal, Select, SimpleGrid, Stack, Switch, Tabs, TextInput } from '@mantine/core';
+import { Alert, Button, Input, Modal, Paper, Select, SimpleGrid, Slider, Stack, Switch, Tabs, Text, TextInput } from '@mantine/core';
 import { useEffect, useState } from 'react';
 
 import type { KeybindingMap, KeybindingOverrides } from '../../types/Keybindings.js';
 import type { SceneTreeColors, SceneTreeKind } from '../../types/SceneTree.js';
+import type { UiSize } from '../../types/ForgeApi.js';
 import { errorMessage } from '../../utils/Errors.ts';
 import { parseKeybindingOverrides, resolveKeybindings } from '../../utils/Keybindings.ts';
 import {
@@ -15,6 +16,7 @@ import {
 } from '../../utils/SceneTreeColors.ts';
 import { ColorPickerInput } from '../ColorPickerInput.tsx';
 import { KeybindingsSettings } from './KeybindingsSettings.tsx';
+import { isUiSize, UI_SIZES } from '../../utils/UiSize.ts';
 
 interface SettingsModalProps {
   opened: boolean;
@@ -23,6 +25,8 @@ interface SettingsModalProps {
   sceneTreeColors: SceneTreeColors;
   onSceneTreeColorsChange(value: SceneTreeColors): void;
   onViewportStatsChange(value: boolean): void;
+  uiSize: UiSize;
+  onUiSizeChange(value: UiSize): void;
 }
 
 export function SettingsModal({
@@ -32,26 +36,36 @@ export function SettingsModal({
   sceneTreeColors,
   onSceneTreeColorsChange,
   onViewportStatsChange,
+  uiSize,
+  onUiSizeChange,
 }: SettingsModalProps) {
   const [sourceIso, setSourceIso] = useState('');
+  const [forceOversizedInPlace, setForceOversizedInPlace] = useState(false);
   const [showViewportStats, setShowViewportStats] = useState(true);
   const [automaticUpdateChecks, setAutomaticUpdateChecks] = useState(true);
   const [updateChannel, setUpdateChannel] = useState<'stable' | 'nightly'>('stable');
   const [keybindingOverrides, setKeybindingOverrides] = useState<KeybindingOverrides>({});
   const [resettingTreeColors, setResettingTreeColors] = useState(false);
+  const [savedUiSize, setSavedUiSize] = useState<UiSize>('xs');
   const [error, setError] = useState<string>();
 
   useEffect(() => {
     if (!opened) return;
     void window.forge.getSettings().then((snapshot) => {
       const source = snapshot.entries.find((entry) => entry.key === 'sources.uya.iso');
+      const forcedInPlace = snapshot.entries.find((entry) => entry.key === 'build.uya.forceOversizedInPlace');
       const stats = snapshot.entries.find((entry) => entry.key === 'ui.showViewportStats');
+      const storedUiSize = snapshot.entries.find((entry) => entry.key === 'ui.componentSize')?.value;
       const updates = snapshot.entries.find((entry) => entry.key === 'updates.automaticChecks');
       const channel = snapshot.entries.find((entry) => entry.key === 'updates.channel');
       const storedBindings = snapshot.entries.find((entry) => entry.key === 'keybindings.overrides')?.value;
       const overrides = parseKeybindingOverrides(storedBindings);
       setSourceIso(typeof source?.value === 'string' ? source.value : '');
+      setForceOversizedInPlace(forcedInPlace?.value === true);
       setShowViewportStats(stats?.value === true);
+      const nextUiSize = isUiSize(storedUiSize) ? storedUiSize : 'xs';
+      setSavedUiSize(nextUiSize);
+      onUiSizeChange(nextUiSize);
       setAutomaticUpdateChecks(updates?.value === true);
       setUpdateChannel(channel?.value === 'nightly' ? 'nightly' : 'stable');
       setKeybindingOverrides(overrides);
@@ -92,6 +106,23 @@ export function SettingsModal({
               value={sourceIso}
               readOnly
             />
+            <Switch
+              checked={forceOversizedInPlace}
+              label="Force oversized UYA levels to patch in place"
+              description="Keep the level at its original ISO location even when the rebuilt WAD exceeds its allocation."
+              onChange={(event) => {
+                const value = event.currentTarget.checked;
+                setForceOversizedInPlace(value);
+                void window.forge.setSetting('build.uya.forceOversizedInPlace', value).catch((reason: unknown) => {
+                  setForceOversizedInPlace(!value);
+                  setError(errorMessage(reason));
+                });
+              }}
+            />
+            {forceOversizedInPlace && <Text c="orange" size="sm">
+              Oversized levels overwrite sectors beyond their original allocation and will likely break levels
+              immediately after the current level index.
+            </Text>}
             <Switch
               checked={showViewportStats}
               label="Show viewport statistics"
@@ -143,6 +174,39 @@ export function SettingsModal({
           </Stack>
         </Tabs.Panel>
         <Tabs.Panel value="customization" pt="sm">
+          <Paper className="settings-scale-panel" withBorder p="md" mb="xl">
+            <Input.Wrapper
+              label="Interface scale"
+              description="Scale controls using Mantine's XS through XL size steps."
+            >
+              <Slider
+                mt="md"
+                mb="sm"
+                min={0}
+                max={UI_SIZES.length - 1}
+                step={1}
+                value={UI_SIZES.indexOf(uiSize)}
+                marks={UI_SIZES.map((_, index) => ({ value: index, label: ['XS', 'S', 'M', 'L', 'XL'][index] }))}
+                label={(value) => ['XS', 'S', 'M', 'L', 'XL'][value]}
+                aria-label="Interface scale"
+                styles={{ markLabel: { marginTop: 6 } }}
+                onChange={(value) => {
+                  const size = UI_SIZES[value];
+                  if (size) onUiSizeChange(size);
+                }}
+                onChangeEnd={(value) => {
+                  const size = UI_SIZES[value];
+                  if (!size) return;
+                  void window.forge.setSetting('ui.componentSize', size)
+                    .then(() => setSavedUiSize(size))
+                    .catch((reason: unknown) => {
+                      onUiSizeChange(savedUiSize);
+                      setError(errorMessage(reason));
+                    });
+                }}
+              />
+            </Input.Wrapper>
+          </Paper>
           <SimpleGrid cols={{ base: 1, sm: 2 }}>
             {SCENE_TREE_KINDS.map((kind) => <ColorPickerInput
               key={kind}

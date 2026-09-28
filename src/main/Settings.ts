@@ -13,6 +13,7 @@ import {
 import type { KnownSettings, SettingEntry, SettingsSnapshot, SettingValue } from '../types/ForgeApi.js';
 import type { ApplicationPaths, RawSettings, SettingDefinition } from '../types/Settings.js';
 import type { UpdateChannel } from '../types/Updates.js';
+import { isUiSize } from '../utils/UiSize.ts';
 
 export class SettingsStore {
   readonly paths: ApplicationPaths;
@@ -140,6 +141,12 @@ function createDefinitions(paths: ApplicationPaths, defaultUpdateChannel: Update
     && (value === '' || path.posix.isAbsolute(value) || path.win32.isAbsolute(value));
   return [
     {
+      key: 'build.uya.forceOversizedInPlace', group: 'Build', label: 'Force oversized levels in place', type: 'boolean',
+      description: 'Overwrite sectors after the original allocation; this will likely break following level indices.',
+      defaultValue: false, restartRequired: false, machineSpecific: false, editable: true,
+      validate: (value): value is boolean => typeof value === 'boolean',
+    },
+    {
       key: 'editor.autosaveSeconds', group: 'Editor', label: 'Autosave interval', type: 'number',
       description: 'Seconds between project autosaves.', defaultValue: 30, restartRequired: false, machineSpecific: false,
       editable: true,
@@ -155,6 +162,12 @@ function createDefinitions(paths: ApplicationPaths, defaultUpdateChannel: Update
       description: 'Docked panel layout managed by Forge.', defaultValue: '', restartRequired: false, machineSpecific: true,
       editable: true,
       validate: (value): value is string => typeof value === 'string' && value.length <= 1024 * 1024,
+    },
+    {
+      key: 'ui.componentSize', group: 'Customization', label: 'Interface scale', type: 'text',
+      description: 'Scale Mantine controls through the XS, S, M, L, and XL size steps.',
+      defaultValue: 'xs', restartRequired: false, machineSpecific: false, editable: true,
+      validate: isUiSize,
     },
     {
       key: 'ui.showViewportStats', group: 'Editor', label: 'Viewport statistics', type: 'boolean',

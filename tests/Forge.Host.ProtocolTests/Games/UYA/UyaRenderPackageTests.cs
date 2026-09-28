@@ -46,6 +46,45 @@ internal static class UyaRenderPackageTests
             Equal(true, cached.CacheHit, "terrain cache hit without source ISO");
             Equal(written.CacheKey, cached.CacheKey, "stable terrain cache key");
 
+            var previewRequest = new UyaAssetPreviewRequest(
+                cache,
+                catalogPath,
+                AssetId.Compute(AssetKind.Tie, 2, "preview"u8),
+                AssetKind.Tie,
+                "UYA");
+            var previewPackage = PackedFilePackageBuilder.Pack([
+                new("model.gltf", "{}"u8.ToArray(), "model/gltf+json"),
+                new("model.buffer.bin", [8, 9, 10], "application/octet-stream"),
+            ]);
+            var preview = await UyaAssetPreviewService.MaterializeAsync(
+                previewRequest, sdkRevision, previewPackage);
+            Equal(false, preview.CacheHit, "first asset preview cache write");
+            Equal(true, File.Exists(Path.Combine(preview.RootPath, preview.ModelPath)), "asset preview model");
+
+            var previewCached = await UyaAssetPreviewService.MaterializeAsync(
+                previewRequest, sdkRevision, previewPackage);
+            Equal(true, previewCached.CacheHit, "asset preview cache hit");
+            Equal(preview.CacheKey, previewCached.CacheKey, "stable asset preview cache key");
+            Equal(false,
+                preview.CacheKey == UyaAssetPreviewService.CreateCacheKey(previewRequest, "changed-sdk"),
+                "SDK revision changes asset preview cache key");
+
+            await File.WriteAllTextAsync(Path.Combine(preview.RootPath, preview.ModelPath), "corrupt");
+            var repaired = await UyaAssetPreviewService.MaterializeAsync(
+                previewRequest, sdkRevision, previewPackage);
+            Equal(false, repaired.CacheHit, "corrupt asset preview cache is replaced");
+            Equal("{}", await File.ReadAllTextAsync(Path.Combine(repaired.RootPath, repaired.ModelPath)),
+                "repaired asset preview model");
+
+            var previewTraversal = PackedFilePackageBuilder.Pack([
+                new("model.gltf", "{}"u8.ToArray(), "model/gltf+json"),
+                new("../escape.bin", [11], "application/octet-stream"),
+            ]);
+            await ThrowsAsync<InvalidDataException>(() => UyaAssetPreviewService.MaterializeAsync(
+                previewRequest with { AssetId = AssetId.Compute(AssetKind.Tie, 2, "traversal"u8) },
+                sdkRevision,
+                previewTraversal));
+
             var traversal = PackedFilePackageBuilder.Pack([
                 new("../escape.gltf", "{}"u8.ToArray(), "model/gltf+json"),
             ]);
@@ -59,6 +98,15 @@ internal static class UyaRenderPackageTests
                 cancelled, sdkRevision, package, cancellationToken: cancellation.Token));
             Equal(false, Directory.Exists(Path.Combine(root,
                 UyaRenderPackageService.CreateCacheKey(cancelled, sdkRevision))), "cancelled cache is absent");
+
+            var previewCancelled = previewRequest with {
+                AssetId = AssetId.Compute(AssetKind.Tie, 2, "cancelled"u8),
+            };
+            await ThrowsAsync<OperationCanceledException>(() => UyaAssetPreviewService.MaterializeAsync(
+                previewCancelled, sdkRevision, previewPackage, cancellation.Token));
+            Equal(false, Directory.Exists(Path.Combine(cache,
+                UyaAssetPreviewService.CreateCacheKey(previewCancelled, sdkRevision))),
+                "cancelled asset preview cache is absent");
         }
         finally
         {

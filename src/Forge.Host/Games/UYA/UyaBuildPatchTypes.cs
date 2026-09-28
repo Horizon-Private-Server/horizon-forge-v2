@@ -10,7 +10,8 @@ public sealed record UyaBuildPatchRequest(
     string SourceFingerprint,
     IReadOnlySet<string>? AcknowledgedWarnings = null,
     bool ForceFullImage = false,
-    IReadOnlySet<BakeLayerId>? IncludedLayers = null);
+    IReadOnlySet<BakeLayerId>? IncludedLayers = null,
+    bool ForceInPlace = false);
 
 public sealed record UyaBuildLayerStatus(
     BakeLayerId Layer,

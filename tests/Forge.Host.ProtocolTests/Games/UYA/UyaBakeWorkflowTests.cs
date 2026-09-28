@@ -39,6 +39,16 @@ internal static class UyaBakeWorkflowTests
                 new("UYA", "NTSC-U", "1.00", "uya-ntsc-u"), "translator-1", "baker-1");
             using var isoStream = new MemoryStream(iso, writable: false);
             var sourceLevelWad = UyaLooseLevelWadExtractor.ExtractPrimary(isoStream, 3).Bytes;
+            var selectedTie = UyaCanonicalAssetCodec.Decode(CanonicalAsset(AssetKind.Tie, 0x44));
+            var retainedAssets = UyaLevelPackService.IncludeSourceStaticAssets(sourceLevelWad,
+            [
+                new("selected", TextureAssetFamily.Tie, 200, selectedTie.DefinitionBytes,
+                    selectedTie.ModelBytes, selectedTie.Textures.Select(value => new StaticAssetTexture(
+                        TextureRole.Material, value.PifBytes)).ToArray()),
+            ]);
+            Equal(3, retainedAssets.Count, "cross-level composition retains the complete base class inventory");
+            Equal(0x44, retainedAssets.Single(value => value.Family == TextureAssetFamily.Tie).ModelBytes.Span[0],
+                "selected cross-level class overlays its base definition");
 
             var unbaked = await UyaLevelPackService.PackAsync(project, catalog, sourceLevelWad, context);
             Equal(false, unbaked.Succeeded, "unbaked staging cannot pack");
@@ -101,6 +111,50 @@ internal static class UyaBakeWorkflowTests
                     .SequenceEqual(new[] { (5, 77), (5, 77) }),
                 "packed tie copy reuses its source occlusion mapping");
 
+            var insertBeforeBakeProject = Path.Combine(root, "insert-before-bake");
+            await UyaProjectService.CreateValidatedAsync(
+                new MemoryStream(iso, writable: false),
+                catalog,
+                new("synthetic.iso", catalog.RootPath, insertBeforeBakeProject, "Insert before bake",
+                    new string('a', 32), "1.00", 3, true));
+            var insertBeforeBakeWorkspace = await ForgeProjectWorkspace.OpenAsync(insertBeforeBakeProject);
+            var insertedRecord = UyaAssetPlacementService.CreateTieRecord(insertBeforeBakeWorkspace, 200);
+            Equal(4_000, BinaryPrimitives.ReadInt32LittleEndian(insertedRecord.AsSpan(4)),
+                "placed tie uses the retail integer draw distance encoding");
+            BinaryPrimitives.WriteSingleLittleEndian(insertedRecord.AsSpan(4), 4_000f);
+            var insertedTie = new ProjectEntity(
+                EntityId.New(),
+                "tie:0x00C8",
+                "ties",
+                ProjectTransform.Identity,
+                new(baseTie.Id, AssetKind.Tie),
+                Source: new(200, insertedRecord),
+                TieLighting: new(0, UyaAssetPlacementService.CreateNeutralTieAmbient(4)));
+            insertBeforeBakeWorkspace.AddEntity(insertedTie);
+            await insertBeforeBakeWorkspace.SaveAsync();
+            Equal(true, (await UyaBakeService.BakeAsync(insertBeforeBakeProject, catalog, context)).Succeeded,
+                "tie insertion before initial build bakes");
+            var insertBeforeBakePack = await UyaLevelPackService.PackAsync(
+                insertBeforeBakeProject, catalog, sourceLevelWad, context);
+            Equal(true, insertBeforeBakePack.Succeeded, "tie insertion before initial build packs: "
+                + string.Join(" | ", insertBeforeBakePack.Diagnostics.Select(value => value.Cause)));
+            var insertedTieFiles = UyaLevelWadUnpacker.Unpack(insertBeforeBakePack.OutputBytes!).Files;
+            var packedInsertedTie = UyaTieInstancesReader.Read(insertedTieFiles
+                .Single(value => value.Path == "gameplay/core/tie_instances.bin").Bytes).Instances
+                .Single(value => BinaryPrimitives.ReadInt32LittleEndian(
+                    value.RawBytes.AsSpan(UyaTieInstancesReader.OcclusionIdOffset)) == 1);
+            Equal(4_000, BinaryPrimitives.ReadInt32LittleEndian(packedInsertedTie.RawBytes.AsSpan(4)),
+                "bake repairs legacy placed tie draw distance encoding");
+            var insertedMappings = UyaOcclusionMappingsReader.Read(insertedTieFiles
+                .Single(value => value.Path == "gameplay/core/occlusion.bin").Bytes).Ties;
+            Equal(true, insertedMappings.Select(value => (value.BitIndex, value.OcclusionId))
+                    .SequenceEqual(new[] { (5, 77), (0, 1) }),
+                "packed tie insertion reserves an always-visible occlusion bit");
+            Equal(true, UyaTieGroupsReader.Read(insertedTieFiles
+                    .Single(value => value.Path == "gameplay/core/tie_groups.bin").Bytes).Groups.Single()
+                    .SequenceEqual(new[] { 0 }),
+                "packed tie insertion inherits no source group membership");
+
             var first = await UyaBakeService.BakeAsync(project, catalog, context);
             Equal(true, first.Succeeded, "initial bake succeeds");
             Equal(10, first.WrittenLayers.Count, "initial bake writes every layer");
@@ -148,9 +202,20 @@ internal static class UyaBakeWorkflowTests
             var packedSource = await UyaLevelPackService.PackAsync(project, catalog, sourceLevelWad, context);
             Equal(true, packedSource.Succeeded, "validated staging packs: "
                 + string.Join(" | ", packedSource.Diagnostics.Select(value => value.Cause)));
-            Equal("a9d1947e926c4af31997642154b13820cb05d2fc9aff9d999dfe38cc92918d8b",
+            Equal("331ae03c833dfa4dd9f569eb0ff174ca0b12673db3a08232933379e4c4301f5a",
                 packedSource.OutputSha256, "unchanged staged project golden WAD");
             _ = UyaLevelWadInventoryReader.Read(packedSource.OutputBytes!);
+            var packedFiles = UyaLevelWadUnpacker.Unpack(packedSource.OutputBytes!).Files;
+            Equal(true, ReadClassIds(packedFiles, "moby").SequenceEqual(UyaMobyInstancesReader.Read(packedFiles
+                    .Single(value => value.Path == "gameplay/core/moby_instances.bin").Bytes).Instances
+                    .Select(value => value.ClassId).Distinct().Order())
+                && ReadClassIds(packedFiles, "tie").SequenceEqual(UyaTieInstancesReader.Read(packedFiles
+                    .Single(value => value.Path == "gameplay/core/tie_instances.bin").Bytes).Instances
+                    .Select(value => value.ClassId).Distinct().Order())
+                && ReadClassIds(packedFiles, "shrub").SequenceEqual(UyaShrubInstancesReader.Read(packedFiles
+                    .Single(value => value.Path == "gameplay/core/shrub_instances.bin").Bytes).Instances
+                    .Select(value => value.ClassId).Distinct().Order()),
+                "packed static class lists match their rebuilt instance tables");
             var installed = ReadAssets(packedSource.OutputBytes!);
             Equal(0x11, installed.AssetWad[installed.Mobys.Single().ModelOffset], "selected moby model is installed");
             Equal(0x22, installed.AssetWad[installed.Ties.Single().ModelOffset], "selected tie model is installed");
@@ -688,6 +753,15 @@ internal static class UyaBakeWorkflowTests
 
     private static byte[] ManifestBytes(BakeManifest manifest) =>
         JsonSerializer.SerializeToUtf8Bytes(manifest);
+
+    private static int[] ReadClassIds(IReadOnlyList<PackedFile> files, string family)
+    {
+        var bytes = files.Single(value => value.Path == $"gameplay/core/{family}_classes.bin").Bytes;
+        var count = BinaryPrimitives.ReadInt32LittleEndian(bytes);
+        return Enumerable.Range(0, count)
+            .Select(index => BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(4 + index * 4)))
+            .ToArray();
+    }
 
     private static async Task<T> ThrowsAsync<T>(Func<Task> action) where T : Exception
     {

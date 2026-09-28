@@ -681,3 +681,8 @@ Acceptance:
 Verification: synthetic full-core fixture, old-project migration/deletion tests,
 save/recovery/portability tests, cancellation and malformed-section injection, and a
 retained all-level import report containing metrics and hashes but no proprietary data.
+
+## Feature task specifications
+
+M2-021 through M2-025 are maintained with their design and acceptance criteria in
+the [Asset Explorer v0 feature specification](../../features/asset-explorer-v0.md#implementation-tasks).

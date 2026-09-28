@@ -1,3 +1,5 @@
+using Forge.Host.Domain;
+
 namespace Forge.Host.Games.UYA;
 
 public sealed record UyaRenderPackageRequest(
@@ -51,3 +53,17 @@ public sealed record UyaRenderPackageResult(
     IReadOnlyList<UyaRenderAssetResult> Assets,
     bool CacheHit,
     IReadOnlyList<UyaRenderOcclusionOctant>? OcclusionOctants = null);
+
+public sealed record UyaAssetPreviewRequest(
+    string CacheRootPath,
+    string CatalogRootPath,
+    AssetId AssetId,
+    AssetKind Kind,
+    string TargetGame,
+    string ViewPreset = "model-default");
+
+public sealed record UyaAssetPreviewResult(
+    string RootPath,
+    string CacheKey,
+    string ModelPath,
+    bool CacheHit);

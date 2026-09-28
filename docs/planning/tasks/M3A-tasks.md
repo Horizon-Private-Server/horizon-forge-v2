@@ -221,6 +221,12 @@ and verifies every replacement through the existing readers. It also recompresse
 and verifies chunk terrain while shifting later chunk offsets without touching their
 bytes. Forge routes changed staged base payloads through this API and validates the
 packed archive against staging. Synthetic checks cover pointer relocation, untouched
-payload retention, chunk suffix retention, and no-op equality; the clean local NTSC-U
+payload retention, chunk suffix retention, no-op equality, and `0x40` realignment of
+level-data byte blocks after a resized payload. Zero alignment padding is regenerated
+while non-padding opaque bytes remain owned and preserved. The clean local NTSC-U
 corpus passed 51 levels, 94 resized primary asset compositions, and 11 chunk
-compositions without retaining proprietary output.
+compositions without retaining proprietary output. Static-table composition additionally
+preserves referenced indexes and rewrites model-embedded moby team palettes, and Forge
+uses/repairs retail-safe shrub placement draw metadata instead of the corrupting `1024`
+template value. Shrub instances are emitted in the same ascending class blocks as the
+class/model tables, with shrub-group indexes remapped after reordering.

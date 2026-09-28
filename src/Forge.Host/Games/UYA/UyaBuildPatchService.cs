@@ -111,8 +111,9 @@ public static class UyaBuildPatchService
             workspace.Manifest.BaseLevel.Level,
             pack.OutputBytes,
             new FileInfo(request.CleanSourceIso).Length,
-            request.ForceFullImage,
-            cancellationToken);
+            forceFullImage: request.ForceFullImage,
+            cancellationToken: cancellationToken,
+            forceInPlace: request.ForceInPlace);
         await ReportAsync(progress, new(UyaBuildPatchPhase.Plan, 1, 1, plan.SdkPlan.StrategyReason));
 
         try

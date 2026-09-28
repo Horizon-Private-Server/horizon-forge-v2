@@ -6,6 +6,7 @@ import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 
 import { SceneProjection } from '../src/renderer/editor/SceneProjection.ts';
+import { AssetPreviewScheduler } from '../src/renderer/editor/AssetThumbnailRuntime.ts';
 import { buildGroundPlacement } from '../src/renderer/editor/ScenePlacement.ts';
 import { resolvePointerSnapTarget, VertexSnapIndex } from '../src/renderer/editor/SceneSnapping.ts';
 import type { EditorEntity } from '../src/types/EditorRuntime.js';
@@ -14,6 +15,7 @@ import {
   applySceneEnvironment,
   configureSkybox,
   disposeObject,
+  frameCameraOnObject,
   framePs2Positions,
   positionCameraAtPreferredMoby,
   rotateCamera,
@@ -21,6 +23,7 @@ import {
   updateCameraMovement,
 } from '../src/utils/Scene.ts';
 import {
+  configurePs2AssetPreview,
   configurePs2MaterialAlpha,
   configurePs2MaterialFog,
   createPs2OpaquePassMaterial,
@@ -47,6 +50,60 @@ function entity(id: string, x = 0, asset = true, state: Partial<EditorEntity['st
     },
   };
 }
+
+test('asset preview scheduler caps work at four and cancels queued jobs', async () => {
+  const scheduler = new AssetPreviewScheduler();
+  const releases: Array<() => void> = [];
+  let active = 0;
+  let maximum = 0;
+  const jobs = Array.from({ length: 4 }, (_, index) => scheduler.schedule(undefined, async () => {
+    active += 1;
+    maximum = Math.max(maximum, active);
+    await new Promise<void>((resolve) => { releases[index] = resolve; });
+    active -= 1;
+    return String(index);
+  }));
+  await Promise.resolve();
+  assert.equal(active, 4);
+
+  const cancellation = new AbortController();
+  let queuedRan = false;
+  const queued = scheduler.schedule(cancellation.signal, async () => {
+    queuedRan = true;
+    return 'queued';
+  });
+  cancellation.abort();
+  await assert.rejects(queued, { name: 'AbortError' });
+  assert.equal(queuedRan, false);
+
+  releases.forEach((release) => release());
+  await Promise.all(jobs);
+  assert.equal(maximum, 4);
+  scheduler.dispose();
+});
+
+test('model preview framing targets object bounds without fog state', () => {
+  const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 10_000);
+  const object = new THREE.Mesh(new THREE.BoxGeometry(4, 2, 6));
+  object.position.set(10, 20, 30);
+  const hidden = new THREE.Mesh(new THREE.BoxGeometry(100, 100, 100));
+  hidden.position.set(10_000, 0, 0);
+  hidden.visible = false;
+  object.add(hidden);
+  const target = new THREE.Vector3();
+  frameCameraOnObject(camera, object, target);
+  assert.ok(target.distanceTo(object.position) < 1e-6);
+  assert.ok(camera.position.distanceTo(target) > 1);
+  assert.ok(camera.near >= 0.001);
+  assert.ok(camera.far > camera.near);
+  const firstRadius = new THREE.Box3().setFromObject(object).getBoundingSphere(new THREE.Sphere()).radius;
+  const firstRatio = camera.position.distanceTo(target) / firstRadius;
+  object.scale.setScalar(100);
+  frameCameraOnObject(camera, object, target);
+  const largeRadius = new THREE.Box3().setFromObject(object).getBoundingSphere(new THREE.Sphere()).radius;
+  assert.ok(Math.abs(camera.position.distanceTo(target) / largeRadius - firstRatio) < 1e-6);
+  disposeObject(object);
+});
 
 test('scene projection diffs entities by ID and updates transforms in place', () => {
   const projection = new SceneProjection();
@@ -495,6 +552,39 @@ test('PS2 blend materials normalize byte 127 to full opacity', () => {
   disposeObject(root);
 });
 
+test('asset previews hide unsupported moby metals and shrub billboards', () => {
+  const moby = new THREE.Group();
+  const metals = new THREE.Group();
+  metals.name = 'metals';
+  metals.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial()));
+  moby.add(metals);
+  assert.equal(configurePs2AssetPreview(moby, 'moby'), false);
+  assert.equal(metals.visible, false);
+
+  const shrub = new THREE.Group();
+  const billboard = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+  billboard.name = 'shrub_billboard';
+  shrub.add(billboard);
+  assert.equal(configurePs2AssetPreview(shrub, 'shrub'), false);
+  assert.equal(billboard.visible, false);
+  disposeObject(moby);
+  disposeObject(shrub);
+});
+
+test('asset previews split mixed-alpha meshes into opaque and translucent passes', () => {
+  const material = new THREE.MeshBasicMaterial({ map: new THREE.Texture(), transparent: true });
+  material.userData.MobyTextureFullOpacityAlpha = 127;
+  const root = new THREE.Group();
+  root.add(new THREE.Mesh(new THREE.BoxGeometry(), material));
+  assert.equal(configurePs2AssetPreview(root, 'moby'), true);
+  const meshes = root.children as THREE.Mesh[];
+  assert.equal(meshes.length, 2);
+  assert.equal(material.depthWrite, false);
+  assert.ok(meshes.some((mesh) => !(mesh.material as THREE.Material).transparent
+    && (mesh.material as THREE.Material).depthWrite));
+  disposeObject(root);
+});
+
 test('mixed-alpha entity materials create opaque and translucent instance passes', () => {
   const geometry = new THREE.BoxGeometry();
   const material = new THREE.MeshBasicMaterial({ map: new THREE.Texture(), transparent: true });
@@ -556,6 +646,23 @@ test('Page Down placement preserves group offsets and ignores selected meshes', 
   projection.dispose();
   disposeObject(template);
   disposeObject(ground);
+});
+
+test('asset placement surfaces ignore meshless proxy bounds', () => {
+  const projection = new SceneProjection();
+  const proxy = entity('proxy');
+  projection.sync([proxy]);
+  const proxyObject = projection.getObject(proxy.id) as THREE.Mesh;
+  assert.equal(projection.isPlacementSurface({ object: proxyObject } as unknown as THREE.Intersection), false);
+
+  const template = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+  projection.addAssetTemplate('asset', template);
+  projection.sync([proxy]);
+  let mesh: THREE.InstancedMesh | undefined;
+  projection.root.traverse((object) => { if (object instanceof THREE.InstancedMesh) mesh = object; });
+  assert.equal(projection.isPlacementSurface({ object: mesh! } as unknown as THREE.Intersection), true);
+  projection.dispose();
+  disposeObject(template);
 });
 
 test('translation snapping resolves centers, visible vertices, surfaces, and nearest source vertices', () => {

@@ -14,7 +14,9 @@ public static class BridgeHost
         CancellationToken cancellationToken = default)
     {
         var writer = new FrameWriter(output);
-        await using var editor = new EditorRuntime();
+        await using var editor = new EditorRuntime(
+            UyaAssetPlacementService.CreateAsync,
+            UyaEditorCapabilities.ResolveTransformCapabilities);
         var requests = new ConcurrentDictionary<uint, CancellationTokenSource>();
         var tasks = new ConcurrentDictionary<uint, Task>();
 
@@ -130,6 +132,7 @@ public static class BridgeHost
                 case BridgeOpcode.RepairForgeProjectAssets:
                 case BridgeOpcode.PreviewCatalogGarbageCollection:
                 case BridgeOpcode.CollectCatalogGarbage:
+                case BridgeOpcode.QueryAssetExplorer:
                     await writer.WriteAsync(new(
                         BridgeMessageKind.Result, frame.Opcode, BridgeErrorCode.None, frame.RequestId,
                         await ProjectBridgeHandlers.HandleAsync(
@@ -154,6 +157,14 @@ public static class BridgeHost
                             frame.Payload,
                             handshake.SdkRevision,
                             CreateProgressReporter(frame, writer, hostCancellation),
+                            requestCancellation.Token)), hostCancellation);
+                    break;
+                case BridgeOpcode.PrepareAssetPreview:
+                    await writer.WriteAsync(new(
+                        BridgeMessageKind.Result, frame.Opcode, BridgeErrorCode.None, frame.RequestId,
+                        await RenderBridgeHandlers.PrepareAssetPreviewAsync(
+                            frame.Payload,
+                            handshake.SdkRevision,
                             requestCancellation.Token)), hostCancellation);
                     break;
                 case BridgeOpcode.BuildAndPatchUyaProject:

@@ -23,6 +23,13 @@ export interface EditorTransformUpdate {
   transform: ProjectTransform;
 }
 
+export interface EditorAssetPlacement {
+  assetId: string;
+  kind: 'Tie' | 'Shrub' | 'Moby';
+  classId: number;
+  transform: ProjectTransform;
+}
+
 export interface EditorLevelSettings {
   backgroundColor: [number, number, number];
   fogColor: [number, number, number];
@@ -74,7 +81,8 @@ export type EditorCommand =
   | { id: string; kind: 'undo' | 'redo' | 'pasteEntities'; entityIds: [] }
   | { id: string; kind: 'deleteEntities' | 'duplicateEntities' | 'copyEntities'; entityIds: string[] }
   | { id: string; kind: 'updateLevelSettings'; entityIds: []; levelSettings: EditorLevelSettings }
-  | { id: string; kind: 'updateSplinePoints'; entityIds: [string]; points: ProjectVector4[] };
+  | { id: string; kind: 'updateSplinePoints'; entityIds: [string]; points: ProjectVector4[] }
+  | { id: string; kind: 'createEntityFromAsset'; entityIds: []; placement: EditorAssetPlacement };
 
 export interface EditorEvent {
   sequence: number;

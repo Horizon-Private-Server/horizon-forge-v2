@@ -1,8 +1,8 @@
-import { Alert, Badge, Button, Group, Text, Title } from '@mantine/core';
-import { useEffect, useState } from 'react';
+import { Alert, Badge, Button, Group, MantineProvider, Text, Title } from '@mantine/core';
+import { useEffect, useMemo, useState } from 'react';
 
 import type { KeybindingMap } from '../types/Keybindings.js';
-import type { ForgeHostStatus } from '../types/ForgeApi.js';
+import type { ForgeHostStatus, UiSize } from '../types/ForgeApi.js';
 import { parseKeybindingOverrides, resolveKeybindings } from '../utils/Keybindings.ts';
 import {
   DEFAULT_SCENE_TREE_COLORS,
@@ -19,9 +19,19 @@ import { SettingsModal } from './settings/SettingsModal.tsx';
 import { SetupWizard } from './setup/SetupWizard.tsx';
 import { ForgeMenuBar } from './shell/ForgeMenuBar.tsx';
 import { NotificationMenu } from './shell/NotificationMenu.tsx';
+import { createForgeTheme } from './theme.ts';
 import { UpdateCheckModal } from './updates/UpdateCheckModal.tsx';
+import { isUiSize } from '../utils/UiSize.ts';
 
 export function App() {
+  const [uiSize, setUiSize] = useState<UiSize>('xs');
+  const theme = useMemo(() => createForgeTheme(uiSize), [uiSize]);
+  return <MantineProvider defaultColorScheme="dark" theme={theme}>
+    <ForgeApp uiSize={uiSize} onUiSizeChange={setUiSize} />
+  </MantineProvider>;
+}
+
+function ForgeApp({ uiSize, onUiSizeChange }: { uiSize: UiSize; onUiSizeChange(value: UiSize): void }) {
   const [hostStatus, setHostStatus] = useState<ForgeHostStatus>();
   const [settingsOpened, setSettingsOpened] = useState(false);
   const [showViewportStats, setShowViewportStats] = useState(true);
@@ -64,6 +74,8 @@ export function App() {
       setKeybindings(resolveKeybindings(parseKeybindingOverrides(
         snapshot.entries.find((entry) => entry.key === 'keybindings.overrides')?.value,
       )));
+      const storedSize = snapshot.entries.find((entry) => entry.key === 'ui.componentSize')?.value;
+      if (isUiSize(storedSize)) onUiSizeChange(storedSize);
     }).catch(() => undefined);
   }, []);
 
@@ -74,7 +86,7 @@ export function App() {
   useEffect(() => window.forge.onForgeAction(handleForgeAction), [handleForgeAction]);
 
   return (
-    <main className="app-shell" style={sceneTreeColorVariables(sceneTreeColors)}>
+    <main className="app-shell" data-ui-size={uiSize} style={sceneTreeColorVariables(sceneTreeColors)}>
       <ForgeMenuBar keybindings={keybindings} project={activeProject} onAction={handleForgeAction} />
       <header className="app-header">
         <Group justify="space-between" wrap="nowrap">
@@ -127,6 +139,8 @@ export function App() {
         sceneTreeColors={sceneTreeColors}
         onSceneTreeColorsChange={setSceneTreeColors}
         onViewportStatsChange={setShowViewportStats}
+        uiSize={uiSize}
+        onUiSizeChange={onUiSizeChange}
       />
       <SetupWizard opened={setupOpened} onClose={() => {
         setSetupOpened(false);

@@ -22,7 +22,8 @@ internal static class ProjectBridgeHandlers
                 request.SourceFingerprint,
                 request.AcknowledgedWarnings.ToHashSet(StringComparer.Ordinal),
                 request.ForceFullImage,
-                ParseLayers(request.IncludedLayers)),
+                ParseLayers(request.IncludedLayers),
+                request.ForceInPlace),
             hostVersion,
             sdkRevision,
             progress,
@@ -83,6 +84,7 @@ internal static class ProjectBridgeHandlers
             frame.Payload, sdkRevision, progress, cancellationToken),
         BridgeOpcode.PreviewCatalogGarbageCollection => await PreviewCatalogAsync(frame.Payload, cancellationToken),
         BridgeOpcode.CollectCatalogGarbage => await CollectCatalogAsync(frame.Payload, cancellationToken),
+        BridgeOpcode.QueryAssetExplorer => await QueryAssetExplorerAsync(frame.Payload, cancellationToken),
         _ => throw new BridgeProtocolException(BridgeErrorCode.UnknownOpcode, $"Unsupported project opcode: {frame.Opcode}"),
     };
 
@@ -194,6 +196,102 @@ internal static class ProjectBridgeHandlers
             request.ConfirmationToken,
             cancellationToken,
             UyaBaseLayerStore.ReadAssetIdsAsync));
+    }
+
+    private static async Task<byte[]> QueryAssetExplorerAsync(byte[] payload, CancellationToken cancellationToken)
+    {
+        var request = AssetExplorerPayloadCodec.DecodeRequest(payload);
+        if (request.Category == AssetExplorerCategoryPayload.SkyShells)
+            throw new InvalidOperationException("Sky-shell catalog indexing is not available yet.");
+        if (request.Limit is < 1 or > AssetCatalogStore.MaxPageLimit)
+            throw new ArgumentOutOfRangeException(nameof(request.Limit),
+                $"Page limit must be between 1 and {AssetCatalogStore.MaxPageLimit}.");
+        ValidateTarget(request.TargetGame, nameof(request.TargetGame));
+        ValidateTarget(request.TargetRegion, nameof(request.TargetRegion));
+        ValidateTarget(request.TargetRevision, nameof(request.TargetRevision));
+        var kind = request.Category switch
+        {
+            AssetExplorerCategoryPayload.Ties => AssetKind.Tie,
+            AssetExplorerCategoryPayload.Shrubs => AssetKind.Shrub,
+            AssetExplorerCategoryPayload.Mobys => AssetKind.Moby,
+            AssetExplorerCategoryPayload.Textures => AssetKind.Texture,
+            _ => throw new ArgumentOutOfRangeException(nameof(request.Category)),
+        };
+        var catalog = await AssetCatalogStore.OpenAsync(request.CatalogRootPath, cancellationToken);
+        var page = catalog.QueryPage(new(
+            kind,
+            request.Search,
+            request.Game,
+            request.Level,
+            request.Region,
+            request.Revision,
+            request.Tags,
+            request.Cursor,
+            checked((int)request.Limit),
+            AssetCatalogOrder.ClassId), cancellationToken);
+        return AssetExplorerPayloadCodec.EncodePage(new(
+            page.Entries.Select(entry => ToExplorerItem(catalog, request, entry)).ToArray(),
+            new(page.Facets.Games, page.Facets.Levels, page.Facets.Regions, page.Facets.Revisions, page.Facets.Tags),
+            page.NextCursor));
+    }
+
+    private static AssetExplorerItemPayload ToExplorerItem(
+        AssetCatalogStore catalog,
+        AssetExplorerRequestPayload request,
+        AssetCatalogEntry entry)
+    {
+        var blobAvailable = catalog.ResolveBlobPath(entry.Id) is not null;
+        var classIds = ClassIds(entry);
+        var (canPlace, disabledReason) = PlacementCompatibility(entry, request, classIds, blobAvailable);
+        return new(
+            entry.Id.ToString(),
+            request.Category,
+            entry.Aliases.FirstOrDefault() ?? $"{entry.Kind} {entry.Id.ToString()[..8]}",
+            entry.CanonicalFormatVersion,
+            checked((ulong)entry.Size),
+            entry.Aliases,
+            entry.Tags,
+            entry.Sources.Select(source => new AssetExplorerSourcePayload(
+                source.Game,
+                source.Region,
+                source.Revision,
+                source.Level,
+                source.Archive,
+                checked((uint)source.SourceIndex))).ToArray(),
+            classIds.Select(value => checked((uint)value)).ToArray(),
+            blobAvailable ? "notCached" : "missingBlob",
+            canPlace,
+            disabledReason);
+    }
+
+    private static (bool CanPlace, string? DisabledReason) PlacementCompatibility(
+        AssetCatalogEntry entry,
+        AssetExplorerRequestPayload request,
+        IReadOnlyList<int> classIds,
+        bool blobAvailable)
+    {
+        if (entry.Kind is not (AssetKind.Tie or AssetKind.Shrub or AssetKind.Moby))
+            return (false, $"{request.Category} are preview-only.");
+        if (!blobAvailable) return (false, "The catalog blob is missing.");
+        if (!entry.Sources.Any(source =>
+                source.Game == request.TargetGame
+                && source.Region == request.TargetRegion
+                && source.Revision == request.TargetRevision))
+            return (false,
+                $"The asset is not compatible with {request.TargetGame} {request.TargetRegion} {request.TargetRevision}.");
+        if (classIds.Count == 0) return (false, "The asset has no class identity for placement.");
+        if (classIds.Count > 1)
+            return (false, "The asset has multiple class identities; choose an unambiguous target identity.");
+        return (true, null);
+    }
+
+    private static int[] ClassIds(AssetCatalogEntry entry)
+        => AssetCatalogPaging.ClassIds(entry);
+
+    private static void ValidateTarget(string value, string name)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value, name);
+        if (value.Length > 4_096) throw new ArgumentException($"{name} exceeds 4096 characters.", name);
     }
 
     private static byte[] EncodeProject(ForgeProjectDescriptor result) =>

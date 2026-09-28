@@ -93,6 +93,18 @@ internal static class UyaIsoSetupTests
             Equal(false, fallback.SdkPlan.FitsInPlace, "oversized level requires full-image fallback");
             Equal(0, fallback.SdkPlan.Ranges.Count, "fallback plan publishes no unsafe in-place ranges");
             Equal(true, fallback.SdkPlan.Replacement is not null, "fallback replacement layout");
+            var forcedTarget = Path.Combine(directory, "forced-development.iso");
+            File.Copy(source, forcedTarget);
+            var forcedInPlace = await UyaIsoPatchService.PlanAsync(
+                source, forcedTarget, 3, oversizedLevel, expectedIsoSize: sourceBytes.Length, forceInPlace: true);
+            Equal(true, forcedInPlace.SdkPlan.FitsInPlace, "setting permits oversized in-place patch");
+            Equal(true, forcedInPlace.SdkPlan.Ranges.Any(value => value.Name == "level-info"),
+                "oversized in-place patch updates the level table length");
+            Contains(forcedInPlace.SdkPlan.StrategyReason, "overwrite", "oversized in-place risk guidance");
+            var forcedResult = await UyaIsoPatchService.ApplyAsync(forcedInPlace);
+            Equal(UyaIsoPatchMode.InPlace, forcedResult.Mode, "oversized journaled patch mode");
+            Equal<UyaIsoPatchRecovery?>(null, await UyaIsoPatchService.InspectRecoveryAsync(forcedTarget),
+                "oversized journaled patch cleanup");
 
             await ExpectAsync<ArgumentException>(() => UyaIsoPatchService.PlanAsync(
                 source, source, 3, packedLevel, expectedIsoSize: sourceBytes.Length));
@@ -298,6 +310,25 @@ internal static class UyaIsoSetupTests
                 Convert.ToHexString(SHA256.HashData(
                     UyaLooseLevelWadExtractor.ExtractPrimary(installed, 3).Bytes)).ToLowerInvariant(),
                 "replacement installed level");
+        var legacyHeaderSector = checked((int)(new FileInfo(target).Length / UyaLevelConstants.SectorSize));
+        var legacyWad = oversizedLevel.ToArray();
+        BinaryPrimitives.WriteInt32LittleEndian(legacyWad.AsSpan(4), legacyHeaderSector);
+        await using (var append = new FileStream(target, FileMode.Append, FileAccess.Write, FileShare.None))
+            await append.WriteAsync(legacyWad);
+        await using (var legacy = new FileStream(target, FileMode.Open, FileAccess.Write, FileShare.None))
+        {
+            legacy.Position = UyaLevelConstants.RetailLevelInfoTableOffset
+                + (3 * UyaLevelConstants.LevelInfoSize) + 8;
+            Span<byte> legacyInfo = stackalloc byte[8];
+            BinaryPrimitives.WriteInt32LittleEndian(legacyInfo, legacyHeaderSector);
+            BinaryPrimitives.WriteInt32LittleEndian(legacyInfo[4..], oversizedLevel.Length / UyaLevelConstants.SectorSize);
+            legacy.Write(legacyInfo);
+        }
+        var compactingPlan = await UyaIsoPatchService.PlanAsync(
+            source, target, 3, oversizedLevel, expectedIsoSize: sourceBytes.Length);
+        Equal(false, compactingPlan.SdkPlan.FitsInPlace, "legacy accumulated replacement is compacted");
+        await UyaIsoPatchService.ApplyAsync(compactingPlan);
+        Equal(replacement.OutputIsoLength, new FileInfo(target).Length, "legacy appended levels are removed");
         var expandedPlan = await UyaIsoPatchService.PlanAsync(
             source,
             target,
@@ -305,6 +336,19 @@ internal static class UyaIsoSetupTests
             oversizedLevel,
             expectedIsoSize: sourceBytes.Length);
         Equal(true, expandedPlan.SdkPlan.FitsInPlace, "expanded development ISO can be replanned");
+        var largerLevel = oversizedLevel.Concat(new byte[UyaLevelConstants.SectorSize]).ToArray();
+        BinaryPrimitives.WriteInt32LittleEndian(largerLevel.AsSpan(0x14), 2);
+        var largerPlan = await UyaIsoPatchService.PlanAsync(
+            source,
+            target,
+            3,
+            largerLevel,
+            expectedIsoSize: sourceBytes.Length);
+        Equal(sourceBytes.Length + largerLevel.Length, largerPlan.SdkPlan.Replacement?.OutputIsoLength,
+            "replacement excludes superseded appended levels");
+        await UyaIsoPatchService.ApplyAsync(largerPlan);
+        Equal(sourceBytes.Length + largerLevel.Length, new FileInfo(target).Length,
+            "repeated replacement does not accumulate appended levels");
         var retailPlan = await UyaIsoPatchService.PlanAsync(
             source,
             target,

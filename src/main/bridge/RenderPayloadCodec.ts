@@ -1,5 +1,61 @@
 import { malformed, PayloadReader, PayloadWriter } from './PayloadIO.ts';
-import type { UyaRenderPackageRequest, UyaRenderPackageResult } from '../../types/BridgePayloads.js';
+import type {
+  AssetPreviewRequest,
+  AssetPreviewResult,
+  UyaRenderPackageRequest,
+  UyaRenderPackageResult,
+} from '../../types/BridgePayloads.js';
+
+export function encodeAssetPreviewRequest(value: AssetPreviewRequest): Buffer {
+  const writer = new PayloadWriter();
+  writer.writeString(value.cacheRootPath);
+  writer.writeString(value.catalogRootPath);
+  writer.writeString(value.assetId);
+  writer.writeString(value.kind);
+  writer.writeString(value.targetGame);
+  writer.writeString(value.viewPreset);
+  return writer.toBuffer();
+}
+
+export function decodeAssetPreviewRequest(payload: Uint8Array): AssetPreviewRequest {
+  const reader = new PayloadReader(payload);
+  const cacheRootPath = reader.readString();
+  const catalogRootPath = reader.readString();
+  const assetId = reader.readString();
+  const kind = reader.readString();
+  if (kind !== 'moby' && kind !== 'tie' && kind !== 'shrub') malformed('Asset preview kind is invalid');
+  const value: AssetPreviewRequest = {
+    cacheRootPath,
+    catalogRootPath,
+    assetId,
+    kind,
+    targetGame: reader.readString(),
+    viewPreset: reader.readString(),
+  };
+  reader.complete();
+  return value;
+}
+
+export function encodeAssetPreviewResult(value: AssetPreviewResult): Buffer {
+  const writer = new PayloadWriter();
+  writer.writeString(value.rootPath);
+  writer.writeString(value.cacheKey);
+  writer.writeString(value.modelPath);
+  writer.writeBoolean(value.cacheHit);
+  return writer.toBuffer();
+}
+
+export function decodeAssetPreviewResult(payload: Uint8Array): AssetPreviewResult {
+  const reader = new PayloadReader(payload);
+  const value = {
+    rootPath: reader.readString(),
+    cacheKey: reader.readString(),
+    modelPath: reader.readString(),
+    cacheHit: reader.readBoolean(),
+  };
+  reader.complete();
+  return value;
+}
 
 export function encodeUyaRenderPackageRequest(value: UyaRenderPackageRequest): Buffer {
   const writer = new PayloadWriter();

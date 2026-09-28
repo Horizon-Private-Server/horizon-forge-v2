@@ -53,6 +53,12 @@ import {
   encodeUyaProjectPreflightRequest,
 } from '../src/main/bridge/PayloadCodec.ts';
 import {
+  decodeAssetExplorerPage,
+  decodeAssetExplorerRequest,
+  encodeAssetExplorerPage,
+  encodeAssetExplorerRequest,
+} from '../src/main/bridge/AssetExplorerPayloadCodec.ts';
+import {
   decodeCatalogCollectionRequest,
   decodeCatalogMaintenance,
   decodeCatalogMaintenanceRequest,
@@ -63,8 +69,12 @@ import {
   encodeProjectAssetRepairRequest,
 } from '../src/main/bridge/MaintenancePayloadCodec.ts';
 import {
+  decodeAssetPreviewRequest,
+  decodeAssetPreviewResult,
   decodeUyaRenderPackageRequest,
   decodeUyaRenderPackageResult,
+  encodeAssetPreviewRequest,
+  encodeAssetPreviewResult,
   encodeUyaRenderPackageRequest,
   encodeUyaRenderPackageResult,
 } from '../src/main/bridge/RenderPayloadCodec.ts';
@@ -147,6 +157,23 @@ test('spline point commands pass IPC boundary validation', () => {
     entityIds: ['spline'],
     points: [{ x: 1, y: Number.NaN, z: 3, w: 4 }],
   }), false);
+});
+
+test('asset placement commands validate their untrusted token and transform', () => {
+  const command = {
+    id: '30000000-0000-4000-8000-00000000000f',
+    kind: 'createEntityFromAsset',
+    entityIds: [],
+    placement: {
+      assetId: 'a'.repeat(64), kind: 'Moby', classId: 0x947,
+      transform: {
+        position: { x: 1, y: 2, z: 3 }, rotation: { x: 0, y: 0, z: 0, w: 1 }, scale: { x: 1, y: 1, z: 1 },
+      },
+    },
+  };
+  assert.equal(isEditorCommand(command), true);
+  assert.equal(isEditorCommand({ ...command, placement: { ...command.placement, assetId: '../catalog' } }), false);
+  assert.equal(isEditorCommand({ ...command, placement: { ...command.placement, classId: 65_536 } }), false);
 });
 
 test('fragmented and coalesced reads retain frame boundaries', () => {
@@ -275,6 +302,28 @@ test('operation payloads round trip and reject trailing data', () => {
     candidateKinds: ['Moby: 30', 'Tie: 20'], blockers: [],
   };
   assert.deepEqual(decodeCatalogMaintenance(encodeCatalogMaintenance(maintenance)), maintenance);
+  const explorerRequest = {
+    catalogRootPath: '/assets', category: 'ties' as const, search: 'crate', game: 'UYA', level: 'level03',
+    region: 'NTSC-U', revision: '1.00', tags: ['vanilla'], cursor: 'cursor', limit: 64,
+    targetGame: 'UYA', targetRegion: 'NTSC-U', targetRevision: '1.00',
+  };
+  assert.deepEqual(decodeAssetExplorerRequest(encodeAssetExplorerRequest(explorerRequest)), explorerRequest);
+  const explorerPage = {
+    items: [{
+      assetId: 'd'.repeat(64), category: 'ties' as const, displayLabel: 'tie:0x0123',
+      canonicalFormatVersion: 2, byteSize: 4_096, aliases: ['tie:291', 'tie:0x0123'], tags: ['vanilla'],
+      sources: [{
+        game: 'UYA', region: 'NTSC-U', revision: '1.00', level: 'level03',
+        archive: 'level_wad/assets/asset_wad.bin', sourceIndex: 7,
+      }],
+      classIds: [291], previewState: 'notCached' as const, canPlace: true,
+    }],
+    facets: {
+      games: ['UYA'], levels: ['level03'], regions: ['NTSC-U'], revisions: ['1.00'], tags: ['vanilla'],
+    },
+    nextCursor: 'next',
+  };
+  assert.deepEqual(decodeAssetExplorerPage(encodeAssetExplorerPage(explorerPage)), explorerPage);
   const descriptor = {
     path: '/project', name: 'Test', targetGame: 'UYA', targetRegion: 'NTSC-U', targetRevision: '1.00',
     bakeProfile: 'uya-ntsc-u', baseLevel: 3, modifiedUnixMilliseconds: 1000,
@@ -323,6 +372,28 @@ test('operation payloads round trip and reject trailing data', () => {
     cacheHit: true,
   };
   assert.deepEqual(decodeUyaRenderPackageResult(encodeUyaRenderPackageResult(renderResult)), renderResult);
+  const assetPreviewRequest = {
+    cacheRootPath: '/cache',
+    catalogRootPath: '/assets',
+    assetId: 'c'.repeat(64),
+    kind: 'tie' as const,
+    targetGame: 'UYA',
+    viewPreset: 'model-default',
+  };
+  assert.deepEqual(
+    decodeAssetPreviewRequest(encodeAssetPreviewRequest(assetPreviewRequest)),
+    assetPreviewRequest,
+  );
+  const assetPreviewResult = {
+    rootPath: '/cache/uya-preview-key',
+    cacheKey: 'uya-preview-key',
+    modelPath: 'model.gltf',
+    cacheHit: true,
+  };
+  assert.deepEqual(
+    decodeAssetPreviewResult(encodeAssetPreviewResult(assetPreviewResult)),
+    assetPreviewResult,
+  );
 
   expectProtocolError(BridgeErrorCode.MalformedPayload, () => decodeText(Buffer.concat([encodeText('x'), Buffer.of(0)])));
 });

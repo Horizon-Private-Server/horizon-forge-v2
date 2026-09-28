@@ -32,6 +32,8 @@ export const BridgeOpcode = {
   PrepareUyaRenderPackage: 21,
   BuildAndPatchUyaProject: 22,
   GetUyaBuildPlan: 23,
+  QueryAssetExplorer: 24,
+  PrepareAssetPreview: 25,
 } as const;
 
 export const BridgeErrorCode = {

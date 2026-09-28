@@ -40,6 +40,36 @@ public sealed record AssetCatalogQuery(
     IReadOnlyCollection<string>? Tags = null,
     int Limit = 100);
 
+public enum AssetCatalogOrder
+{
+    AssetId,
+    ClassId,
+}
+
+public sealed record AssetCatalogPageQuery(
+    AssetKind Kind,
+    string? Search = null,
+    string? Game = null,
+    string? Level = null,
+    string? Region = null,
+    string? Revision = null,
+    IReadOnlyCollection<string>? Tags = null,
+    string? Cursor = null,
+    int Limit = AssetCatalogStore.DefaultPageLimit,
+    AssetCatalogOrder Order = AssetCatalogOrder.AssetId);
+
+public sealed record AssetCatalogFacets(
+    IReadOnlyList<string> Games,
+    IReadOnlyList<string> Levels,
+    IReadOnlyList<string> Regions,
+    IReadOnlyList<string> Revisions,
+    IReadOnlyList<string> Tags);
+
+public sealed record AssetCatalogPage(
+    IReadOnlyList<AssetCatalogEntry> Entries,
+    AssetCatalogFacets Facets,
+    string? NextCursor);
+
 public sealed record AssetGarbageCandidate(
     AssetId Id,
     AssetKind? Kind,

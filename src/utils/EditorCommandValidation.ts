@@ -5,6 +5,7 @@ const commandKinds = new Set([
   'renameEntity', 'setEntityLayer', 'setEntityState', 'undo', 'redo',
   'deleteEntities', 'duplicateEntities', 'copyEntities', 'pasteEntities',
   'updateLevelSettings', 'updateSplinePoints',
+  'createEntityFromAsset',
 ]);
 
 export function isEditorCommand(value: unknown): value is EditorCommand {
@@ -19,7 +20,32 @@ export function isEditorCommand(value: unknown): value is EditorCommand {
   if (command.kind === 'updateSplinePoints')
     return command.entityIds.length === 1 && Array.isArray(command.points)
       && command.points.length <= 100_000 && command.points.every(isPoint);
+  if (command.kind === 'createEntityFromAsset')
+    return command.entityIds.length === 0 && isAssetPlacement(command.placement);
   return true;
+}
+
+function isAssetPlacement(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const placement = value as Record<string, unknown>;
+  return typeof placement.assetId === 'string' && /^[0-9a-f]{64}$/.test(placement.assetId)
+    && ['Tie', 'Shrub', 'Moby'].includes(String(placement.kind))
+    && Number.isInteger(placement.classId) && Number(placement.classId) >= 0
+    && Number(placement.classId) <= 0xffff
+    && isTransform(placement.transform);
+}
+
+function isTransform(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const transform = value as Record<string, unknown>;
+  return isVector(transform.position) && isVector(transform.scale)
+    && !!transform.rotation && typeof transform.rotation === 'object'
+    && ['x', 'y', 'z', 'w'].every((key) => isFiniteNumber((transform.rotation as Record<string, unknown>)[key], Number.NEGATIVE_INFINITY));
+}
+
+function isVector(value: unknown): boolean {
+  return !!value && typeof value === 'object'
+    && ['x', 'y', 'z'].every((key) => isFiniteNumber((value as Record<string, unknown>)[key], Number.NEGATIVE_INFINITY));
 }
 
 function isPoint(value: unknown): boolean {

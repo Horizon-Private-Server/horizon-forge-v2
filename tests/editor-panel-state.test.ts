@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  assetGridWindow,
+  buildAssetFamilies,
   buildSceneEntityGroups,
   buildSkyTreeItems,
   buildTerrainTreeItems,
@@ -11,6 +13,7 @@ import {
   nextTreeSelection,
   nextViewportSelection,
 } from '../src/renderer/editor/EditorPanelState.ts';
+import type { AssetExplorerItem } from '../src/types/AssetExplorer.js';
 import type { EditorEntity } from '../src/types/EditorRuntime.js';
 import { parseSplinePointId, removeSplinePoints, splinePointId } from '../src/utils/SplinePoints.ts';
 
@@ -37,6 +40,37 @@ function entity(index: number): EditorEntity {
     },
   };
 }
+
+test('asset grid keeps DOM work bounded around visible rows', () => {
+  const first = assetGridWindow(10_000, 680, 440, 0);
+  assert.equal(first.columns, 4);
+  assert.equal(first.startIndex, 0);
+  assert.ok(first.endIndex <= 20);
+  const middle = assetGridWindow(10_000, 680, 440, 100_000);
+  assert.ok(middle.startIndex > 0);
+  assert.ok(middle.endIndex - middle.startIndex <= 28);
+  assert.equal(middle.totalHeight, first.totalHeight);
+});
+
+test('asset explorer groups exact variants by target class and prefers the base-level source', () => {
+  const variant = (assetId: string, classIds: number[], level: string, revision = '1.00'): AssetExplorerItem => ({
+    assetId, category: 'mobys', displayLabel: 'moby:0x000B', canonicalFormatVersion: 1, byteSize: 100,
+    aliases: ['moby:11', 'moby:0x000B'], tags: ['vanilla'], classIds, previewState: 'notCached', canPlace: true,
+    sources: [{ game: 'UYA', region: 'NTSC-U', revision, level, archive: 'assets.bin', sourceIndex: 1 }],
+  });
+  const families = buildAssetFamilies([
+    variant('b'.repeat(64), [11], 'level01'),
+    variant('a'.repeat(64), [11], 'level03'),
+    variant('c'.repeat(64), [12, 13], 'level03'),
+    variant('d'.repeat(64), [11], 'level03', '2.00'),
+  ], { game: 'UYA', region: 'NTSC-U', revision: '1.00', level: 3 });
+
+  assert.deepEqual(families.map((family) => family.classId), [11, 11, 12, 13]);
+  assert.equal(families[0].displayLabel, 'moby:0x000B');
+  assert.equal(families[0].representativeAssetId, 'a'.repeat(64));
+  assert.deepEqual(families[0].variants.map((item) => item.assetId), ['a'.repeat(64), 'b'.repeat(64)]);
+  assert.equal(families[1].variants[0].sources[0].revision, '2.00');
+});
 
 test('scene tree grouping filters, labels states, and returns every result', () => {
   const entities = Array.from({ length: 25_000 }, (_, index) => entity(index));

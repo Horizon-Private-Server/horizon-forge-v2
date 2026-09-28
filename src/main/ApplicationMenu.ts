@@ -86,6 +86,8 @@ export function installApplicationMenu(runAction: (action: ForgeAction) => void)
             { label: 'Level Settings', click: () => runAction('showLevelSettings') },
             { label: 'Diagnostics', click: () => runAction('showDiagnostics') },
             { label: 'Build', click: () => runAction('showBuild') },
+            { label: 'Asset Explorer', click: () => runAction('showAssetExplorer') },
+            { label: 'Asset Preview', click: () => runAction('showAssetPreview') },
           ],
         },
         { label: 'Reset Layout', click: () => runAction('resetLayout') },

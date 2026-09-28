@@ -13,6 +13,7 @@ public static class BuildPayloadCodec
         writer.WriteStrings(value.AcknowledgedWarnings);
         writer.WriteBoolean(value.ForceFullImage);
         writer.WriteStrings(value.IncludedLayers);
+        writer.WriteBoolean(value.ForceInPlace);
         return writer.ToArray();
     }
 
@@ -27,7 +28,8 @@ public static class BuildPayloadCodec
             reader.ReadString(),
             reader.ReadStrings(),
             reader.ReadBoolean(),
-            reader.ReadStrings());
+            reader.ReadStrings(),
+            reader.ReadBoolean());
         reader.Complete();
         return value;
     }

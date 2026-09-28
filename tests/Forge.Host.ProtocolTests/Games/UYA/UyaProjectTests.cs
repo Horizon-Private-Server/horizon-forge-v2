@@ -252,7 +252,8 @@ internal static class UyaProjectTests
             Equal(new ProjectVector3(100, 200, 300), ambientSound.Transform.Position, "ambient sound position");
             Equal(new ProjectVector3(2, 3, 4), ambientSound.Transform.Scale, "ambient sound cuboid scale");
             Equal(UyaSoundInstancesReader.RecordSize, ambientSound.Source!.RawRecord.Length, "ambient sound raw record");
-            await using (var runtime = new EditorRuntime())
+            await using (var runtime = new EditorRuntime(
+                transformCapabilityResolver: UyaEditorCapabilities.ResolveTransformCapabilities))
             {
                 var snapshot = await runtime.OpenAsync(projectPath, TimeSpan.Zero);
                 Equal(13, snapshot.Entities.Count(value => value.Geometry is not null), "visualizations reach editor snapshot");

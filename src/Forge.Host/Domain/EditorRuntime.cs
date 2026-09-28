@@ -10,6 +10,7 @@ public sealed class EditorRuntime : IAsyncDisposable
         "editor.entity.rename", "editor.entity.layer", "editor.entity.state", "editor.entity.delete",
         "editor.entity.duplicate", "editor.level-settings.update", "editor.clipboard", "editor.history",
         "editor.save", "editor.recovery",
+        "editor.asset.create",
     ];
     private static readonly EditorTool[] RuntimeTools =
     [
@@ -23,6 +24,8 @@ public sealed class EditorRuntime : IAsyncDisposable
     private readonly List<EditorEvent> _events = [];
     private readonly List<EditorDiagnostic> _diagnostics = [];
     private readonly EditorHistory _history = new();
+    private readonly EditorAssetPlacementResolver? _placementResolver;
+    private readonly EditorTransformCapabilityResolver? _transformCapabilityResolver;
     private ForgeProjectWorkspace? _workspace;
     private HashSet<AssetId> _missingAssets = [];
     private Dictionary<EntityId, ProjectEntity> _savedEntities = [];
@@ -32,6 +35,15 @@ public sealed class EditorRuntime : IAsyncDisposable
     private CancellationTokenSource? _autosaveCancellation;
     private long _eventSequence;
     private bool _disposed;
+    private string? _catalogRootPath;
+
+    public EditorRuntime(
+        EditorAssetPlacementResolver? placementResolver = null,
+        EditorTransformCapabilityResolver? transformCapabilityResolver = null)
+    {
+        _placementResolver = placementResolver;
+        _transformCapabilityResolver = transformCapabilityResolver;
+    }
 
     public bool HasCapability(string capability) => RuntimeCapabilities.Contains(capability, StringComparer.Ordinal);
 
@@ -58,6 +70,7 @@ public sealed class EditorRuntime : IAsyncDisposable
                 : FindMissingAssets(workspace, await AssetCatalogStore.OpenAsync(catalogRootPath, cancellationToken));
             await CloseCoreAsync(cancellationToken);
             _workspace = workspace;
+            _catalogRootPath = catalogRootPath;
             _savedEntities = workspace.Content.Entities.ToDictionary(entity => entity.EntityId);
             _missingAssets = missingAssets;
             _autosaveDelay = autosaveDelay;
@@ -177,6 +190,17 @@ public sealed class EditorRuntime : IAsyncDisposable
                     AddEvent(EditorEventKind.ProjectChanged, command.Id, command.EntityIds, "Spline points updated");
                     ScheduleAutosave();
                     break;
+                case EditorCommandKind.CreateEntityFromAsset:
+                    if (_placementResolver is null || _catalogRootPath is null)
+                        throw new InvalidOperationException("Asset placement is unavailable.");
+                    var placed = await _placementResolver(
+                        workspace, _catalogRootPath, command.Placement!, cancellationToken);
+                    workspace.AddEntity(placed);
+                    _selection = [placed.EntityId];
+                    historyEntityIds = _selection;
+                    AddEvent(EditorEventKind.ProjectChanged, command.Id, _selection, "Asset placed");
+                    ScheduleAutosave();
+                    break;
                 default:
                     throw new ArgumentOutOfRangeException(nameof(command), command.Kind, "Unknown editor command");
             }
@@ -278,6 +302,7 @@ public sealed class EditorRuntime : IAsyncDisposable
         _savedEntities = [];
         _selection = [];
         _clipboard = [];
+        _catalogRootPath = null;
     }
 
     private async Task WriteRecoveryCoreAsync(CancellationToken cancellationToken)
@@ -381,8 +406,19 @@ public sealed class EditorRuntime : IAsyncDisposable
             _eventSequence,
             RuntimeCapabilities.ToArray(),
             RuntimeTools.ToArray(),
-            _diagnostics.ToArray());
+            _diagnostics.Concat(PlacementDiagnostics(workspace)).TakeLast(MaxDiagnostics).ToArray());
     }
+
+    private static IEnumerable<EditorDiagnostic> PlacementDiagnostics(ForgeProjectWorkspace workspace) =>
+        workspace.Content.Entities
+            .Where(entity => entity.Asset?.Kind == AssetKind.Moby && entity.Provenance is null
+                && entity.Source?.RawRecord.Length >= 0x6c
+                && System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(
+                    entity.Source.RawRecord.AsSpan(0x68)) == -1)
+            .Select(entity => new EditorDiagnostic(
+                "moby.pvar-not-generated",
+                EditorDiagnosticSeverity.Warning,
+                $"{entity.Name}: No generated Pvar data; class-specific behavior may be unavailable."));
 
     private static EditorEntityGeometry? Visualization(ProjectEntity entity)
     {
@@ -410,30 +446,18 @@ public sealed class EditorRuntime : IAsyncDisposable
         return null;
     }
 
-    private static bool IsReadOnlySource(ProjectEntity entity) =>
+    private bool IsReadOnlySource(ProjectEntity entity) =>
         IsDecodedSource(entity) && TransformCapabilities(entity) == EditorTransformCapabilities.None;
 
     private static bool IsDecodedSource(ProjectEntity entity) => entity.Geometry is not null
         || entity.Lighting is not null || entity.Camera is not null || entity.AmbientSound is not null;
 
-    private static EditorTransformCapabilities TransformCapabilities(ProjectEntity entity)
+    private EditorTransformCapabilities TransformCapabilities(ProjectEntity entity)
     {
         const EditorTransformCapabilities all = EditorTransformCapabilities.Translate
             | EditorTransformCapabilities.Rotate | EditorTransformCapabilities.Scale;
         if (!IsDecodedSource(entity)) return all;
-        if (entity.Provenance is not { Game: "UYA" }) return EditorTransformCapabilities.None;
-        if (entity.Camera is not null) return EditorTransformCapabilities.Translate | EditorTransformCapabilities.Rotate;
-        if (entity.AmbientSound is not null || entity.Geometry?.Spline is not null
-            || entity.Geometry?.GrindPath is not null) return all;
-        if (entity.Lighting?.DirectionalLight is not null) return EditorTransformCapabilities.Rotate;
-        if (entity.Lighting?.PointLight is not null)
-            return EditorTransformCapabilities.Translate | EditorTransformCapabilities.Scale;
-        if (entity.Lighting?.EnvironmentSamplePoint is not null) return EditorTransformCapabilities.Translate;
-        if (entity.Lighting?.EnvironmentTransition is not null) return all;
-        var shape = entity.Geometry is { } geometry
-            ? geometry.Cuboid ?? geometry.Sphere ?? geometry.Cylinder ?? geometry.Pill
-            : null;
-        return shape is not null ? all : EditorTransformCapabilities.None;
+        return _transformCapabilityResolver?.Invoke(entity) ?? EditorTransformCapabilities.None;
     }
 
     private static bool HasInvalidGeometryLinks(ProjectEntity entity)
@@ -443,7 +467,7 @@ public sealed class EditorRuntime : IAsyncDisposable
             .Concat(area.Cylinders).Concat(area.NegativeCuboids).Any(link => link.EntityId is null);
     }
 
-    private static void ValidateCommand(EditorCommand command, ForgeProjectWorkspace workspace)
+    private void ValidateCommand(EditorCommand command, ForgeProjectWorkspace workspace)
     {
         if (!Guid.TryParseExact(command.Id, "D", out var commandId) || commandId == Guid.Empty
             || commandId.ToString("D") != command.Id)
@@ -459,6 +483,8 @@ public sealed class EditorRuntime : IAsyncDisposable
             throw new ArgumentException("Only level setting commands can contain level settings.", nameof(command));
         if (command.Kind != EditorCommandKind.UpdateSplinePoints && command.Points is not null)
             throw new ArgumentException("Only spline point commands can contain points.", nameof(command));
+        if (command.Kind != EditorCommandKind.CreateEntityFromAsset && command.Placement is not null)
+            throw new ArgumentException("Only asset placement commands can contain placement data.", nameof(command));
         var locked = workspace.Content.Entities
             .Where(entity => entity.State?.Locked == true)
             .Select(entity => entity.EntityId)
@@ -541,6 +567,11 @@ public sealed class EditorRuntime : IAsyncDisposable
                 || !IsEditablePath(workspace.Content.Entities.Single(
                     entity => entity.EntityId == command.EntityIds[0])):
                 throw new ArgumentException("Path point commands require one editable path and its points.", nameof(command));
+            case EditorCommandKind.CreateEntityFromAsset when command.EntityIds.Count != 0
+                || command.Transform is not null || command.Text is not null || command.State is not null
+                || command.Transforms?.Count > 0 || command.LevelSettings is not null || command.Points is not null
+                || command.Placement is null:
+                throw new ArgumentException("Asset placement commands require only placement data.", nameof(command));
         }
         if (command.Kind is EditorCommandKind.UpdateTransform or EditorCommandKind.UpdateTransforms)
             ValidateTransformCapabilities(command, workspace);
@@ -549,7 +580,7 @@ public sealed class EditorRuntime : IAsyncDisposable
     private static bool IsEditablePath(ProjectEntity entity) =>
         entity.Geometry?.Spline is not null || entity.Geometry?.GrindPath is not null;
 
-    private static void ValidateTransformCapabilities(EditorCommand command, ForgeProjectWorkspace workspace)
+    private void ValidateTransformCapabilities(EditorCommand command, ForgeProjectWorkspace workspace)
     {
         var entities = workspace.Content.Entities.ToDictionary(entity => entity.EntityId);
         var updates = command.Kind == EditorCommandKind.UpdateTransform

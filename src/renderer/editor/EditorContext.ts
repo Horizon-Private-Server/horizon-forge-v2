@@ -2,6 +2,7 @@ import { createContext, useContext } from 'react';
 
 import type { KeybindingMap } from '../../types/Keybindings.js';
 import type { EditorCommand, EditorSnapshot } from '../../types/EditorRuntime.js';
+import type { AssetExplorerFamily } from '../../types/AssetExplorer.js';
 import type { SceneTreeColors } from '../../types/SceneTree.js';
 import type {
   BuildLayerId,
@@ -27,6 +28,8 @@ export interface EditorContextValue {
   showViewportStats: boolean;
   showOcclusionOctants: boolean;
   setShowOcclusionOctants(value: boolean): void;
+  assetPreview?: AssetExplorerFamily;
+  inspectAsset(family: AssetExplorerFamily): void;
   busy: boolean;
   hostAvailable: boolean;
   buildProgress?: BuildPatchProgress;

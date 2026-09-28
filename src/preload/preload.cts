@@ -2,6 +2,8 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type {
   BuildPatchProgress,
   BuildLayerId,
+  AssetExplorerQuery,
+  AssetPreviewKind,
   EditorCommand,
   ForgeAction,
   ForgeApi,
@@ -39,6 +41,11 @@ const forgeApi = Object.freeze({
   repairForgeProjectAssets: (path: string) => ipcRenderer.invoke('forge:projects-repair-assets', path),
   previewCatalogGarbageCollection: () => ipcRenderer.invoke('forge:catalog-gc-preview'),
   collectCatalogGarbage: (confirmationToken: string) => ipcRenderer.invoke('forge:catalog-gc-collect', confirmationToken),
+  queryAssetExplorer: (query: AssetExplorerQuery) => ipcRenderer.invoke('forge:asset-explorer-query', query),
+  cancelAssetExplorerQuery: () => ipcRenderer.invoke('forge:asset-explorer-cancel'),
+  getAssetPreview: (assetId: string, kind: AssetPreviewKind, requestToken: string) =>
+    ipcRenderer.invoke('forge:asset-preview', assetId, kind, requestToken),
+  cancelAssetPreview: (requestToken: string) => ipcRenderer.invoke('forge:asset-preview-cancel', requestToken),
   removeRecentProject: (path: string) => ipcRenderer.invoke('forge:projects-remove-recent', path),
   revealForgeProject: (path: string) => ipcRenderer.invoke('forge:projects-reveal', path),
   revealLogs: () => ipcRenderer.invoke('forge:logs-reveal'),

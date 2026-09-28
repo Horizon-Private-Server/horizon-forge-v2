@@ -27,6 +27,7 @@ const commandKinds = {
   pasteEntities: 13,
   updateLevelSettings: 14,
   updateSplinePoints: 15,
+  createEntityFromAsset: 16,
 } as const;
 const eventKinds: Record<number, EditorEvent['kind']> = {
   1: 'projectOpened', 2: 'projectChanged', 3: 'selectionChanged', 4: 'projectSaved',
@@ -82,6 +83,13 @@ export function encodeEditorCommand(value: EditorCommand): Buffer {
       writer.writeFloat32(point.z);
       writer.writeFloat32(point.w);
     });
+  }
+  writer.writeBoolean(value.kind === 'createEntityFromAsset');
+  if (value.kind === 'createEntityFromAsset') {
+    writer.writeString(value.placement.assetId);
+    writer.writeString(value.placement.kind);
+    writer.writeUInt32(value.placement.classId);
+    writeTransform(writer, value.placement.transform);
   }
   return writer.toBuffer();
 }

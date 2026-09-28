@@ -181,6 +181,37 @@ internal static class Program
                 CandidateKinds = decodedMaintenance.CandidateKinds,
                 Blockers = decodedMaintenance.Blockers,
             }, decodedMaintenance, "catalog maintenance payload");
+        var explorerRequest = new AssetExplorerRequestPayload(
+            "assets", AssetExplorerCategoryPayload.Ties, "crate", "UYA", "level03", "NTSC-U", "1.00",
+            ["vanilla"], "cursor", 64, "UYA", "NTSC-U", "1.00");
+        var decodedExplorerRequest = AssetExplorerPayloadCodec.DecodeRequest(
+            AssetExplorerPayloadCodec.EncodeRequest(explorerRequest));
+        Equal(explorerRequest with { Tags = decodedExplorerRequest.Tags }, decodedExplorerRequest,
+            "asset explorer request payload");
+        Equal(true, explorerRequest.Tags.SequenceEqual(decodedExplorerRequest.Tags), "asset explorer request tags");
+        var explorerPage = new AssetExplorerPagePayload(
+            [new(
+                new string('d', 64), AssetExplorerCategoryPayload.Ties, "tie:0x0123", 2, 4096,
+                ["tie:291", "tie:0x0123"], ["vanilla"],
+                [new("UYA", "NTSC-U", "1.00", "level03", "level_wad/assets/asset_wad.bin", 7)],
+                [291], "notCached", true, null)],
+            new(["UYA"], ["level03"], ["NTSC-U"], ["1.00"], ["vanilla"]),
+            "next");
+        var decodedExplorerPage = AssetExplorerPayloadCodec.DecodePage(
+            AssetExplorerPayloadCodec.EncodePage(explorerPage));
+        Equal(explorerPage.Items[0] with
+        {
+            Aliases = decodedExplorerPage.Items[0].Aliases,
+            Tags = decodedExplorerPage.Items[0].Tags,
+            Sources = decodedExplorerPage.Items[0].Sources,
+            ClassIds = decodedExplorerPage.Items[0].ClassIds,
+        }, decodedExplorerPage.Items[0], "asset explorer item payload");
+        Equal(true, explorerPage.Items[0].Aliases.SequenceEqual(decodedExplorerPage.Items[0].Aliases),
+            "asset explorer aliases");
+        Equal(true, explorerPage.Items[0].Sources.SequenceEqual(decodedExplorerPage.Items[0].Sources),
+            "asset explorer sources");
+        Equal(true, explorerPage.Facets.Tags.SequenceEqual(decodedExplorerPage.Facets.Tags),
+            "asset explorer facets");
         var recovery = new ProjectRecoverySnapshotPayload(
             recoveryRequest.RecoveryId, 1000, "Recovered", 20, new string('a', 64), 4096);
         var descriptor = new ForgeProjectDescriptorPayload(
@@ -234,9 +265,18 @@ internal static class Program
         Equal(true, renderResult.OcclusionOctants!.SequenceEqual(decodedRenderResult.OcclusionOctants!),
             "render-package occlusion octants");
 
+        var assetPreviewRequest = new AssetPreviewRequestPayload(
+            "render-cache", "catalog", new string('c', 64), "tie", "UYA", "model-default");
+        Equal(assetPreviewRequest, BridgePayloadCodec.DecodeAssetPreviewRequest(
+            BridgePayloadCodec.EncodeAssetPreviewRequest(assetPreviewRequest)), "asset-preview request payload");
+        var assetPreviewResult = new AssetPreviewResultPayload(
+            "render-cache/uya-preview-key", "uya-preview-key", "model.gltf", true);
+        Equal(assetPreviewResult, BridgePayloadCodec.DecodeAssetPreviewResult(
+            BridgePayloadCodec.EncodeAssetPreviewResult(assetPreviewResult)), "asset-preview result payload");
+
         var buildRequest = new UyaBuildPatchRequestPayload(
             "project", "catalog", "clean.iso", "development.iso", new string('a', 32), ["WARN-1"], false,
-            ["Ties", "Lighting"]);
+            ["Ties", "Lighting"], true);
         var decodedBuildRequest = BuildPayloadCodec.DecodeRequest(BuildPayloadCodec.EncodeRequest(buildRequest));
         Equal(buildRequest with
         {

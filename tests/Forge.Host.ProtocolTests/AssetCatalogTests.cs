@@ -1,5 +1,6 @@
 using Forge.Host.Games.UYA;
 using Forge.Host.Domain;
+using Forge.Host.Bridge;
 
 internal static class AssetCatalogTests
 {
@@ -10,6 +11,7 @@ internal static class AssetCatalogTests
         try
         {
             await VerifyCatalogAsync(Path.Combine(directory, "catalog"));
+            await VerifyExplorerBridgeAsync(Path.Combine(directory, "explorer"));
             await VerifyTransactionalFailureAsync(Path.Combine(directory, "failure"));
             await VerifyGarbageCollectionAsync(Path.Combine(directory, "garbage"));
         }
@@ -17,6 +19,78 @@ internal static class AssetCatalogTests
         {
             Directory.Delete(directory, recursive: true);
         }
+    }
+
+    private static async Task VerifyExplorerBridgeAsync(string root)
+    {
+        var store = await AssetCatalogStore.OpenAsync(root);
+        var entry = await store.PutAsync(
+            AssetKind.Tie,
+            2,
+            "explorer tie"u8.ToArray(),
+            Metadata("level03", 7, ["tie:291", "tie:0x0123"], ["vanilla"]));
+        var request = new AssetExplorerRequestPayload(
+            root, AssetExplorerCategoryPayload.Ties, "0x0123", "UYA", "level03", "NTSC-U", "1.00",
+            ["vanilla"], null, 64, "UYA", "NTSC-U", "1.00");
+        var page = await QueryExplorerAsync(request);
+        Equal(entry.Id.ToString(), page.Items.Single().AssetId, "explorer bridge asset");
+        Equal(true, page.Items[0].CanPlace, "explorer bridge tie placement support");
+        Equal(null, page.Items[0].PlacementDisabledReason, "explorer bridge tie placement reason");
+        Equal(true, page.Items[0].ClassIds.SequenceEqual([291u]), "explorer bridge normalized class identity");
+
+        await store.UpdateMetadataAsync(
+            entry.Id,
+            Metadata("level03", 7, ["tie:292"], ["vanilla"]));
+        var lowerClass = await store.PutAsync(
+            AssetKind.Tie,
+            2,
+            "lower explorer tie"u8.ToArray(),
+            Metadata("level03", 8, ["tie:2"], ["vanilla"]));
+        var lowerClassVariant = await store.PutAsync(
+            AssetKind.Tie,
+            2,
+            "lower explorer tie variant"u8.ToArray(),
+            Metadata("level03", 10, ["tie:2"], ["vanilla"]));
+        var higherClass = await store.PutAsync(
+            AssetKind.Tie,
+            2,
+            "higher explorer tie"u8.ToArray(),
+            Metadata("level03", 9, ["tie:400"], ["vanilla"]));
+        page = await QueryExplorerAsync(request with { Search = null });
+        var lowerIds = new[] { lowerClass.Id.ToString(), lowerClassVariant.Id.ToString() }
+            .Order(StringComparer.Ordinal).ToArray();
+        Equal(true, page.Items.Select(item => item.AssetId).SequenceEqual(
+            [.. lowerIds, entry.Id.ToString(), higherClass.Id.ToString()]),
+            "explorer bridge class order");
+        var ambiguous = page.Items.Single(item => item.AssetId == entry.Id.ToString());
+        Equal(false, ambiguous.CanPlace, "explorer bridge ambiguous placement");
+        Equal(true, ambiguous.PlacementDisabledReason!.Contains("multiple class identities", StringComparison.Ordinal),
+            "explorer bridge ambiguous reason");
+
+        var firstPage = await QueryExplorerAsync(request with { Search = null, Limit = 2 });
+        var secondPage = await QueryExplorerAsync(request with { Search = null, Limit = 2, Cursor = firstPage.NextCursor });
+        Equal(true, firstPage.Items.Select(item => item.AssetId).SequenceEqual(lowerIds),
+            "explorer bridge keeps class family in one page");
+        Equal(entry.Id.ToString(), secondPage.Items[0].AssetId, "explorer bridge class cursor second page");
+
+        File.Delete(store.ResolveBlobPath(entry.Id)!);
+        page = await QueryExplorerAsync(request with { Search = null });
+        var missing = page.Items.Single(item => item.AssetId == entry.Id.ToString());
+        Equal("missingBlob", missing.PreviewState, "explorer bridge missing blob state");
+        Equal("The catalog blob is missing.", missing.PlacementDisabledReason, "explorer bridge missing blob reason");
+    }
+
+    private static async Task<AssetExplorerPagePayload> QueryExplorerAsync(AssetExplorerRequestPayload request)
+    {
+        var frame = new BridgeFrame(
+            BridgeMessageKind.Request,
+            BridgeOpcode.QueryAssetExplorer,
+            BridgeErrorCode.None,
+            1,
+            AssetExplorerPayloadCodec.EncodeRequest(request));
+        var payload = await ProjectBridgeHandlers.HandleAsync(
+            frame, "test", _ => ValueTask.CompletedTask, CancellationToken.None);
+        return AssetExplorerPayloadCodec.DecodePage(payload);
     }
 
     private static async Task VerifyCatalogAsync(string root)
@@ -51,18 +125,53 @@ internal static class AssetCatalogTests
             canonicalFormatVersion: 1,
             "shrub bytes"u8.ToArray(),
             Metadata("level03", 2, ["Fern"], ["foliage", "vanilla"]));
+        var secondTie = await store.PutAsync(
+            AssetKind.Tie,
+            canonicalFormatVersion: 0,
+            "second tie bytes"u8.ToArray(),
+            Metadata("level09", 15, ["Bridge"], ["structural", "vanilla"]));
 
         Equal(first.Id, store.Query(new(Id: first.Id)).Single().Id, "query by ID");
-        Equal(first.Id, store.Query(new(Kind: AssetKind.Tie)).Single().Id, "query by kind");
-        Equal(2, store.Query(new(Game: "UYA")).Count, "query by game");
+        Equal(2, store.Query(new(Kind: AssetKind.Tie)).Count, "query by kind");
+        Equal(3, store.Query(new(Game: "UYA")).Count, "query by game");
         Equal(2, store.Query(new(Level: "level03")).Count, "query by level");
         Equal(shrub.Id, store.Query(new(Tags: ["foliage", "vanilla"])).Single().Id, "query by tags");
-        var expectedFirst = new[] { first.Id, shrub.Id }.OrderBy(id => id.ToString(), StringComparer.Ordinal).First();
+        var expectedFirst = new[] { first.Id, shrub.Id, secondTie.Id }
+            .OrderBy(id => id.ToString(), StringComparer.Ordinal).First();
         Equal(expectedFirst, store.Query(new(Limit: 1)).Single().Id, "deterministic bounded query");
         Expect<ArgumentOutOfRangeException>(() => store.Query(new(Limit: AssetCatalogStore.MaxQueryLimit + 1)));
 
+        var search = store.QueryPage(new(AssetKind.Tie, Search: "EXPLOSIVE"));
+        Equal(first.Id, search.Entries.Single().Id, "case-insensitive alias search");
+        Equal(true, search.Facets.Levels.SequenceEqual(["level03", "level05"]), "filtered source facets");
+        Equal(first.Id, store.QueryPage(new(
+            AssetKind.Tie, Game: "UYA", Level: "level05", Region: "NTSC-U", Revision: "1.00",
+            Tags: ["breakable", "vanilla"])).Entries.Single().Id, "combined appearance and tag filters");
+
+        var firstPage = store.QueryPage(new(AssetKind.Tie, Limit: 1));
+        Equal(1, firstPage.Entries.Count, "cursor first page count");
+        Equal(true, firstPage.NextCursor is not null, "cursor first page continuation");
+        var pagingReopen = await AssetCatalogStore.OpenAsync(root);
+        var secondPage = pagingReopen.QueryPage(new(AssetKind.Tie, Cursor: firstPage.NextCursor, Limit: 1));
+        Equal(1, secondPage.Entries.Count, "cursor second page count");
+        Equal(false, firstPage.Entries[0].Id == secondPage.Entries[0].Id, "cursor has no duplicate");
+        Equal(null, secondPage.NextCursor, "cursor final page");
+        Expect<ArgumentException>(() => store.QueryPage(new(AssetKind.Tie, Cursor: "invalid")));
+        Expect<ArgumentException>(() => store.QueryPage(new(AssetKind.Tie, Search: "different", Cursor: firstPage.NextCursor)));
+        Expect<ArgumentOutOfRangeException>(() => store.QueryPage(new(
+            AssetKind.Tie, Limit: AssetCatalogStore.MaxPageLimit + 1)));
+
+        await store.PutAsync(
+            AssetKind.Tie,
+            canonicalFormatVersion: 0,
+            "third tie bytes"u8.ToArray(),
+            Metadata("level10", 16, ["Tower"], ["structural", "vanilla"]));
+        Expect<InvalidDataException>(() => store.QueryPage(new(AssetKind.Tie, Cursor: firstPage.NextCursor, Limit: 1)));
+        var cancelled = new CancellationToken(canceled: true);
+        Expect<OperationCanceledException>(() => store.QueryPage(new(AssetKind.Tie), cancelled));
+
         var reopened = await AssetCatalogStore.OpenAsync(root);
-        Equal(2, reopened.Query(new()).Count, "catalog reopen");
+        Equal(4, reopened.Query(new()).Count, "catalog reopen");
         Equal(true, (await File.ReadAllBytesAsync(reopened.ResolveBlobPath(first.Id)!)).SequenceEqual(bytes), "reopened blob bytes");
     }
 

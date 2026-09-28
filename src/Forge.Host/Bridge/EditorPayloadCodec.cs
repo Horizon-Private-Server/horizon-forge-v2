@@ -53,8 +53,25 @@ internal static class EditorPayloadCodec
                 values[index] = new(reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle());
             points = values;
         }
+        EditorAssetPlacement? placement = null;
+        if (reader.ReadBoolean())
+        {
+            var assetId = AssetId.Parse(reader.ReadString());
+            var assetKind = reader.ReadString() switch
+            {
+                "Tie" => AssetKind.Tie,
+                "Shrub" => AssetKind.Shrub,
+                "Moby" => AssetKind.Moby,
+                _ => throw new InvalidDataException("Asset placement kind is invalid."),
+            };
+            placement = new(
+                assetId,
+                assetKind,
+                checked((int)reader.ReadUInt32()),
+                ReadTransform(ref reader));
+        }
         reader.Complete();
-        return new(id, kind, entities, transform, text, state, transforms, levelSettings, points);
+        return new(id, kind, entities, transform, text, state, transforms, levelSettings, points, placement);
     }
 
     public static byte[] EncodeSnapshot(EditorSnapshot value)

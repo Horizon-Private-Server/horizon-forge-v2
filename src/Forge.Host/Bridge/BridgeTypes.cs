@@ -36,6 +36,8 @@ public enum BridgeOpcode : ushort
     PrepareUyaRenderPackage = 21,
     BuildAndPatchUyaProject = 22,
     GetUyaBuildPlan = 23,
+    QueryAssetExplorer = 24,
+    PrepareAssetPreview = 25,
 }
 
 public enum BridgeErrorCode : ushort

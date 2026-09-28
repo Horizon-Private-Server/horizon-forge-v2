@@ -2,6 +2,47 @@ namespace Forge.Host.Bridge;
 
 public static partial class BridgePayloadCodec
 {
+    public static byte[] EncodeAssetPreviewRequest(AssetPreviewRequestPayload value)
+    {
+        var writer = new PayloadWriter();
+        writer.WriteString(value.CacheRootPath);
+        writer.WriteString(value.CatalogRootPath);
+        writer.WriteString(value.AssetId);
+        writer.WriteString(value.Kind);
+        writer.WriteString(value.TargetGame);
+        writer.WriteString(value.ViewPreset);
+        return writer.ToArray();
+    }
+
+    public static AssetPreviewRequestPayload DecodeAssetPreviewRequest(ReadOnlySpan<byte> payload)
+    {
+        var reader = new PayloadReader(payload);
+        var value = new AssetPreviewRequestPayload(
+            reader.ReadString(), reader.ReadString(), reader.ReadString(),
+            reader.ReadString(), reader.ReadString(), reader.ReadString());
+        reader.Complete();
+        return value;
+    }
+
+    public static byte[] EncodeAssetPreviewResult(AssetPreviewResultPayload value)
+    {
+        var writer = new PayloadWriter();
+        writer.WriteString(value.RootPath);
+        writer.WriteString(value.CacheKey);
+        writer.WriteString(value.ModelPath);
+        writer.WriteBoolean(value.CacheHit);
+        return writer.ToArray();
+    }
+
+    public static AssetPreviewResultPayload DecodeAssetPreviewResult(ReadOnlySpan<byte> payload)
+    {
+        var reader = new PayloadReader(payload);
+        var value = new AssetPreviewResultPayload(
+            reader.ReadString(), reader.ReadString(), reader.ReadString(), reader.ReadBoolean());
+        reader.Complete();
+        return value;
+    }
+
     public static byte[] EncodeUyaRenderPackageRequest(UyaRenderPackageRequestPayload value)
     {
         var writer = new PayloadWriter();

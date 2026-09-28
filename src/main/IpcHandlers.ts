@@ -3,7 +3,7 @@ import type { BrowserWindow } from 'electron';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 
-import type { EditorCommand, EditorSnapshot, ProjectHubState } from '../types/ForgeApi.js';
+import type { AssetExplorerQuery, EditorCommand, EditorSnapshot, ProjectHubState } from '../types/ForgeApi.js';
 import { safeProjectDirectoryName } from '../utils/ApplicationPaths.js';
 import { showOpenDialog, showSaveDialog } from '../utils/ElectronDialogs.js';
 import { isEditorCommand } from '../utils/EditorCommandValidation.js';
@@ -38,14 +38,36 @@ const uyaImportVersion = 1;
 export function registerIpcHandlers(options: IpcHandlersOptions): void {
   const { host, notifications, recentProjects, settings, updates, renderAssets, getMainWindow } = options;
   let activeSetupRequestId: number | undefined;
+  let activeAssetExplorerRequestId: number | undefined;
+  let activeEditorSnapshot: EditorSnapshot | undefined;
 
   function assertSender(senderId: number): void {
     if (!isTrustedSender(senderId, getMainWindow()?.webContents.id)) throw new Error('Untrusted IPC sender');
   }
 
   function editorSnapshot(value: EditorSnapshot): EditorSnapshot {
+    activeEditorSnapshot = value;
     setEditorMenuState(value);
     return value;
+  }
+
+  function assertAssetExplorerQuery(value: unknown): asserts value is AssetExplorerQuery {
+    if (!value || typeof value !== 'object') throw new TypeError('Asset explorer query is invalid');
+    const query = value as Record<string, unknown>;
+    if (!['ties', 'shrubs', 'mobys', 'skyShells', 'textures'].includes(String(query.category)))
+      throw new TypeError('Asset explorer category is invalid');
+    for (const field of ['search', 'game', 'level', 'region', 'revision']) {
+      const text = query[field];
+      if (text !== undefined && (typeof text !== 'string' || text.length > 4_096))
+        throw new TypeError(`Asset explorer ${field} is invalid`);
+    }
+    if (query.cursor !== undefined && (typeof query.cursor !== 'string' || query.cursor.length > 512))
+      throw new TypeError('Asset explorer cursor is invalid');
+    if (query.tags !== undefined && (!Array.isArray(query.tags) || query.tags.length > 64
+      || query.tags.some((tag) => typeof tag !== 'string' || !tag.trim() || tag.length > 4_096)))
+      throw new TypeError('Asset explorer tags are invalid');
+    if (query.limit !== undefined && (!Number.isInteger(query.limit) || Number(query.limit) < 1
+      || Number(query.limit) > 128)) throw new TypeError('Asset explorer batch size is invalid');
   }
 
   registerRenderIpcHandlers({ host, settings, renderAssets, assertSender });
@@ -449,6 +471,30 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
     }
     return result;
   });
+  ipcMain.handle('forge:asset-explorer-query', async (event, query: unknown) => {
+    assertSender(event.sender.id);
+    assertAssetExplorerQuery(query);
+    if (!activeEditorSnapshot) throw new Error('Open a project before browsing the asset catalog.');
+    if (activeAssetExplorerRequestId !== undefined) await host.cancel(activeAssetExplorerRequestId);
+    const request = await host.queryAssetExplorer({
+      ...query,
+      catalogRootPath: settings.paths.assets,
+      limit: query.limit ?? 64,
+      targetGame: activeEditorSnapshot.target.game,
+      targetRegion: activeEditorSnapshot.target.region,
+      targetRevision: activeEditorSnapshot.target.revision,
+    });
+    activeAssetExplorerRequestId = request.requestId;
+    try {
+      return await request.result;
+    } finally {
+      if (activeAssetExplorerRequestId === request.requestId) activeAssetExplorerRequestId = undefined;
+    }
+  });
+  ipcMain.handle('forge:asset-explorer-cancel', async (event) => {
+    assertSender(event.sender.id);
+    if (activeAssetExplorerRequestId !== undefined) await host.cancel(activeAssetExplorerRequestId);
+  });
   ipcMain.handle('forge:projects-remove-recent', async (event, projectPath: unknown) => {
     assertSender(event.sender.id);
     await recentProjects.remove(await assertRecentProject(projectPath));
@@ -479,7 +525,9 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
   });
   ipcMain.handle('forge:editor-close', async (event) => {
     assertSender(event.sender.id);
+    if (activeAssetExplorerRequestId !== undefined) await host.cancel(activeAssetExplorerRequestId);
     await (await host.closeEditorProject()).result;
+    activeEditorSnapshot = undefined;
     setEditorMenuState();
   });
   ipcMain.handle('forge:editor-query', async (event) => {

@@ -103,7 +103,8 @@ internal static class UyaGameplayLayerTests
             ]);
             await UyaGameplayLayerStore.WriteSourceAsync(
                 collisionProject, Source(), Gameplay(Tables([]), CuboidBytes(), [], [], cameraCollision: collisionGrid));
-            await using (var runtime = new EditorRuntime())
+            await using (var runtime = new EditorRuntime(
+                transformCapabilityResolver: UyaEditorCapabilities.ResolveTransformCapabilities))
             {
                 var editorSnapshot = await runtime.OpenAsync(collisionProject, TimeSpan.Zero);
                 Equal(EditorTransformCapabilities.Translate | EditorTransformCapabilities.Rotate

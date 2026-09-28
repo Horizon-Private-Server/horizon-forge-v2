@@ -8,7 +8,8 @@ public sealed record UyaBuildPatchRequestPayload(
     string SourceFingerprint,
     IReadOnlyList<string> AcknowledgedWarnings,
     bool ForceFullImage,
-    IReadOnlyList<string> IncludedLayers);
+    IReadOnlyList<string> IncludedLayers,
+    bool ForceInPlace);
 
 public sealed record UyaBuildPlanRequestPayload(string ProjectRoot, string CatalogRoot);
 

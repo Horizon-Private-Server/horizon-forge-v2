@@ -547,6 +547,22 @@ other game-specific structures. Partial decoders MUST disclose coverage and
 unknown fields rather than imply that the reference graph is complete. Stable
 Entity IDs and typed reference fields in P0 provide the foundation.
 
+#### FR-UI-007: Asset explorer
+
+The workspace MUST provide a dockable vanilla-asset explorer with top-level tie,
+shrub, moby, sky-shell, and texture categories; search; catalog-derived filters;
+cursor-backed infinite scrolling; visible-item-only preview loading; and one
+interactive orbit preview.
+Catalog metadata and compatibility come from the host rather than renderer file
+access. Exact content hashes that share a target-specific kind/class identity MUST
+be presented as one family without discarding source variants or weakening Asset ID
+verification. Dragging a compatible tie, shrub, or moby into the viewport MUST create one
+undoable target-native entity with validated supplemental data. Cross-game assets,
+sky shells, textures, ambiguous class identities, and missing assets remain
+browseable but cannot silently create an incompatible scene entity. The detailed
+contract and tasks are in the
+[Asset Explorer v0 feature specification](features/asset-explorer-v0.md).
+
 ### 8.3 Scene and editing
 
 #### FR-SCENE-001: Viewport

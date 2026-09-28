@@ -102,7 +102,10 @@ billboard references with target alignment and table-limit checks. Canonical UYA
 now retain normalized native definition metadata; importer revision `forge-uya-v2`
 forces legacy caches to refresh while old blobs remain readable for display. Forge pack
 composition replaces the asset header, payload, and palette from staged enabled classes,
-including classes sourced from another level. Fixtures exhaustively compare decoded
+including classes sourced from another level. Gadget-WAD mobys retain their type-0
+texture definitions at the original table IDs, fixed palette uploads, stash class list,
+and extra pixel destinations; those externally referenced slots are excluded from level
+palette optimization. Fixtures exhaustively compare decoded
 base/mip colors, semantically re-read every generated reference, verify shared material
 reuse and a level03-to-level45 class swap, and cover incremental invalidation. A clean
 NTSC-U level03 audit composed 334 modeled assets and 758 texture uses into 124 palettes

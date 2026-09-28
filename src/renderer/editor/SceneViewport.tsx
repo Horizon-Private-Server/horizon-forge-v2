@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
+import type { DragEvent } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 import type { EditorEntity, EditorTransformUpdate, ProjectVector4 } from '../../types/EditorRuntime.js';
+import type { AssetPlacementDragData } from '../../types/AssetExplorer.js';
 import type { KeybindingMap } from '../../types/Keybindings.js';
 import type { SceneTreeColors } from '../../types/SceneTree.js';
 import type { EditorLoadProgress, EditorSceneEnvironment, EditorTerrainSource } from '../../types/ForgeApi.js';
@@ -21,9 +23,14 @@ import {
   updateCameraMovement,
 } from '../../utils/Scene.ts';
 import type { CameraFlight } from '../../utils/Scene.ts';
-import { configurePs2MaterialAlpha, configurePs2MaterialFog } from '../../utils/Ps2Materials.ts';
+import {
+  configurePs2AssetVisibility,
+  configurePs2MaterialAlpha,
+  configurePs2MaterialFog,
+} from '../../utils/Ps2Materials.ts';
 import { isTextInput } from '../../utils/Dom.ts';
 import { findKeybindingCommand, transformModeForKeybinding } from '../../utils/Keybindings.ts';
+import { ASSET_PLACEMENT_MIME, readAssetPlacementDrag } from '../../utils/AssetPlacement.ts';
 import { nextViewportSelection } from './EditorPanelState.ts';
 import { buildGroundPlacement } from './ScenePlacement.ts';
 import { SceneProjection } from './SceneProjection.ts';
@@ -49,6 +56,7 @@ interface SceneViewportProps {
   onSelectionChange(values: string[]): void;
   onTransformsCommit(values: EditorTransformUpdate[]): Promise<boolean>;
   onSplinePointsCommit(entityId: string, points: ProjectVector4[]): Promise<boolean>;
+  onAssetDrop(asset: AssetPlacementDragData, position: { x: number; y: number; z: number }): Promise<boolean>;
 }
 
 export function SceneViewport({
@@ -68,6 +76,7 @@ export function SceneViewport({
   onSelectionChange,
   onTransformsCommit,
   onSplinePointsCommit,
+  onAssetDrop,
 }: SceneViewportProps) {
   const container = useRef<HTMLDivElement>(null);
   const [mode, setMode] = useState<EditorTransformMode>('select');
@@ -90,6 +99,7 @@ export function SceneViewport({
   const selectionChanged = useRef(onSelectionChange);
   const transformsCommitted = useRef(onTransformsCommit);
   const splinePointsCommitted = useRef(onSplinePointsCommit);
+  const assetDropped = useRef(onAssetDrop);
   currentSelection.current = selection;
   currentEntities.current = entities;
   currentKeybindings.current = keybindings;
@@ -100,6 +110,7 @@ export function SceneViewport({
   selectionChanged.current = onSelectionChange;
   transformsCommitted.current = onTransformsCommit;
   splinePointsCommitted.current = onSplinePointsCommit;
+  assetDropped.current = onAssetDrop;
   const viewport = useRef<{
     projection: SceneProjection;
     scene: THREE.Scene;
@@ -116,7 +127,12 @@ export function SceneViewport({
     velocity: THREE.Vector3;
     flight?: CameraFlight;
     framed: boolean;
+    dropGhost: THREE.Mesh;
+    placedTemplates: Map<string, THREE.Object3D>;
+    previewRequests: Set<string>;
   }>(null);
+  const dropFrame = useRef<number | undefined>(undefined);
+  const pendingDrop = useRef<{ x: number; y: number } | undefined>(undefined);
 
   useEffect(() => {
     const element = container.current;
@@ -202,6 +218,13 @@ export function SceneViewport({
         );
       },
     });
+    const dropGhost = new THREE.Mesh(
+      new THREE.SphereGeometry(2, 16, 8),
+      new THREE.MeshBasicMaterial({ color: 0x57b8ff, depthTest: false, transparent: true, opacity: 0.8 }),
+    );
+    dropGhost.name = 'Asset placement preview';
+    dropGhost.visible = false;
+    toolScene.add(dropGhost);
     const toggleCameraDuringTransform = (event: { value: unknown }) => {
       controls.enabled = event.value !== true;
     };
@@ -221,6 +244,9 @@ export function SceneViewport({
       skyEye: new THREE.Vector3(),
       velocity,
       framed: false,
+      dropGhost,
+      placedTemplates: new Map(),
+      previewRequests: new Set(),
     };
 
     let noticeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -416,6 +442,9 @@ export function SceneViewport({
     return () => {
       observer.disconnect();
       if (noticeTimer) clearTimeout(noticeTimer);
+      if (dropFrame.current !== undefined) cancelAnimationFrame(dropFrame.current);
+      dropFrame.current = undefined;
+      pendingDrop.current = undefined;
       renderer.domElement.removeEventListener('pointerdown', updateSnapPointer, true);
       renderer.domElement.removeEventListener('pointermove', updateSnapPointer, true);
       renderer.domElement.removeEventListener('pointerdown', pointerDown);
@@ -433,12 +462,16 @@ export function SceneViewport({
       renderer.setAnimationLoop(null);
       transformTool.controls.removeEventListener('dragging-changed', toggleCameraDuringTransform);
       transformTool.dispose();
+      dropGhost.geometry.dispose();
+      (dropGhost.material as THREE.Material).dispose();
       controls.dispose();
       sky.removeFromParent();
       sky.clear();
       terrain.removeFromParent();
       terrain.clear();
       currentProjection.dispose();
+      viewport.current?.previewRequests.forEach((token) => { void window.forge.cancelAssetPreview(token); });
+      viewport.current?.placedTemplates.forEach(disposeObject);
       if (viewport.current?.projection === currentProjection) viewport.current = null;
       renderer.dispose();
       renderer.forceContextLoss();
@@ -629,8 +662,96 @@ export function SceneViewport({
     };
   }, [focusEntityId]);
 
+  const positionAssetDrop = (clientX: number, clientY: number) => {
+    const current = viewport.current;
+    const bounds = container.current?.getBoundingClientRect();
+    if (!current || !bounds) return;
+    DROP_POINTER.set(
+      (clientX - bounds.left) / bounds.width * 2 - 1,
+      -(clientY - bounds.top) / bounds.height * 2 + 1,
+    );
+    DROP_RAYCASTER.setFromCamera(DROP_POINTER, current.camera);
+    const point = DROP_RAYCASTER.intersectObjects([current.terrain, current.projection.root], true)
+      .find((intersection) => current.projection.isPlacementSurface(intersection))?.point
+      ?? DROP_RAYCASTER.ray.intersectPlane(DROP_PLANE, DROP_POINT);
+    current.dropGhost.visible = point !== null;
+    if (point) current.dropGhost.position.copy(point);
+  };
+
+  const updateAssetDrop = (event: DragEvent<HTMLDivElement>) => {
+    if (!event.dataTransfer.types.includes(ASSET_PLACEMENT_MIME)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+    pendingDrop.current = { x: event.clientX, y: event.clientY };
+    if (dropFrame.current !== undefined) return;
+    dropFrame.current = requestAnimationFrame(() => {
+      dropFrame.current = undefined;
+      const next = pendingDrop.current;
+      pendingDrop.current = undefined;
+      if (next) positionAssetDrop(next.x, next.y);
+    });
+  };
+
+  const loadPlacedAsset = async (asset: AssetPlacementDragData) => {
+    const current = viewport.current;
+    if (!current || current.projection.hasAssetTemplate(asset.assetId)) return;
+    const requestToken = crypto.randomUUID();
+    current.previewRequests.add(requestToken);
+    let root: THREE.Object3D | undefined;
+    try {
+      const source = await window.forge.getAssetPreview(asset.assetId, asset.kind, requestToken);
+      root = (await new GLTFLoader().loadAsync(source.url)).scene;
+      if (viewport.current !== current) return;
+      if (!configurePs2AssetVisibility(root, asset.kind)) throw new Error('Asset has no renderable mesh data.');
+      configurePs2MaterialAlpha(root, asset.kind);
+      configurePs2MaterialFog(root, currentEnvironment.current);
+      if (current.projection.hasAssetTemplate(asset.assetId)) return;
+      current.placedTemplates.set(asset.assetId, root);
+      current.projection.addAssetTemplate(asset.assetId, root);
+      root = undefined;
+      current.projection.sync(currentEntities.current, currentSelection.current);
+      current.transformTool.sync(currentEntities.current, currentSelection.current, current.projection);
+    } catch {
+      if (viewport.current === current) setNotice('Asset placed; mesh preview unavailable.');
+    } finally {
+      current.previewRequests.delete(requestToken);
+      if (root) disposeObject(root);
+    }
+  };
+
+  const dropAsset = (event: DragEvent<HTMLDivElement>) => {
+    const asset = readAssetPlacementDrag(event.dataTransfer);
+    const current = viewport.current;
+    if (!asset || !current) return;
+    event.preventDefault();
+    if (dropFrame.current !== undefined) cancelAnimationFrame(dropFrame.current);
+    dropFrame.current = undefined;
+    pendingDrop.current = undefined;
+    positionAssetDrop(event.clientX, event.clientY);
+    if (!current.dropGhost.visible) return;
+    const point = current.dropGhost.position;
+    current.dropGhost.visible = false;
+    void assetDropped.current(asset, { x: point.x, y: -point.z, z: point.y }).then((placed) => {
+      if (placed) void loadPlacedAsset(asset);
+      else setNotice('Asset placement failed.');
+    });
+  };
+
   return (
-    <div aria-label="3D scene viewport" className="scene-viewport">
+    <div
+      aria-label="3D scene viewport"
+      className="scene-viewport"
+      onDragOver={updateAssetDrop}
+      onDragLeave={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null) && viewport.current) {
+          if (dropFrame.current !== undefined) cancelAnimationFrame(dropFrame.current);
+          dropFrame.current = undefined;
+          pendingDrop.current = undefined;
+          viewport.current.dropGhost.visible = false;
+        }
+      }}
+      onDrop={dropAsset}
+    >
       <div className="scene-canvas" ref={container} />
       <ViewportToolbar
         mode={mode}
@@ -699,6 +820,10 @@ function createOcclusionOverlay(
 const MOVEMENT_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'Space', 'ShiftLeft', 'ShiftRight']);
 const SNAP_MODIFIER_KEYS = new Set(['ControlLeft', 'ControlRight']);
 const ZERO_VECTOR = new THREE.Vector3();
+const DROP_POINTER = new THREE.Vector2();
+const DROP_POINT = new THREE.Vector3();
+const DROP_RAYCASTER = new THREE.Raycaster();
+const DROP_PLANE = new THREE.Plane(new THREE.Vector3(0, 1, 0));
 
 function preventDefault(event: Event): void {
   event.preventDefault();

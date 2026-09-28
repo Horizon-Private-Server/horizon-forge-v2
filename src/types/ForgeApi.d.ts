@@ -1,8 +1,10 @@
 import type { EditorCommand, EditorEvent, EditorSnapshot } from './EditorRuntime.js';
+import type { AssetExplorerPage, AssetExplorerQuery, AssetPreviewKind, AssetPreviewSource } from './AssetExplorer.js';
 import type { ForgeNotification } from './Notifications.js';
 import type { UpdateCheckResult } from './Updates.js';
 
 export type { EditorCommand, EditorEvent, EditorSnapshot } from './EditorRuntime.js';
+export type { AssetExplorerPage, AssetExplorerQuery, AssetPreviewKind, AssetPreviewSource } from './AssetExplorer.js';
 export type { ForgeNotification } from './Notifications.js';
 
 export interface ForgeHostStatus {
@@ -12,7 +14,10 @@ export interface ForgeHostStatus {
   capabilities: string[];
 }
 
+export type UiSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl';
+
 export interface KnownSettings {
+  'build.uya.forceOversizedInPlace': boolean;
   'editor.autosaveSeconds': number;
   'keybindings.overrides': string;
   'imports.uya.enabled': boolean;
@@ -29,6 +34,7 @@ export interface KnownSettings {
   'sources.uya.size': number;
   'targets.uya.developmentIso': string;
   'ui.editorLayout': string;
+  'ui.componentSize': UiSize;
   'ui.sceneTreeColors.moby': string;
   'ui.sceneTreeColors.cuboid': string;
   'ui.sceneTreeColors.sphere': string;
@@ -266,7 +272,8 @@ export interface EditorTerrainSource {
 export type ForgeDialog = 'setup' | 'settings';
 
 export type EditorLayoutAction = 'resetLayout' | 'showViewport' | 'showSceneTree'
-  | 'showProperties' | 'showLevelSettings' | 'showDiagnostics' | 'showBuild';
+  | 'showProperties' | 'showLevelSettings' | 'showDiagnostics' | 'showBuild'
+  | 'showAssetExplorer' | 'showAssetPreview';
 
 export type ForgeAction = ForgeDialog | EditorLayoutAction
   | 'projects' | 'newProject' | 'openProject' | 'saveProject' | 'undoEditor' | 'redoEditor'
@@ -302,6 +309,10 @@ export interface ForgeApi {
   repairForgeProjectAssets(path: string): Promise<ForgeProjectDescriptor>;
   previewCatalogGarbageCollection(): Promise<CatalogMaintenancePreview>;
   collectCatalogGarbage(confirmationToken: string): Promise<CatalogMaintenancePreview>;
+  queryAssetExplorer(query: AssetExplorerQuery): Promise<AssetExplorerPage>;
+  cancelAssetExplorerQuery(): Promise<void>;
+  getAssetPreview(assetId: string, kind: AssetPreviewKind, requestToken: string): Promise<AssetPreviewSource>;
+  cancelAssetPreview(requestToken: string): Promise<void>;
   removeRecentProject(path: string): Promise<ProjectHubState>;
   revealForgeProject(path: string): Promise<void>;
   revealLogs(): Promise<void>;

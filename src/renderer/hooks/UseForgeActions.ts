@@ -87,7 +87,7 @@ export function useForgeActions(
 
 function isEditorLayoutAction(action: ForgeAction): action is EditorLayoutAction {
   return ['resetLayout', 'showViewport', 'showSceneTree', 'showProperties', 'showLevelSettings',
-    'showDiagnostics', 'showBuild'].includes(action);
+    'showDiagnostics', 'showBuild', 'showAssetExplorer', 'showAssetPreview'].includes(action);
 }
 
 function isEditorEntityAction(action: ForgeAction): action is Extract<ForgeAction,

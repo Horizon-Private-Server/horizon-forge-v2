@@ -43,21 +43,19 @@ export function ViewportToolbar({
   return <Group aria-label="Viewport tools" className="scene-toolbar" gap="xs" role="group">
     <SegmentedControl
       aria-label="Transform mode"
-      size="xs"
       value={mode}
       data={TRANSFORM_MODES}
       onChange={(value) => onModeChange(value as EditorTransformMode)}
     />
     <SegmentedControl
       aria-label="Transform orientation"
-      size="xs"
       value={space}
       data={TRANSFORM_SPACES}
       onChange={(value) => onSpaceChange(value as EditorTransformSpace)}
     />
     <Popover position="bottom-end" width={190} withArrow>
       <Popover.Target>
-        <Button size="compact-xs" variant={snapEnabled ? 'filled' : 'default'}>
+        <Button className="scene-toolbar-snap" size="compact-xs" variant={snapEnabled ? 'filled' : 'default'}>
           Snap {snapEnabled ? 'on' : 'off'}
         </Button>
       </Popover.Target>

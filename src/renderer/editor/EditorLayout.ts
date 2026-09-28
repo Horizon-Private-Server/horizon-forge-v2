@@ -11,6 +11,8 @@ export const EDITOR_PANELS = {
   levelSettings: { component: 'levelSettings', title: 'Level Settings' },
   diagnostics: { component: 'diagnostics', title: 'Diagnostics' },
   build: { component: 'build', title: 'Build' },
+  assetExplorer: { component: 'assetExplorer', title: 'Asset Explorer' },
+  assetPreview: { component: 'assetPreview', title: 'Asset Preview' },
 } as const;
 
 export type EditorPanelId = keyof typeof EDITOR_PANELS;
@@ -46,12 +48,21 @@ export function createDefaultEditorLayout(api: DockviewApi): void {
     position: { referencePanel: 'build', direction: 'below' }, initialHeight: 280,
   });
   api.addPanel({
+    id: 'assetPreview', ...EDITOR_PANELS.assetPreview,
+    position: { referencePanel: 'properties', direction: 'within' },
+    inactive: true,
+  });
+  api.addPanel({
     id: 'diagnostics', ...EDITOR_PANELS.diagnostics,
     position: { referencePanel: 'viewport', direction: 'below' }, initialHeight: 180,
   });
   api.addPanel({
     id: 'levelSettings', ...EDITOR_PANELS.levelSettings,
     position: { referencePanel: 'sceneTree', direction: 'below' }, initialHeight: 280,
+  });
+  api.addPanel({
+    id: 'assetExplorer', ...EDITOR_PANELS.assetExplorer,
+    position: { referencePanel: 'diagnostics', direction: 'within' },
   });
 }
 
@@ -62,6 +73,12 @@ export function showEditorPanel(api: DockviewApi, id: EditorPanelId): void {
     return;
   }
   const definition = EDITOR_PANELS[id];
+  const propertyPanel = id === 'assetPreview' ? api.getPanel('properties')
+    : id === 'properties' ? api.getPanel('assetPreview') : undefined;
+  if (propertyPanel) {
+    api.addPanel({ id, ...definition, position: { referencePanel: propertyPanel.id, direction: 'within' } });
+    return;
+  }
   const build = id === 'properties' ? api.getPanel('build') : undefined;
   if (build) {
     api.addPanel({ id, ...definition, position: { referencePanel: build.id, direction: 'below' } });
@@ -70,6 +87,12 @@ export function showEditorPanel(api: DockviewApi, id: EditorPanelId): void {
   const properties = id === 'build' ? api.getPanel('properties') : undefined;
   if (properties) {
     api.addPanel({ id, ...definition, position: { referencePanel: properties.id, direction: 'within' } });
+    return;
+  }
+  const bottomPanel = id === 'assetExplorer' ? api.getPanel('diagnostics')
+    : id === 'diagnostics' ? api.getPanel('assetExplorer') : undefined;
+  if (bottomPanel) {
+    api.addPanel({ id, ...definition, position: { referencePanel: bottomPanel.id, direction: 'within' } });
     return;
   }
   const sceneTree = id === 'levelSettings' ? api.getPanel('sceneTree') : undefined;
@@ -94,12 +117,16 @@ export function panelForLayoutAction(action: Exclude<EditorLayoutAction, 'resetL
     showLevelSettings: 'levelSettings',
     showDiagnostics: 'diagnostics',
     showBuild: 'build',
+    showAssetExplorer: 'assetExplorer',
+    showAssetPreview: 'assetPreview',
   };
   return panels[action];
 }
 
 function panelDirection(id: Exclude<EditorPanelId, 'viewport'>): 'left' | 'right' | 'below' {
   if (id === 'sceneTree') return 'left';
+  if (id === 'assetExplorer') return 'left';
+  if (id === 'assetPreview') return 'right';
   if (id === 'properties') return 'right';
   return 'below';
 }

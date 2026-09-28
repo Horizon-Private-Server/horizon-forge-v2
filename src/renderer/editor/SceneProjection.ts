@@ -18,6 +18,7 @@ const INSTANCE_IDS_KEY = 'forgeInstanceIds';
 const MIRRORED_BATCH_KEY = 'forgeMirroredBatch';
 const OWNED_GEOMETRY_KEY = 'forgeOwnedGeometry';
 const PICK_THROUGH_KEY = 'forgePickThrough';
+const PLACEMENT_PROXY_KEY = 'forgePlacementProxy';
 const PROJECTION_KEY = 'forgeProjectionKey';
 const SPLINE_NODES_KEY = 'forgeSplineNodes';
 const SPLINE_SELECTED_NODES_KEY = 'forgeSelectedSplineNodes';
@@ -140,6 +141,25 @@ export class SceneProjection {
     });
     this.failedAssets.clear();
     failedAssets.forEach((id) => this.failedAssets.add(id));
+  }
+
+  hasAssetTemplate(assetId: string): boolean {
+    return this.templates.has(assetId);
+  }
+
+  addAssetTemplate(assetId: string, template: THREE.Object3D): void {
+    template.updateMatrixWorld(true);
+    this.templates.set(assetId, template);
+    this.failedAssets.delete(assetId);
+  }
+
+  isPlacementSurface(intersection: THREE.Intersection): boolean {
+    if (!(intersection.object instanceof THREE.Mesh)) return false;
+    for (let current: THREE.Object3D | null = intersection.object; current; current = current.parent) {
+      if (current.userData[PLACEMENT_PROXY_KEY] === true) return false;
+      if (current === this.root) break;
+    }
+    return true;
   }
 
   sync(
@@ -456,6 +476,8 @@ export class SceneProjection {
       object.add(picker);
     }
     object.userData[ENTITY_ID_KEY] = entity.id;
+    object.userData[PLACEMENT_PROXY_KEY] = !entity.geometry
+      && (!entity.asset || !this.templates.has(entity.asset.id));
     object.userData[PICK_THROUGH_KEY] = entity.geometry !== undefined
       && ['cuboid', 'sphere', 'cylinder', 'pill', 'area', 'pointLight', 'environmentTransition', 'ambientSound']
         .includes(entity.geometry.kind);
@@ -662,7 +684,7 @@ function createInstancedAsset(
   const geometries = new Set<THREE.BufferGeometry>();
   const materials = new Set<THREE.Material>();
   const buckets = new Map<THREE.Material | THREE.Material[], Map<string, THREE.BufferGeometry[]>>();
-  template.traverse((object) => {
+  template.traverseVisible((object) => {
     // Moby metal overlays intentionally stay disabled until the map chrome texture is extracted and applied.
     if (!(object instanceof THREE.Mesh) || object.name === 'shrub_billboard' || isMobyMetalObject(object)) return;
     const geometry = object.geometry.clone();

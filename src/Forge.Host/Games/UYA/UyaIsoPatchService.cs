@@ -15,7 +15,8 @@ public static class UyaIsoPatchService
         ReadOnlyMemory<byte> packedLevelWad,
         long? expectedIsoSize = null,
         bool forceFullImage = false,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool forceInPlace = false)
     {
         var isoSize = expectedIsoSize ?? UyaIsoService.SupportedSize;
         if (packedLevelWad.IsEmpty) throw new ArgumentException("Packed level WAD cannot be empty.", nameof(packedLevelWad));
@@ -27,15 +28,20 @@ public static class UyaIsoPatchService
         var sdkPlan = await Task.Run(() =>
         {
             var cleanPlan = IsoPatchPlanner.Create(GameId.UYA,
-                source, levelIndex, packedLevelWad.Span, forceFullImage, cancellationToken);
-            return cleanPlan.FitsInPlace
-                ? IsoPatchPlanner.Create(GameId.UYA,
+                source, levelIndex, packedLevelWad.Span, forceFullImage, cancellationToken, forceInPlace);
+            if (cleanPlan.FitsInPlace)
+                return IsoPatchPlanner.Create(GameId.UYA,
                     target,
                     cleanPlan.Allocation,
                     packedLevelWad.Span,
-                    cancellationToken: cancellationToken)
-                : IsoPatchPlanner.Create(GameId.UYA,
-                    target, levelIndex, packedLevelWad.Span, forceFullImage, cancellationToken);
+                    cancellationToken: cancellationToken,
+                    forceInPlace: forceInPlace);
+            var targetPlan = IsoPatchPlanner.Create(GameId.UYA,
+                target, levelIndex, packedLevelWad.Span, forceFullImage, cancellationToken, forceInPlace);
+            return targetPlan.FitsInPlace
+                && targetPlan.HeaderSector == cleanPlan.Replacement!.HeaderSector
+                    ? targetPlan
+                    : cleanPlan;
         }, cancellationToken);
         return new(
             opened.CleanPath,
@@ -134,8 +140,8 @@ public static class UyaIsoPatchService
                     temporary, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None, 1024 * 1024,
                     FileOptions.Asynchronous | FileOptions.SequentialScan | FileOptions.WriteThrough))
                 {
-                    await IsoReplacementBuilder.BuildAsync(GameId.UYA, 
-                        opened.Target,
+                    await IsoReplacementBuilder.BuildAsync(GameId.UYA,
+                        opened.Source,
                         output,
                         plan.SdkPlan,
                         progress is null

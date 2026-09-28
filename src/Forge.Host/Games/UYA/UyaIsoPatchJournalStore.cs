@@ -138,7 +138,6 @@ internal static class UyaIsoPatchJournalStore
             || journal.PayloadBaseSector < 0
             || journal.CapacitySectors <= 0
             || journal.RequiredSectors <= 0
-            || journal.RequiredSectors > journal.CapacitySectors
             || !BakeSchema.IsFingerprint(journal.SourceLevelWadSha256)
             || !BakeSchema.IsFingerprint(journal.OutputLevelWadSha256)
             || journal.Ranges.Count == 0

@@ -3,6 +3,7 @@ import type { DockviewApi, DockviewReadyEvent } from 'dockview-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { KeybindingMap } from '../../types/Keybindings.js';
+import type { AssetExplorerFamily } from '../../types/AssetExplorer.js';
 import type { EditorCommand, EditorSnapshot, ProjectVector4 } from '../../types/EditorRuntime.js';
 import type { SceneTreeColors } from '../../types/SceneTree.js';
 import type {
@@ -20,6 +21,8 @@ import { findKeybindingCommand, forgeActionForKeybinding } from '../../utils/Key
 import { parseSplinePointId, removeSplinePoints, splinePointId } from '../../utils/SplinePoints.ts';
 import { EditorContext } from './EditorContext.ts';
 import { BuildPanel } from './BuildPanel.tsx';
+import { AssetExplorerPanel } from './AssetExplorerPanel.tsx';
+import { AssetPreviewPanel } from './AssetPreviewPanel.tsx';
 import {
   createDefaultEditorLayout,
   decodeEditorLayout,
@@ -54,6 +57,8 @@ const components = {
   levelSettings: LevelSettingsPanel,
   diagnostics: DiagnosticsPanel,
   build: BuildPanel,
+  assetExplorer: AssetExplorerPanel,
+  assetPreview: AssetPreviewPanel,
 };
 
 export function EditorWorkspace({
@@ -79,6 +84,7 @@ export function EditorWorkspace({
   const [splinePointSelection, setSplinePointSelection] = useState<string[]>([]);
   const splinePointClipboard = useRef<ProjectVector4[]>([]);
   const [showOcclusionOctants, setShowOcclusionOctants] = useState(false);
+  const [assetPreview, setAssetPreview] = useState<AssetExplorerFamily>();
   const onReady = useCallback((event: DockviewReadyEvent) => setApi(event.api), []);
 
   useEffect(() => {
@@ -86,6 +92,7 @@ export function EditorWorkspace({
     setTerrain(undefined);
     setSkyPieces([]);
     setCameraFocus(undefined);
+    setAssetPreview(undefined);
     setSplinePointSelection([]);
     splinePointClipboard.current = [];
     setSceneLoad({ status: 'loading', label: 'Preparing UYA render package…', completed: 0, total: 1 });
@@ -200,6 +207,11 @@ export function EditorWorkspace({
     }
   }, [onProjectChange]);
 
+  const inspectAsset = useCallback((family: AssetExplorerFamily) => {
+    setAssetPreview(family);
+    if (api) showEditorPanel(api, 'assetPreview');
+  }, [api]);
+
   const execute = useCallback(async (command: EditorCommand) => {
     setError(undefined);
     try {
@@ -275,6 +287,8 @@ export function EditorWorkspace({
     showViewportStats,
     showOcclusionOctants,
     setShowOcclusionOctants,
+    assetPreview,
+    inspectAsset,
     busy,
     hostAvailable: Boolean(hostStatus),
     buildProgress,
@@ -289,7 +303,7 @@ export function EditorWorkspace({
       catch (cause) { setError(errorMessage(cause)); }
       finally { setBusy(false); }
     },
-  }), [buildAndPatch, buildProgress, buildResult, busy, cameraFocus, execute, hostStatus, keybindings,
+  }), [assetPreview, buildAndPatch, buildProgress, buildResult, busy, cameraFocus, execute, hostStatus, inspectAsset, keybindings,
     project, sceneLoad, sceneTreeColors, showOcclusionOctants, showViewportStats, skyPieces, splinePointSelection,
     terrain]);
 

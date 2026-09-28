@@ -6,6 +6,7 @@ import test from 'node:test';
 
 import { createApplicationPaths } from '../src/utils/ApplicationPaths.ts';
 import { SettingsStore } from '../src/main/Settings.ts';
+import { createForgeTheme } from '../src/renderer/theme.ts';
 import { DEFAULT_SCENE_TREE_COLORS } from '../src/utils/SceneTreeColors.ts';
 
 test('settings validate defaults and preserve unknown keys', async () => {
@@ -25,8 +26,10 @@ test('settings validate defaults and preserve unknown keys', async () => {
     }));
 
     const invalid = await store.getSnapshot();
+    assert.equal(invalid.entries.find((entry) => entry.key === 'build.uya.forceOversizedInPlace')?.value, false);
     assert.equal(invalid.entries.find((entry) => entry.key === 'editor.autosaveSeconds')?.value, 30);
     assert.equal(invalid.entries.find((entry) => entry.key === 'ui.showViewportStats')?.value, true);
+    assert.equal(invalid.entries.find((entry) => entry.key === 'ui.componentSize')?.value, 'xs');
     assert.equal(invalid.entries.find((entry) => entry.key === 'ui.sceneTreeColors.tie')?.value, '#ffd8b1');
     assert.equal(invalid.entries.find((entry) => entry.key === 'keybindings.overrides')?.value, '{}');
     assert.equal(invalid.entries.find((entry) => entry.key === 'updates.automaticChecks')?.value, true);
@@ -39,6 +42,7 @@ test('settings validate defaults and preserve unknown keys', async () => {
     await store.set('paths.projects', '/maps/projects');
     await store.set('ui.editorLayout', '{"panels":{}}');
     await store.set('ui.showViewportStats', true);
+    await store.set('ui.componentSize', 'lg');
     await store.set('ui.sceneTreeColors.tie', '#00ffff');
     const persisted = JSON.parse(await readFile(paths.settingsFile, 'utf8'));
     assert.deepEqual(persisted['future.setting'], { enabled: true });
@@ -46,6 +50,7 @@ test('settings validate defaults and preserve unknown keys', async () => {
     assert.equal(persisted['paths.projects'], '/maps/projects');
     assert.equal(persisted['ui.editorLayout'], '{"panels":{}}');
     assert.equal(persisted['ui.showViewportStats'], true);
+    assert.equal(persisted['ui.componentSize'], 'lg');
     assert.equal(persisted['ui.sceneTreeColors.tie'], '#00ffff');
 
     const resetColor = await store.reset('ui.sceneTreeColors.tie');
@@ -56,6 +61,7 @@ test('settings validate defaults and preserve unknown keys', async () => {
     assert.deepEqual(reset['future.setting'], { enabled: true });
 
     assert.deepEqual(await store.export(false), {
+      'build.uya.forceOversizedInPlace': false,
       'editor.autosaveSeconds': 30,
       'imports.uya.enabled': true,
       'keybindings.overrides': '{}',
@@ -79,6 +85,7 @@ test('settings validate defaults and preserve unknown keys', async () => {
       'ui.sceneTreeColors.spline': '#2bff99',
       'ui.sceneTreeColors.tfrag': '#aaffc3',
       'ui.sceneTreeColors.tie': '#ffd8b1',
+      'ui.componentSize': 'lg',
       'ui.showViewportStats': true,
       'updates.automaticChecks': true,
       'updates.channel': 'stable',
@@ -94,4 +101,13 @@ test('settings validate defaults and preserve unknown keys', async () => {
 
 test('default scene colors are unique', () => {
   assert.equal(new Set(Object.values(DEFAULT_SCENE_TREE_COLORS)).size, Object.keys(DEFAULT_SCENE_TREE_COLORS).length);
+});
+
+test('interface size raises fixed Mantine tokens to the selected breakpoint', () => {
+  const compact = createForgeTheme('xs');
+  const large = createForgeTheme('lg');
+  assert.notEqual(compact.fontSizes!.xs, compact.fontSizes!.lg);
+  assert.equal(large.fontSizes!.xs, large.fontSizes!.lg);
+  assert.equal(large.spacing!.xs, large.spacing!.lg);
+  assert.equal(large.components!.SegmentedControl!.defaultProps.size, 'lg');
 });

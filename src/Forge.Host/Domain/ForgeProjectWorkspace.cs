@@ -264,6 +264,24 @@ public sealed class ForgeProjectWorkspace
         return copies;
     }
 
+    public void AddEntity(ProjectEntity entity)
+    {
+        ArgumentNullException.ThrowIfNull(entity);
+        if (Content.Entities.Any(value => value.EntityId == entity.EntityId))
+            throw new InvalidOperationException($"Entity {entity.EntityId} already exists.");
+        var previous = Content;
+        try
+        {
+            Content = Content with { Entities = Content.Entities.Append(entity).ToArray() };
+            Validate();
+        }
+        catch
+        {
+            Content = previous;
+            throw;
+        }
+    }
+
     public void CompleteBaseEntityImport(IReadOnlyList<ProjectEntity> entities, int missingAssetCount)
     {
         ArgumentNullException.ThrowIfNull(entities);

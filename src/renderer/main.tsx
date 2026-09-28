@@ -2,12 +2,10 @@ import '@mantine/core/styles.css';
 import 'dockview-react/dist/styles/dockview.css';
 import './styles.css';
 
-import { MantineProvider } from '@mantine/core';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { App } from './App.tsx';
-import { forgeTheme } from './theme.ts';
 
 const root = document.getElementById('root');
 
@@ -15,8 +13,6 @@ if (!root) throw new Error('Missing application root');
 
 createRoot(root).render(
   <StrictMode>
-    <MantineProvider defaultColorScheme="dark" theme={forgeTheme}>
-      <App />
-    </MantineProvider>
+    <App />
   </StrictMode>,
 );

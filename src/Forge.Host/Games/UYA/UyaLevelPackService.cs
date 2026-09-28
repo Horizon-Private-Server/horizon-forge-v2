@@ -45,9 +45,19 @@ public static class UyaLevelPackService
         try
         {
             var sourcePackage = UyaLevelWadUnpacker.Unpack(sourceLevelWad.ToArray());
+            var allowStalePaletteReport = deferredLayers?.Any(UyaStaticLayerSchema.Layers.Contains) ?? false;
+            if (!allowStalePaletteReport)
+            {
+                var expectedPaletteReport = PaletteBakeReportService.Create(
+                    await UyaTextureInventoryService.BuildAsync(projectRoot, catalog, cancellationToken),
+                    cancellationToken);
+                if (staging.Manifest.PaletteReport is null
+                    || !PaletteBakeReportService.Equivalent(staging.Manifest.PaletteReport, expectedPaletteReport))
+                    throw new InvalidDataException("Staged palette report does not match the staged static assets.");
+            }
             var replacements = await CreateReplacementsAsync(
                 catalog, staging, sourceLevelWad, sourcePackage,
-                deferredLayers?.Any(UyaStaticLayerSchema.Layers.Contains) ?? false,
+                allowStalePaletteReport,
                 cancellationToken);
             var archive = await Task.Run(
                 () => LevelArchiveBuilder.Build(
@@ -153,10 +163,19 @@ public static class UyaLevelPackService
         var assetWad = BinaryMagic.IsWad(assets.AssetWadBytes)
             ? WadCompression.Decompress(assets.AssetWadBytes, new(), cancellationToken)
             : assets.AssetWadBytes;
-        var composed = terrain is not null || sky is not null || collision is not null
-            ? LevelAssetComposer.ComposeAssetWad(
-                GameId.UYA, assets.HeaderBytes, assetWad, new(terrain, sky, collision), cancellationToken)
+        var tieRoot = SnapshotRoot(staging, BakeLayerId.Ties);
+        var visibilityBitPath = Path.Combine(tieRoot, "visibility-bit.bin");
+        int? visibilityBit = File.Exists(visibilityBitPath)
+            ? BinaryPrimitives.ReadInt32LittleEndian(await File.ReadAllBytesAsync(visibilityBitPath, cancellationToken))
+            : null;
+        var composed = visibilityBit is { } bitIndex
+            ? LevelAssetComposer.SetAlwaysVisibleOcclusionBit(
+                GameId.UYA, assets.HeaderBytes, assetWad, bitIndex, cancellationToken)
             : new LevelAssetWadComposition(assets.HeaderBytes, assetWad);
+        if (terrain is not null || sky is not null || collision is not null)
+            composed = LevelAssetComposer.ComposeAssetWad(
+                GameId.UYA, composed.HeaderBytes, composed.AssetWadBytes,
+                new(terrain, sky, collision), cancellationToken);
 
         var staticAssets = new List<StaticAssetInput>();
         var sourceLevel = $"level{sourcePackage.LevelWad.Level:00}";
@@ -165,6 +184,7 @@ public static class UyaLevelPackService
         {
             var root = SnapshotRoot(staging, layer);
             var manifest = Read<UyaStaticBakeManifest>(root, "manifest.json", $"staged {layer} layer");
+            var familyName = layer.ToString().ToLowerInvariant().TrimEnd('s');
             foreach (var definition in manifest.Definitions)
             {
                 var entry = catalog.Query(new(Id: definition.Asset.Id)).SingleOrDefault();
@@ -184,15 +204,19 @@ public static class UyaLevelPackService
                         value.Role == 0 ? TextureRole.Material : TextureRole.Billboard,
                         value.PifBytes)).ToArray()));
             }
-            replacements.Add($"gameplay/core/{layer.ToString().ToLowerInvariant().TrimEnd('s')}_instances.bin",
+            replacements.Add($"gameplay/core/{familyName}_classes.bin",
+                UyaClassIdListWriter.Write(manifest.Instances.Select(value => value.ClassId)));
+            replacements.Add($"gameplay/core/{familyName}_instances.bin",
                 await File.ReadAllBytesAsync(Path.Combine(root, "instances.bin"), cancellationToken));
-            if (layer == BakeLayerId.Ties)
+            if (layer is BakeLayerId.Ties or BakeLayerId.Shrubs)
             {
-                foreach (var (name, path) in new[]
-                    {
-                        ("groups.bin", "gameplay/core/tie_groups.bin"),
-                        ("occlusion.bin", "gameplay/core/occlusion.bin"),
-                    })
+                var referenceFiles = new List<(string Name, string Path)>
+                {
+                    ("groups.bin", $"gameplay/core/{familyName}_groups.bin"),
+                };
+                if (layer == BakeLayerId.Ties)
+                    referenceFiles.Add(("occlusion.bin", "gameplay/core/occlusion.bin"));
+                foreach (var (name, path) in referenceFiles)
                 {
                     var staged = Path.Combine(root, name);
                     if (File.Exists(staged))
@@ -200,6 +224,8 @@ public static class UyaLevelPackService
                 }
             }
         }
+        if (staticAssetsChanged || visibilityBit is not null)
+            staticAssets = IncludeSourceStaticAssets(sourceLevelWad.Span, staticAssets).ToList();
         var staticComposition = StaticAssetComposer.Compose(
             GameId.UYA,
             composed.HeaderBytes,
@@ -211,11 +237,11 @@ public static class UyaLevelPackService
             staticComposition.Inventory, staticComposition.Optimization);
         var stagedPaletteReport = staging.Manifest.PaletteReport
             ?? throw new InvalidDataException("Staged output is missing its palette report.");
-        if (allowStalePaletteReport)
+        if (allowStalePaletteReport || staticAssetsChanged)
             await staging.SetPaletteReportAsync(actualPaletteReport, cancellationToken);
         else if (!PaletteBakeReportService.Equivalent(stagedPaletteReport, actualPaletteReport))
             throw new InvalidDataException("Staged palette report does not match the generated asset payloads.");
-        if (staticAssetsChanged)
+        if (staticAssetsChanged || visibilityBit is not null)
         {
             replacements.Add("assets/asset_header.bin", staticComposition.HeaderBytes);
             replacements.Add("assets/palette.bin", staticComposition.PaletteBytes);
@@ -239,6 +265,37 @@ public static class UyaLevelPackService
         return replacements;
     }
 
+    internal static IReadOnlyList<StaticAssetInput> IncludeSourceStaticAssets(
+        ReadOnlySpan<byte> sourceLevelWad,
+        IReadOnlyList<StaticAssetInput> selected)
+    {
+        var extracted = LevelAssetExtractor.ExtractLevelWad(GameId.UYA, sourceLevelWad.ToArray());
+        if (extracted.FailedAssetCount > 0)
+            throw new InvalidDataException(
+                $"The base level has {extracted.FailedAssetCount} static assets that cannot be retained safely.");
+        var selectedKeys = selected.Select(value => (value.Family, value.ClassId)).ToHashSet();
+        var retained = extracted.Assets
+            .Select(value => new StaticAssetInput(
+                $"source:{value.Kind}:{value.ClassId}:{value.SourceIndex}",
+                value.Kind switch
+                {
+                    FrontendAssetKind.Moby => TextureAssetFamily.Moby,
+                    FrontendAssetKind.Tie => TextureAssetFamily.Tie,
+                    FrontendAssetKind.Shrub => TextureAssetFamily.Shrub,
+                    _ => throw new ArgumentOutOfRangeException(nameof(value.Kind)),
+                },
+                value.ClassId,
+                value.DefinitionBytes,
+                value.ModelBytes,
+                value.Textures.Select(texture => new StaticAssetTexture(
+                    texture.Role == 0 ? TextureRole.Material : TextureRole.Billboard,
+                    texture.PifBytes ?? throw new InvalidDataException(
+                        $"Base {value.Kind} class 0x{value.ClassId:X4} has an unreadable texture and cannot be retained safely.")))
+                    .ToArray()))
+            .Where(value => !selectedKeys.Contains((value.Family, value.ClassId)));
+        return retained.Concat(selected).ToArray();
+    }
+
     private static void ValidateOutput(
         byte[] output,
         IReadOnlyDictionary<string, ReadOnlyMemory<byte>> replacements,
@@ -250,11 +307,15 @@ public static class UyaLevelPackService
         {
             var slot = inventory.Containers.SelectMany(value => value.Slots)
                 .Single(value => value.LogicalPaths.Contains(replacement.Key, StringComparer.Ordinal));
-            if (!EquivalentPayload(replacement.Value.Span, slot.Bytes.Span))
+            var equivalent = replacement.Key == "assets/asset_header.bin"
+                ? EquivalentAssetHeader(replacement.Value.Span, slot.Bytes.Span)
+                : EquivalentPayload(replacement.Value.Span, slot.Bytes.Span);
+            if (!equivalent)
                 throw new InvalidDataException($"Packed output does not contain staged payload {replacement.Key}.");
         }
+        ValidateAssetSizes(inventory);
         var outputPackage = UyaLevelWadUnpacker.Unpack(output);
-        ValidateTieReferences(outputPackage);
+        ValidateStaticReferences(outputPackage);
         ValidateOpaque(SnapshotRoot(staging, BakeLayerId.Opaque), output, outputPackage,
             ReplacedOpaqueSections(replacements), allowAlignmentPadding: true);
 
@@ -275,24 +336,45 @@ public static class UyaLevelPackService
             throw new InvalidDataException("Packed output does not semantically match the staged base-layer payloads.");
     }
 
-    private static void ValidateTieReferences(UyaLevelWadPackage package)
+    private static void ValidateStaticReferences(UyaLevelWadPackage package)
     {
         var files = package.Files.ToDictionary(value => value.Path, StringComparer.Ordinal);
-        if (!files.TryGetValue("gameplay/core/tie_instances.bin", out var ties)) return;
-        var tieInstances = UyaTieInstancesReader.Read(ties.Bytes);
-        var tieCount = tieInstances.Count;
-        if (files.TryGetValue("gameplay/core/tie_groups.bin", out var groups)
-            && UyaTieGroupsReader.Read(groups.Bytes).Groups.SelectMany(value => value).Any(value => value >= tieCount))
-            throw new InvalidDataException("Packed tie groups reference a missing tie instance.");
-        if (!files.TryGetValue("gameplay/core/occlusion.bin", out var occlusion)) return;
-        var tieMappings = UyaOcclusionMappingsReader.Read(occlusion.Bytes).Ties;
-        if (tieMappings.Count != tieCount)
-            throw new InvalidDataException("Packed tie occlusion mapping count does not match the tie instance count.");
-        var instanceOcclusionIds = tieInstances.Instances.Select(value => BinaryPrimitives.ReadInt32LittleEndian(
-            value.RawBytes.AsSpan(UyaTieInstancesReader.OcclusionIdOffset))).ToArray();
-        if (!tieMappings.Select(value => value.OcclusionId).Order()
-                .SequenceEqual(instanceOcclusionIds.Order()))
-            throw new InvalidDataException("Packed tie occlusion IDs do not match their instances.");
+        if (files.TryGetValue("gameplay/core/tie_instances.bin", out var ties))
+        {
+            var tieInstances = UyaTieInstancesReader.Read(ties.Bytes);
+            var tieCount = tieInstances.Count;
+            var tieClasses = tieInstances.Instances.Select(value => value.ClassId).ToArray();
+            if (!tieClasses.SequenceEqual(tieClasses.Order()))
+                throw new InvalidDataException("Packed tie instances are not in ascending class blocks.");
+            if (files.TryGetValue("gameplay/core/tie_groups.bin", out var groups)
+                && UyaTieGroupsReader.Read(groups.Bytes).Groups.SelectMany(value => value)
+                    .Any(value => value >= tieCount))
+                throw new InvalidDataException("Packed tie groups reference a missing tie instance.");
+            if (files.TryGetValue("gameplay/core/occlusion.bin", out var occlusion))
+            {
+                var tieMappings = UyaOcclusionMappingsReader.Read(occlusion.Bytes).Ties;
+                if (tieMappings.Count != tieCount)
+                    throw new InvalidDataException("Packed tie occlusion mapping count does not match the tie instance count.");
+                var instanceOcclusionIds = tieInstances.Instances.Select(value => BinaryPrimitives.ReadInt32LittleEndian(
+                    value.RawBytes.AsSpan(UyaTieInstancesReader.OcclusionIdOffset))).ToArray();
+                if (!tieMappings.Select(value => value.OcclusionId).Order()
+                        .SequenceEqual(instanceOcclusionIds.Order()))
+                    throw new InvalidDataException("Packed tie occlusion IDs do not match their instances.");
+            }
+        }
+
+        if (files.TryGetValue("gameplay/core/shrub_instances.bin", out var shrubs))
+        {
+            var shrubInstances = UyaShrubInstancesReader.Read(shrubs.Bytes);
+            var shrubCount = shrubInstances.Count;
+            var shrubClasses = shrubInstances.Instances.Select(value => value.ClassId).ToArray();
+            if (!shrubClasses.SequenceEqual(shrubClasses.Order()))
+                throw new InvalidDataException("Packed shrub instances are not in ascending class blocks.");
+            if (files.TryGetValue("gameplay/core/shrub_groups.bin", out var shrubGroups)
+                && UyaTieGroupsReader.Read(shrubGroups.Bytes).Groups.SelectMany(value => value)
+                    .Any(value => value >= shrubCount))
+                throw new InvalidDataException("Packed shrub groups reference a missing shrub instance.");
+        }
     }
 
     private static void ValidateOpaque(
@@ -379,6 +461,25 @@ public static class UyaLevelPackService
         actual.Length >= expected.Length
         && actual[..expected.Length].SequenceEqual(expected)
         && actual[expected.Length..].ContainsAnyExcept((byte)0) == false;
+
+    private static bool EquivalentAssetHeader(ReadOnlySpan<byte> expected, ReadOnlySpan<byte> actual) =>
+        expected.Length >= 0x90
+        && actual.Length >= expected.Length
+        && actual[..0x88].SequenceEqual(expected[..0x88])
+        && actual[0x90..expected.Length].SequenceEqual(expected[0x90..])
+        && actual[expected.Length..].ContainsAnyExcept((byte)0) == false;
+
+    private static void ValidateAssetSizes(UyaLevelWadInventory inventory)
+    {
+        var levelData = inventory.Containers.Single(value => value.Path == "level_wad/level_data.wad");
+        var header = levelData.Slots.Single(value => value.Path == "assets/asset_header.bin").Bytes.Span;
+        var encoded = levelData.Slots.Single(value => value.Path == "assets/asset_wad.bin");
+        var decoded = inventory.Containers.Single(value => value.Path == "assets/asset_wad.bin");
+        if (header.Length < 0x90
+            || BinaryPrimitives.ReadInt32LittleEndian(header[0x88..]) != encoded.Length
+            || BinaryPrimitives.ReadInt32LittleEndian(header[0x8c..]) != decoded.Bytes.Length)
+            throw new InvalidDataException("Packed asset header does not match the asset WAD sizes.");
+    }
 
     private static BakeDiagnostic Error(string code, string cause, string action) =>
         new(code, BakeDiagnosticSeverity.Error, null, null, null, cause, action);

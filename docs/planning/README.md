@@ -46,10 +46,18 @@ M6 workflow scaffolding may begin earlier, but its release gate remains last.
 
 See [P0/MVP scope](P0-MVP.md) for the release boundary.
 
+## Feature specifications
+
+Feature-specific design, acceptance criteria, and tasks live together when keeping
+them in a milestone-wide task register would split one implementation plan:
+
+- [Asset Explorer v0](../features/asset-explorer-v0.md) — M2-021 through M2-025
+
 ## Task conventions
 
 Task IDs are stable and use `<milestone>-<sequence>`, for example `M2-006`.
-Each task contains:
+Milestone registers link to any tasks owned by a feature specification. Each task
+contains:
 
 - requirement IDs from the specification;
 - dependencies on other task IDs;

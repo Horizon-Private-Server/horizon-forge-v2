@@ -59,6 +59,7 @@ export function registerBuildIpcHandlers(options: BuildIpcHandlersOptions): void
         acknowledgedWarnings,
         forceFullImage: false,
         includedLayers: includedLayers as BuildLayerId[],
+        forceInPlace: values['build.uya.forceOversizedInPlace'] === true,
       }, (progress) => event.sender.send('forge:editor-build-progress', progress));
       activeRequestId = request.requestId;
       return request.result;

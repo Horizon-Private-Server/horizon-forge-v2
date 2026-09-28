@@ -74,6 +74,21 @@ export function ViewportPanel() {
     onSplinePointsCommit={(entityId, points) => execute({
       id: crypto.randomUUID(), kind: 'updateSplinePoints', entityIds: [entityId], points,
     })}
+    onAssetDrop={(asset, position) => execute({
+      id: crypto.randomUUID(),
+      kind: 'createEntityFromAsset',
+      entityIds: [],
+      placement: {
+        assetId: asset.assetId,
+        kind: asset.kind === 'tie' ? 'Tie' : asset.kind === 'shrub' ? 'Shrub' : 'Moby',
+        classId: asset.classId,
+        transform: {
+          position,
+          rotation: { x: 0, y: 0, z: 0, w: 1 },
+          scale: { x: 1, y: 1, z: 1 },
+        },
+      },
+    })}
   />;
 }
 

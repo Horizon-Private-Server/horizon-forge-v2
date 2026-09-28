@@ -37,6 +37,8 @@ test('host handshake, echo, progress, cancellation, crash recovery, and concurre
   assert.ok(handshake.capabilities.includes('uya.build.level-wad'));
   assert.ok(handshake.capabilities.includes('uya.build.patch'));
   assert.ok(handshake.capabilities.includes('editor.runtime'));
+  assert.ok(handshake.capabilities.includes('assets.explorer.query'));
+  assert.ok(handshake.capabilities.includes('uya.render.asset-preview'));
 
   const concurrent = await Promise.all([
     client.echo('alpha'),

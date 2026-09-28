@@ -23,6 +23,7 @@ internal static class EditorRuntimeTests
                 [Entity(firstId, "One"), Entity(secondId, "Two")]);
             await ForgeProjectWorkspace.CreateAsync(secondPath, "Second", target, baseLevel,
                 [Entity(EntityId.New(), "Other")]);
+            await VerifyAssetPlacementHistoryAsync(root, target, baseLevel);
 
             var snapshot = await runtime.OpenAsync(firstPath, TimeSpan.FromMilliseconds(25));
             Equal(false, snapshot.IsDirty, "opened runtime clean state");
@@ -165,6 +166,32 @@ internal static class EditorRuntimeTests
         {
             Directory.Delete(root, recursive: true);
         }
+    }
+
+    private static async Task VerifyAssetPlacementHistoryAsync(
+        string root,
+        ProjectTargetProfile target,
+        ProjectBaseLevel baseLevel)
+    {
+        var projectPath = Path.Combine(root, "placement");
+        await ForgeProjectWorkspace.CreateAsync(projectPath, "Placement", target, baseLevel, []);
+        var placedId = EntityId.New();
+        await using var runtime = new EditorRuntime((_, _, placement, _) => Task.FromResult(new ProjectEntity(
+            placedId, "Placed", "mobys", placement.Transform,
+            new(placement.AssetId, placement.Kind), Source: new(placement.ClassId, new byte[0x88]))));
+        var catalogPath = Path.Combine(root, "placement-catalog");
+        await runtime.OpenAsync(projectPath, catalogPath, TimeSpan.Zero);
+        var placement = new EditorAssetPlacement(
+            AssetId.Parse(new string('a', AssetId.TextLength)), AssetKind.Moby, 0x947,
+            ProjectTransform.Identity with { Position = new(1, 2, 3) });
+        var snapshot = await runtime.ExecuteAsync(new(
+            Guid.NewGuid().ToString("D"), EditorCommandKind.CreateEntityFromAsset, [], Placement: placement));
+        Equal(true, snapshot.Selection.SequenceEqual([placedId]), "placement selects created entity");
+        Equal(placedId, snapshot.Entities.Single().EntityId, "placement keeps generated entity ID");
+        snapshot = await runtime.ExecuteAsync(Command(EditorCommandKind.Undo, []));
+        Equal(0, snapshot.Entities.Count, "placement is undoable");
+        snapshot = await runtime.ExecuteAsync(Command(EditorCommandKind.Redo, []));
+        Equal(placedId, snapshot.Entities.Single().EntityId, "placement redo preserves generated entity ID");
     }
 
     private const int EditorRuntimeEventLimit = 1_024;

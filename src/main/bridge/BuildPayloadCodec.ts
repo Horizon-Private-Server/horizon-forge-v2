@@ -14,6 +14,7 @@ export function encodeBuildPatchRequest(value: UyaBuildPatchRequest): Buffer {
   writer.writeStrings(value.acknowledgedWarnings);
   writer.writeBoolean(value.forceFullImage);
   writer.writeStrings(value.includedLayers);
+  writer.writeBoolean(value.forceInPlace);
   return writer.toBuffer();
 }
 

@@ -62,6 +62,58 @@ public sealed record CatalogCollectionRequestPayload(
     string CatalogRootPath,
     IReadOnlyList<string> ProjectRoots,
     string ConfirmationToken);
+public enum AssetExplorerCategoryPayload
+{
+    Ties = 1,
+    Shrubs = 2,
+    Mobys = 3,
+    SkyShells = 4,
+    Textures = 5,
+}
+public sealed record AssetExplorerRequestPayload(
+    string CatalogRootPath,
+    AssetExplorerCategoryPayload Category,
+    string? Search,
+    string? Game,
+    string? Level,
+    string? Region,
+    string? Revision,
+    IReadOnlyList<string> Tags,
+    string? Cursor,
+    uint Limit,
+    string TargetGame,
+    string TargetRegion,
+    string TargetRevision);
+public sealed record AssetExplorerSourcePayload(
+    string Game,
+    string Region,
+    string Revision,
+    string Level,
+    string Archive,
+    uint SourceIndex);
+public sealed record AssetExplorerItemPayload(
+    string AssetId,
+    AssetExplorerCategoryPayload Category,
+    string DisplayLabel,
+    uint CanonicalFormatVersion,
+    ulong ByteSize,
+    IReadOnlyList<string> Aliases,
+    IReadOnlyList<string> Tags,
+    IReadOnlyList<AssetExplorerSourcePayload> Sources,
+    IReadOnlyList<uint> ClassIds,
+    string PreviewState,
+    bool CanPlace,
+    string? PlacementDisabledReason);
+public sealed record AssetExplorerFacetsPayload(
+    IReadOnlyList<string> Games,
+    IReadOnlyList<string> Levels,
+    IReadOnlyList<string> Regions,
+    IReadOnlyList<string> Revisions,
+    IReadOnlyList<string> Tags);
+public sealed record AssetExplorerPagePayload(
+    IReadOnlyList<AssetExplorerItemPayload> Items,
+    AssetExplorerFacetsPayload Facets,
+    string? NextCursor);
 public sealed record UyaRenderPackageRequestPayload(
     string SourceIsoPath,
     string CacheRootPath,
@@ -105,6 +157,18 @@ public sealed record UyaRenderPackageResultPayload(
     IReadOnlyList<UyaRenderAssetPayload> Assets,
     bool CacheHit,
     IReadOnlyList<UyaRenderOcclusionOctantPayload>? OcclusionOctants = null);
+public sealed record AssetPreviewRequestPayload(
+    string CacheRootPath,
+    string CatalogRootPath,
+    string AssetId,
+    string Kind,
+    string TargetGame,
+    string ViewPreset);
+public sealed record AssetPreviewResultPayload(
+    string RootPath,
+    string CacheKey,
+    string ModelPath,
+    bool CacheHit);
 public sealed record CatalogMaintenancePayload(
     uint ProjectCount,
     uint CatalogAssetCount,

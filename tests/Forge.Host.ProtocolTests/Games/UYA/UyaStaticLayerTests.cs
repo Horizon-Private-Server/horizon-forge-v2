@@ -17,6 +17,20 @@ internal static class UyaStaticLayerTests
 
     public static async Task RunAsync()
     {
+        var neutralTieAmbient = UyaAssetPlacementService.CreateNeutralTieAmbient(8);
+        Equal(true, neutralTieAmbient.SequenceEqual(new byte[] { 0x80, 0x80, 0x80, 0, 0, 0, 0, 0 }),
+            "placed tie neutral ambient words");
+        var placedShrub = UyaAssetPlacementService.CreateShrubRecord(0x0300);
+        Equal(255, BinaryPrimitives.ReadInt32LittleEndian(placedShrub.AsSpan(0x50)),
+            "placed shrub neutral red channel");
+        Equal(255, BinaryPrimitives.ReadInt32LittleEndian(placedShrub.AsSpan(0x54)),
+            "placed shrub neutral green channel");
+        Equal(255, BinaryPrimitives.ReadInt32LittleEndian(placedShrub.AsSpan(0x58)),
+            "placed shrub neutral blue channel");
+        Equal(0.01f, BinaryPrimitives.ReadSingleLittleEndian(placedShrub.AsSpan(0x4c)),
+            "placed shrub homogeneous transform scale");
+        Equal(128f, BinaryPrimitives.ReadSingleLittleEndian(placedShrub.AsSpan(4)),
+            "placed shrub uses a retail-safe draw distance");
         var root = Path.Combine(Path.GetTempPath(), $"forge-static-bake-{Guid.NewGuid():N}");
         Directory.CreateDirectory(root);
         try
@@ -35,6 +49,16 @@ internal static class UyaStaticLayerTests
                 UyaTieInstancesReader.RecordSize, new(Disabled: true), new(40, 50, 60), new(1, 1, 1), 1);
             var lockedShrub = Entity("Locked shrub", "shrubs", shrubAsset, 0x0300,
                 UyaShrubInstancesReader.RecordSize, new(Locked: true), new(70, 80, 90), new(1, 2, 3), 0);
+            var legacyPlacedShrubBytes = lockedShrub.Source!.RawRecord.ToArray();
+            for (var index = 0; index < 3; index++)
+                BinaryPrimitives.WriteSingleLittleEndian(legacyPlacedShrubBytes.AsSpan(0x50 + index * 4), 1);
+            BinaryPrimitives.WriteSingleLittleEndian(legacyPlacedShrubBytes.AsSpan(0x4c), 0);
+            BinaryPrimitives.WriteSingleLittleEndian(legacyPlacedShrubBytes.AsSpan(4), 1_024);
+            var legacyPlacedShrub = lockedShrub with
+            {
+                EntityId = EntityId.New(), Name = "Legacy placed shrub", Provenance = null,
+                Source = lockedShrub.Source with { RawRecord = legacyPlacedShrubBytes },
+            };
             var moby = MobyEntity(mobyAsset, 0x0400, new(100, 200, 300), 2, 0, new());
             var disabledMoby = MobyEntity(mobyAsset, 0x0400, new(400, 500, 600), 1, 1, new(Disabled: true));
             var modelLessMoby = ModelLessMobyEntity(0x0401, 2);
@@ -43,7 +67,7 @@ internal static class UyaStaticLayerTests
                 "Static bake",
                 new("UYA", "NTSC-U", "1.00", "uya-ntsc-u"),
                 new("UYA", "NTSC-U", "1.00", 3, new string('a', 32), EntityVersion: 1),
-                [hiddenTie, disabledTie, lockedShrub, moby, disabledMoby, modelLessMoby]);
+                [hiddenTie, disabledTie, lockedShrub, legacyPlacedShrub, moby, disabledMoby, modelLessMoby]);
             await WriteSourceAsync(project);
 
             var inputs = await UyaStaticLayerStore.CreateBakeInputsAsync(project, catalog);
@@ -74,8 +98,14 @@ internal static class UyaStaticLayerTests
 
             var bakedShrubs = UyaShrubInstancesReader.Read(await File.ReadAllBytesAsync(
                 Path.Combine(staging.RootPath, shrubSnapshot.RelativePath, "instances.bin")));
-            Equal(1, bakedShrubs.Count, "locked shrub included");
+            Equal(2, bakedShrubs.Count, "locked and placed shrubs included");
             Equal(1234f, bakedShrubs.Instances[0].DrawDistance, "shrub draw distance preserved");
+            Equal(255, BinaryPrimitives.ReadInt32LittleEndian(
+                bakedShrubs.Instances[1].RawBytes.AsSpan(0x50)), "legacy placed shrub RGB96 repaired");
+            Equal(0.01f, bakedShrubs.Instances[1].Transform.Position.W,
+                "legacy placed shrub homogeneous transform scale repaired");
+            Equal(128f, bakedShrubs.Instances[1].DrawDistance,
+                "legacy placed shrub draw distance repaired");
 
             var bakedMobys = UyaMobyInstancesReader.Read(await File.ReadAllBytesAsync(
                 Path.Combine(staging.RootPath, mobySnapshot.RelativePath, "instances.bin")));
@@ -101,6 +131,7 @@ internal static class UyaStaticLayerTests
             Equal(tieSnapshot.OutputFingerprint, repeated.OutputFingerprint, "static output deterministic");
 
             await VerifyTieClassOrderingAsync(root, tieAsset);
+            await VerifyShrubClassOrderingAsync(root, shrubAsset);
             await VerifyBadReferencesAsync(root, catalog, shrubAsset);
         }
         finally
@@ -133,6 +164,25 @@ internal static class UyaStaticLayerTests
         Equal(true, UyaStaticLayerStore.OrderedEntities(workspace, BakeLayerId.Ties)
             .Select(value => value.Name).SequenceEqual(["First class", "First class copy", "Second class"]),
             "copied ties remain in their source class block");
+    }
+
+    private static async Task VerifyShrubClassOrderingAsync(string root, AssetCatalogEntry shrubAsset)
+    {
+        var project = Path.Combine(root, "shrub-order-project");
+        var high = Entity("High shrub class", "shrubs", shrubAsset, 0x0300,
+            UyaShrubInstancesReader.RecordSize, new(), new(0, 0, 0), new(1, 1, 1), 0);
+        var low = Entity("Low shrub class", "shrubs", shrubAsset, 0x0100,
+            UyaShrubInstancesReader.RecordSize, new(), new(0, 0, 0), new(1, 1, 1), 1);
+        await ForgeProjectWorkspace.CreateAsync(
+            project,
+            "Shrub order",
+            new("UYA", "NTSC-U", "1.00", "uya-ntsc-u"),
+            new("UYA", "NTSC-U", "1.00", 3, new string('a', 32), EntityVersion: 1),
+            [high, low]);
+        var workspace = await ForgeProjectWorkspace.OpenAsync(project);
+        Equal(true, UyaStaticLayerStore.OrderedEntities(workspace, BakeLayerId.Shrubs)
+            .Select(value => value.Source!.ClassId).SequenceEqual([0x0100, 0x0300]),
+            "shrub instances remain in ascending class blocks");
     }
 
     private static async Task VerifyBadReferencesAsync(

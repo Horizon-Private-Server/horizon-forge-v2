@@ -17,6 +17,7 @@ public enum EditorCommandKind : byte
     PasteEntities = 13,
     UpdateLevelSettings = 14,
     UpdateSplinePoints = 15,
+    CreateEntityFromAsset = 16,
 }
 
 public enum EditorEventKind : byte
@@ -46,7 +47,20 @@ public sealed record EditorCommand(
     EditorEntityStateChange? State = null,
     IReadOnlyList<EditorTransformUpdate>? Transforms = null,
     ProjectLevelSettings? LevelSettings = null,
-    IReadOnlyList<ProjectVector4>? Points = null);
+    IReadOnlyList<ProjectVector4>? Points = null,
+    EditorAssetPlacement? Placement = null);
+
+public sealed record EditorAssetPlacement(
+    AssetId AssetId,
+    AssetKind Kind,
+    int ClassId,
+    ProjectTransform Transform);
+
+public delegate Task<ProjectEntity> EditorAssetPlacementResolver(
+    ForgeProjectWorkspace workspace,
+    string catalogRootPath,
+    EditorAssetPlacement placement,
+    CancellationToken cancellationToken);
 
 public sealed record EditorTransformUpdate(EntityId EntityId, ProjectTransform Transform);
 
@@ -93,6 +107,8 @@ public enum EditorTransformCapabilities : byte
     Rotate = 2,
     Scale = 4,
 }
+
+public delegate EditorTransformCapabilities EditorTransformCapabilityResolver(ProjectEntity entity);
 
 public sealed record EditorEntitySnapshot(
     EntityId EntityId,

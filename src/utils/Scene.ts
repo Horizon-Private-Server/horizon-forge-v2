@@ -10,6 +10,8 @@ const cameraForward = new THREE.Vector3();
 const cameraRight = new THREE.Vector3();
 const cameraEuler = new THREE.Euler(0, 0, 0, 'YXZ');
 const frameOffset = new THREE.Vector3();
+const frameBounds = new THREE.Box3();
+const frameObjectBounds = new THREE.Box3();
 const spawnMatrix = new THREE.Matrix4();
 const spawnPosition = new THREE.Vector3();
 const spawnRotation = new THREE.Quaternion();
@@ -33,14 +35,46 @@ export interface CameraFlight {
 }
 
 export function frameObject(camera: THREE.PerspectiveCamera, controls: OrbitControls, object: THREE.Object3D): void {
-  const sphere = new THREE.Box3().setFromObject(object).getBoundingSphere(new THREE.Sphere());
-  const radius = Math.max(sphere.radius, 1);
-  controls.target.copy(sphere.center);
-  camera.position.copy(sphere.center).add(new THREE.Vector3(radius, radius * 0.7, radius));
-  camera.near = Math.max(radius / 10_000, 0.1);
-  camera.far = radius * 10;
-  camera.updateProjectionMatrix();
+  frameCameraOnObject(camera, object, controls.target);
   controls.update();
+}
+
+export function frameCameraOnObject(
+  camera: THREE.PerspectiveCamera,
+  object: THREE.Object3D,
+  target: THREE.Vector3,
+): void {
+  frameBounds.makeEmpty();
+  object.updateWorldMatrix(true, true);
+  object.traverseVisible((child) => {
+    const bounded = child as THREE.Object3D & {
+      geometry?: THREE.BufferGeometry;
+      boundingBox?: THREE.Box3 | null;
+      computeBoundingBox?(): void;
+    };
+    if (!bounded.geometry) return;
+    if (bounded.boundingBox !== undefined) {
+      if (bounded.boundingBox === null) bounded.computeBoundingBox?.();
+      if (!bounded.boundingBox) return;
+      frameObjectBounds.copy(bounded.boundingBox);
+    } else {
+      if (bounded.geometry.boundingBox === null) bounded.geometry.computeBoundingBox();
+      if (!bounded.geometry.boundingBox) return;
+      frameObjectBounds.copy(bounded.geometry.boundingBox);
+    }
+    frameBounds.union(frameObjectBounds.applyMatrix4(child.matrixWorld));
+  });
+  const sphere = frameBounds.getBoundingSphere(new THREE.Sphere());
+  const radius = Math.max(sphere.radius, 0.001);
+  const verticalFov = THREE.MathUtils.degToRad(camera.fov);
+  const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * Math.max(camera.aspect, 0.001));
+  const distance = radius / Math.sin(Math.min(verticalFov, horizontalFov) / 2) * 1.1;
+  target.copy(sphere.center);
+  camera.position.copy(sphere.center).add(frameOffset.set(1, 0.7, 1).normalize().multiplyScalar(distance));
+  camera.near = Math.max(radius / 1_000, 0.001);
+  camera.far = distance + radius * 4;
+  camera.lookAt(target);
+  camera.updateProjectionMatrix();
 }
 
 export function positionCameraAtPreferredMoby(

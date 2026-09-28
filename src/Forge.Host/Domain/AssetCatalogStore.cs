@@ -9,6 +9,8 @@ public sealed class AssetCatalogStore
 {
     public const int SchemaVersion = 0;
     public const int MaxQueryLimit = 1_000;
+    public const int DefaultPageLimit = 64;
+    public const int MaxPageLimit = 128;
     private const long MaxCatalogBytes = 64L * 1024 * 1024;
     private const int MaxMetadataItems = 1_024;
     private const int MaxTextLength = 4_096;
@@ -23,6 +25,7 @@ public sealed class AssetCatalogStore
     private readonly SemaphoreSlim _writes = new(1, 1);
     private readonly HashSet<string> _verifiedBlobs = new(StringComparer.Ordinal);
     private IReadOnlyDictionary<string, AssetCatalogEntry> _entries;
+    private string _revision;
 
     private AssetCatalogStore(string rootPath, IReadOnlyDictionary<string, AssetCatalogEntry> entries)
     {
@@ -30,6 +33,7 @@ public sealed class AssetCatalogStore
         BlobRootPath = Path.Combine(rootPath, "blobs");
         CatalogPath = Path.Combine(rootPath, "catalog-v0.json");
         _entries = entries;
+        _revision = AssetCatalogPaging.ComputeRevision(entries.Values);
     }
 
     public string RootPath { get; }
@@ -114,6 +118,7 @@ public sealed class AssetCatalogStore
             }
             await WriteCatalogAsync(next.Values, cancellationToken);
             _entries = next;
+            _revision = AssetCatalogPaging.ComputeRevision(next.Values);
             return ids.Select(id => next[id.ToString()]).ToArray();
         }
         finally
@@ -142,6 +147,7 @@ public sealed class AssetCatalogStore
             };
             await WriteCatalogAsync(next.Values, cancellationToken);
             _entries = next;
+            _revision = AssetCatalogPaging.ComputeRevision(next.Values);
             return entry;
         }
         finally
@@ -169,6 +175,9 @@ public sealed class AssetCatalogStore
             .Take(query.Limit)
             .ToArray();
     }
+
+    public AssetCatalogPage QueryPage(AssetCatalogPageQuery query, CancellationToken cancellationToken = default) =>
+        AssetCatalogPaging.Query(_entries.Values, _revision, query, cancellationToken);
 
     public string? ResolveBlobPath(AssetId id)
     {
@@ -207,6 +216,7 @@ public sealed class AssetCatalogStore
                 _entries.Where(pair => !removedIds.Contains(pair.Key)), StringComparer.Ordinal);
             if (next.Count != _entries.Count) await WriteCatalogAsync(next.Values, cancellationToken);
             _entries = next;
+            _revision = AssetCatalogPaging.ComputeRevision(next.Values);
             foreach (var candidate in preview.Candidates)
             {
                 cancellationToken.ThrowIfCancellationRequested();

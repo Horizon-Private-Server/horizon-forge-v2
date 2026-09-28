@@ -15,16 +15,74 @@ body {
 }
 
 .app-shell {
+  --forge-ui-row-height: 24px;
+  --forge-ui-tab-height: 26px;
+  --forge-ui-action-size: calc(1.125rem * var(--mantine-scale));
+  --forge-ui-tree-icon-size: calc(0.8125rem * var(--mantine-scale));
+  --forge-ui-badge-height: calc(1rem * var(--mantine-scale));
+  --forge-ui-badge-fz: calc(0.5625rem * var(--mantine-scale));
+  --forge-ui-badge-padding: calc(0.375rem * var(--mantine-scale));
+  --forge-ui-compact-height: calc(1.375rem * var(--mantine-scale));
+  --forge-ui-compact-padding: calc(0.4375rem * var(--mantine-scale));
+
   display: grid;
   grid-template-rows: auto auto 1fr;
   height: 100%;
   background: #11141a;
 }
 
+.app-shell[data-ui-size='sm'] {
+  --forge-ui-row-height: 28px;
+  --forge-ui-tab-height: 30px;
+  --forge-ui-action-size: calc(1.375rem * var(--mantine-scale));
+  --forge-ui-tree-icon-size: calc(0.9375rem * var(--mantine-scale));
+  --forge-ui-badge-height: calc(1.125rem * var(--mantine-scale));
+  --forge-ui-badge-fz: calc(0.625rem * var(--mantine-scale));
+  --forge-ui-badge-padding: calc(0.5rem * var(--mantine-scale));
+  --forge-ui-compact-height: calc(1.625rem * var(--mantine-scale));
+  --forge-ui-compact-padding: calc(0.5rem * var(--mantine-scale));
+}
+
+.app-shell[data-ui-size='md'] {
+  --forge-ui-row-height: 32px;
+  --forge-ui-tab-height: 34px;
+  --forge-ui-action-size: calc(1.75rem * var(--mantine-scale));
+  --forge-ui-tree-icon-size: calc(1.125rem * var(--mantine-scale));
+  --forge-ui-badge-height: calc(1.25rem * var(--mantine-scale));
+  --forge-ui-badge-fz: calc(0.6875rem * var(--mantine-scale));
+  --forge-ui-badge-padding: calc(0.625rem * var(--mantine-scale));
+  --forge-ui-compact-height: calc(1.875rem * var(--mantine-scale));
+  --forge-ui-compact-padding: calc(0.625rem * var(--mantine-scale));
+}
+
+.app-shell[data-ui-size='lg'] {
+  --forge-ui-row-height: 38px;
+  --forge-ui-tab-height: 40px;
+  --forge-ui-action-size: calc(2.125rem * var(--mantine-scale));
+  --forge-ui-tree-icon-size: calc(1.3125rem * var(--mantine-scale));
+  --forge-ui-badge-height: calc(1.625rem * var(--mantine-scale));
+  --forge-ui-badge-fz: calc(0.8125rem * var(--mantine-scale));
+  --forge-ui-badge-padding: calc(0.75rem * var(--mantine-scale));
+  --forge-ui-compact-height: calc(2.125rem * var(--mantine-scale));
+  --forge-ui-compact-padding: calc(0.75rem * var(--mantine-scale));
+}
+
+.app-shell[data-ui-size='xl'] {
+  --forge-ui-row-height: 44px;
+  --forge-ui-tab-height: 46px;
+  --forge-ui-action-size: calc(2.75rem * var(--mantine-scale));
+  --forge-ui-tree-icon-size: calc(1.625rem * var(--mantine-scale));
+  --forge-ui-badge-height: calc(2rem * var(--mantine-scale));
+  --forge-ui-badge-fz: calc(1rem * var(--mantine-scale));
+  --forge-ui-badge-padding: calc(1rem * var(--mantine-scale));
+  --forge-ui-compact-height: calc(2.5rem * var(--mantine-scale));
+  --forge-ui-compact-padding: calc(0.875rem * var(--mantine-scale));
+}
+
 .forge-menu-bar {
   z-index: 1001;
   display: flex;
-  min-height: 24px;
+  min-height: var(--forge-ui-row-height);
   padding-inline: 2px;
   border-bottom: 1px solid #2c3038;
   background: #151922;
@@ -32,10 +90,11 @@ body {
 
 .forge-menu-trigger {
   min-width: 0;
-  padding: 3px 8px;
+  min-height: var(--forge-ui-row-height);
+  padding: 0 var(--mantine-spacing-md);
   color: var(--mantine-color-gray-3);
   font-size: var(--mantine-font-size-xs);
-  line-height: 18px;
+  line-height: normal;
 }
 
 .forge-menu-trigger:hover,
@@ -139,10 +198,16 @@ body {
   z-index: 1;
   top: var(--mantine-spacing-xs);
   right: var(--mantine-spacing-xs);
-  padding: 0.25rem 0.4rem;
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
   border: 1px solid var(--mantine-color-dark-4);
   border-radius: var(--mantine-radius-xs);
   background: rgb(17 20 26 / 88%);
+}
+
+.scene-toolbar-snap {
+  --button-fz: var(--mantine-font-size-xs) !important;
+  --button-height: var(--forge-ui-compact-height) !important;
+  --button-padding-x: var(--forge-ui-compact-padding) !important;
 }
 
 .scene-stats {
@@ -152,7 +217,7 @@ body {
   bottom: 0;
   padding: 0.125rem 0.25rem;
   background: rgb(17 20 26 / 80%);
-  font-size: 0.625rem;
+  font-size: calc(var(--mantine-font-size-xs) - 0.0625rem);
   line-height: 1.1;
 }
 
@@ -166,6 +231,47 @@ body {
   background: rgb(17 20 26 / 88%);
   font-size: var(--mantine-font-size-xs);
   transform: translateX(-50%);
+}
+
+.asset-model-preview {
+  position: relative;
+  min-height: 18rem;
+  overflow: hidden;
+  border: 1px solid var(--mantine-color-dark-4);
+  border-radius: var(--mantine-radius-sm);
+  background: #151922;
+}
+
+.asset-model-preview-canvas {
+  position: absolute;
+  inset: 0;
+}
+
+.asset-model-preview-canvas canvas {
+  display: block;
+}
+
+.asset-model-preview-canvas canvas:focus-visible {
+  outline: 1px solid var(--mantine-primary-color-filled);
+  outline-offset: -1px;
+}
+
+.asset-model-preview-state {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  transform: translate(-50%, -50%);
+}
+
+.asset-model-preview-reset {
+  position: absolute;
+  z-index: 1;
+  top: var(--mantine-spacing-xs);
+  right: var(--mantine-spacing-xs);
 }
 
 .project-hub {
@@ -195,6 +301,11 @@ body {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: var(--mantine-spacing-sm);
   align-items: end;
+}
+
+.settings-scale-panel {
+  border-left: 3px solid var(--mantine-primary-color-filled);
+  background: var(--mantine-color-dark-8);
 }
 
 .color-picker-input {
@@ -261,7 +372,7 @@ body {
 .editor-workspace > .dockview-theme-abyss {
   width: 100%;
   min-height: 0;
-  --dv-tabs-and-actions-container-height: 26px;
+  --dv-tabs-and-actions-container-height: var(--forge-ui-tab-height);
   --dv-tabs-and-actions-container-font-size: var(--mantine-font-size-xs);
   --dv-tab-font-size: var(--mantine-font-size-xs);
   --dv-tab-close-icon-size: 14px;
@@ -281,15 +392,124 @@ body {
   background: #151922;
 }
 
+.asset-explorer-panel {
+  display: flex;
+  min-width: 0;
+  overflow: hidden;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+}
+
+.asset-explorer-controls {
+  display: grid;
+  flex: 0 0 auto;
+  gap: var(--mantine-spacing-xs);
+}
+
+.asset-explorer-grid-scroll {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: auto;
+}
+
+.asset-explorer-grid {
+  position: relative;
+  min-width: 160px;
+}
+
+.asset-explorer-card-position {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 210px;
+}
+
+.asset-explorer-card {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  padding: var(--mantine-spacing-xs);
+  border: 1px solid var(--mantine-color-dark-4);
+  border-radius: var(--mantine-radius-sm);
+  color: inherit;
+  background: var(--mantine-color-dark-7);
+  cursor: pointer;
+  font: inherit;
+  grid-template-rows: 1fr auto;
+  text-align: left;
+}
+
+.asset-explorer-card:hover {
+  border-color: var(--mantine-color-dark-2);
+  background: var(--mantine-color-dark-6);
+}
+
+.asset-explorer-card:focus-visible {
+  outline: 2px solid var(--mantine-primary-color-filled);
+  outline-offset: -2px;
+}
+
+.asset-explorer-thumbnail {
+  display: grid;
+  min-height: 0;
+  overflow: hidden;
+  place-items: center;
+  color: var(--mantine-color-dimmed);
+  background: #11141a;
+  font-size: var(--mantine-font-size-xs);
+}
+
+.asset-explorer-thumbnail img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.asset-explorer-thumbnail-placeholder {
+  color: var(--mantine-color-red-6);
+}
+
+.asset-explorer-card-name {
+  overflow: hidden;
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.asset-explorer-card-meta {
+  display: flex;
+  min-width: 0;
+  margin-top: var(--mantine-spacing-xs);
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  color: var(--mantine-color-dimmed);
+  font-size: var(--mantine-font-size-xs);
+}
+
+.asset-explorer-class-badge {
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+.asset-explorer-loading {
+  padding: var(--mantine-spacing-sm);
+  text-align: center;
+}
+
+.asset-explorer-id {
+  overflow-wrap: anywhere;
+}
+
 .editor-tree {
   min-width: max-content;
 }
 
 .editor-tree-row {
   display: grid;
-  grid-template-columns: 1rem minmax(0, 1fr);
+  grid-template-columns: 1.25em minmax(0, 1fr);
   align-items: center;
-  min-height: 24px;
+  min-height: var(--forge-ui-row-height);
   padding-inline-end: var(--mantine-spacing-xs);
   padding-inline-start: calc(var(--label-offset, 0px) + var(--mantine-spacing-xs));
   border-radius: var(--mantine-radius-xs);
@@ -321,6 +541,15 @@ body {
   gap: 1px;
 }
 
+.scene-tree-actions button {
+  --ai-size: var(--forge-ui-action-size) !important;
+}
+
+.scene-tree-actions svg {
+  width: var(--forge-ui-tree-icon-size);
+  height: var(--forge-ui-tree-icon-size);
+}
+
 .scene-tree-label {
   display: inline-flex;
   align-items: center;
@@ -329,6 +558,10 @@ body {
 }
 
 .scene-tree-badge {
+  --badge-fz: var(--forge-ui-badge-fz) !important;
+  --badge-height: var(--forge-ui-badge-height) !important;
+  --badge-padding-x: var(--forge-ui-badge-padding) !important;
+
   flex: 0 0 auto;
 }
 
@@ -422,7 +655,7 @@ body {
 }
 
 .editor-status-bar {
-  min-height: 25px;
+  min-height: var(--forge-ui-row-height);
   padding-inline: var(--mantine-spacing-xs);
   overflow-x: auto;
   border-top: 1px solid var(--mantine-color-dark-4);

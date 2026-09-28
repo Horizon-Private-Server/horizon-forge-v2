@@ -1,6 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 
 import type {
+  AssetExplorerPage,
   DevelopmentIsoResult,
   BuildPlan,
   BuildPatchProgress,
@@ -18,11 +19,15 @@ import type {
   UyaProjectPreflight,
 } from '../../types/ForgeApi.js';
 import type {
+  AssetExplorerBridgeRequest,
+  AssetPreviewRequest,
+  AssetPreviewResult,
   UyaBuildPatchRequest,
   UyaBuildPlanRequest,
   UyaRenderPackageRequest,
   UyaRenderPackageResult,
 } from '../../types/BridgePayloads.js';
+import { decodeAssetExplorerPage, encodeAssetExplorerRequest } from './AssetExplorerPayloadCodec.js';
 import {
   decodeBuildPatchProgress,
   decodeBuildPatchResult,
@@ -62,7 +67,12 @@ import {
   encodeUyaProjectCreationRequest,
   encodeUyaProjectPreflightRequest,
 } from './PayloadCodec.js';
-import { decodeUyaRenderPackageResult, encodeUyaRenderPackageRequest } from './RenderPayloadCodec.js';
+import {
+  decodeAssetPreviewResult,
+  decodeUyaRenderPackageResult,
+  encodeAssetPreviewRequest,
+  encodeUyaRenderPackageRequest,
+} from './RenderPayloadCodec.js';
 
 interface PendingRequest {
   opcode: BridgeOpcode;
@@ -317,6 +327,11 @@ export class HostClient {
     return { requestId: request.requestId, result: request.result.then(decodeCatalogMaintenance) };
   }
 
+  async queryAssetExplorer(value: AssetExplorerBridgeRequest): Promise<HostRequest<AssetExplorerPage>> {
+    const request = await this.#request(BridgeOpcode.QueryAssetExplorer, encodeAssetExplorerRequest(value));
+    return { requestId: request.requestId, result: request.result.then(decodeAssetExplorerPage) };
+  }
+
   async openEditorProject(
     projectPath: string,
     catalogRootPath: string,
@@ -360,6 +375,12 @@ export class HostClient {
     const request = await this.#request(
       BridgeOpcode.PrepareUyaRenderPackage, encodeUyaRenderPackageRequest(value), onProgress);
     return { requestId: request.requestId, result: request.result.then(decodeUyaRenderPackageResult) };
+  }
+
+  async prepareAssetPreview(value: AssetPreviewRequest): Promise<HostRequest<AssetPreviewResult>> {
+    const request = await this.#request(
+      BridgeOpcode.PrepareAssetPreview, encodeAssetPreviewRequest(value));
+    return { requestId: request.requestId, result: request.result.then(decodeAssetPreviewResult) };
   }
 
   async buildAndPatchUyaProject(

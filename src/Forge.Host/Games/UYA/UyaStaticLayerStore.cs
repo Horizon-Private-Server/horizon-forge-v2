@@ -69,14 +69,15 @@ public static class UyaStaticLayerStore
         foreach (var layer in UyaStaticLayerSchema.Layers)
         {
             var prepared = await PrepareAsync(workspace, catalog, inspection, layer, cancellationToken);
-            var tieReferences = layer == BakeLayerId.Ties
-                ? await PrepareTieReferencesAsync(projectRoot, workspace, cancellationToken)
+            var references = layer is BakeLayerId.Ties or BakeLayerId.Shrubs
+                ? await UyaStaticReferenceStore.PrepareAsync(projectRoot, workspace, layer, cancellationToken)
                 : null;
-            var relevantSettings = layer == BakeLayerId.Ties
+            var relevantSettings = layer is BakeLayerId.Ties or BakeLayerId.Shrubs
                 ? ForgeProjectPersistence.Serialize(new
                 {
-                    Groups = tieReferences?.Groups is null ? null : Hash(tieReferences.Groups),
-                    Occlusion = tieReferences?.Occlusion is null ? null : Hash(tieReferences.Occlusion),
+                    Groups = references?.Groups is null ? null : Hash(references.Groups),
+                    Occlusion = references?.Occlusion is null ? null : Hash(references.Occlusion),
+                    references?.AlwaysVisibleBitIndex,
                 })
                 : ReadOnlyMemory<byte>.Empty;
             result.Add(new(layer, prepared.AuthoritativeContent, prepared.AssetIds,
@@ -98,8 +99,8 @@ public static class UyaStaticLayerStore
         var inspection = await InspectAsync(projectRoot, cancellationToken);
         var prepared = await PrepareAsync(workspace, catalog, inspection, plan.Layer, cancellationToken);
         if (prepared.Blockers.Count > 0) throw new InvalidDataException(string.Join(' ', prepared.Blockers));
-        var tieReferences = plan.Layer == BakeLayerId.Ties
-            ? await PrepareTieReferencesAsync(projectRoot, workspace, cancellationToken)
+        var references = plan.Layer is BakeLayerId.Ties or BakeLayerId.Shrubs
+            ? await UyaStaticReferenceStore.PrepareAsync(projectRoot, workspace, plan.Layer, cancellationToken)
             : null;
 
         return await staging.CommitAsync(plan, async (output, token) =>
@@ -108,12 +109,15 @@ public static class UyaStaticLayerStore
                 Path.Combine(output, "manifest.json"), prepared.AuthoritativeContent.ToArray(), token);
             await ForgeProjectPersistence.WriteFileSafelyAsync(
                 Path.Combine(output, "instances.bin"), prepared.InstanceBytes, token);
-            if (tieReferences?.Groups is not null)
+            if (references?.Groups is not null)
                 await ForgeProjectPersistence.WriteFileSafelyAsync(
-                    Path.Combine(output, "groups.bin"), tieReferences.Groups, token);
-            if (tieReferences?.Occlusion is not null)
+                    Path.Combine(output, "groups.bin"), references.Groups, token);
+            if (references?.Occlusion is not null)
                 await ForgeProjectPersistence.WriteFileSafelyAsync(
-                    Path.Combine(output, "occlusion.bin"), tieReferences.Occlusion, token);
+                    Path.Combine(output, "occlusion.bin"), references.Occlusion, token);
+            if (references?.AlwaysVisibleBitIndex is { } bitIndex)
+                await ForgeProjectPersistence.WriteFileSafelyAsync(
+                    Path.Combine(output, "visibility-bit.bin"), Int32Bytes(bitIndex), token);
             var resourceRoot = Path.Combine(output, "resources");
             Directory.CreateDirectory(resourceRoot);
             foreach (var definition in prepared.Manifest!.Definitions)
@@ -122,13 +126,13 @@ public static class UyaStaticLayerStore
                     ?? throw new FileNotFoundException($"Static asset {definition.Asset.Id} disappeared during bake.");
                 await CopyAsync(source, Path.Combine(output, definition.Resource), token);
             }
-        }, (output, token) => ValidateOutputAsync(output, prepared, tieReferences, plan.Layer, token), cancellationToken);
+        }, (output, token) => ValidateOutputAsync(output, prepared, references, plan.Layer, token), cancellationToken);
     }
 
     private static async Task ValidateOutputAsync(
         string output,
         PreparedLayer prepared,
-        TieReferenceOutputs? tieReferences,
+        UyaStaticReferenceOutputs? references,
         BakeLayerId layer,
         CancellationToken cancellationToken)
     {
@@ -139,12 +143,16 @@ public static class UyaStaticLayerStore
         var instances = await File.ReadAllBytesAsync(Path.Combine(output, "instances.bin"), cancellationToken);
         if (instances.Length != manifest.InstancesSize || Hash(instances) != manifest.InstancesSha256)
             throw new InvalidDataException($"{layer} staged instances failed size or checksum validation.");
-        if (tieReferences?.Groups is not null && !(await File.ReadAllBytesAsync(
-                Path.Combine(output, "groups.bin"), cancellationToken)).SequenceEqual(tieReferences.Groups))
-            throw new InvalidDataException("Ties staged group references changed during write.");
-        if (tieReferences?.Occlusion is not null && !(await File.ReadAllBytesAsync(
-                Path.Combine(output, "occlusion.bin"), cancellationToken)).SequenceEqual(tieReferences.Occlusion))
+        if (references?.Groups is not null && !(await File.ReadAllBytesAsync(
+                Path.Combine(output, "groups.bin"), cancellationToken)).SequenceEqual(references.Groups))
+            throw new InvalidDataException($"{layer} staged group references changed during write.");
+        if (references?.Occlusion is not null && !(await File.ReadAllBytesAsync(
+                Path.Combine(output, "occlusion.bin"), cancellationToken)).SequenceEqual(references.Occlusion))
             throw new InvalidDataException("Ties staged occlusion references changed during write.");
+        if (references?.AlwaysVisibleBitIndex is { } bitIndex
+            && BinaryPrimitives.ReadInt32LittleEndian(await File.ReadAllBytesAsync(
+                Path.Combine(output, "visibility-bit.bin"), cancellationToken)) != bitIndex)
+            throw new InvalidDataException("Ties staged visibility bit changed during write.");
         var classes = layer switch
         {
             BakeLayerId.Ties => UyaTieInstancesReader.Read(instances).Instances.Select(value => value.ClassId).ToArray(),
@@ -154,6 +162,8 @@ public static class UyaStaticLayerStore
         };
         if (classes.Length != manifest.Instances.Count)
             throw new InvalidDataException($"{layer} staged instance count does not match its manifest.");
+        if (layer is BakeLayerId.Ties or BakeLayerId.Shrubs && !classes.SequenceEqual(classes.Order()))
+            throw new InvalidDataException($"{layer} instances are not in ascending class blocks.");
         var definitions = manifest.Definitions.ToDictionary(value => value.TargetIndex);
         for (var index = 0; index < manifest.Instances.Count; index++)
         {
@@ -286,10 +296,10 @@ public static class UyaStaticLayerStore
         {
             BakeLayerId.Ties => UyaTieInstancesWriter.Write(
                 new(0, source.HeaderWords, [], source.TrailingBytes),
-                resolved.Select(value => ToStaticEdit(value.Entity, value.ClassId)).ToArray()),
+                resolved.Select(value => ToTieEdit(value.Entity, value.ClassId)).ToArray()),
             BakeLayerId.Shrubs => UyaShrubInstancesWriter.Write(
                 new(0, source.HeaderWords, [], source.TrailingBytes),
-                resolved.Select(value => ToStaticEdit(value.Entity, value.ClassId)).ToArray()),
+                resolved.Select(value => ToShrubEdit(value.Entity, value.ClassId)).ToArray()),
             BakeLayerId.Mobys => UyaMobyInstancesWriter.Write(
                 new(0, source.HeaderWords[0], source.HeaderWords[1], source.HeaderWords[2], [], source.TrailingBytes),
                 resolved.Select(value => ToMobyEdit(value.Entity, value.ClassId)).ToArray()),
@@ -316,13 +326,63 @@ public static class UyaStaticLayerStore
         new(entity.Transform.Scale.X, entity.Transform.Scale.Y, entity.Transform.Scale.Z),
         entity.Source!.RawRecord);
 
+    private static UyaStaticInstanceEdit ToTieEdit(ProjectEntity entity, int classId)
+    {
+        var template = entity.Source!.RawRecord;
+        if (entity.Provenance is null
+            && BinaryPrimitives.ReadInt32LittleEndian(template.AsSpan(4))
+                == BitConverter.SingleToInt32Bits(UyaAssetPlacementService.DefaultTieDrawDistance))
+        {
+            template = template.ToArray();
+            BinaryPrimitives.WriteInt32LittleEndian(
+                template.AsSpan(4), UyaAssetPlacementService.DefaultTieDrawDistance);
+        }
+        return ToStaticEdit(entity with { Source = entity.Source with { RawRecord = template } }, classId);
+    }
+
+    private static UyaStaticInstanceEdit ToShrubEdit(ProjectEntity entity, int classId)
+    {
+        var template = NormalizePlacedShrub(entity);
+        return ToStaticEdit(entity with { Source = entity.Source! with { RawRecord = template } }, classId);
+    }
+
+    private static byte[] NormalizePlacedShrub(ProjectEntity entity)
+    {
+        var template = NormalizePlacedRgb96(entity, 0x50);
+        if (entity.Provenance is not null || template.Length < 0x50)
+            return template;
+        var repairDrawDistance = BinaryPrimitives.ReadSingleLittleEndian(template.AsSpan(4)) == 1_024;
+        var repairHomogeneousScale = BinaryPrimitives.ReadSingleLittleEndian(template.AsSpan(0x4c)) == 0;
+        if (!repairDrawDistance && !repairHomogeneousScale) return template;
+        var repaired = template.ToArray();
+        if (repairDrawDistance)
+            BinaryPrimitives.WriteSingleLittleEndian(
+                repaired.AsSpan(4), UyaAssetPlacementService.DefaultShrubDrawDistance);
+        if (repairHomogeneousScale)
+            BinaryPrimitives.WriteSingleLittleEndian(repaired.AsSpan(0x4c), 0.01f);
+        return repaired;
+    }
+
     private static UyaMobyInstanceEdit ToMobyEdit(ProjectEntity entity, int classId) => new(
         classId,
         new(entity.Transform.Position.X, entity.Transform.Position.Y, entity.Transform.Position.Z),
         new(entity.Transform.Rotation.X, entity.Transform.Rotation.Y,
             entity.Transform.Rotation.Z, entity.Transform.Rotation.W),
         entity.Transform.Scale.X,
-        entity.Source!.RawRecord);
+        NormalizePlacedRgb96(entity, 0x74));
+
+    private static byte[] NormalizePlacedRgb96(ProjectEntity entity, int offset)
+    {
+        var source = entity.Source!.RawRecord;
+        if (entity.Provenance is not null || source.Length < offset + 12
+            || Enumerable.Range(0, 3).Any(index =>
+                BinaryPrimitives.ReadInt32LittleEndian(source.AsSpan(offset + index * 4)) != 0x3f800000))
+            return source;
+        var repaired = source.ToArray();
+        for (var index = 0; index < 3; index++)
+            BinaryPrimitives.WriteInt32LittleEndian(repaired.AsSpan(offset + index * 4), 255);
+        return repaired;
+    }
 
     internal static ProjectEntity[] OrderedEntities(ForgeProjectWorkspace workspace, BakeLayerId layer)
     {
@@ -338,65 +398,12 @@ public static class UyaStaticLayerStore
             .OrderBy(entity => entity.Provenance?.SourceIndex ?? int.MaxValue)
             .ThenBy(entity => entity.EntityId.ToString(), StringComparer.Ordinal)
             .ToArray();
-        if (layer != BakeLayerId.Ties) return entities;
-        var classOrder = entities.Where(entity => entity.Provenance is not null && entity.Source is not null)
-            .GroupBy(entity => entity.Source!.ClassId)
-            .ToDictionary(group => group.Key, group => group.Min(entity => entity.Provenance!.SourceIndex));
-        return entities.OrderBy(entity => entity.Source is null
-                ? int.MaxValue
-                : classOrder.GetValueOrDefault(entity.Source.ClassId, int.MaxValue))
-            .ThenBy(entity => entity.Provenance?.SourceIndex ?? int.MaxValue)
-            .ThenBy(entity => entity.Source?.ClassId ?? int.MaxValue)
-            .ThenBy(entity => entity.EntityId.ToString(), StringComparer.Ordinal)
-            .ToArray();
-    }
-
-    private static async Task<TieReferenceOutputs?> PrepareTieReferencesAsync(
-        string projectRoot,
-        ForgeProjectWorkspace workspace,
-        CancellationToken cancellationToken)
-    {
-        var opaque = await OpaqueContentStore.InspectAsync(projectRoot, cancellationToken);
-        if (opaque.Manifest is null) return null;
-        if (!opaque.IsValid) throw new InvalidDataException(string.Join(' ', opaque.Blockers));
-        var occlusion = opaque.Manifest!.Sections.SingleOrDefault(value => value.Name == "gameplay/occlusion");
-        if (occlusion is null) return null;
-        var opaqueRoot = ForgeProjectPersistence.ResolveRelativePath(projectRoot, OpaqueContentStore.RelativeRootPath);
-        var occlusionSource = await File.ReadAllBytesAsync(
-            ForgeProjectPersistence.ResolveRelativePath(opaqueRoot, occlusion.Blob), cancellationToken);
-        var mappings = UyaOcclusionMappingsReader.Read(occlusionSource);
-        var sourceCount = mappings.Ties.Count;
-        var sourceTies = workspace.Content.Entities.Where(value =>
-            value.Provenance?.Section == "gameplay/core/tie_instances").ToArray();
-        var ties = OrderedEntities(workspace, BakeLayerId.Ties);
-        var sourceIndices = ties.Select(value =>
-            ResolveTieSourceIndex(value, sourceTies))
-            .ToArray();
-        if (sourceIndices.Any(value => value < 0 || value >= mappings.Ties.Count))
-            throw new InvalidDataException("UYA tie source index has no corresponding occlusion mapping.");
-        var occlusionIds = ties.Select(value => BinaryPrimitives.ReadInt32LittleEndian(
-            value.Source!.RawRecord.AsSpan(UyaTieInstancesReader.OcclusionIdOffset))).ToArray();
-        if (sourceIndices.SequenceEqual(Enumerable.Range(0, sourceCount))) return null;
-        var groups = opaque.Manifest.Sections.SingleOrDefault(value => value.Name == "gameplay/tie_groups");
-        var groupBytes = groups is null ? null : UyaTieGroupsWriter.Remap(
-            await File.ReadAllBytesAsync(
-                ForgeProjectPersistence.ResolveRelativePath(opaqueRoot, groups.Blob), cancellationToken),
-            sourceIndices);
-        return new(groupBytes,
-            UyaOcclusionMappingsWriter.RemapTies(occlusionSource, occlusionIds));
-    }
-
-    private static int ResolveTieSourceIndex(ProjectEntity entity, IReadOnlyList<ProjectEntity> sourceTies)
-    {
-        if (entity.Provenance is not null) return entity.Provenance.SourceIndex;
-        if (entity.Source?.SourceIndex is { } sourceIndex) return sourceIndex;
-        var matches = sourceTies.Where(value => value.Source is not null && entity.Source is not null
-                && value.Source.ClassId == entity.Source.ClassId
-                && value.Source.RawRecord.SequenceEqual(entity.Source.RawRecord))
-            .Select(value => value.Provenance!.SourceIndex).Distinct().ToArray();
-        if (matches.Length != 1)
-            throw new InvalidDataException($"Tie {entity.EntityId} has no unambiguous source index.");
-        return matches[0];
+        if (layer is BakeLayerId.Ties or BakeLayerId.Shrubs)
+            return entities.OrderBy(entity => entity.Source?.ClassId ?? int.MaxValue)
+                .ThenBy(entity => entity.Provenance?.SourceIndex ?? int.MaxValue)
+                .ThenBy(entity => entity.EntityId.ToString(), StringComparer.Ordinal)
+                .ToArray();
+        return entities;
     }
 
     private static bool Uniform(ProjectVector3 scale) =>
@@ -477,6 +484,13 @@ public static class UyaStaticLayerStore
     private static string Hash(ReadOnlySpan<byte> bytes) =>
         Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
 
+    private static byte[] Int32Bytes(int value)
+    {
+        var bytes = new byte[sizeof(int)];
+        BinaryPrimitives.WriteInt32LittleEndian(bytes, value);
+        return bytes;
+    }
+
     private static async Task CopyAsync(string source, string destination, CancellationToken cancellationToken)
     {
         await using var input = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024,
@@ -489,8 +503,6 @@ public static class UyaStaticLayerStore
     }
 
     private sealed record ResolvedEntity(ProjectEntity Entity, AssetCatalogEntry? Entry, int ClassId);
-
-    private sealed record TieReferenceOutputs(byte[]? Groups, byte[]? Occlusion);
 
     private sealed record PreparedLayer(
         UyaStaticBakeManifest? Manifest,

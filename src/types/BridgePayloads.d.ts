@@ -1,4 +1,5 @@
 import type { BuildLayerId } from './ForgeApi.js';
+import type { AssetExplorerQuery, AssetPreviewKind } from './AssetExplorer.js';
 
 export interface EchoRequest {
   message: string;
@@ -63,6 +64,14 @@ export interface CatalogCollectionRequest extends CatalogMaintenanceRequest {
   confirmationToken: string;
 }
 
+export interface AssetExplorerBridgeRequest extends AssetExplorerQuery {
+  catalogRootPath: string;
+  targetGame: string;
+  targetRegion: string;
+  targetRevision: string;
+  limit: number;
+}
+
 export interface UyaRenderPackageRequest {
   sourceIsoPath: string;
   cacheRootPath: string;
@@ -100,6 +109,22 @@ export interface UyaRenderPackageResult {
   cacheHit: boolean;
 }
 
+export interface AssetPreviewRequest {
+  cacheRootPath: string;
+  catalogRootPath: string;
+  assetId: string;
+  kind: AssetPreviewKind;
+  targetGame: string;
+  viewPreset: string;
+}
+
+export interface AssetPreviewResult {
+  rootPath: string;
+  cacheKey: string;
+  modelPath: string;
+  cacheHit: boolean;
+}
+
 export interface UyaBuildPatchRequest {
   projectRoot: string;
   catalogRoot: string;
@@ -109,6 +134,7 @@ export interface UyaBuildPatchRequest {
   acknowledgedWarnings: string[];
   forceFullImage: boolean;
   includedLayers: BuildLayerId[];
+  forceInPlace: boolean;
 }
 
 export interface UyaBuildPlanRequest {

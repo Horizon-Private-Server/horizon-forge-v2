@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createDefaultEditorLayout, decodeEditorLayout } from '../src/renderer/editor/EditorLayout.ts';
+import { createDefaultEditorLayout, decodeEditorLayout, showEditorPanel } from '../src/renderer/editor/EditorLayout.ts';
 
 function layout(panels: Record<string, unknown>): string {
   return JSON.stringify({
@@ -22,7 +22,7 @@ test('editor layout restore accepts hidden panels and rejects stale or malformed
   assert.equal(decodeEditorLayout('x'.repeat(1024 * 1024 + 1)), undefined);
 });
 
-test('default editor layout places properties below the right-hand build panel', () => {
+test('default editor layout groups properties and asset tools with their sections', () => {
   const panels: Array<Record<string, unknown>> = [];
   createDefaultEditorLayout({
     clear: () => panels.splice(0),
@@ -32,4 +32,26 @@ test('default editor layout places properties below the right-hand build panel',
     { referencePanel: 'viewport', direction: 'right' });
   assert.deepEqual(panels.find((panel) => panel.id === 'properties')?.position,
     { referencePanel: 'build', direction: 'below' });
+  assert.deepEqual(panels.find((panel) => panel.id === 'assetExplorer')?.position,
+    { referencePanel: 'diagnostics', direction: 'within' });
+  assert.deepEqual(panels.find((panel) => panel.id === 'assetPreview')?.position,
+    { referencePanel: 'properties', direction: 'within' });
+});
+
+test('reopened Asset Explorer rejoins the Diagnostics group', () => {
+  let added: Record<string, unknown> | undefined;
+  showEditorPanel({
+    getPanel: (id: string) => id === 'diagnostics' ? { id } : undefined,
+    addPanel: (panel: Record<string, unknown>) => { added = panel; },
+  } as never, 'assetExplorer');
+  assert.deepEqual(added?.position, { referencePanel: 'diagnostics', direction: 'within' });
+});
+
+test('reopened Asset Preview rejoins the Properties group', () => {
+  let added: Record<string, unknown> | undefined;
+  showEditorPanel({
+    getPanel: (id: string) => id === 'properties' ? { id } : undefined,
+    addPanel: (panel: Record<string, unknown>) => { added = panel; },
+  } as never, 'assetPreview');
+  assert.deepEqual(added?.position, { referencePanel: 'properties', direction: 'within' });
 });

@@ -3,8 +3,8 @@ import { realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import type { EditorTerrainSource } from '../types/ForgeApi.js';
-import type { UyaRenderPackageResult } from '../types/BridgePayloads.js';
+import type { AssetPreviewSource, EditorTerrainSource } from '../types/ForgeApi.js';
+import type { AssetPreviewResult, UyaRenderPackageResult } from '../types/BridgePayloads.js';
 import { isPathInside } from '../utils/Security.js';
 
 export class RenderAssetProtocol {
@@ -30,13 +30,7 @@ export class RenderAssetProtocol {
   }
 
   async addPackage(value: UyaRenderPackageResult): Promise<EditorTerrainSource> {
-    if (!/^[a-z0-9-]+$/.test(value.cacheKey)) throw new Error('Render package key is invalid');
-    const cacheRoot = await realpath(this.cacheRoot);
-    const root = await realpath(value.rootPath);
-    if (!isPathInside(cacheRoot, root)) throw new Error('Render package is outside the Forge cache');
-    this.roots.set(value.cacheKey, root);
-    const url = (entry: string) =>
-      `forge-asset://${value.cacheKey}/${entry.split('/').map(encodeURIComponent).join('/')}`;
+    const url = await this.registerRoot(value.cacheKey, value.rootPath);
     return {
       urls: value.terrainPaths.map(url),
       skyUrl: value.skyPath ? url(value.skyPath) : undefined,
@@ -50,5 +44,20 @@ export class RenderAssetProtocol {
       })),
       cacheHit: value.cacheHit,
     };
+  }
+
+  async addPreview(value: AssetPreviewResult): Promise<AssetPreviewSource> {
+    const url = await this.registerRoot(value.cacheKey, value.rootPath);
+    return { url: url(value.modelPath), cacheHit: value.cacheHit };
+  }
+
+  private async registerRoot(cacheKey: string, rootPath: string): Promise<(entry: string) => string> {
+    if (!/^[a-z0-9-]+$/.test(cacheKey)) throw new Error('Render package key is invalid');
+    const cacheRoot = await realpath(this.cacheRoot);
+    const root = await realpath(rootPath);
+    if (!isPathInside(cacheRoot, root)) throw new Error('Render package is outside the Forge cache');
+    this.roots.set(cacheKey, root);
+    return (entry: string) =>
+      `forge-asset://${cacheKey}/${entry.split('/').map(encodeURIComponent).join('/')}`;
   }
 }

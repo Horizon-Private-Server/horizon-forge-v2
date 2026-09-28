@@ -292,7 +292,7 @@ public static class UyaRenderPackageService
             marker.OcclusionOctants);
     }
 
-    private static IReadOnlyList<PackedFileEntry> ValidateEntries(PackedFilePackage package)
+    internal static IReadOnlyList<PackedFileEntry> ValidateEntries(PackedFilePackage package)
     {
         var paths = new HashSet<string>(StringComparer.Ordinal);
         var entries = new PackedFileEntry[package.Entries.Count];
@@ -366,29 +366,9 @@ public static class UyaRenderPackageService
             try
             {
                 if (asset.Error is not null) throw new InvalidDataException(asset.Error);
-                if (asset.CanonicalFormatVersion is not 0
-                    && asset.CanonicalFormatVersion != UyaAssetImportService.CanonicalFormatVersion)
-                    throw new InvalidDataException($"Unsupported canonical asset format {asset.CanonicalFormatVersion}.");
-                if (asset.Path is null || !File.Exists(asset.Path))
-                    throw new FileNotFoundException("Asset blob is missing.");
-                var info = new FileInfo(asset.Path);
-                if (info.Length != asset.Size || info.Length is <= 0 or > MaxAssetBytes)
-                    throw new InvalidDataException("Asset blob size does not match its catalog entry.");
-                var bytes = await File.ReadAllBytesAsync(asset.Path, cancellationToken);
-                if (AssetId.Compute(asset.Kind, asset.CanonicalFormatVersion, bytes) != asset.Id)
-                    throw new InvalidDataException("Asset blob failed its identity check.");
-                var canonical = UyaCanonicalAssetCodec.Decode(bytes);
-                var kind = asset.Kind switch
-                {
-                    AssetKind.Moby => FrontendAssetKind.Moby,
-                    AssetKind.Tie => FrontendAssetKind.Tie,
-                    AssetKind.Shrub => FrontendAssetKind.Shrub,
-                    _ => throw new NotSupportedException($"{asset.Kind} render assets are not supported."),
-                };
-                var package = await Task.Run(
-                    () => FrontendAssetPackageBuilder.Build(
-                        GameId.UYA, kind, canonical.ModelBytes, canonical.Textures),
-                    cancellationToken);
+                if (asset.Path is null) throw new FileNotFoundException("Asset blob is missing.");
+                var package = await BuildAssetPackageAsync(
+                    asset.Id, asset.Kind, asset.CanonicalFormatVersion, asset.Size, asset.Path, cancellationToken);
                 result.Add(new(asset.Id, asset.Kind, package, null));
             }
             catch (Exception exception) when (exception is ArgumentException
@@ -404,7 +384,39 @@ public static class UyaRenderPackageService
         return result;
     }
 
-    private static string ResolveEntryPath(string root, string entryPath)
+    internal static async Task<PackedFilePackage> BuildAssetPackageAsync(
+        AssetId id,
+        AssetKind kind,
+        uint canonicalFormatVersion,
+        long size,
+        string path,
+        CancellationToken cancellationToken)
+    {
+        if (canonicalFormatVersion is not 0
+            && canonicalFormatVersion != UyaAssetImportService.CanonicalFormatVersion)
+            throw new InvalidDataException($"Unsupported canonical asset format {canonicalFormatVersion}.");
+        if (!File.Exists(path)) throw new FileNotFoundException("Asset blob is missing.");
+        var info = new FileInfo(path);
+        if (info.Length != size || info.Length is <= 0 or > MaxAssetBytes)
+            throw new InvalidDataException("Asset blob size does not match its catalog entry.");
+        var bytes = await File.ReadAllBytesAsync(path, cancellationToken);
+        if (AssetId.Compute(kind, canonicalFormatVersion, bytes) != id)
+            throw new InvalidDataException("Asset blob failed its identity check.");
+        var canonical = UyaCanonicalAssetCodec.Decode(bytes);
+        var frontendKind = kind switch
+        {
+            AssetKind.Moby => FrontendAssetKind.Moby,
+            AssetKind.Tie => FrontendAssetKind.Tie,
+            AssetKind.Shrub => FrontendAssetKind.Shrub,
+            _ => throw new NotSupportedException($"{kind} render assets are not supported."),
+        };
+        return await Task.Run(
+            () => FrontendAssetPackageBuilder.Build(
+                GameId.UYA, frontendKind, canonical.ModelBytes, canonical.Textures),
+            cancellationToken);
+    }
+
+    internal static string ResolveEntryPath(string root, string entryPath)
     {
         var normalized = NormalizeEntryPath(entryPath);
         var fullRoot = Path.GetFullPath(root);
@@ -416,7 +428,7 @@ public static class UyaRenderPackageService
         return candidate;
     }
 
-    private static string NormalizeEntryPath(string entryPath)
+    internal static string NormalizeEntryPath(string entryPath)
     {
         if (string.IsNullOrWhiteSpace(entryPath) || Path.IsPathRooted(entryPath))
             throw new InvalidDataException("Render-package paths must be relative.");

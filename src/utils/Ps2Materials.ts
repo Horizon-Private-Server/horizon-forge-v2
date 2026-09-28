@@ -9,6 +9,7 @@ const DEFAULT_FULL_OPACITY_BYTE = 127;
 const ALPHA_PATCH_KEY = 'forgePs2FullOpacityAlpha';
 const ALPHA_SPLIT_KEY = 'forgePs2AlphaSplit';
 const TRANSLUCENT_PASS_KEY = 'forgePs2TranslucentPass';
+const PREVIEW_OPAQUE_PASS_KEY = 'forgePs2PreviewOpaquePass';
 const FOG_PATCH_KEY = 'forgePs2Fog';
 const OPAQUE_ALPHA_CUTOFF = 254 / 255;
 const alphaCompile = new WeakMap<THREE.Material, THREE.Material['onBeforeCompile']>();
@@ -20,6 +21,45 @@ interface FogState {
   far: { value: number };
   nearAmount: { value: number };
   farAmount: { value: number };
+}
+
+export function configurePs2AssetPreview(root: THREE.Object3D, family: Ps2MaterialFamily): boolean {
+  configurePs2AssetVisibility(root, family);
+  configurePs2MaterialAlpha(root, family);
+  const meshes: THREE.Mesh[] = [];
+  root.traverseVisible((object) => {
+    if (object instanceof THREE.Mesh && object.geometry.getAttribute('position')?.count) meshes.push(object);
+  });
+  const opaqueMaterials = new Map<THREE.Material, THREE.Material>();
+  for (const mesh of meshes) {
+    if (!mesh.parent || mesh.userData[PREVIEW_OPAQUE_PASS_KEY] === true || Array.isArray(mesh.material)) continue;
+    let opaque = opaqueMaterials.get(mesh.material);
+    if (!opaque) {
+      opaque = createPs2OpaquePassMaterial(mesh.material);
+      if (!opaque) continue;
+      opaqueMaterials.set(mesh.material, opaque);
+    }
+    mesh.userData[PREVIEW_OPAQUE_PASS_KEY] = true;
+    const pass = mesh.clone(false);
+    pass.name = `${mesh.name || 'mesh'}_opaque_pass`;
+    pass.material = opaque;
+    pass.userData[PREVIEW_OPAQUE_PASS_KEY] = true;
+    mesh.parent?.add(pass);
+  }
+  return meshes.length > 0;
+}
+
+export function configurePs2AssetVisibility(root: THREE.Object3D, family: Ps2MaterialFamily): boolean {
+  root.traverse((object) => {
+    // Hide auxiliary faces until their dedicated render paths are implemented.
+    if ((family === 'moby' && object.name === 'metals')
+      || (family === 'shrub' && object.name === 'shrub_billboard')) object.visible = false;
+  });
+  let hasMesh = false;
+  root.traverseVisible((object) => {
+    if (object instanceof THREE.Mesh && object.geometry.getAttribute('position')?.count) hasMesh = true;
+  });
+  return hasMesh;
 }
 
 export function configurePs2MaterialAlpha(root: THREE.Object3D, family: Ps2MaterialFamily): void {
