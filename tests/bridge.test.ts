@@ -310,13 +310,15 @@ test('operation payloads round trip and reject trailing data', () => {
   assert.deepEqual(decodeAssetExplorerRequest(encodeAssetExplorerRequest(explorerRequest)), explorerRequest);
   const explorerPage = {
     items: [{
-      assetId: 'd'.repeat(64), category: 'ties' as const, displayLabel: 'tie:0x0123',
-      canonicalFormatVersion: 2, byteSize: 4_096, aliases: ['tie:291', 'tie:0x0123'], tags: ['vanilla'],
+      assetId: 'd'.repeat(64), category: 'textures' as const, displayLabel: 'moby:0x0123 material 0',
+      canonicalFormatVersion: 1, byteSize: 4_096, aliases: ['moby:0x0123 material 0'], tags: ['vanilla'],
       sources: [{
         game: 'UYA', region: 'NTSC-U', revision: '1.00', level: 'level03',
         archive: 'level_wad/assets/asset_wad.bin', sourceIndex: 7,
+        textureUse: { ownerKind: 'moby' as const, ownerClassId: 291, role: 'material', slot: 0, restorable: true },
       }],
-      classIds: [291], previewState: 'notCached' as const, canPlace: true,
+      classIds: [], previewState: 'notCached' as const, canPlace: false,
+      placementDisabledReason: 'Textures are preview-only.', shellIndex: 3,
     }],
     facets: {
       games: ['UYA'], levels: ['level03'], regions: ['NTSC-U'], revisions: ['1.00'], tags: ['vanilla'],
@@ -376,9 +378,9 @@ test('operation payloads round trip and reject trailing data', () => {
     cacheRootPath: '/cache',
     catalogRootPath: '/assets',
     assetId: 'c'.repeat(64),
-    kind: 'tie' as const,
+    kind: 'texture' as const,
     targetGame: 'UYA',
-    viewPreset: 'model-default',
+    viewPreset: 'texture-default',
   };
   assert.deepEqual(
     decodeAssetPreviewRequest(encodeAssetPreviewRequest(assetPreviewRequest)),

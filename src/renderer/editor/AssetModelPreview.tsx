@@ -5,14 +5,14 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-import type { AssetPreviewKind } from '../../types/AssetExplorer.js';
+import type { AssetModelKind } from '../../types/AssetExplorer.js';
 import { errorMessage } from '../../utils/Errors.ts';
 import { configurePs2AssetPreview } from '../../utils/Ps2Materials.ts';
 import { disposeObject, frameCameraOnObject } from '../../utils/Scene.ts';
 
 interface AssetModelPreviewProps {
   assetId: string;
-  kind: AssetPreviewKind;
+  kind: AssetModelKind;
   label: string;
 }
 

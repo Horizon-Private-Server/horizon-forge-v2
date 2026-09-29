@@ -1,10 +1,10 @@
 import type { EditorCommand, EditorEvent, EditorSnapshot } from './EditorRuntime.js';
-import type { AssetExplorerPage, AssetExplorerQuery, AssetPreviewKind, AssetPreviewSource } from './AssetExplorer.js';
+import type { AssetExplorerPage, AssetExplorerQuery, AssetModelKind, AssetPreviewKind, AssetPreviewSource } from './AssetExplorer.js';
 import type { ForgeNotification } from './Notifications.js';
 import type { UpdateCheckResult } from './Updates.js';
 
 export type { EditorCommand, EditorEvent, EditorSnapshot } from './EditorRuntime.js';
-export type { AssetExplorerPage, AssetExplorerQuery, AssetPreviewKind, AssetPreviewSource } from './AssetExplorer.js';
+export type { AssetExplorerPage, AssetExplorerQuery, AssetModelKind, AssetPreviewKind, AssetPreviewSource } from './AssetExplorer.js';
 export type { ForgeNotification } from './Notifications.js';
 
 export interface ForgeHostStatus {
@@ -313,6 +313,8 @@ export interface ForgeApi {
   cancelAssetExplorerQuery(): Promise<void>;
   getAssetPreview(assetId: string, kind: AssetPreviewKind, requestToken: string): Promise<AssetPreviewSource>;
   cancelAssetPreview(requestToken: string): Promise<void>;
+  getAssetThumbnail(assetId: string, kind: AssetPreviewKind): Promise<AssetPreviewSource | undefined>;
+  storeAssetThumbnail(assetId: string, kind: AssetPreviewKind, bytes: Uint8Array): Promise<AssetPreviewSource>;
   removeRecentProject(path: string): Promise<ProjectHubState>;
   revealForgeProject(path: string): Promise<void>;
   revealLogs(): Promise<void>;

@@ -4,7 +4,7 @@ Status: In progress
 
 Milestone: M2 — Editor core
 
-Tasks: M2-021 through M2-025
+Tasks: M2-021 through M2-026
 
 Primary requirements: FR-ASSET-003, FR-ASSET-004, FR-UI-001, FR-UI-002,
 FR-UI-007, FR-SCENE-002, FR-SCENE-007, FR-EDIT-001, NFR-PERF-002 through
@@ -48,8 +48,9 @@ collections, and cross-project drag-and-drop are outside v0.
 
 Forge already has a content-addressed catalog with Asset IDs, aliases, tags, source
 appearances, game and level filters, and immutable blobs. The UYA importer currently
-catalogs tie, shrub, and moby model bundles. Project creation catalogs the whole
-base sky payload, while model textures remain embedded in canonical model bundles.
+catalogs tie, shrub, and moby model bundles plus their standalone normalized PIFs.
+Project creation catalogs the whole base sky payload, while model bundles retain
+their embedded texture copies for source-faithful bake and repair.
 
 The explorer requires:
 
@@ -291,6 +292,8 @@ assignment requires a future dedicated command.
 
 ### M2-021 — Add cursor-backed Asset Explorer catalog queries
 
+Status: 🚧 In progress
+
 Requirements: FR-ASSET-003, FR-ASSET-004, FR-UI-007, NFR-PERF-002,
 NFR-PERF-004, NFR-SEC-003
 
@@ -318,7 +321,14 @@ Acceptance:
 Verification: search/filter combinations, multi-appearance/ambiguous-class fixtures,
 cursor invalidation, malformed requests, cancellation, and a large synthetic catalog.
 
+Progress: cursor-backed model and texture queries, combined facets, stale-cursor
+refresh, family-safe ordering, target compatibility, and typed texture provenance
+are wired. Sky payload imports retain SDK-produced shell indexes, and the explorer
+returns each shell as a preview-only subresource without creating a second bake owner.
+
 ### M2-022 — Build lazy asset preview and thumbnail infrastructure
+
+Status: 🚧 In progress
 
 Requirements: FR-UI-007, FR-SCENE-001, FR-SCENE-002, NFR-PERF-003 through
 NFR-PERF-005, NFR-REL-002
@@ -334,8 +344,9 @@ Acceptance:
 - Grid cards use raster thumbnails and never allocate one WebGL renderer per card.
 - Only actually visible cards request previews; at most four thumbnail jobs and one
   interactive preview own decoded resources concurrently.
-- Cache keys include Asset ID, subresource, SDK revision, preview schema, and view
-  preset; writes validate before atomic replacement.
+- Preview-package cache keys include Asset ID, subresource, SDK revision, preview
+  schema, and view preset; writes validate before atomic replacement. The renderer
+  keeps only a bounded session thumbnail LRU; M2-026 owns durable raster reuse.
 - Model previews orbit, zoom, reset, auto-frame, and render without fog. Texture and
   sky-shell previews preserve relevant alpha, blend, and rotation metadata.
 - Switching filters/assets or closing the panel cancels stale work and returns GPU,
@@ -343,6 +354,17 @@ Acceptance:
 
 Verification: off-screen request assertions, cancellation races, corrupt assets,
 cache invalidation, repeated-open soak, and representative visual screenshots.
+
+Progress: model and standalone-texture preview packages use the existing validated
+render-cache protocol. Visible texture cards load cached SDK-converted PNGs without
+allocating WebGL resources, and the detail dock shows a checkerboard-backed native
+image with its dimensions. Preview PNGs expand the PS2 0–127 opacity range to the
+browser's 0–255 range without changing canonical PIF bytes or bake inputs. Grid cards
+retain one compact identity row; source levels and full provenance stay in the detail
+dock. Model and texture grid rasters now persist in a validated, atomically written
+128 MiB LRU so later sessions can skip preview-package and rendering work. The selected
+texture preview exposes RGBA, opaque RGB, individual color, and alpha channels.
+Sky-shell previews remain open.
 
 ### M2-023 — Implement the Asset Explorer dock
 
@@ -490,15 +512,59 @@ Verification: split-family cursor fixtures, same-class multi-level fixtures,
 base-level representative selection, multi-class fixtures, and exact variant
 preview switching.
 
+### M2-026 — Persist grid thumbnails across sessions
+
+Status: 🚧 In progress
+
+Requirements: FR-UI-007, NFR-PERF-003, NFR-PERF-005, NFR-REL-002,
+NFR-SEC-003
+
+Depends on: M2-021, M2-022, M2-023
+
+Store rendered grid thumbnails in the existing Forge render cache so later panel
+and application sessions can display stable cards without rebuilding the preview
+package, decoding the model, or rendering it again. Thumbnails remain derived cache
+data and never become catalog assets or evidence that canonical data is valid.
+
+Acceptance:
+
+- A cache hit returns the raster through the existing validated local asset protocol
+  without requesting a preview package or allocating decoded model resources.
+- Keys include the exact Asset ID, optional sky-shell subresource, SDK revision,
+  preview schema, view preset, and thumbnail schema covering raster dimensions and
+  format. Renderer, material, framing, or preset changes invalidate by changing a
+  versioned key input rather than sweeping unrelated files.
+- Cache misses and corrupt entries regenerate lazily only for visible cards. Concurrent
+  requests for one key coalesce, and cancellation before rendering leaves no partial
+  entry.
+- Writes validate the encoded raster before atomic replacement. The renderer receives
+  no filesystem path and cannot select a cache destination.
+- Disk usage has a fixed byte bound with least-recently-used pruning. Pruning affects
+  only derived thumbnails and never preview packages, catalog blobs, or project data.
+- The existing bounded in-memory LRU remains the first lookup tier for the active
+  session; no database, new runtime dependency, or eager catalog-wide generation is
+  added.
+
+Verification: cold miss followed by a new-session hit with zero preview-package and
+WebGL work, stale-key and corrupt-raster regeneration, concurrent-request coalescing,
+cancellation cleanup, byte-bound pruning, and local-protocol path validation.
+
+Progress: visible model and texture cards check the persistent raster tier before
+requesting a preview package. Cold misses encode one 256px PNG through the existing
+bounded renderer path; the privileged boundary validates dimensions and format,
+writes atomically, serves through `forge-asset:`, and prunes the LRU to 128 MiB.
+Sky-shell thumbnails and retained integration/soak coverage remain open.
+
 ## Delivery plan
 
 1. Add cursor-backed explorer queries and missing texture/sky-shell metadata.
-2. Add lazy preview packages, thumbnail caching, and one interactive preview.
+2. Add lazy preview packages, session thumbnail rendering, and one interactive preview.
 3. Add the dock, virtual grid, search/filter UX, metadata, and failure states.
 4. Group exact source variants under class-family cards without changing Asset IDs.
-5. Add atomic placement and UYA neutral tie/shrub/moby generators, gated by
+5. Persist stable raster thumbnails for fast later-session grid loads.
+6. Add atomic placement and UYA neutral tie/shrub/moby generators, gated by
    ambient, UID, group, and minimal occlusion fixtures.
-6. Qualify performance and run save/reopen/bake/pack/PCSX2 placement checks for one
+7. Qualify performance and run save/reopen/bake/pack/PCSX2 placement checks for one
    asset of each placeable type.
 
 ## Acceptance summary

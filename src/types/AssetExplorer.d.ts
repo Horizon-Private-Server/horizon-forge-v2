@@ -1,5 +1,6 @@
 export type AssetExplorerCategory = 'ties' | 'shrubs' | 'mobys' | 'skyShells' | 'textures';
-export type AssetPreviewKind = 'tie' | 'shrub' | 'moby';
+export type AssetModelKind = 'tie' | 'shrub' | 'moby';
+export type AssetPreviewKind = AssetModelKind | 'texture';
 
 export interface AssetPreviewSource {
   url: string;
@@ -25,6 +26,13 @@ export interface AssetExplorerSource {
   level: string;
   archive: string;
   sourceIndex: number;
+  textureUse?: {
+    ownerKind: AssetModelKind;
+    ownerClassId: number;
+    role: string;
+    slot: number;
+    restorable: boolean;
+  };
 }
 
 export interface AssetExplorerItem {
@@ -40,6 +48,7 @@ export interface AssetExplorerItem {
   previewState: 'notCached' | 'missingBlob';
   canPlace: boolean;
   placementDisabledReason?: string;
+  shellIndex?: number;
 }
 
 export interface AssetExplorerFamily {
@@ -53,7 +62,7 @@ export interface AssetExplorerFamily {
 
 export interface AssetPlacementDragData {
   assetId: string;
-  kind: AssetPreviewKind;
+  kind: AssetModelKind;
   classId: number;
 }
 

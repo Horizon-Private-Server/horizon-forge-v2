@@ -46,6 +46,10 @@ const forgeApi = Object.freeze({
   getAssetPreview: (assetId: string, kind: AssetPreviewKind, requestToken: string) =>
     ipcRenderer.invoke('forge:asset-preview', assetId, kind, requestToken),
   cancelAssetPreview: (requestToken: string) => ipcRenderer.invoke('forge:asset-preview-cancel', requestToken),
+  getAssetThumbnail: (assetId: string, kind: AssetPreviewKind) =>
+    ipcRenderer.invoke('forge:asset-thumbnail', assetId, kind),
+  storeAssetThumbnail: (assetId: string, kind: AssetPreviewKind, bytes: Uint8Array) =>
+    ipcRenderer.invoke('forge:asset-thumbnail-store', assetId, kind, bytes),
   removeRecentProject: (path: string) => ipcRenderer.invoke('forge:projects-remove-recent', path),
   revealForgeProject: (path: string) => ipcRenderer.invoke('forge:projects-reveal', path),
   revealLogs: () => ipcRenderer.invoke('forge:logs-reveal'),

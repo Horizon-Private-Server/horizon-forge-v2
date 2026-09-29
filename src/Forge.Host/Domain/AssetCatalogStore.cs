@@ -39,6 +39,7 @@ public sealed class AssetCatalogStore
     public string RootPath { get; }
     public string BlobRootPath { get; }
     public string CatalogPath { get; }
+    internal string Revision => _revision;
 
     public static async Task<AssetCatalogStore> OpenAsync(string rootPath, CancellationToken cancellationToken = default)
     {
@@ -92,7 +93,7 @@ public sealed class AssetCatalogStore
     {
         ArgumentNullException.ThrowIfNull(assets);
         if (assets.Count == 0) return [];
-        foreach (var asset in assets) ValidateMetadata(asset.Metadata);
+        foreach (var asset in assets) ValidateMetadata(asset.Kind, asset.Metadata);
 
         await _writes.WaitAsync(cancellationToken);
         try
@@ -132,12 +133,12 @@ public sealed class AssetCatalogStore
         AssetImportMetadata metadata,
         CancellationToken cancellationToken = default)
     {
-        ValidateMetadata(metadata);
         await _writes.WaitAsync(cancellationToken);
         try
         {
             if (!_entries.TryGetValue(id.ToString(), out var existing))
                 throw new KeyNotFoundException($"Asset {id} is not present in the catalog.");
+            ValidateMetadata(existing.Kind, metadata);
             if (!File.Exists(BlobPath(id))) throw new FileNotFoundException($"Asset blob {id} is missing.");
             var entry = Merge(
                 existing, id, existing.Kind, existing.CanonicalFormatVersion, existing.Size, metadata);
@@ -371,13 +372,18 @@ public sealed class AssetCatalogStore
         var aliases = MergeValues(existing?.Aliases, metadata.Aliases);
         var tags = MergeValues(existing?.Tags, metadata.Tags);
         var sources = (existing?.Sources ?? [])
-            .Append(NormalizeSource(metadata.Source))
+            .Append(NormalizeSource(metadata.Source, kind))
             .Distinct()
             .OrderBy(source => source.Game, StringComparer.Ordinal)
             .ThenBy(source => source.Revision, StringComparer.Ordinal)
             .ThenBy(source => source.Level, StringComparer.Ordinal)
             .ThenBy(source => source.Archive, StringComparer.Ordinal)
             .ThenBy(source => source.SourceIndex)
+            .ThenBy(source => source.TextureUse?.OwnerKind)
+            .ThenBy(source => source.TextureUse?.OwnerClassId)
+            .ThenBy(source => source.TextureUse?.Role, StringComparer.Ordinal)
+            .ThenBy(source => source.TextureUse?.Slot)
+            .ThenBy(source => source.TextureUse?.Restorable)
             .ThenBy(source => source.Fingerprint, StringComparer.Ordinal)
             .ToArray();
         if (sources.Length > MaxMetadataItems)
@@ -402,10 +408,23 @@ public sealed class AssetCatalogStore
         return result;
     }
 
-    private static AssetSource NormalizeSource(AssetSource source)
+    private static AssetSource NormalizeSource(AssetSource source, AssetKind kind)
     {
         ArgumentNullException.ThrowIfNull(source);
         if (source.SourceIndex < 0) throw new ArgumentOutOfRangeException(nameof(source), "Source index cannot be negative.");
+        var textureUse = source.TextureUse;
+        if (textureUse is not null)
+        {
+            if (kind != AssetKind.Texture)
+                throw new ArgumentException("Texture provenance is only valid for texture assets.", nameof(source));
+            if (textureUse.OwnerKind is not (AssetKind.Moby or AssetKind.Tie or AssetKind.Shrub))
+                throw new ArgumentOutOfRangeException(nameof(source), "Texture owner kind must be a model asset kind.");
+            if (textureUse.OwnerClassId < 0)
+                throw new ArgumentOutOfRangeException(nameof(source), "Texture owner class ID cannot be negative.");
+            if (textureUse.Slot < 0)
+                throw new ArgumentOutOfRangeException(nameof(source), "Texture slot cannot be negative.");
+            textureUse = textureUse with { Role = ValidateText(textureUse.Role, nameof(textureUse.Role)) };
+        }
         return new(
             ValidateText(source.Game, nameof(source.Game)),
             ValidateText(source.Region, nameof(source.Region)),
@@ -413,14 +432,15 @@ public sealed class AssetCatalogStore
             ValidateText(source.Level, nameof(source.Level)),
             ValidateText(source.Archive, nameof(source.Archive)),
             source.SourceIndex,
-            ValidateText(source.Fingerprint, nameof(source.Fingerprint)));
+            ValidateText(source.Fingerprint, nameof(source.Fingerprint)),
+            textureUse);
     }
 
-    private static void ValidateMetadata(AssetImportMetadata metadata)
+    private static void ValidateMetadata(AssetKind kind, AssetImportMetadata metadata)
     {
         ArgumentNullException.ThrowIfNull(metadata);
         ValidateText(metadata.ImporterVersion, nameof(metadata.ImporterVersion));
-        NormalizeSource(metadata.Source);
+        NormalizeSource(metadata.Source, kind);
         NormalizeValues(metadata.Aliases, nameof(metadata.Aliases));
         NormalizeValues(metadata.Tags, nameof(metadata.Tags));
     }
@@ -441,7 +461,7 @@ public sealed class AssetCatalogStore
     {
         if (!Enum.IsDefined(stored.Kind)) throw new InvalidDataException($"Unknown asset kind {stored.Kind}.");
         var id = AssetId.Parse(stored.Id);
-        var source = stored.Sources.Select(NormalizeSource).ToArray();
+        var source = stored.Sources.Select(value => NormalizeSource(value, stored.Kind)).ToArray();
         var aliases = NormalizeValues(stored.Aliases, nameof(stored.Aliases));
         var tags = NormalizeValues(stored.Tags, nameof(stored.Tags));
         ValidateText(stored.ImporterVersion, nameof(stored.ImporterVersion));

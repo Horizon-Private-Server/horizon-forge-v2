@@ -42,6 +42,7 @@ internal static class UyaStaticLayerTests
             var tieAsset = await PutAsync(catalog, AssetKind.Tie, 0x0200, tieBytes);
             var shrubAsset = await PutAsync(catalog, AssetKind.Shrub, 0x0300, shrubBytes);
             var mobyAsset = await PutAsync(catalog, AssetKind.Moby, 0x0400, mobyBytes);
+            await VerifyMultiClassPlacementAsync(root, catalog);
             var project = Path.Combine(root, "project");
             var hiddenTie = Entity("Hidden tie", "ties", tieAsset, 0x0200,
                 UyaTieInstancesReader.RecordSize, new(Hidden: true), new(10, 20, 30), new(2, 3, 4), 0);
@@ -311,6 +312,35 @@ internal static class UyaStaticLayerTests
             [$"{kind.ToString().ToLowerInvariant()}:{classId}", $"{kind.ToString().ToLowerInvariant()}:0x{classId:X4}"],
             ["vanilla", "game:UYA", "level:03"]));
 
+    private static async Task VerifyMultiClassPlacementAsync(string root, AssetCatalogStore catalog)
+    {
+        var asset = await catalog.PutAsync(
+            AssetKind.Shrub,
+            UyaAssetImportService.CanonicalFormatVersion,
+            CanonicalAsset(AssetKind.Shrub, 0x44),
+            new(
+                "test",
+                new("UYA", "NTSC-U", "1.00", "level03", "level_wad/assets/asset_wad.bin", 1,
+                    new string('a', 32)),
+                ["shrub:768", "shrub:769"],
+                ["vanilla", "game:UYA", "level:03"]));
+        var project = Path.Combine(root, "multi-class-placement");
+        await ForgeProjectWorkspace.CreateAsync(
+            project,
+            "Multi-class placement",
+            new("UYA", "NTSC-U", "1.00", "uya-ntsc-u"),
+            new("UYA", "NTSC-U", "1.00", 3, new string('a', 32), EntityVersion: 1),
+            []);
+        var workspace = await ForgeProjectWorkspace.OpenAsync(project);
+        var placed = await UyaAssetPlacementService.CreateAsync(
+            workspace, catalog.RootPath, new(asset.Id, AssetKind.Shrub, 769, ProjectTransform.Identity),
+            CancellationToken.None);
+        Equal(769, placed.Source!.ClassId, "selected multi-class identity");
+        await ExpectAsync<InvalidDataException>(() => UyaAssetPlacementService.CreateAsync(
+            workspace, catalog.RootPath, new(asset.Id, AssetKind.Shrub, 770, ProjectTransform.Identity),
+            CancellationToken.None));
+    }
+
     private static byte[] CanonicalAsset(AssetKind kind, byte modelByte)
     {
         var definitionLength = kind == AssetKind.Shrub ? 0x30 : 0x20;
@@ -346,6 +376,13 @@ internal static class UyaStaticLayerTests
     {
         if (MathF.Abs(expected - actual) > 0.0001f)
             throw new InvalidOperationException($"{context}: expected {expected}, got {actual}");
+    }
+
+    private static async Task ExpectAsync<T>(Func<Task> action) where T : Exception
+    {
+        try { await action(); }
+        catch (T) { return; }
+        throw new InvalidOperationException($"Expected {typeof(T).Name}.");
     }
 
     private static void Equal<T>(T expected, T actual, string context)

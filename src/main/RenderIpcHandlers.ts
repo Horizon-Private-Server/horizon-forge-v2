@@ -21,7 +21,7 @@ export function registerRenderIpcHandlers(options: RenderIpcHandlersOptions): vo
   function assertPreview(assetId: unknown, kind?: unknown): asserts assetId is string {
     if (typeof assetId !== 'string' || !/^[0-9a-f]{64}$/.test(assetId))
       throw new TypeError('Asset preview ID is invalid');
-    if (kind !== undefined && kind !== 'moby' && kind !== 'tie' && kind !== 'shrub')
+    if (kind !== undefined && kind !== 'moby' && kind !== 'tie' && kind !== 'shrub' && kind !== 'texture')
       throw new TypeError('Asset preview kind is invalid');
   }
 
@@ -29,6 +29,10 @@ export function registerRenderIpcHandlers(options: RenderIpcHandlersOptions): vo
     if (typeof value !== 'string'
       || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value))
       throw new TypeError('Asset preview request token is invalid');
+  }
+
+  function assertThumbnail(assetId: unknown, kind: unknown): asserts assetId is string {
+    assertPreview(assetId, kind);
   }
 
   ipcMain.handle('forge:editor-terrain', async (event) => {
@@ -79,7 +83,7 @@ export function registerRenderIpcHandlers(options: RenderIpcHandlersOptions): vo
       assetId,
       kind: kind as AssetPreviewKind,
       targetGame: project.target.game,
-      viewPreset: 'model-default',
+      viewPreset: kind === 'texture' ? 'texture-default' : 'model-default',
     });
     activePreviewRequests.set(requestToken, request.requestId);
     try {
@@ -94,5 +98,23 @@ export function registerRenderIpcHandlers(options: RenderIpcHandlersOptions): vo
     assertRequestToken(requestToken);
     const requestId = activePreviewRequests.get(requestToken);
     if (requestId !== undefined) await host.cancel(requestId);
+  });
+
+  ipcMain.handle('forge:asset-thumbnail', async (event, assetId: unknown, kind: unknown) => {
+    assertSender(event.sender.id);
+    assertThumbnail(assetId, kind);
+    const { sdkRevision } = await host.start();
+    return renderAssets.getThumbnail(assetId, kind as AssetPreviewKind, sdkRevision);
+  });
+
+  ipcMain.handle('forge:asset-thumbnail-store', async (
+    event, assetId: unknown, kind: unknown, bytes: unknown,
+  ) => {
+    assertSender(event.sender.id);
+    assertThumbnail(assetId, kind);
+    if (!(bytes instanceof Uint8Array) || bytes.byteLength <= 0 || bytes.byteLength > 2 * 1024 * 1024)
+      throw new TypeError('Asset thumbnail bytes are invalid');
+    const { sdkRevision } = await host.start();
+    return renderAssets.storeThumbnail(assetId, kind as AssetPreviewKind, sdkRevision, bytes);
   });
 }

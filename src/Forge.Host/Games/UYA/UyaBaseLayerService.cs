@@ -60,16 +60,24 @@ internal static class UyaBaseLayerService
     public static IReadOnlyList<AssetCatalogPut> CreateCatalogPuts(
         IReadOnlyList<UyaBaseLayerPayload> payloads,
         OpaqueContentSource source,
-        string importerVersion) => payloads.Select(payload => new AssetCatalogPut(
-            payload.Kind,
-            UyaBaseLayerSchema.CanonicalFormatVersion,
-            payload.Bytes,
-            new(
-                importerVersion,
-                new(source.Game, source.Region, source.Revision, $"level{source.Level:00}",
-                    payload.SourceArchive, payload.SourceIndex, source.Fingerprint),
-                [$"base:{payload.Layer.ToString().ToLowerInvariant()}:{Path.GetFileNameWithoutExtension(payload.Name)}"],
-                ["vanilla", $"game:{source.Game}", $"level:{source.Level:00}", "base-layer"]))).ToArray();
+        string importerVersion) => payloads.Select(payload =>
+        {
+            var aliases = new List<string>
+            {
+                $"base:{payload.Layer.ToString().ToLowerInvariant()}:{Path.GetFileNameWithoutExtension(payload.Name)}",
+            };
+            if (payload.Kind == AssetKind.Sky) aliases.AddRange(UyaSkyShellIndexService.Aliases(payload.Bytes));
+            return new AssetCatalogPut(
+                payload.Kind,
+                UyaBaseLayerSchema.CanonicalFormatVersion,
+                payload.Bytes,
+                new(
+                    importerVersion,
+                    new(source.Game, source.Region, source.Revision, $"level{source.Level:00}",
+                        payload.SourceArchive, payload.SourceIndex, source.Fingerprint),
+                    aliases,
+                    ["vanilla", $"game:{source.Game}", $"level:{source.Level:00}", "base-layer"]));
+        }).ToArray();
 
     private static void Add(
         ICollection<UyaBaseLayerPayload> payloads,

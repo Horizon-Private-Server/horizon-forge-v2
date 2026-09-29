@@ -12,7 +12,9 @@ namespace Forge.Host.Games.UYA;
 
 public static class UyaAssetImportService
 {
+    public const string ImporterVersionPrefix = "forge-uya-v3+";
     public const uint CanonicalFormatVersion = 1;
+    public const uint TextureCanonicalFormatVersion = 1;
     private const int StateSchemaVersion = 0;
     private static readonly byte[] MissingTexturePif = CreateMissingTexturePif();
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -176,16 +178,17 @@ public static class UyaAssetImportService
         var results = new List<AssetCatalogPut>(extracted.Assets.Count);
         foreach (var asset in extracted.Assets)
         {
+            var kind = asset.Kind switch
+            {
+                FrontendAssetKind.Moby => AssetKind.Moby,
+                FrontendAssetKind.Tie => AssetKind.Tie,
+                FrontendAssetKind.Shrub => AssetKind.Shrub,
+                _ => throw new ArgumentOutOfRangeException(nameof(asset.Kind)),
+            };
             var usedPlaceholder = asset.Textures.Any(texture => texture.PifBytes is null);
             AddAsset(
                 results,
-                asset.Kind switch
-                {
-                    FrontendAssetKind.Moby => AssetKind.Moby,
-                    FrontendAssetKind.Tie => AssetKind.Tie,
-                    FrontendAssetKind.Shrub => AssetKind.Shrub,
-                    _ => throw new ArgumentOutOfRangeException(nameof(asset.Kind)),
-                },
+                kind,
                 asset.ClassId,
                 asset.SourceIndex,
                 asset.DefinitionBytes,
@@ -194,6 +197,7 @@ public static class UyaAssetImportService
                 usedPlaceholder,
                 level,
                 request);
+            AddTextures(results, kind, asset.ClassId, asset.SourceIndex, asset.Textures, level, request);
         }
         return new(results, extracted.FailedAssetCount);
     }
@@ -226,6 +230,50 @@ public static class UyaAssetImportService
                 usedPlaceholder
                     ? ["vanilla", "game:UYA", $"level:{level:00}", "texture:placeholder"]
                     : ["vanilla", "game:UYA", $"level:{level:00}"])));
+    }
+
+    private static void AddTextures(
+        List<AssetCatalogPut> results,
+        AssetKind ownerKind,
+        int ownerClassId,
+        int sourceIndex,
+        IReadOnlyList<ExtractedLevelAssetTexture> textures,
+        int level,
+        UyaAssetImportRequest request)
+    {
+        var roleSlots = new Dictionary<byte, int>();
+        foreach (var texture in textures)
+        {
+            var slot = roleSlots.GetValueOrDefault(texture.Role);
+            roleSlots[texture.Role] = slot + 1;
+            var restorable = texture.PifBytes is not null;
+            var role = texture.Role switch
+            {
+                0 => "material",
+                1 => "billboard",
+                _ => $"role:{texture.Role}",
+            };
+            var kindName = ownerKind.ToString().ToLowerInvariant();
+            results.Add(new(
+                AssetKind.Texture,
+                TextureCanonicalFormatVersion,
+                texture.PifBytes ?? MissingTexturePif,
+                new(
+                    request.ImporterVersion,
+                    new(
+                        "UYA",
+                        "NTSC-U",
+                        request.Revision,
+                        $"level{level:00}",
+                        "level_wad/assets/asset_wad.bin",
+                        sourceIndex,
+                        request.Fingerprint,
+                        new(ownerKind, ownerClassId, role, slot, restorable)),
+                    [$"{kindName}:0x{ownerClassId:X4} {role} {slot}"],
+                    restorable
+                        ? ["vanilla", "game:UYA", $"level:{level:00}"]
+                        : ["vanilla", "game:UYA", $"level:{level:00}", "texture:placeholder"])));
+        }
     }
 
     private static byte[] CreateMissingTexturePif()

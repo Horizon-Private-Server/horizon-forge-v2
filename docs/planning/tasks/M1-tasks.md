@@ -227,6 +227,11 @@ against a separately populated matching catalog. The contract is recorded in
 ## M1-009 — Publish global vanilla asset lookup manifests
 
 Priority: Future
+
+Progress: standalone normalized UYA PIFs are cataloged with typed owner, role,
+role-local slot, and restorable provenance. Deterministic checked-in lookup
+manifests remain open.
+
 Requirements: FR-ASSET-001, FR-ASSET-003, FR-ASSET-004, FR-APP-005,
 NFR-PORT-002, NFR-REL-002
 Depends on: M1-003, M1-004, M5-001

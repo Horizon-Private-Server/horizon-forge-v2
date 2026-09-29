@@ -23,7 +23,8 @@ export function decodeAssetPreviewRequest(payload: Uint8Array): AssetPreviewRequ
   const catalogRootPath = reader.readString();
   const assetId = reader.readString();
   const kind = reader.readString();
-  if (kind !== 'moby' && kind !== 'tie' && kind !== 'shrub') malformed('Asset preview kind is invalid');
+  if (kind !== 'moby' && kind !== 'tie' && kind !== 'shrub' && kind !== 'texture')
+    malformed('Asset preview kind is invalid');
   const value: AssetPreviewRequest = {
     cacheRootPath,
     catalogRootPath,

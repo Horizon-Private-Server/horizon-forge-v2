@@ -1,5 +1,12 @@
 namespace Forge.Host.Domain;
 
+public sealed record AssetTextureUse(
+    AssetKind OwnerKind,
+    int OwnerClassId,
+    string Role,
+    int Slot,
+    bool Restorable);
+
 public sealed record AssetSource(
     string Game,
     string Region,
@@ -7,7 +14,8 @@ public sealed record AssetSource(
     string Level,
     string Archive,
     int SourceIndex,
-    string Fingerprint);
+    string Fingerprint,
+    AssetTextureUse? TextureUse = null);
 
 public sealed record AssetImportMetadata(
     string ImporterVersion,

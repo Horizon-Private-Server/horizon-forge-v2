@@ -51,7 +51,7 @@ See [P0/MVP scope](P0-MVP.md) for the release boundary.
 Feature-specific design, acceptance criteria, and tasks live together when keeping
 them in a milestone-wide task register would split one implementation plan:
 
-- [Asset Explorer v0](../features/asset-explorer-v0.md) — M2-021 through M2-025
+- [Asset Explorer v0](../features/asset-explorer-v0.md) — M2-021 through M2-026
 
 ## Task conventions
 

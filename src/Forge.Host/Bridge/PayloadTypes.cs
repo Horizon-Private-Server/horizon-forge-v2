@@ -84,13 +84,20 @@ public sealed record AssetExplorerRequestPayload(
     string TargetGame,
     string TargetRegion,
     string TargetRevision);
+public sealed record AssetExplorerTextureUsePayload(
+    string OwnerKind,
+    uint OwnerClassId,
+    string Role,
+    uint Slot,
+    bool Restorable);
 public sealed record AssetExplorerSourcePayload(
     string Game,
     string Region,
     string Revision,
     string Level,
     string Archive,
-    uint SourceIndex);
+    uint SourceIndex,
+    AssetExplorerTextureUsePayload? TextureUse = null);
 public sealed record AssetExplorerItemPayload(
     string AssetId,
     AssetExplorerCategoryPayload Category,
@@ -103,7 +110,8 @@ public sealed record AssetExplorerItemPayload(
     IReadOnlyList<uint> ClassIds,
     string PreviewState,
     bool CanPlace,
-    string? PlacementDisabledReason);
+    string? PlacementDisabledReason,
+    uint? ShellIndex = null);
 public sealed record AssetExplorerFacetsPayload(
     IReadOnlyList<string> Games,
     IReadOnlyList<string> Levels,

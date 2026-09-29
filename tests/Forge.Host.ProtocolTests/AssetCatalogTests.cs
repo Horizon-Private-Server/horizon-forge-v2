@@ -38,6 +38,50 @@ internal static class AssetCatalogTests
         Equal(null, page.Items[0].PlacementDisabledReason, "explorer bridge tie placement reason");
         Equal(true, page.Items[0].ClassIds.SequenceEqual([291u]), "explorer bridge normalized class identity");
 
+        var texture = await store.PutAsync(
+            AssetKind.Texture,
+            1,
+            "explorer texture"u8.ToArray(),
+            Metadata("level03", 7, ["Crate material"], ["vanilla"],
+                new(AssetKind.Tie, 291, "material", 0, true)));
+        var texturePage = await QueryExplorerAsync(request with
+        {
+            Category = AssetExplorerCategoryPayload.Textures,
+            Search = "0x0123",
+        });
+        var textureItem = texturePage.Items.Single();
+        Equal(texture.Id.ToString(), textureItem.AssetId, "explorer texture asset");
+        Equal(false, textureItem.CanPlace, "explorer texture placement support");
+        Equal("Textures are preview-only.", textureItem.PlacementDisabledReason, "explorer texture placement reason");
+        Equal(new AssetExplorerTextureUsePayload("tie", 291, "material", 0, true),
+            textureItem.Sources.Single().TextureUse, "explorer texture provenance");
+
+        var skyBytes = BuildUyaSkyboxFixture(2);
+        var sky = await store.PutAsync(
+            AssetKind.Sky,
+            0,
+            skyBytes,
+            Metadata("level03", 0,
+                ["base:sky:sky", .. UyaSkyShellIndexService.Aliases(skyBytes)], ["vanilla", "base-layer"]));
+        var skyRequest = request with
+        {
+            Category = AssetExplorerCategoryPayload.SkyShells,
+            Search = null,
+            Limit = 1,
+        };
+        var firstSkyPage = await QueryExplorerAsync(skyRequest);
+        Equal(0u, firstSkyPage.Items.Single().ShellIndex, "explorer first sky shell index");
+        Equal(true, firstSkyPage.NextCursor is not null, "explorer sky shell cursor");
+        var secondSkyPage = await QueryExplorerAsync(skyRequest with { Cursor = firstSkyPage.NextCursor });
+        Equal(1u, secondSkyPage.Items.Single().ShellIndex, "explorer second sky shell index");
+        var searchedSkyPage = await QueryExplorerAsync(skyRequest with { Search = "shell 01", Limit = 64 });
+        Equal(1u, searchedSkyPage.Items.Single().ShellIndex, "explorer sky shell search");
+        File.Delete(store.ResolveBlobPath(sky.Id)!);
+        var missingSkyPage = await QueryExplorerAsync(skyRequest with { Limit = 64 });
+        Equal(true, missingSkyPage.Items.Count == 2
+            && missingSkyPage.Items.All(item => item.PreviewState == "missingBlob"),
+            "explorer retained sky shell index");
+
         await store.UpdateMetadataAsync(
             entry.Id,
             Metadata("level03", 7, ["tie:292"], ["vanilla"]));
@@ -63,9 +107,8 @@ internal static class AssetCatalogTests
             [.. lowerIds, entry.Id.ToString(), higherClass.Id.ToString()]),
             "explorer bridge class order");
         var ambiguous = page.Items.Single(item => item.AssetId == entry.Id.ToString());
-        Equal(false, ambiguous.CanPlace, "explorer bridge ambiguous placement");
-        Equal(true, ambiguous.PlacementDisabledReason!.Contains("multiple class identities", StringComparison.Ordinal),
-            "explorer bridge ambiguous reason");
+        Equal(true, ambiguous.CanPlace, "explorer family supplies the selected class identity");
+        Equal(null, ambiguous.PlacementDisabledReason, "explorer multi-class placement reason");
 
         var firstPage = await QueryExplorerAsync(request with { Search = null, Limit = 2 });
         var secondPage = await QueryExplorerAsync(request with { Search = null, Limit = 2, Cursor = firstPage.NextCursor });
@@ -242,11 +285,24 @@ internal static class AssetCatalogTests
         string level,
         int sourceIndex,
         IReadOnlyCollection<string> aliases,
-        IReadOnlyCollection<string> tags) => new(
+        IReadOnlyCollection<string> tags,
+        AssetTextureUse? textureUse = null) => new(
         "uya-importer-v0",
-        new("UYA", "NTSC-U", "1.00", level, $"{level}.wad", sourceIndex, UyaIsoService.SupportedMd5),
+        new("UYA", "NTSC-U", "1.00", level, $"{level}.wad", sourceIndex, UyaIsoService.SupportedMd5, textureUse),
         aliases,
         tags);
+
+    private static byte[] BuildUyaSkyboxFixture(int shellCount)
+    {
+        var bytes = new byte[0x30 + (shellCount * 0x10)];
+        using var stream = new MemoryStream(bytes, writable: true);
+        using var writer = new BinaryWriter(stream);
+        stream.Position = 6;
+        writer.Write(checked((short)shellCount));
+        stream.Position = 0x20;
+        for (var index = 0; index < shellCount; index++) writer.Write(checked((uint)(0x30 + (index * 0x10))));
+        return bytes;
+    }
 
     private static void Expect<T>(Action action) where T : Exception
     {

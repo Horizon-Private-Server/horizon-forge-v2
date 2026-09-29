@@ -42,8 +42,8 @@ internal static class UyaAssetImportTests
             Equal(true, result.Resumed, "resumed import");
             Equal(2, result.CompletedLevels, "completed levels");
             Equal(2, result.TotalLevels, "total levels");
-            Equal(8, result.AssetAppearances, "asset appearances");
-            Equal(4, result.UniqueAssets, "deduplicated assets");
+            Equal(10, result.AssetAppearances, "asset appearances");
+            Equal(5, result.UniqueAssets, "deduplicated assets");
             Equal(0, result.FailedAssets, "failed assets");
 
             var catalog = await AssetCatalogStore.OpenAsync(root);
@@ -58,6 +58,11 @@ internal static class UyaAssetImportTests
             Equal(2, mobys.Count, "moby model count");
             Equal(1, mobys.Count(entry => entry.Tags.Contains("texture:placeholder")), "placeholder moby count");
             foreach (var entry in mobys) Equal(2, entry.Sources.Count, "moby source appearances");
+            var texture = catalog.Query(new(Kind: AssetKind.Texture)).Single();
+            Equal(2, texture.Sources.Count, "texture source appearances");
+            Equal(true, texture.Tags.Contains("texture:placeholder"), "placeholder texture tag");
+            Equal(new AssetTextureUse(AssetKind.Moby, 101, "material", 0, false),
+                texture.Sources[0].TextureUse, "texture owner provenance");
 
             var repairTarget = mobys[0];
             File.Delete(catalog.ResolveBlobPath(repairTarget.Id)!);

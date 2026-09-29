@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 
+import { AssetThumbnailCache } from '../src/main/AssetThumbnailCache.ts';
 import {
+  assetExplorerFilterCount,
   assetGridWindow,
   buildAssetFamilies,
   buildSceneEntityGroups,
@@ -10,12 +15,15 @@ import {
   entityStateLabel,
   entityTreeKind,
   entityTreeText,
+  isStaleAssetExplorerCursor,
   nextTreeSelection,
   nextViewportSelection,
 } from '../src/renderer/editor/EditorPanelState.ts';
 import type { AssetExplorerItem } from '../src/types/AssetExplorer.js';
 import type { EditorEntity } from '../src/types/EditorRuntime.js';
+import { createAssetPlacementCommand } from '../src/utils/AssetPlacement.ts';
 import { parseSplinePointId, removeSplinePoints, splinePointId } from '../src/utils/SplinePoints.ts';
+import { applyTextureChannel } from '../src/utils/TexturePreview.ts';
 
 function entity(index: number): EditorEntity {
   return {
@@ -52,6 +60,58 @@ test('asset grid keeps DOM work bounded around visible rows', () => {
   assert.equal(middle.totalHeight, first.totalHeight);
 });
 
+test('texture preview channels expose opaque color and alpha values', () => {
+  const rgb = new Uint8ClampedArray([10, 20, 30, 40]);
+  applyTextureChannel(rgb, 'rgb');
+  assert.deepEqual([...rgb], [10, 20, 30, 255]);
+  const alpha = new Uint8ClampedArray([10, 20, 30, 40]);
+  applyTextureChannel(alpha, 'alpha');
+  assert.deepEqual([...alpha], [40, 40, 40, 255]);
+});
+
+test('asset thumbnails persist, reject corruption, and prune least-recently-used rasters', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'forge-thumbnail-cache-'));
+  const valid = (bytes: Uint8Array) => bytes[0] === 42;
+  try {
+    const cache = new AssetThumbnailCache(root, valid, 5);
+    const first = await cache.store('a'.repeat(64), 'tie', 'sdk', Uint8Array.of(42, 1, 1));
+    assert.equal((await cache.get('a'.repeat(64), 'tie', 'sdk'))?.path, first.path);
+    await cache.store('b'.repeat(64), 'shrub', 'sdk', Uint8Array.of(42, 2, 2));
+    await assert.rejects(stat(path.join(first.rootPath, first.path)), { code: 'ENOENT' });
+
+    const second = await cache.get('b'.repeat(64), 'shrub', 'sdk');
+    assert.ok(second);
+    await writeFile(path.join(second.rootPath, second.path), Uint8Array.of(0, 2, 2));
+    assert.equal(await cache.get('b'.repeat(64), 'shrub', 'sdk'), undefined);
+    await assert.rejects(readFile(path.join(second.rootPath, second.path)), { code: 'ENOENT' });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('asset explorer counts active facets and recognizes stale cursors', () => {
+  assert.equal(assetExplorerFilterCount({
+    game: 'UYA', region: 'NTSC-U', tags: ['vanilla', 'structural'],
+  }), 4);
+  assert.equal(isStaleAssetExplorerCursor(
+    new Error('The asset catalog changed; restart the query.')),
+  true);
+  assert.equal(isStaleAssetExplorerCursor(new Error('Catalog query failed.')), false);
+});
+
+test('asset placement uses one shared identity transform command', () => {
+  const command = createAssetPlacementCommand({ assetId: 'a'.repeat(64), kind: 'shrub', classId: 42 }, { x: 1, y: 2, z: 3 });
+  assert.equal(command.kind, 'createEntityFromAsset');
+  assert.deepEqual(command.placement, {
+    assetId: 'a'.repeat(64), kind: 'Shrub', classId: 42,
+    transform: {
+      position: { x: 1, y: 2, z: 3 },
+      rotation: { x: 0, y: 0, z: 0, w: 1 },
+      scale: { x: 1, y: 1, z: 1 },
+    },
+  });
+});
+
 test('asset explorer groups exact variants by target class and prefers the base-level source', () => {
   const variant = (assetId: string, classIds: number[], level: string, revision = '1.00'): AssetExplorerItem => ({
     assetId, category: 'mobys', displayLabel: 'moby:0x000B', canonicalFormatVersion: 1, byteSize: 100,
@@ -70,6 +130,20 @@ test('asset explorer groups exact variants by target class and prefers the base-
   assert.equal(families[0].representativeAssetId, 'a'.repeat(64));
   assert.deepEqual(families[0].variants.map((item) => item.assetId), ['a'.repeat(64), 'b'.repeat(64)]);
   assert.equal(families[1].variants[0].sources[0].revision, '2.00');
+});
+
+test('asset explorer keeps sky shells under separate cards', () => {
+  const shell = (shellIndex: number): AssetExplorerItem => ({
+    assetId: 'a'.repeat(64), category: 'skyShells', displayLabel: `Sky shell ${shellIndex}`,
+    canonicalFormatVersion: 0, byteSize: 100, aliases: ['base:sky:sky'], tags: ['vanilla'],
+    sources: [{ game: 'UYA', region: 'NTSC-U', revision: '1.00', level: 'level03', archive: 'sky.bin', sourceIndex: 0 }],
+    classIds: [], previewState: 'notCached', canPlace: false, shellIndex,
+  });
+
+  const families = buildAssetFamilies([shell(0), shell(1)], {
+    game: 'UYA', region: 'NTSC-U', revision: '1.00', level: 3,
+  });
+  assert.deepEqual(families.map((family) => family.displayLabel), ['Sky shell 0', 'Sky shell 1']);
 });
 
 test('scene tree grouping filters, labels states, and returns every result', () => {

@@ -1,5 +1,5 @@
 import type { EditorEntity } from '../../types/EditorRuntime.js';
-import type { AssetExplorerFamily, AssetExplorerItem } from '../../types/AssetExplorer.js';
+import type { AssetExplorerFamily, AssetExplorerItem, AssetExplorerQuery } from '../../types/AssetExplorer.js';
 
 export interface SceneEntityGroup {
   layer: string;
@@ -14,6 +14,17 @@ export interface AssetGridWindow {
   totalHeight: number;
 }
 
+export function assetExplorerFilterCount(
+  query: Pick<AssetExplorerQuery, 'game' | 'level' | 'region' | 'revision' | 'tags'>,
+): number {
+  return [query.game, query.level, query.region, query.revision].filter(Boolean).length + (query.tags?.length ?? 0);
+}
+
+export function isStaleAssetExplorerCursor(reason: unknown): boolean {
+  const message = reason instanceof Error ? reason.message : String(reason);
+  return message.toLocaleLowerCase().includes('asset catalog changed; restart the query');
+}
+
 export function buildAssetFamilies(
   items: readonly AssetExplorerItem[],
   target: { game: string; region: string; revision: string; level: number },
@@ -21,7 +32,7 @@ export function buildAssetFamilies(
   const families = new Map<string, AssetExplorerFamily>();
   for (const item of items) {
     if (!item.classIds.length) {
-      addVariant(families, `asset:${item.assetId}`, item, undefined, item.displayLabel);
+      addVariant(families, `asset:${item.assetId}:${item.shellIndex ?? ''}`, item, undefined, item.displayLabel);
       continue;
     }
     const targets = new Set(item.sources.map((source) =>

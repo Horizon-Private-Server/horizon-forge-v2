@@ -339,7 +339,7 @@ public static class BridgeHost
                 request.CatalogRootPath,
                 request.Fingerprint,
                 request.Revision,
-                $"forge-uya-v2+{sdkRevision}",
+                UyaAssetImportService.ImporterVersionPrefix + sdkRevision,
                 request.Force),
             CreateProgressReporter(frame, writer, hostCancellation),
             requestCancellation);

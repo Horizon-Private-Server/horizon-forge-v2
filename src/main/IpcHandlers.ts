@@ -33,7 +33,7 @@ interface IpcHandlersOptions {
   getMainWindow: () => BrowserWindow | undefined;
 }
 
-const uyaImportVersion = 1;
+const uyaImportVersion = 2;
 
 export function registerIpcHandlers(options: IpcHandlersOptions): void {
   const { host, notifications, recentProjects, settings, updates, renderAssets, getMainWindow } = options;

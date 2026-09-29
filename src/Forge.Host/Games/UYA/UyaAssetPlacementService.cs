@@ -31,8 +31,8 @@ public static class UyaAssetPlacementService
         if (entry.Kind != placement.Kind || entry.CanonicalFormatVersion != UyaAssetImportService.CanonicalFormatVersion
             || !entry.Tags.Contains("vanilla", StringComparer.Ordinal)
             || !entry.Sources.Any(source => source is { Game: "UYA", Region: "NTSC-U", Revision: "1.00" })
-            || !AssetCatalogPaging.ClassIds(entry).SequenceEqual([placement.ClassId]))
-            throw new InvalidDataException("The catalog asset is not an unambiguous compatible UYA class.");
+            || !AssetCatalogPaging.ClassIds(entry).Contains(placement.ClassId))
+            throw new InvalidDataException("The catalog asset does not contain the selected compatible UYA class.");
         var path = workspace.ResolveAssetPath(entry.Id, catalog)
             ?? throw new FileNotFoundException($"Asset blob {entry.Id} is missing.");
         var bytes = await File.ReadAllBytesAsync(path, cancellationToken);

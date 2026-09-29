@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 import type { EditorEntity, EditorLevelSettings } from '../../types/EditorRuntime.js';
 import type { SceneTreeKind } from '../../types/SceneTree.js';
+import { createAssetPlacementCommand } from '../../utils/AssetPlacement.ts';
 import { DEFAULT_SCENE_TREE_COLORS, SCENE_TREE_LABELS } from '../../utils/SceneTreeColors.ts';
 import { parseSplinePointId, splinePointId } from '../../utils/SplinePoints.ts';
 import { ColorPickerInput } from '../ColorPickerInput.tsx';
@@ -74,21 +75,7 @@ export function ViewportPanel() {
     onSplinePointsCommit={(entityId, points) => execute({
       id: crypto.randomUUID(), kind: 'updateSplinePoints', entityIds: [entityId], points,
     })}
-    onAssetDrop={(asset, position) => execute({
-      id: crypto.randomUUID(),
-      kind: 'createEntityFromAsset',
-      entityIds: [],
-      placement: {
-        assetId: asset.assetId,
-        kind: asset.kind === 'tie' ? 'Tie' : asset.kind === 'shrub' ? 'Shrub' : 'Moby',
-        classId: asset.classId,
-        transform: {
-          position,
-          rotation: { x: 0, y: 0, z: 0, w: 1 },
-          scale: { x: 1, y: 1, z: 1 },
-        },
-      },
-    })}
+    onAssetDrop={(asset, position) => execute(createAssetPlacementCommand(asset, position))}
   />;
 }
 

@@ -1,18 +1,26 @@
-import { Alert, Badge, SegmentedControl, Text, TextInput } from '@mantine/core';
+import { Alert, Badge, Button, MultiSelect, SegmentedControl, Select, Text, TextInput } from '@mantine/core';
 import { PlaceholderIcon } from '@phosphor-icons/react/dist/csr/Placeholder';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type {
   AssetExplorerCategory,
+  AssetExplorerFacets,
   AssetExplorerFamily,
   AssetExplorerItem,
+  AssetExplorerPage,
+  AssetExplorerQuery,
   AssetPreviewKind,
 } from '../../types/AssetExplorer.js';
 import type { SceneTreeColors, SceneTreeKind } from '../../types/SceneTree.js';
 import { errorMessage } from '../../utils/Errors.ts';
 import { ASSET_PLACEMENT_MIME } from '../../utils/AssetPlacement.ts';
 import { AssetPreviewMeshMissingError, AssetThumbnailRuntime } from './AssetThumbnailRuntime.ts';
-import { assetGridWindow, buildAssetFamilies } from './EditorPanelState.ts';
+import {
+  assetExplorerFilterCount,
+  assetGridWindow,
+  buildAssetFamilies,
+  isStaleAssetExplorerCursor,
+} from './EditorPanelState.ts';
 import { useEditor } from './EditorContext.ts';
 
 const CATEGORIES: { label: string; value: AssetExplorerCategory }[] = [
@@ -23,11 +31,17 @@ const CATEGORIES: { label: string; value: AssetExplorerCategory }[] = [
   { label: 'Textures', value: 'textures' },
 ];
 
+const EMPTY_FACETS: AssetExplorerFacets = { games: [], levels: [], regions: [], revisions: [], tags: [] };
+
 export function AssetExplorerPanel() {
   const { inspectAsset, project, sceneTreeColors } = useEditor();
   const [category, setCategory] = useState<AssetExplorerCategory>('ties');
   const [search, setSearch] = useState('');
   const [querySearch, setQuerySearch] = useState('');
+  const [filters, setFilters] = useState<Pick<AssetExplorerQuery, 'game' | 'level' | 'region' | 'revision' | 'tags'>>({
+    tags: [],
+  });
+  const [facets, setFacets] = useState<AssetExplorerFacets>(EMPTY_FACETS);
   const [items, setItems] = useState<AssetExplorerItem[]>([]);
   const [nextCursor, setNextCursor] = useState<string>();
   const [loading, setLoading] = useState(false);
@@ -56,6 +70,7 @@ export function AssetExplorerPanel() {
   const loadPage = useCallback(async (
     currentCategory: AssetExplorerCategory,
     currentSearch: string,
+    currentFilters: typeof filters,
     cursor: string | undefined,
     append: boolean,
     version: number,
@@ -65,14 +80,25 @@ export function AssetExplorerPanel() {
     setLoading(true);
     setError('');
     try {
-      const page = await window.forge.queryAssetExplorer({
+      const query = (nextCursor?: string) => window.forge.queryAssetExplorer({
         category: currentCategory,
         search: currentSearch || undefined,
-        cursor,
+        ...currentFilters,
+        cursor: nextCursor,
         limit: 64,
       });
+      let restart = false;
+      let page: AssetExplorerPage;
+      try {
+        page = await query(cursor);
+      } catch (cause) {
+        if (!cursor || !isStaleAssetExplorerCursor(cause)) throw cause;
+        page = await query();
+        restart = true;
+      }
       if (generation.current !== version) return;
-      setItems((current) => append ? [...current, ...page.items] : page.items);
+      setItems((current) => append && !restart ? [...current, ...page.items] : page.items);
+      setFacets(page.facets);
       setNextCursor(page.nextCursor);
     } catch (cause) {
       if (generation.current === version) setError(errorMessage(cause));
@@ -88,13 +114,14 @@ export function AssetExplorerPanel() {
     const version = ++generation.current;
     loadingRef.current = false;
     setItems([]);
+    setFacets(EMPTY_FACETS);
     setNextCursor(undefined);
-    void loadPage(category, querySearch, undefined, false, version);
+    void loadPage(category, querySearch, filters, undefined, false, version);
     return () => {
       if (generation.current === version) generation.current += 1;
       void window.forge.cancelAssetExplorerQuery();
     };
-  }, [category, loadPage, querySearch]);
+  }, [category, filters, loadPage, querySearch]);
 
   useEffect(() => {
     if (!scrollElement) return;
@@ -130,8 +157,16 @@ export function AssetExplorerPanel() {
   const windowed = assetGridWindow(families.length, viewport.width, viewport.height, viewport.scrollTop);
   useEffect(() => {
     if (error || !nextCursor || loading || windowed.endIndex < families.length - windowed.columns * 2) return;
-    void loadPage(category, querySearch, nextCursor, true, generation.current);
-  }, [category, error, families.length, loadPage, loading, nextCursor, querySearch, windowed.columns, windowed.endIndex]);
+    void loadPage(category, querySearch, filters, nextCursor, true, generation.current);
+  }, [category, error, families.length, filters, loadPage, loading, nextCursor, querySearch,
+    windowed.columns, windowed.endIndex]);
+
+  const filterCount = assetExplorerFilterCount(filters);
+  const clearFilters = () => {
+    setSearch('');
+    setQuerySearch('');
+    setFilters({ tags: [] });
+  };
 
   return <section aria-label="Asset Explorer" className="editor-panel asset-explorer-panel">
     <div className="asset-explorer-controls">
@@ -149,6 +184,23 @@ export function AssetExplorerPanel() {
         value={search}
         onChange={(event) => setSearch(event.currentTarget.value)}
       />
+      <details className="asset-explorer-filters">
+        <summary>{filterCount ? `Filters (${filterCount})` : 'Filters'}</summary>
+        <div className="asset-explorer-filter-grid">
+          <Select aria-label="Filter assets by game" clearable data={facets.games} label="Game"
+            value={filters.game ?? null} onChange={(game) => setFilters((value) => ({ ...value, game: game || undefined }))} />
+          <Select aria-label="Filter assets by level" clearable data={facets.levels} label="Level"
+            value={filters.level ?? null} onChange={(level) => setFilters((value) => ({ ...value, level: level || undefined }))} />
+          <Select aria-label="Filter assets by region" clearable data={facets.regions} label="Region"
+            value={filters.region ?? null} onChange={(region) => setFilters((value) => ({ ...value, region: region || undefined }))} />
+          <Select aria-label="Filter assets by revision" clearable data={facets.revisions} label="Revision"
+            value={filters.revision ?? null}
+            onChange={(revision) => setFilters((value) => ({ ...value, revision: revision || undefined }))} />
+          <MultiSelect aria-label="Filter assets by tags" clearable data={facets.tags} label="Tags" searchable
+            value={filters.tags ?? []} onChange={(tags) => setFilters((value) => ({ ...value, tags }))} />
+          <Button disabled={!filterCount && !search} size="xs" variant="subtle" onClick={clearFilters}>Clear all</Button>
+        </div>
+      </details>
     </div>
     {error && <Alert color="red" title="Could not load assets">{error}</Alert>}
     <div className="asset-explorer-grid-scroll" ref={setScrollElement}>
@@ -226,10 +278,11 @@ function AssetCard({ color, family, root, runtime, onActivate }: {
     : failure === 'unavailable' || runtime === null || !kind ? 'Preview unavailable'
       : thumbnail ? '' : 'Preview waiting';
   const draggable = item.canPlace && family.classId !== undefined && kind !== undefined;
+  const texture = kind === 'texture';
   return <button
     ref={element}
     aria-label={`Inspect ${family.displayLabel}, ${categoryLabel(family.category)}, ${family.variants.length} exact variants${failure === 'meshless' ? ', no mesh data' : ''}`}
-    className="asset-explorer-card"
+    className={`asset-explorer-card${texture ? ' asset-explorer-card-texture' : ''}`}
     draggable={draggable}
     type="button"
     onDragStart={(event) => {
@@ -244,7 +297,7 @@ function AssetCard({ color, family, root, runtime, onActivate }: {
     }}
     onClick={onActivate}
   >
-    <span className="asset-explorer-thumbnail">
+    <span className={`asset-explorer-thumbnail${texture ? ' asset-explorer-thumbnail-texture' : ''}`}>
       {thumbnail ? <img alt="" src={thumbnail} />
         : failure === 'meshless'
           ? <PlaceholderIcon aria-hidden className="asset-explorer-thumbnail-placeholder" size={48} weight="duotone" />
@@ -254,7 +307,8 @@ function AssetCard({ color, family, root, runtime, onActivate }: {
       {family.classId === undefined
         ? <span className="asset-explorer-card-name">{family.displayLabel.replace(/^[^:]+:/, '')}</span>
         : <Badge className="asset-explorer-class-badge" variant="outline" style={{ borderColor: color, color }}>
-          {`0x${family.classId.toString(16).toUpperCase().padStart(4, '0')}`}
+          {`${categoryLabel(family.category).replace(/s$/, '')} 0x${family.classId
+            .toString(16).toUpperCase().padStart(4, '0')}`}
         </Badge>}
     </span>
   </button>;
@@ -271,6 +325,7 @@ function previewKind(item: AssetExplorerItem): AssetPreviewKind | undefined {
   if (item.category === 'ties') return 'tie';
   if (item.category === 'shrubs') return 'shrub';
   if (item.category === 'mobys') return 'moby';
+  if (item.category === 'textures') return 'texture';
   return undefined;
 }
 

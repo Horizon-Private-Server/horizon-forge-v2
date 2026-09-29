@@ -99,6 +99,13 @@ export class AssetThumbnailRuntime {
     if (existing) return existing;
     const request = this.scheduler.schedule(signal, async () => {
       this.throwIfCancelled(signal);
+      const persisted = await forgeApi().getAssetThumbnail(assetId, kind).catch(() => undefined);
+      this.throwIfCancelled(signal);
+      if (persisted) {
+        this.cache.set(key, persisted.url);
+        if (this.cache.size > MAX_THUMBNAILS) this.cache.delete(this.cache.keys().next().value!);
+        return persisted.url;
+      }
       const requestToken = crypto.randomUUID();
       const cancel = () => { void forgeApi().cancelAssetPreview(requestToken); };
       signal?.addEventListener('abort', cancel, { once: true });
@@ -107,13 +114,27 @@ export class AssetThumbnailRuntime {
       try {
         const source = await forgeApi().getAssetPreview(assetId, kind, requestToken);
         this.throwIfCancelled(signal);
+        if (kind === 'texture') {
+          const blob = await textureThumbnail(source.url, signal);
+          this.throwIfCancelled(signal);
+          const thumbnail = (await forgeApi().storeAssetThumbnail(
+            assetId, kind, new Uint8Array(await blob.arrayBuffer()),
+          ).catch(() => undefined))?.url ?? source.url;
+          this.cache.set(key, thumbnail);
+          if (this.cache.size > MAX_THUMBNAILS) this.cache.delete(this.cache.keys().next().value!);
+          return thumbnail;
+        }
         root = (await this.loader.loadAsync(source.url)).scene;
         this.throwIfCancelled(signal);
         if (!configurePs2AssetPreview(root, kind)) throw new AssetPreviewMeshMissingError();
         frameCameraOnObject(this.camera, root, this.target);
         this.scene.add(root);
         this.renderer.render(this.scene, this.camera);
-        const thumbnail = this.renderer.domElement.toDataURL('image/webp', 0.82);
+        const raster = this.renderer.domElement.toDataURL('image/png');
+        root.removeFromParent();
+        const bytes = decodeDataUrl(raster);
+        const thumbnail = (await forgeApi().storeAssetThumbnail(assetId, kind, bytes)
+          .catch(() => undefined))?.url ?? raster;
         this.cache.set(key, thumbnail);
         if (this.cache.size > MAX_THUMBNAILS) this.cache.delete(this.cache.keys().next().value!);
         return thumbnail;
@@ -155,4 +176,33 @@ function cancelled(signal?: AbortSignal): Error {
 
 function forgeApi(): ForgeApi {
   return (globalThis as unknown as { forge: ForgeApi }).forge;
+}
+
+function decodeDataUrl(value: string): Uint8Array {
+  const encoded = value.slice(value.indexOf(',') + 1);
+  const decoded = atob(encoded);
+  return Uint8Array.from(decoded, (character) => character.charCodeAt(0));
+}
+
+async function textureThumbnail(url: string, signal?: AbortSignal): Promise<Blob> {
+  const response = await fetch(url, { signal });
+  if (!response.ok) throw new Error(`Texture preview returned ${response.status}`);
+  const image = await createImageBitmap(await response.blob());
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = THUMBNAIL_SIZE;
+    canvas.height = THUMBNAIL_SIZE;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Texture thumbnail canvas is unavailable');
+    context.imageSmoothingEnabled = false;
+    const scale = Math.min(THUMBNAIL_SIZE / image.width, THUMBNAIL_SIZE / image.height);
+    const width = Math.max(1, Math.round(image.width * scale));
+    const height = Math.max(1, Math.round(image.height * scale));
+    context.drawImage(image, (THUMBNAIL_SIZE - width) / 2, (THUMBNAIL_SIZE - height) / 2, width, height);
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+    if (!blob) throw new Error('Texture thumbnail encoding failed');
+    return blob;
+  } finally {
+    image.close();
+  }
 }

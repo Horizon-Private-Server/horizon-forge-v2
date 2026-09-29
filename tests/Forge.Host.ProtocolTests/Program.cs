@@ -191,10 +191,11 @@ internal static class Program
         Equal(true, explorerRequest.Tags.SequenceEqual(decodedExplorerRequest.Tags), "asset explorer request tags");
         var explorerPage = new AssetExplorerPagePayload(
             [new(
-                new string('d', 64), AssetExplorerCategoryPayload.Ties, "tie:0x0123", 2, 4096,
-                ["tie:291", "tie:0x0123"], ["vanilla"],
-                [new("UYA", "NTSC-U", "1.00", "level03", "level_wad/assets/asset_wad.bin", 7)],
-                [291], "notCached", true, null)],
+                new string('d', 64), AssetExplorerCategoryPayload.Textures, "moby:0x0123 material 0", 1, 4096,
+                ["moby:0x0123 material 0"], ["vanilla"],
+                [new("UYA", "NTSC-U", "1.00", "level03", "level_wad/assets/asset_wad.bin", 7,
+                    new("moby", 291, "material", 0, true))],
+                [], "notCached", false, "Textures are preview-only.")],
             new(["UYA"], ["level03"], ["NTSC-U"], ["1.00"], ["vanilla"]),
             "next");
         var decodedExplorerPage = AssetExplorerPayloadCodec.DecodePage(

@@ -4,6 +4,7 @@ import type {
   AssetExplorerCategory,
   AssetExplorerItem,
   AssetExplorerPage,
+  AssetExplorerSource,
 } from '../../types/AssetExplorer.js';
 import type { AssetExplorerBridgeRequest } from '../../types/BridgePayloads.js';
 import { PayloadReader, PayloadWriter, malformed } from './PayloadIO.ts';
@@ -79,6 +80,14 @@ export function encodeAssetExplorerPage(value: AssetExplorerPage): Buffer {
       writer.writeString(source.level);
       writer.writeString(source.archive);
       writer.writeUInt32(source.sourceIndex);
+      writer.writeBoolean(source.textureUse !== undefined);
+      if (source.textureUse) {
+        writer.writeString(source.textureUse.ownerKind);
+        writer.writeUInt32(source.textureUse.ownerClassId);
+        writer.writeString(source.textureUse.role);
+        writer.writeUInt32(source.textureUse.slot);
+        writer.writeBoolean(source.textureUse.restorable);
+      }
     });
     if (item.classIds.length > MAX_METADATA_ITEMS) malformed('Asset class list exceeds item limit');
     writer.writeUInt32(item.classIds.length);
@@ -86,6 +95,8 @@ export function encodeAssetExplorerPage(value: AssetExplorerPage): Buffer {
     writer.writeString(item.previewState);
     writer.writeBoolean(item.canPlace);
     writeOptionalString(writer, item.placementDisabledReason);
+    writer.writeBoolean(item.shellIndex !== undefined);
+    if (item.shellIndex !== undefined) writer.writeUInt32(item.shellIndex);
   });
   writeStrings(writer, value.facets.games, MAX_FACET_ITEMS);
   writeStrings(writer, value.facets.levels, MAX_FACET_ITEMS);
@@ -119,23 +130,38 @@ function readItem(reader: PayloadReader): AssetExplorerItem {
   const byteSize = reader.readUInt64();
   const aliases = readStrings(reader, MAX_METADATA_ITEMS);
   const tags = readStrings(reader, MAX_METADATA_ITEMS);
-  const sources = readList(reader, MAX_METADATA_ITEMS, () => ({
-    game: reader.readString(),
-    region: reader.readString(),
-    revision: reader.readString(),
-    level: reader.readString(),
-    archive: reader.readString(),
-    sourceIndex: reader.readUInt32(),
-  }));
+  const sources = readList<AssetExplorerSource>(reader, MAX_METADATA_ITEMS, () => {
+    const source = {
+      game: reader.readString(),
+      region: reader.readString(),
+      revision: reader.readString(),
+      level: reader.readString(),
+      archive: reader.readString(),
+      sourceIndex: reader.readUInt32(),
+    };
+    if (!reader.readBoolean()) return source;
+    const ownerKind = reader.readString();
+    if (ownerKind !== 'tie' && ownerKind !== 'shrub' && ownerKind !== 'moby')
+      malformed('Unknown texture owner kind');
+    return { ...source, textureUse: {
+      ownerKind,
+      ownerClassId: reader.readUInt32(),
+      role: reader.readString(),
+      slot: reader.readUInt32(),
+      restorable: reader.readBoolean(),
+    } };
+  });
   const classIds = readList(reader, MAX_METADATA_ITEMS, () => reader.readUInt32());
   const previewState = reader.readString();
   if (previewState !== 'notCached' && previewState !== 'missingBlob') malformed('Unknown asset preview state');
   const canPlace = reader.readBoolean();
   const placementDisabledReason = readOptionalString(reader);
+  const shellIndex = reader.readBoolean() ? reader.readUInt32() : undefined;
   return {
     assetId, category, displayLabel, canonicalFormatVersion, byteSize, aliases, tags, sources,
     classIds, previewState, canPlace,
     ...(placementDisabledReason ? { placementDisabledReason } : {}),
+    ...(shellIndex !== undefined ? { shellIndex } : {}),
   };
 }
 

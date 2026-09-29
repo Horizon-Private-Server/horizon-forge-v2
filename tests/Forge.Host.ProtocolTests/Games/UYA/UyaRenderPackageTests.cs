@@ -1,5 +1,7 @@
 using Forge.Host.Games.UYA;
 using Forge.Host.Domain;
+using RatchetPs2.Core.Textures.Pif;
+using RatchetPs2.Core.Textures.Png;
 using RatchetPs2.Core.Wad.Models;
 
 namespace Forge.Host.ProtocolTests.Games.UYA;
@@ -64,6 +66,8 @@ internal static class UyaRenderPackageTests
             var previewCached = await UyaAssetPreviewService.MaterializeAsync(
                 previewRequest, sdkRevision, previewPackage);
             Equal(true, previewCached.CacheHit, "asset preview cache hit");
+            Equal(true, (await UyaAssetPreviewService.PrepareAsync(previewRequest, sdkRevision)).CacheHit,
+                "asset preview cache hit does not reopen the catalog");
             Equal(preview.CacheKey, previewCached.CacheKey, "stable asset preview cache key");
             Equal(false,
                 preview.CacheKey == UyaAssetPreviewService.CreateCacheKey(previewRequest, "changed-sdk"),
@@ -75,6 +79,41 @@ internal static class UyaRenderPackageTests
             Equal(false, repaired.CacheHit, "corrupt asset preview cache is replaced");
             Equal("{}", await File.ReadAllTextAsync(Path.Combine(repaired.RootPath, repaired.ModelPath)),
                 "repaired asset preview model");
+
+            var palette = new byte[0x400];
+            new byte[] { 255, 0, 0, 64, 0, 255, 0, 128 }.CopyTo(palette, 0);
+            var pif = PifWriter.Write(PifWriter.CreateIndexed8(2, 2, palette, [0, 1, 1, 0]));
+            var catalog = await AssetCatalogStore.OpenAsync(catalogPath);
+            var texture = await catalog.PutAsync(
+                AssetKind.Texture,
+                UyaAssetImportService.TextureCanonicalFormatVersion,
+                pif,
+                new("test", new("UYA", "NTSC-U", "1.00", "level03", "assets.bin", 0, fingerprint,
+                    new(AssetKind.Tie, 1, "material", 0, true))));
+            var textureRequest = new UyaAssetPreviewRequest(
+                cache, catalogPath, texture.Id, AssetKind.Texture, "UYA", "texture-default");
+            var texturePreview = await UyaAssetPreviewService.PrepareAsync(textureRequest, sdkRevision);
+            Equal(false, texturePreview.CacheHit, "first texture preview cache write");
+            Equal("texture.png", texturePreview.ModelPath, "texture preview route");
+            Equal(true, (await File.ReadAllBytesAsync(catalog.ResolveBlobPath(texture.Id)!)).SequenceEqual(pif),
+                "texture preview preserves canonical PS2 alpha bytes");
+            Equal(true, (await File.ReadAllBytesAsync(Path.Combine(texturePreview.RootPath, texturePreview.ModelPath)))
+                .AsSpan(0, 8).SequenceEqual(new byte[] { 0x89, (byte)'P', (byte)'N', (byte)'G', 0x0d, 0x0a, 0x1a, 0x0a }),
+                "texture preview PNG");
+            await using (var textureStream = File.OpenRead(Path.Combine(texturePreview.RootPath, texturePreview.ModelPath)))
+            {
+                var image = PngTextureMetadataReader.ReadRgba32(textureStream);
+                Equal((byte)128, image.PixelData[3], "texture preview doubles partial PS2 alpha");
+                Equal(byte.MaxValue, image.PixelData[7], "texture preview clamps opaque PS2 alpha");
+            }
+            Equal(true, (await UyaAssetPreviewService.PrepareAsync(textureRequest, sdkRevision)).CacheHit,
+                "texture preview cache hit");
+            var texturePreviewPath = Path.Combine(texturePreview.RootPath, texturePreview.ModelPath);
+            var corruptTexture = await File.ReadAllBytesAsync(texturePreviewPath);
+            corruptTexture.AsSpan(0, 8).Clear();
+            await File.WriteAllBytesAsync(texturePreviewPath, corruptTexture);
+            Equal(false, (await UyaAssetPreviewService.PrepareAsync(textureRequest, sdkRevision)).CacheHit,
+                "corrupt texture preview cache is replaced");
 
             var previewTraversal = PackedFilePackageBuilder.Pack([
                 new("model.gltf", "{}"u8.ToArray(), "model/gltf+json"),

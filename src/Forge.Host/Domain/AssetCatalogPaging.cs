@@ -93,16 +93,25 @@ internal static class AssetCatalogPaging
             .Concat(entry.Tags)
             .Append(entry.Id.ToString())
             .Append(entry.Kind.ToString())
-            .Concat(entry.Sources.SelectMany(source => new[]
-            {
-                source.Game,
-                source.Region,
-                source.Revision,
-                source.Level,
-                source.Archive,
-                source.SourceIndex.ToString(CultureInfo.InvariantCulture),
-            }));
+            .Concat(entry.Sources.SelectMany(SourceSearchValues));
         return values.Any(value => value.Contains(search, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static IEnumerable<string> SourceSearchValues(AssetSource source)
+    {
+        yield return source.Game;
+        yield return source.Region;
+        yield return source.Revision;
+        yield return source.Level;
+        yield return source.Archive;
+        yield return source.SourceIndex.ToString(CultureInfo.InvariantCulture);
+        if (source.TextureUse is not { } texture) yield break;
+        yield return texture.OwnerKind.ToString();
+        yield return texture.OwnerClassId.ToString(CultureInfo.InvariantCulture);
+        yield return $"0x{texture.OwnerClassId:X4}";
+        yield return texture.Role;
+        yield return texture.Slot.ToString(CultureInfo.InvariantCulture);
+        yield return texture.Restorable ? "restorable" : "non-restorable";
     }
 
     private static bool MatchesTags(AssetCatalogEntry entry, IReadOnlyList<string> tags) =>
@@ -118,7 +127,7 @@ internal static class AssetCatalogPaging
     private static string[] Values(IEnumerable<string> values) =>
         values.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
 
-    private static string? NormalizeOptional(string? value, string name)
+    internal static string? NormalizeOptional(string? value, string name)
     {
         if (value is null) return null;
         var result = value.Trim();
@@ -127,7 +136,7 @@ internal static class AssetCatalogPaging
         return result;
     }
 
-    private static string[] NormalizeTags(IEnumerable<string>? values)
+    internal static string[] NormalizeTags(IEnumerable<string>? values)
     {
         var result = (values ?? []).Select(value => NormalizeOptional(value, "Tags")!)
             .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();

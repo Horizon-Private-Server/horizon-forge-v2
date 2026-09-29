@@ -2,6 +2,8 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Forge.Host.Domain;
+using RatchetPs2.Core.Textures.Pif;
+using RatchetPs2.Core.Textures.Png;
 using RatchetPs2.Core.Wad.Models;
 
 namespace Forge.Host.Games.UYA;
@@ -9,9 +11,12 @@ namespace Forge.Host.Games.UYA;
 public static class UyaAssetPreviewService
 {
     public const int SchemaVersion = 1;
+    private const int TextureRasterSchemaVersion = 2;
     private const string MarkerName = ".forge-asset-preview.json";
-    // ponytail: one write lock is enough for v0; replace with per-cache-key locks if preview writes contend.
-    private static readonly SemaphoreSlim Writes = new(1, 1);
+    private const long MaxTextureBytes = 64L * 1024 * 1024;
+    // ponytail: bounded lock striping avoids per-key lock retention; increase stripes only if collisions profile hot.
+    private static readonly SemaphoreSlim[] WriteLocks = Enumerable.Range(0, 16)
+        .Select(_ => new SemaphoreSlim(1, 1)).ToArray();
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
     public static async Task<UyaAssetPreviewResult> PrepareAsync(
@@ -20,17 +25,19 @@ public static class UyaAssetPreviewService
         CancellationToken cancellationToken = default)
     {
         Validate(request, sdkRevision);
-        var catalog = await AssetCatalogStore.OpenAsync(request.CatalogRootPath, cancellationToken);
-        var entry = catalog.Query(new(Id: request.AssetId)).SingleOrDefault()
-            ?? throw new InvalidDataException($"Asset {request.AssetId} is not present in the catalog.");
-        if (entry.Kind != request.Kind) throw new InvalidDataException("Asset kind does not match the catalog entry.");
         var cacheKey = CreateCacheKey(request, sdkRevision);
         var target = Path.Combine(Path.GetFullPath(request.CacheRootPath), cacheKey);
         var cached = await TryOpenAsync(target, request, sdkRevision, cancellationToken);
         if (cached is not null) return cached with { CacheHit = true };
+        var catalog = await AssetCatalogStore.OpenAsync(request.CatalogRootPath, cancellationToken);
+        var entry = catalog.Query(new(Id: request.AssetId)).SingleOrDefault()
+            ?? throw new InvalidDataException($"Asset {request.AssetId} is not present in the catalog.");
+        if (entry.Kind != request.Kind) throw new InvalidDataException("Asset kind does not match the catalog entry.");
         var path = catalog.ResolveBlobPath(entry.Id) ?? throw new FileNotFoundException("Asset blob is missing.");
-        var package = await UyaRenderPackageService.BuildAssetPackageAsync(
-            entry.Id, entry.Kind, entry.CanonicalFormatVersion, entry.Size, path, cancellationToken);
+        var package = entry.Kind == AssetKind.Texture
+            ? await BuildTexturePackageAsync(entry, path, cancellationToken)
+            : await UyaRenderPackageService.BuildAssetPackageAsync(
+                entry.Id, entry.Kind, entry.CanonicalFormatVersion, entry.Size, path, cancellationToken);
         return await MaterializeAsync(request, sdkRevision, package, cancellationToken);
     }
 
@@ -48,14 +55,16 @@ public static class UyaAssetPreviewService
         var cached = await TryOpenAsync(target, request, sdkRevision, cancellationToken);
         if (cached is not null) return cached with { CacheHit = true };
 
-        await Writes.WaitAsync(cancellationToken);
+        var writeLock = WriteLocks[Uri.FromHex(cacheKey[^1])];
+        await writeLock.WaitAsync(cancellationToken);
         try
         {
             cached = await TryOpenAsync(target, request, sdkRevision, cancellationToken);
             if (cached is not null) return cached with { CacheHit = true };
             var entries = UyaRenderPackageService.ValidateEntries(package);
-            if (entries.Count(entry => entry.Path == "model.gltf") != 1)
-                throw new InvalidDataException("Asset preview package must contain model.gltf.");
+            var previewPath = request.Kind == AssetKind.Texture ? "texture.png" : "model.gltf";
+            if (entries.Count(entry => entry.Path == previewPath) != 1)
+                throw new InvalidDataException($"Asset preview package must contain {previewPath}.");
             Directory.CreateDirectory(cacheRoot);
             var partial = Path.Combine(cacheRoot, $".{cacheKey}.{Guid.NewGuid():N}.partial");
             Directory.CreateDirectory(partial);
@@ -79,7 +88,7 @@ public static class UyaAssetPreviewService
                     request.ViewPreset,
                     sdkRevision,
                     entries.Select(entry => new CacheFile(entry.Path, entry.Length)).ToArray(),
-                    "model.gltf");
+                    previewPath);
                 await File.WriteAllBytesAsync(
                     Path.Combine(partial, MarkerName),
                     JsonSerializer.SerializeToUtf8Bytes(marker, JsonOptions),
@@ -97,16 +106,37 @@ public static class UyaAssetPreviewService
         }
         finally
         {
-            Writes.Release();
+            writeLock.Release();
         }
     }
 
     internal static string CreateCacheKey(UyaAssetPreviewRequest request, string sdkRevision)
     {
         Validate(request, sdkRevision);
-        var identity = $"{request.AssetId}\n{request.Kind}\n{sdkRevision}\n{SchemaVersion}\n{request.ViewPreset}";
+        var schema = request.Kind == AssetKind.Texture ? TextureRasterSchemaVersion : SchemaVersion;
+        var identity = $"{request.AssetId}\n{request.Kind}\n{sdkRevision}\n{schema}\n{request.ViewPreset}";
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity))).ToLowerInvariant()[..24];
         return $"uya-preview-{hash}";
+    }
+
+    private static async Task<PackedFilePackage> BuildTexturePackageAsync(
+        AssetCatalogEntry entry,
+        string path,
+        CancellationToken cancellationToken)
+    {
+        if (entry.CanonicalFormatVersion != UyaAssetImportService.TextureCanonicalFormatVersion)
+            throw new InvalidDataException($"Unsupported canonical texture format {entry.CanonicalFormatVersion}.");
+        var info = new FileInfo(path);
+        if (info.Length != entry.Size || info.Length is <= 0 or > MaxTextureBytes)
+            throw new InvalidDataException("Texture blob size does not match its catalog entry.");
+        var bytes = await File.ReadAllBytesAsync(path, cancellationToken);
+        if (AssetId.Compute(entry.Kind, entry.CanonicalFormatVersion, bytes) != entry.Id)
+            throw new InvalidDataException("Texture blob failed its identity check.");
+        var png = await Task.Run(
+            () => PifAssetExporter.Export(bytes, options: new() { DoubleAlpha = true }).PngBytes,
+            cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        return PackedFilePackageBuilder.Pack([new("texture.png", png, "image/png")]);
     }
 
     private static async Task<UyaAssetPreviewResult?> TryOpenAsync(
@@ -146,8 +176,16 @@ public static class UyaAssetPreviewService
                 var candidate = UyaRenderPackageService.ResolveEntryPath(root, path);
                 if (file.Length < 0 || !File.Exists(candidate) || new FileInfo(candidate).Length != file.Length) return null;
             }
+            if (request.Kind == AssetKind.Texture)
+            {
+                await using var stream = new FileStream(
+                    UyaRenderPackageService.ResolveEntryPath(root, marker.ModelPath),
+                    FileMode.Open, FileAccess.Read, FileShare.Read, 16 * 1024,
+                    FileOptions.Asynchronous | FileOptions.SequentialScan);
+                _ = PngTextureMetadataReader.ReadPng(stream);
+            }
         }
-        catch (Exception exception) when (exception is ArgumentException or InvalidDataException)
+        catch (Exception exception) when (exception is ArgumentException or InvalidDataException or IOException or OverflowException)
         {
             return null;
         }
@@ -163,11 +201,12 @@ public static class UyaAssetPreviewService
         ArgumentException.ThrowIfNullOrWhiteSpace(request.ViewPreset);
         ArgumentException.ThrowIfNullOrWhiteSpace(sdkRevision);
         if (request.TargetGame != "UYA") throw new NotSupportedException("Asset preview target must be UYA.");
-        if (request.Kind is not (AssetKind.Moby or AssetKind.Tie or AssetKind.Shrub))
+        if (request.Kind is not (AssetKind.Moby or AssetKind.Tie or AssetKind.Shrub or AssetKind.Texture))
             throw new NotSupportedException($"{request.Kind} previews are not supported.");
         if (request.AssetId.ToString().Length != AssetId.TextLength)
             throw new ArgumentException("Asset preview ID is invalid.", nameof(request));
-        if (request.ViewPreset != "model-default")
+        var preset = request.Kind == AssetKind.Texture ? "texture-default" : "model-default";
+        if (request.ViewPreset != preset)
             throw new ArgumentException("Asset preview view preset is invalid.", nameof(request));
     }
 

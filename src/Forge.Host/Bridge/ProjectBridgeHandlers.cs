@@ -172,7 +172,7 @@ internal static class ProjectBridgeHandlers
             request.ProjectPath,
             request.CatalogRootPath,
             request.SourceIsoPath,
-            $"forge-uya-v2+{sdkRevision}",
+            UyaAssetImportService.ImporterVersionPrefix + sdkRevision,
             progress,
             cancellationToken));
     }
@@ -201,14 +201,24 @@ internal static class ProjectBridgeHandlers
     private static async Task<byte[]> QueryAssetExplorerAsync(byte[] payload, CancellationToken cancellationToken)
     {
         var request = AssetExplorerPayloadCodec.DecodeRequest(payload);
-        if (request.Category == AssetExplorerCategoryPayload.SkyShells)
-            throw new InvalidOperationException("Sky-shell catalog indexing is not available yet.");
         if (request.Limit is < 1 or > AssetCatalogStore.MaxPageLimit)
             throw new ArgumentOutOfRangeException(nameof(request.Limit),
                 $"Page limit must be between 1 and {AssetCatalogStore.MaxPageLimit}.");
         ValidateTarget(request.TargetGame, nameof(request.TargetGame));
         ValidateTarget(request.TargetRegion, nameof(request.TargetRegion));
         ValidateTarget(request.TargetRevision, nameof(request.TargetRevision));
+        var catalog = await AssetCatalogStore.OpenAsync(request.CatalogRootPath, cancellationToken);
+        if (request.Category == AssetExplorerCategoryPayload.SkyShells)
+        {
+            var shells = await UyaSkyShellIndexService.QueryAsync(catalog, new(
+                request.Search, request.Game, request.Level, request.Region, request.Revision,
+                request.Tags, request.Cursor, checked((int)request.Limit)), cancellationToken);
+            return AssetExplorerPayloadCodec.EncodePage(new(
+                shells.Items.Select(item => ToSkyShellExplorerItem(request, item)).ToArray(),
+                new(shells.Facets.Games, shells.Facets.Levels, shells.Facets.Regions,
+                    shells.Facets.Revisions, shells.Facets.Tags),
+                shells.NextCursor));
+        }
         var kind = request.Category switch
         {
             AssetExplorerCategoryPayload.Ties => AssetKind.Tie,
@@ -217,7 +227,6 @@ internal static class ProjectBridgeHandlers
             AssetExplorerCategoryPayload.Textures => AssetKind.Texture,
             _ => throw new ArgumentOutOfRangeException(nameof(request.Category)),
         };
-        var catalog = await AssetCatalogStore.OpenAsync(request.CatalogRootPath, cancellationToken);
         var page = catalog.QueryPage(new(
             kind,
             request.Search,
@@ -233,6 +242,29 @@ internal static class ProjectBridgeHandlers
             page.Entries.Select(entry => ToExplorerItem(catalog, request, entry)).ToArray(),
             new(page.Facets.Games, page.Facets.Levels, page.Facets.Regions, page.Facets.Revisions, page.Facets.Tags),
             page.NextCursor));
+    }
+
+    private static AssetExplorerItemPayload ToSkyShellExplorerItem(
+        AssetExplorerRequestPayload request,
+        UyaSkyShellIndexItem item)
+    {
+        var entry = item.Entry;
+        return new(
+            entry.Id.ToString(),
+            request.Category,
+            item.ShellIndex is { } index ? $"Sky shell {index:00}" : "Sky (shell index unavailable)",
+            entry.CanonicalFormatVersion,
+            checked((ulong)entry.Size),
+            entry.Aliases,
+            entry.Tags,
+            entry.Sources.Select(source => new AssetExplorerSourcePayload(
+                source.Game, source.Region, source.Revision, source.Level, source.Archive,
+                checked((uint)source.SourceIndex))).ToArray(),
+            [],
+            item.BlobAvailable ? "notCached" : "missingBlob",
+            false,
+            item.BlobAvailable ? "Sky shells are preview-only." : "The catalog blob is missing.",
+            item.ShellIndex is { } shellIndex ? checked((uint)shellIndex) : null);
     }
 
     private static AssetExplorerItemPayload ToExplorerItem(
@@ -257,11 +289,18 @@ internal static class ProjectBridgeHandlers
                 source.Revision,
                 source.Level,
                 source.Archive,
-                checked((uint)source.SourceIndex))).ToArray(),
+                checked((uint)source.SourceIndex),
+                source.TextureUse is null ? null : new(
+                    source.TextureUse.OwnerKind.ToString().ToLowerInvariant(),
+                    checked((uint)source.TextureUse.OwnerClassId),
+                    source.TextureUse.Role,
+                    checked((uint)source.TextureUse.Slot),
+                    source.TextureUse.Restorable))).ToArray(),
             classIds.Select(value => checked((uint)value)).ToArray(),
             blobAvailable ? "notCached" : "missingBlob",
             canPlace,
-            disabledReason);
+            disabledReason,
+            null);
     }
 
     private static (bool CanPlace, string? DisabledReason) PlacementCompatibility(
@@ -280,8 +319,6 @@ internal static class ProjectBridgeHandlers
             return (false,
                 $"The asset is not compatible with {request.TargetGame} {request.TargetRegion} {request.TargetRevision}.");
         if (classIds.Count == 0) return (false, "The asset has no class identity for placement.");
-        if (classIds.Count > 1)
-            return (false, "The asset has multiple class identities; choose an unambiguous target identity.");
         return (true, null);
     }
 

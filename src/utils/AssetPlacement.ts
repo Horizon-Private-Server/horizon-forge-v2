@@ -1,4 +1,5 @@
 import type { AssetPlacementDragData } from '../types/AssetExplorer.js';
+import type { EditorCommand, ProjectVector3 } from '../types/EditorRuntime.js';
 
 export const ASSET_PLACEMENT_MIME = 'application/x-horizon-forge-asset';
 
@@ -13,4 +14,22 @@ export function readAssetPlacementDrag(data: DataTransfer): AssetPlacementDragDa
   } catch {
     return undefined;
   }
+}
+
+export function createAssetPlacementCommand(asset: AssetPlacementDragData, position: ProjectVector3): EditorCommand {
+  return {
+    id: crypto.randomUUID(),
+    kind: 'createEntityFromAsset',
+    entityIds: [],
+    placement: {
+      assetId: asset.assetId,
+      kind: asset.kind === 'tie' ? 'Tie' : asset.kind === 'shrub' ? 'Shrub' : 'Moby',
+      classId: asset.classId,
+      transform: {
+        position,
+        rotation: { x: 0, y: 0, z: 0, w: 1 },
+        scale: { x: 1, y: 1, z: 1 },
+      },
+    },
+  };
 }

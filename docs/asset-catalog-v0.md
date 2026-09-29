@@ -19,7 +19,9 @@ version are catalog metadata and inputs to the Asset ID defined in
 entry records kind, canonical-format version, byte size, aliases, tags, import
 time, importer version, and source appearances. A source appearance records game,
 region, revision, level, archive, source index, and source fingerprint. Lists are
-deduplicated and sorted ordinally before persistence.
+deduplicated and sorted ordinally before persistence. Texture appearances may also
+record a typed owner kind, owner class ID, role, slot, and whether the source bytes
+are restorable; missing-source placeholders are explicitly non-restorable.
 
 Metadata can be merged by Asset ID without supplying or rewriting canonical blob
 bytes. Re-indexing preserves the original import timestamp while recording the

@@ -274,6 +274,40 @@ body {
   right: var(--mantine-spacing-xs);
 }
 
+.asset-texture-preview {
+  position: relative;
+  display: grid;
+  min-height: 18rem;
+  overflow: hidden;
+  place-items: center;
+  border: 1px solid var(--mantine-color-dark-4);
+  border-radius: var(--mantine-radius-sm);
+  background-color: #151922;
+  background-image:
+    linear-gradient(45deg, #252a34 25%, transparent 25%),
+    linear-gradient(-45deg, #252a34 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #252a34 75%),
+    linear-gradient(-45deg, transparent 75%, #252a34 75%);
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+  background-size: 16px 16px;
+}
+
+.asset-texture-preview canvas {
+  display: block;
+  max-width: 100%;
+  max-height: 24rem;
+  image-rendering: pixelated;
+}
+
+.asset-texture-preview-size {
+  position: absolute;
+  right: var(--mantine-spacing-xs);
+  bottom: var(--mantine-spacing-xs);
+  padding: 0.15rem 0.35rem;
+  border-radius: var(--mantine-radius-xs);
+  background: rgb(17 20 26 / 85%);
+}
+
 .project-hub {
   min-height: 0;
   overflow: auto;
@@ -406,6 +440,21 @@ body {
   gap: var(--mantine-spacing-xs);
 }
 
+.asset-explorer-filters > summary {
+  width: max-content;
+  cursor: pointer;
+  color: var(--mantine-color-dimmed);
+  font-size: var(--mantine-font-size-xs);
+}
+
+.asset-explorer-filter-grid {
+  display: grid;
+  margin-top: var(--mantine-spacing-xs);
+  align-items: end;
+  gap: var(--mantine-spacing-xs);
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+
 .asset-explorer-grid-scroll {
   min-height: 0;
   flex: 1 1 auto;
@@ -465,6 +514,17 @@ body {
   object-fit: contain;
 }
 
+.asset-explorer-thumbnail-texture {
+  background-color: #151922;
+  background-image:
+    linear-gradient(45deg, #252a34 25%, transparent 25%),
+    linear-gradient(-45deg, #252a34 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #252a34 75%),
+    linear-gradient(-45deg, transparent 75%, #252a34 75%);
+  background-position: 0 0, 0 6px, 6px -6px, -6px 0;
+  background-size: 12px 12px;
+}
+
 .asset-explorer-thumbnail-placeholder {
   color: var(--mantine-color-red-6);
 }
@@ -482,7 +542,7 @@ body {
   min-width: 0;
   margin-top: var(--mantine-spacing-xs);
   align-items: center;
-  gap: var(--mantine-spacing-xs);
+  gap: 2px;
   color: var(--mantine-color-dimmed);
   font-size: var(--mantine-font-size-xs);
 }

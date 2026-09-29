@@ -17,6 +17,7 @@ internal static class RenderBridgeHandlers
             "moby" => AssetKind.Moby,
             "tie" => AssetKind.Tie,
             "shrub" => AssetKind.Shrub,
+            "texture" => AssetKind.Texture,
             _ => throw new ArgumentException($"Unknown asset preview kind: {request.Kind}."),
         };
         var result = await UyaAssetPreviewService.PrepareAsync(new(

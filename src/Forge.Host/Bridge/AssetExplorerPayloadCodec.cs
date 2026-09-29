@@ -73,6 +73,15 @@ internal static class AssetExplorerPayloadCodec
                 writer.WriteString(source.Level);
                 writer.WriteString(source.Archive);
                 writer.WriteUInt32(source.SourceIndex);
+                writer.WriteBoolean(source.TextureUse is not null);
+                if (source.TextureUse is { } texture)
+                {
+                    writer.WriteString(texture.OwnerKind);
+                    writer.WriteUInt32(texture.OwnerClassId);
+                    writer.WriteString(texture.Role);
+                    writer.WriteUInt32(texture.Slot);
+                    writer.WriteBoolean(texture.Restorable);
+                }
             }
             if (item.ClassIds.Count > MaxMetadataItems) PayloadFormat.Malformed("Asset class list exceeds item limit");
             writer.WriteUInt32((uint)item.ClassIds.Count);
@@ -80,6 +89,8 @@ internal static class AssetExplorerPayloadCodec
             writer.WriteString(item.PreviewState);
             writer.WriteBoolean(item.CanPlace);
             WriteOptionalString(writer, item.PlacementDisabledReason);
+            writer.WriteBoolean(item.ShellIndex is not null);
+            if (item.ShellIndex is { } shellIndex) writer.WriteUInt32(shellIndex);
         }
         WriteStrings(writer, value.Facets.Games, MaxFacetItems);
         WriteStrings(writer, value.Facets.Levels, MaxFacetItems);
@@ -107,14 +118,25 @@ internal static class AssetExplorerPayloadCodec
             var sourceCount = ReadCount(ref reader, MaxMetadataItems, "Asset source list");
             var sources = new AssetExplorerSourcePayload[sourceCount];
             for (var sourceIndex = 0; sourceIndex < sources.Length; sourceIndex++)
-                sources[sourceIndex] = new(
-                    reader.ReadString(), reader.ReadString(), reader.ReadString(), reader.ReadString(),
-                    reader.ReadString(), reader.ReadUInt32());
+            {
+                var game = reader.ReadString();
+                var region = reader.ReadString();
+                var revision = reader.ReadString();
+                var level = reader.ReadString();
+                var archive = reader.ReadString();
+                var sourceAssetIndex = reader.ReadUInt32();
+                var texture = reader.ReadBoolean()
+                    ? new AssetExplorerTextureUsePayload(
+                        reader.ReadString(), reader.ReadUInt32(), reader.ReadString(), reader.ReadUInt32(), reader.ReadBoolean())
+                    : null;
+                sources[sourceIndex] = new(game, region, revision, level, archive, sourceAssetIndex, texture);
+            }
             var classIds = new uint[ReadCount(ref reader, MaxMetadataItems, "Asset class list")];
             for (var classIndex = 0; classIndex < classIds.Length; classIndex++) classIds[classIndex] = reader.ReadUInt32();
             items[index] = new(
                 assetId, category, label, canonicalVersion, byteSize, aliases, tags, sources, classIds,
-                reader.ReadString(), reader.ReadBoolean(), ReadOptionalString(ref reader));
+                reader.ReadString(), reader.ReadBoolean(), ReadOptionalString(ref reader),
+                reader.ReadBoolean() ? reader.ReadUInt32() : null);
             if (!Enum.IsDefined(category)) PayloadFormat.Malformed("Unknown asset explorer category");
         }
         var facets = new AssetExplorerFacetsPayload(
