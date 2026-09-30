@@ -13,6 +13,7 @@ public static class UyaBaseLayerStore
     private const string DirectionalLightsAssetName = "directional-lights.bin";
     private const string PointLightsAssetName = "point-lights.bin";
     private const string TieAmbientAssetName = "tie-ambient-rgbas.bin";
+    private const int SkyCompositionVersion = 2;
 
     internal static async Task WriteAsync(
         string projectRoot,
@@ -195,13 +196,17 @@ public static class UyaBaseLayerStore
                 {
                     BakeLayerId.World when workspace.Content.LevelSettings is not null =>
                         ForgeProjectPersistence.Serialize(workspace.Content.LevelSettings),
-                    BakeLayerId.Sky => ForgeProjectPersistence.Serialize(EnabledSkyShells(workspace).Select(value => new
+                    BakeLayerId.Sky => ForgeProjectPersistence.Serialize(new
                     {
-                        AssetId = value.Asset?.Id,
-                        value.SkyShell!.SourceShellIndex,
-                        value.SkyShell.InitialRotationRadians,
-                        value.SkyShell.AngularVelocityRadiansPerSecond,
-                    }).ToArray()),
+                        CompositionVersion = SkyCompositionVersion,
+                        Shells = EnabledSkyShells(workspace).Select(value => new
+                        {
+                            AssetId = value.Asset?.Id,
+                            value.SkyShell!.SourceShellIndex,
+                            value.SkyShell.InitialRotationRadians,
+                            value.SkyShell.AngularVelocityRadiansPerSecond,
+                        }).ToArray(),
+                    }),
                     BakeLayerId.Lighting => ForgeProjectPersistence.Serialize(new
                     {
                         TieAmbient = UyaStaticLayerStore.OrderedEntities(workspace, BakeLayerId.Ties)
