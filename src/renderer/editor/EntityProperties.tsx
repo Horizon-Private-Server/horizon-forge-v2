@@ -1,6 +1,4 @@
-import {
-  Button, Checkbox, Code, Fieldset, Group, NumberInput, Stack, Text, TextInput,
-} from '@mantine/core';
+import { Button, Code, Fieldset, Group, NumberInput, Stack, Text } from '@mantine/core';
 import type { ReactNode } from 'react';
 import { useLayoutEffect, useState } from 'react';
 
@@ -9,10 +7,13 @@ import type {
 } from '../../types/EditorRuntime.js';
 import { useEditor } from './EditorContext.ts';
 import { EditorProperty, EditorPropertyGrid } from './EditorPrimitives.tsx';
+import { EntityStateControls, EntityTextEditor } from './EntityPropertyControls.tsx';
+import { SkyShellProperties } from './SkyShellProperties.tsx';
 import { SplineProperties } from './SplineProperties.tsx';
 
 export function EntityProperties({ entity }: { entity: EditorEntity }) {
   const { busy } = useEditor();
+  if (entity.skyShell) return <SkyShellProperties entity={entity} />;
   const disabled = busy || entity.state.locked || entity.state.readOnly;
   return <BaseEntityProperties entity={entity} disabled={disabled}>
     {(entity.geometry?.kind === 'spline' || entity.geometry?.kind === 'grindPath')
@@ -86,45 +87,6 @@ export function MultiEntityProperties({ entities }: { entities: EditorEntity[] }
         : locked && <Text size="xs" c="yellow">Unlock all selected entities before changing their shared layer.</Text>}
     </Stack>
   </Fieldset>;
-}
-
-function EntityTextEditor({ identity, label, value, placeholder, disabled, onApply }: {
-  identity: string;
-  label: string;
-  value: string;
-  placeholder?: string;
-  disabled: boolean;
-  onApply(value: string): Promise<unknown>;
-}) {
-  const [text, setText] = useState(value);
-  useLayoutEffect(() => setText(value), [identity, value]);
-  const trimmed = text.trim();
-  const error = !trimmed ? `${label} is required` : trimmed.length > 256 ? `${label} is too long` : undefined;
-  return <Group align="flex-end" wrap="nowrap">
-    <TextInput label={label} value={text} placeholder={placeholder} error={error} disabled={disabled}
-      onChange={(event) => setText(event.currentTarget.value)} style={{ flex: 1 }} />
-    <Button size="xs" disabled={disabled || Boolean(error) || trimmed === value}
-      onClick={() => void onApply(trimmed)}>Apply</Button>
-  </Group>;
-}
-
-function EntityStateControls({ entities, disabled }: { entities: EditorEntity[]; disabled: boolean }) {
-  const { execute } = useEditor();
-  const ids = entities.map((entity) => entity.id);
-  return <Group>{(['hidden', 'disabled', 'locked'] as const).map((key) => {
-    const enabled = entities.filter((entity) => entity.state[key]).length;
-    return <Checkbox
-      key={key}
-      label={key[0].toUpperCase() + key.slice(1)}
-      checked={enabled === entities.length}
-      indeterminate={enabled > 0 && enabled < entities.length}
-      disabled={disabled}
-      onChange={(event) => void execute({
-        id: crypto.randomUUID(), kind: 'setEntityState', entityIds: ids,
-        state: { [key]: event.currentTarget.checked },
-      })}
-    />;
-  })}</Group>;
 }
 
 function TransformEditor({ entity, disabled }: { entity: EditorEntity; disabled: boolean }) {

@@ -69,6 +69,7 @@ export interface AssetExplorerBridgeRequest extends AssetExplorerQuery {
   targetGame: string;
   targetRegion: string;
   targetRevision: string;
+  currentSkyShellCount: number;
   limit: number;
 }
 
@@ -116,6 +117,7 @@ export interface AssetPreviewRequest {
   kind: AssetPreviewKind;
   targetGame: string;
   viewPreset: string;
+  shellIndex?: number;
 }
 
 export interface AssetPreviewResult {

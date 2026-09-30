@@ -483,6 +483,7 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
       targetGame: activeEditorSnapshot.target.game,
       targetRegion: activeEditorSnapshot.target.region,
       targetRevision: activeEditorSnapshot.target.revision,
+      currentSkyShellCount: activeEditorSnapshot.entities.filter((entity) => entity.skyShell !== undefined).length,
     });
     activeAssetExplorerRequestId = request.requestId;
     try {

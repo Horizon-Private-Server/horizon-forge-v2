@@ -142,7 +142,7 @@ public sealed class ForgeProjectWorkspace
 
     public void UpdateTransform(EntityId entityId, ProjectTransform transform)
     {
-        ValidateTransform(transform);
+        ForgeProjectValidation.ValidateTransform(transform);
         var index = FindEntityIndex(entityId);
         var entities = Content.Entities.ToArray();
         entities[index] = entities[index] with { Transform = transform };
@@ -154,7 +154,7 @@ public sealed class ForgeProjectWorkspace
         ArgumentNullException.ThrowIfNull(updates);
         foreach (var update in updates)
         {
-            ValidateTransform(update.Transform);
+            ForgeProjectValidation.ValidateTransform(update.Transform);
             FindEntityIndex(update.EntityId);
         }
         var transforms = updates.ToDictionary(update => update.EntityId, update => update.Transform);
@@ -168,13 +168,13 @@ public sealed class ForgeProjectWorkspace
 
     public void UpdateLevelSettings(ProjectLevelSettings settings)
     {
-        ValidateLevelSettings(settings);
+        ForgeProjectValidation.ValidateLevelSettings(settings);
         Content = Content with { LevelSettings = settings };
     }
 
     public void UpdateSplinePoints(EntityId entityId, IReadOnlyList<ProjectVector4> points)
     {
-        if (!ValidPoints(points)) throw new InvalidDataException("Spline points must be finite.");
+        if (!ForgeProjectValidation.ValidPoints(points)) throw new InvalidDataException("Spline points must be finite.");
         var index = FindEntityIndex(entityId);
         var entity = Content.Entities[index];
         if (entity.Geometry?.Spline is null && entity.Geometry?.GrindPath is null)
@@ -192,13 +192,13 @@ public sealed class ForgeProjectWorkspace
 
     public void RenameEntity(EntityId entityId, string name)
     {
-        ValidateText(name, nameof(name));
+        ForgeProjectValidation.ValidateText(name, nameof(name));
         UpdateEntities([entityId], entity => entity with { Name = name.Trim() });
     }
 
     public void SetEntityLayer(IReadOnlyList<EntityId> entityIds, string layer)
     {
-        ValidateText(layer, nameof(layer));
+        ForgeProjectValidation.ValidateText(layer, nameof(layer));
         UpdateEntities(entityIds, entity => entity with { Layer = layer.Trim() });
     }
 
@@ -234,6 +234,7 @@ public sealed class ForgeProjectWorkspace
         var removed = entityIds.ToHashSet();
         var entities = Content.Entities.Where(entity => !removed.Contains(entity.EntityId)).ToArray();
         Content = Content with { Entities = entities };
+        NormalizeSkyShellOrders();
         if (entities.Length == 0) return [];
         return [entities[Math.Min(indexes.Min(), entities.Length - 1)].EntityId];
     }
@@ -249,16 +250,20 @@ public sealed class ForgeProjectWorkspace
     {
         ArgumentNullException.ThrowIfNull(entities);
         if (entities.Count == 0) throw new ArgumentException("At least one entity is required.", nameof(entities));
+        var nextSkyOrder = Content.Entities.Count(entity => entity.SkyShell is not null);
         var copies = entities.Select(entity => entity with
         {
             EntityId = EntityId.New(),
             Name = entity.Name.Length <= 251 ? $"{entity.Name} copy" : $"{entity.Name[..251]} copy",
-            Provenance = null,
+            Provenance = entity.SkyShell is null ? null : entity.Provenance,
             State = (entity.State ?? new()) with { Locked = false },
             Source = entity.Source is null ? null : entity.Source with
             {
                 SourceIndex = entity.Source.SourceIndex ?? entity.Provenance?.SourceIndex,
             },
+            SkyShell = entity.SkyShell is null
+                ? null
+                : entity.SkyShell with { Order = nextSkyOrder++ },
         }).ToArray();
         Content = Content with { Entities = Content.Entities.Concat(copies).ToArray() };
         return copies;
@@ -280,6 +285,33 @@ public sealed class ForgeProjectWorkspace
             Content = previous;
             throw;
         }
+    }
+
+    public void UpdateSkyShell(EntityId entityId, ProjectSkyShell skyShell)
+    {
+        ArgumentNullException.ThrowIfNull(skyShell);
+        var index = FindEntityIndex(entityId);
+        var entity = Content.Entities[index];
+        if (entity.SkyShell is null) throw new InvalidOperationException("Entity is not a sky shell.");
+        if (skyShell.SourceShellIndex != entity.SkyShell.SourceShellIndex || skyShell.Order != entity.SkyShell.Order)
+            throw new InvalidOperationException("Sky shell source and order require their dedicated commands.");
+        ForgeProjectValidation.ValidateSkyShell(entity with { SkyShell = skyShell });
+        var entities = Content.Entities.ToArray();
+        entities[index] = entity with { SkyShell = skyShell };
+        Content = Content with { Entities = entities };
+    }
+
+    public void ReorderSkyShell(EntityId entityId, int destinationOrder)
+    {
+        var ordered = Content.Entities.Where(entity => entity.SkyShell is not null)
+            .OrderBy(entity => entity.SkyShell!.Order).ToList();
+        var entity = ordered.SingleOrDefault(value => value.EntityId == entityId)
+            ?? throw new InvalidOperationException("Entity is not a sky shell.");
+        if ((uint)destinationOrder >= (uint)ordered.Count)
+            throw new ArgumentOutOfRangeException(nameof(destinationOrder));
+        ordered.Remove(entity);
+        ordered.Insert(destinationOrder, entity);
+        ApplySkyShellOrders(ordered);
     }
 
     public void CompleteBaseEntityImport(IReadOnlyList<ProjectEntity> entities, int missingAssetCount)
@@ -305,6 +337,7 @@ public sealed class ForgeProjectWorkspace
                     TieLighting = imported.TieLighting,
                     Camera = imported.Camera,
                     AmbientSound = imported.AmbientSound,
+                    SkyShell = imported.SkyShell,
                 }
                 : entity;
         });
@@ -355,7 +388,7 @@ public sealed class ForgeProjectWorkspace
 
     public void Rename(string name)
     {
-        ValidateText(name, nameof(name));
+        ForgeProjectValidation.ValidateText(name, nameof(name));
         Manifest = Manifest with { Name = name.Trim() };
     }
 
@@ -369,6 +402,8 @@ public sealed class ForgeProjectWorkspace
         ArgumentNullException.ThrowIfNull(globalCatalog);
         if (canonicalBytes.IsEmpty) throw new ArgumentException("Edited asset bytes cannot be empty.", nameof(canonicalBytes));
         var selected = Content.Entities[FindEntityIndex(entityId)];
+        if (selected.SkyShell is not null)
+            throw new InvalidOperationException("Sky shell source assets are immutable.");
         var source = selected.Asset ?? throw new InvalidOperationException($"Entity {entityId} does not reference an asset.");
         var canonicalFormatVersion = ResolveAssetDetails(source, globalCatalog);
         var derivedId = AssetId.Compute(source.Kind, canonicalFormatVersion, canonicalBytes.Span);
@@ -508,243 +543,24 @@ public sealed class ForgeProjectWorkspace
         };
     }
 
-    private void Validate()
-    {
-        if (Manifest.SchemaVersion != ProjectSchema.CurrentVersion) throw new UnsupportedProjectSchemaException(Manifest.SchemaVersion);
-        if (Content.SchemaVersion != ProjectSchema.CurrentVersion) throw new UnsupportedProjectSchemaException(Content.SchemaVersion);
-        if (Manifest.DocumentType != ProjectSchema.ManifestDocumentType) throw new InvalidDataException("Project manifest document type is invalid.");
-        if (Content.DocumentType != ProjectSchema.ContentDocumentType) throw new InvalidDataException("Project content document type is invalid.");
-        if (Manifest.ProjectId.Value == Guid.Empty) throw new InvalidDataException("Project ID cannot be empty.");
-        if (Manifest.Target is null || Manifest.BaseLevel is null) throw new InvalidDataException("Project target and base level are required.");
-        if (Content.Entities is null || Content.Assets is null) throw new InvalidDataException("Project content lists are required.");
-        if (Content.LevelSettings is not null) ValidateLevelSettings(Content.LevelSettings);
-        ValidateText(Manifest.Name, nameof(Manifest.Name));
-        ValidateText(Manifest.Target.Game, nameof(Manifest.Target.Game));
-        ValidateText(Manifest.Target.Region, nameof(Manifest.Target.Region));
-        ValidateText(Manifest.Target.Revision, nameof(Manifest.Target.Revision));
-        ValidateText(Manifest.Target.BakeProfile, nameof(Manifest.Target.BakeProfile));
-        ValidateText(Manifest.BaseLevel.Game, nameof(Manifest.BaseLevel.Game));
-        ValidateText(Manifest.BaseLevel.Region, nameof(Manifest.BaseLevel.Region));
-        ValidateText(Manifest.BaseLevel.Revision, nameof(Manifest.BaseLevel.Revision));
-        if (Manifest.BaseLevel.Level < 0) throw new InvalidDataException("Base level cannot be negative.");
-        if (Manifest.BaseLevel.MissingAssetCount < 0) throw new InvalidDataException("Base-level missing asset count cannot be negative.");
-        if (Manifest.BaseLevel.SourceFingerprint is null
-            || Manifest.BaseLevel.SourceFingerprint.Length != 32
-            || !Manifest.BaseLevel.SourceFingerprint.All(Uri.IsHexDigit))
-            throw new InvalidDataException("Base-level source fingerprint must be a 32-character MD5 value.");
-        _ = ContentFilePath;
+    private void Validate() => ForgeProjectValidation.Validate(RootPath, Manifest, Content);
 
-        if (Content.Entities.Any(entity => entity is null)) throw new InvalidDataException("Project entities cannot contain null entries.");
-        if (Content.Entities.Select(entity => entity.EntityId).Distinct().Count() != Content.Entities.Count)
-            throw new InvalidDataException("Project contains duplicate Entity IDs.");
-        foreach (var entity in Content.Entities)
-        {
-            if (entity is null || entity.EntityId.Value == Guid.Empty) throw new InvalidDataException("Project entity ID cannot be empty.");
-            ValidateText(entity.Name, nameof(entity.Name));
-            ValidateText(entity.Layer, nameof(entity.Layer));
-            if (entity.Transform is null) throw new InvalidDataException($"Entity {entity.EntityId} transform is required.");
-            ValidateTransform(entity.Transform);
-            if (entity.Asset is not null)
-            {
-                if (entity.Asset.Id.ToString().Length != AssetId.TextLength)
-                    throw new InvalidDataException($"Entity {entity.EntityId} has an empty Asset ID.");
-                if (!Enum.IsDefined(entity.Asset.Kind)) throw new InvalidDataException($"Entity {entity.EntityId} has an unknown asset kind.");
-            }
-            if (entity.Provenance is not null)
-            {
-                ValidateText(entity.Provenance.Game, nameof(entity.Provenance.Game));
-                ValidateText(entity.Provenance.Section, nameof(entity.Provenance.Section));
-                if (entity.Provenance.Level < 0 || entity.Provenance.SourceIndex < 0)
-                    throw new InvalidDataException($"Entity {entity.EntityId} provenance indexes cannot be negative.");
-            }
-            if (entity.Source is not null)
-            {
-                if (entity.Source.ClassId < 0 || entity.Source.RawRecord is null || entity.Source.RawRecord.Length is 0 or > 4_096)
-                    throw new InvalidDataException($"Entity {entity.EntityId} source record is invalid.");
-                if (entity.Source.SourceIndex < 0)
-                    throw new InvalidDataException($"Entity {entity.EntityId} source index cannot be negative.");
-            }
-            ValidateGeometry(entity, Content.Entities);
-            ValidateLighting(entity);
-            ValidateEnvironmentInstance(entity);
-        }
-        if (Content.Assets.Any(asset => asset is null)) throw new InvalidDataException("Project assets cannot contain null entries.");
-        if (Content.Assets.Select(asset => asset.Id).Distinct().Count() != Content.Assets.Count)
-            throw new InvalidDataException("Project contains duplicate attached Asset IDs.");
-        foreach (var asset in Content.Assets)
-        {
-            if (asset is null || asset.Id.ToString().Length != AssetId.TextLength || asset.ParentId.ToString().Length != AssetId.TextLength)
-                throw new InvalidDataException("Project asset IDs cannot be empty.");
-            if (!Enum.IsDefined(asset.Kind)) throw new InvalidDataException($"Project asset {asset.Id} has an unknown kind.");
-            if (asset.Size < 1) throw new InvalidDataException($"Project asset {asset.Id} has an invalid size.");
-            if (asset.Id == asset.ParentId) throw new InvalidDataException($"Project asset {asset.Id} cannot derive from itself.");
-        }
+    private void NormalizeSkyShellOrders()
+    {
+        ApplySkyShellOrders(Content.Entities.Where(entity => entity.SkyShell is not null)
+            .OrderBy(entity => entity.SkyShell!.Order).ToArray());
     }
 
-    private static void ValidateTransform(ProjectTransform transform)
+    private void ApplySkyShellOrders(IReadOnlyList<ProjectEntity> ordered)
     {
-        ArgumentNullException.ThrowIfNull(transform);
-        if (transform.Position is null || transform.Rotation is null || transform.Scale is null)
-            throw new InvalidDataException("Entity transform components are required.");
-        var values = new[]
+        var orders = ordered.Select((entity, order) => (entity.EntityId, Order: order))
+            .ToDictionary(value => value.EntityId, value => value.Order);
+        Content = Content with
         {
-            transform.Position.X, transform.Position.Y, transform.Position.Z,
-            transform.Rotation.X, transform.Rotation.Y, transform.Rotation.Z, transform.Rotation.W,
-            transform.Scale.X, transform.Scale.Y, transform.Scale.Z,
+            Entities = Content.Entities.Select(entity => entity.SkyShell is not null
+                ? entity with { SkyShell = entity.SkyShell with { Order = orders[entity.EntityId] } }
+                : entity).ToArray(),
         };
-        if (values.Any(value => !float.IsFinite(value))) throw new InvalidDataException("Entity transform values must be finite.");
-        if (transform.Rotation is { X: 0, Y: 0, Z: 0, W: 0 }) throw new InvalidDataException("Entity rotation cannot be an empty quaternion.");
-        if (transform.Scale.X == 0 || transform.Scale.Y == 0 || transform.Scale.Z == 0)
-            throw new InvalidDataException("Entity scale cannot contain zero.");
-    }
-
-    private static void ValidateLevelSettings(ProjectLevelSettings settings)
-    {
-        ArgumentNullException.ThrowIfNull(settings);
-        if (settings.BackgroundColor is null || settings.FogColor is null)
-            throw new InvalidDataException("Level setting colors are required.");
-        var values = new[]
-        {
-            settings.FogNearDistance, settings.FogFarDistance,
-            settings.FogNearIntensity, settings.FogFarIntensity,
-        };
-        if (values.Any(value => !float.IsFinite(value)))
-            throw new InvalidDataException("Level setting fog values must be finite.");
-        if (settings.FogNearDistance < 0 || settings.FogFarDistance < 0)
-            throw new InvalidDataException("Level setting fog distances cannot be negative.");
-        if (settings.FogNearIntensity is < 0 or > 255 || settings.FogFarIntensity is < 0 or > 255)
-            throw new InvalidDataException("Level setting fog intensities must be between 0 and 255.");
-    }
-
-    private static void ValidateGeometry(ProjectEntity entity, IReadOnlyList<ProjectEntity> entities)
-    {
-        if (entity.Geometry is null) return;
-        if (entity.Asset is not null || entity.Source is not null || entity.Lighting is not null)
-            throw new InvalidDataException($"Geometry entity {entity.EntityId} cannot reference a model asset or class record.");
-        var geometry = entity.Geometry;
-        if ((geometry.Cuboid is not null ? 1 : 0) + (geometry.Sphere is not null ? 1 : 0)
-            + (geometry.Cylinder is not null ? 1 : 0) + (geometry.Pill is not null ? 1 : 0)
-            + (geometry.Spline is not null ? 1 : 0) + (geometry.GrindPath is not null ? 1 : 0)
-            + (geometry.Area is not null ? 1 : 0) != 1)
-            throw new InvalidDataException($"Entity {entity.EntityId} must contain exactly one geometry kind.");
-        foreach (var (name, shape) in new[]
-        {
-            ("cuboid", geometry.Cuboid),
-            ("sphere", geometry.Sphere),
-            ("cylinder", geometry.Cylinder),
-            ("pill", geometry.Pill),
-        })
-        {
-            if (shape is null) continue;
-            if (shape.Matrix is null || shape.Matrix.Count != 16
-                || shape.InverseRotationMatrix is null || shape.InverseRotationMatrix.Count != 12
-                || shape.EulerRotation is null
-                || shape.Matrix.Concat(shape.InverseRotationMatrix)
-                    .Append(shape.EulerRotation.X).Append(shape.EulerRotation.Y)
-                    .Append(shape.EulerRotation.Z).Any(value => !float.IsFinite(value)))
-                throw new InvalidDataException($"Entity {entity.EntityId} {name} geometry is invalid.");
-            if (shape.CameraCollision is { } cameraCollision
-                && (!float.IsFinite(cameraCollision.FloatValue) || !ValidVector(cameraCollision.BoundingSphere)))
-                throw new InvalidDataException($"Entity {entity.EntityId} camera collision metadata is invalid.");
-        }
-        if (geometry.Spline is not null)
-        {
-            if (!ValidPoints(geometry.Spline.Points))
-                throw new InvalidDataException($"Entity {entity.EntityId} spline geometry is invalid.");
-        }
-        if (geometry.GrindPath is not null
-            && (!ValidVector(geometry.GrindPath.BoundingSphere) || !ValidPoints(geometry.GrindPath.Points)))
-            throw new InvalidDataException($"Entity {entity.EntityId} grind path geometry is invalid.");
-        if (geometry.Area is not null)
-        {
-            var area = geometry.Area;
-            if (area.BoundingSphere is null
-                || area.Splines is null || area.Cuboids is null || area.Spheres is null
-                || area.Cylinders is null || area.NegativeCuboids is null
-                || new[] { area.BoundingSphere.X, area.BoundingSphere.Y, area.BoundingSphere.Z, area.BoundingSphere.W }
-                    .Any(value => !float.IsFinite(value)))
-                throw new InvalidDataException($"Entity {entity.EntityId} area bounds are invalid.");
-            var known = entities.Select(value => value.EntityId).ToHashSet();
-            foreach (var link in area.Splines.Concat(area.Cuboids).Concat(area.Spheres)
-                .Concat(area.Cylinders).Concat(area.NegativeCuboids))
-            {
-                if (link is null || link.EntityId is not null && !known.Contains(link.EntityId.Value))
-                    throw new InvalidDataException($"Entity {entity.EntityId} area link is invalid.");
-            }
-        }
-    }
-
-    private static bool ValidPoints(IReadOnlyList<ProjectVector4>? points) => points is not null
-        && points.Count <= 100_000
-        && points.All(ValidVector);
-
-    private static bool ValidVector(ProjectVector4? value) => value is not null
-        && new[] { value.X, value.Y, value.Z, value.W }.All(float.IsFinite);
-
-    private static bool ValidVector(ProjectVector3? value) => value is not null
-        && new[] { value.X, value.Y, value.Z }.All(float.IsFinite);
-
-    private static void ValidateLighting(ProjectEntity entity)
-    {
-        if (entity.Lighting is not null)
-        {
-            if (entity.Asset is not null || entity.Source is not null || entity.Geometry is not null)
-                throw new InvalidDataException($"Lighting entity {entity.EntityId} cannot reference another entity payload.");
-            var lighting = entity.Lighting;
-            if ((lighting.DirectionalLight is not null ? 1 : 0) + (lighting.PointLight is not null ? 1 : 0)
-                + (lighting.EnvironmentSamplePoint is not null ? 1 : 0)
-                + (lighting.EnvironmentTransition is not null ? 1 : 0) != 1)
-                throw new InvalidDataException($"Entity {entity.EntityId} must contain exactly one lighting kind.");
-            if (lighting.DirectionalLight is { } directional
-                && !new[] { directional.TopColor, directional.TopDirection,
-                    directional.InverseColor, directional.InverseDirection }.All(ValidVector))
-                throw new InvalidDataException($"Entity {entity.EntityId} directional light is invalid.");
-            if (lighting.EnvironmentSamplePoint is { HeroColor: null } or { FogColor: null })
-                throw new InvalidDataException($"Entity {entity.EntityId} environment sample point is invalid.");
-            if (lighting.EnvironmentTransition is { } transition
-                && (!ValidVector(transition.BoundingSphere)
-                    || transition.InverseMatrix is null || transition.InverseMatrix.Count != 16
-                    || transition.InverseMatrix.Any(value => !float.IsFinite(value))
-                    || transition.HeroColor1 is null || transition.HeroColor2 is null
-                    || transition.FogColor1 is null || transition.FogColor2 is null
-                    || new[] { transition.FogNearDistance1, transition.FogNearIntensity1,
-                        transition.FogFarDistance1, transition.FogFarIntensity1,
-                        transition.FogNearDistance2, transition.FogNearIntensity2,
-                        transition.FogFarDistance2, transition.FogFarIntensity2 }.Any(value => !float.IsFinite(value))))
-                throw new InvalidDataException($"Entity {entity.EntityId} environment transition is invalid.");
-        }
-        if (entity.TieLighting is not null
-            && (entity.Layer != "ties" || entity.Source is null
-                || entity.Provenance is not null && entity.Provenance.Section != "gameplay/core/tie_instances"
-                || entity.TieLighting.AmbientRgbas is null
-                || entity.TieLighting.AmbientRgbas.Length % 2 != 0))
-            throw new InvalidDataException($"Entity {entity.EntityId} tie lighting is invalid.");
-    }
-
-    private static void ValidateEnvironmentInstance(ProjectEntity entity)
-    {
-        if (entity.Camera is not null && entity.AmbientSound is not null)
-            throw new InvalidDataException($"Entity {entity.EntityId} cannot be both a camera and ambient sound.");
-        if (entity.Camera is { } camera
-            && (entity.Asset is not null || entity.Geometry is not null || entity.Lighting is not null
-                || entity.Provenance?.Section != "gameplay/core/cameras" || entity.Source is null
-                || !ValidVector(camera.EulerRotation)))
-            throw new InvalidDataException($"Entity {entity.EntityId} camera data is invalid.");
-        if (entity.AmbientSound is { } sound
-            && (entity.Asset is not null || entity.Geometry is not null || entity.Lighting is not null
-                || entity.Provenance?.Section != "gameplay/core/sound_instances" || entity.Source is null
-                || !float.IsFinite(sound.Range) || sound.Range < 0
-                || sound.Matrix is null || sound.Matrix.Count != 16
-                || sound.InverseRotationMatrix is null || sound.InverseRotationMatrix.Count != 12
-                || sound.Matrix.Concat(sound.InverseRotationMatrix).Any(value => !float.IsFinite(value))
-                || !ValidVector(sound.EulerRotation) || !float.IsFinite(sound.Padding)))
-            throw new InvalidDataException($"Entity {entity.EntityId} ambient sound data is invalid.");
-    }
-
-    private static void ValidateText(string value, string name)
-    {
-        if (string.IsNullOrWhiteSpace(value) || value.Length > 256)
-            throw new InvalidDataException($"{name} must contain between 1 and 256 characters.");
     }
 
 }

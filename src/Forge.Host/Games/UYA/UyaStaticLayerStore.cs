@@ -8,7 +8,7 @@ namespace Forge.Host.Games.UYA;
 
 public static class UyaStaticLayerStore
 {
-    private const long MaxAssetBytes = 256L * 1024 * 1024;
+    private const long MaxAssetBytes = UyaAssetLimits.MaxCanonicalBytes;
 
     public static async Task WriteSourceAsync(
         string projectRoot,

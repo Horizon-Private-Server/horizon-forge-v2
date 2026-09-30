@@ -13,7 +13,6 @@ import type { EditorEntity } from '../src/types/EditorRuntime.js';
 import { DEFAULT_SCENE_TREE_COLORS } from '../src/utils/SceneTreeColors.ts';
 import {
   applySceneEnvironment,
-  configureSkybox,
   disposeObject,
   frameCameraOnObject,
   framePs2Positions,
@@ -22,6 +21,7 @@ import {
   updateCameraFlight,
   updateCameraMovement,
 } from '../src/utils/Scene.ts';
+import { configureSkybox, skyEyeFromBounds } from '../src/utils/SkyboxScene.ts';
 import {
   configurePs2AssetPreview,
   configurePs2MaterialAlpha,
@@ -131,6 +131,20 @@ test('scene projection diffs entities by ID and updates transforms in place', ()
   assert.deepEqual(projection.sync([entity('a', 20), entity('c')]), {
     created: 0, updated: 0, removed: 0,
   });
+  projection.dispose();
+});
+
+test('scene projection leaves sky shell entities to the dedicated sky renderer', () => {
+  const projection = new SceneProjection();
+  const sky = entity('sky');
+  sky.asset = { id: 'sky-asset', kind: 'sky' };
+  sky.skyShell = {
+    sourceShellIndex: 0, order: 0,
+    initialRotationRadians: { x: 0, y: 0, z: 0 },
+    angularVelocityRadiansPerSecond: { x: 0, y: 0, z: 0 },
+  };
+  assert.deepEqual(projection.sync([sky], [sky.id]), { created: 0, updated: 0, removed: 0 });
+  assert.equal(projection.getObject(sky.id), undefined);
   projection.dispose();
 });
 
@@ -490,15 +504,37 @@ test('scene environment and sky configure WebGL fidelity defaults', () => {
   const sky = new THREE.Mesh(new THREE.BoxGeometry(10, 10, 10), material);
   sky.geometry.userData.SkyboxDrawOrder = 3;
   sky.geometry.userData.SkyboxDrawBlendMode = 'Bloom';
+  sky.geometry.userData.SkyboxShellRotationRaw = [0, 0, 16_384];
+  sky.geometry.userData.SkyboxShellRotationDeltaRaw = [0, 0, 1];
+  sky.geometry.userData.SkyboxRotationTickRadians = Math.PI / 32_768;
+  sky.geometry.userData.SkyboxRuntimeFrameRate = 60;
   sky.name = 'skybox_shell_00';
   const configured = configureSkybox(sky);
+  const initialRotation = sky.quaternion.clone();
   assert.equal(sky.renderOrder, -997);
   assert.deepEqual(configured.pieces, ['skybox_shell_00']);
   assert.equal(material.depthTest, false);
   assert.equal(material.depthWrite, false);
   assert.equal(material.fog, false);
   assert.equal(material.blending, THREE.AdditiveBlending);
+  assert.ok(initialRotation.angleTo(new THREE.Quaternion()) > 1);
+  configured.update(1);
+  assert.ok(sky.quaternion.angleTo(initialRotation) > 0.001);
+  configured.setRotation({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 });
+  assert.ok(sky.quaternion.angleTo(new THREE.Quaternion()) < 0.001);
+  configured.setRotation({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 1 });
+  configured.update(1);
+  assert.ok(sky.quaternion.angleTo(new THREE.Quaternion()) > 0.001);
   disposeObject(sky);
+});
+
+test('sky composition eye is independent of shell order', () => {
+  const upper = new THREE.Box3(new THREE.Vector3(-10, 10, -10), new THREE.Vector3(10, 30, 10));
+  const lower = new THREE.Box3(new THREE.Vector3(-25, -30, -25), new THREE.Vector3(25, -10, 25));
+  const upperFirst = skyEyeFromBounds(upper.clone().union(lower));
+  const lowerFirst = skyEyeFromBounds(lower.clone().union(upper));
+  assert.ok(upperFirst.distanceTo(lowerFirst) < 1e-9);
+  assert.ok(Math.abs(upperFirst.y) < 0.01);
 });
 
 test('PS2 fog clamps to the game far intensity instead of increasing to full fog', () => {

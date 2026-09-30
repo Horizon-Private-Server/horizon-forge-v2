@@ -22,6 +22,7 @@ internal static class AssetExplorerPayloadCodec
         writer.WriteString(value.TargetGame);
         writer.WriteString(value.TargetRegion);
         writer.WriteString(value.TargetRevision);
+        writer.WriteUInt32(value.CurrentSkyShellCount);
         return writer.ToArray();
     }
 
@@ -43,7 +44,8 @@ internal static class AssetExplorerPayloadCodec
             reader.ReadUInt32(),
             reader.ReadString(),
             reader.ReadString(),
-            reader.ReadString());
+            reader.ReadString(),
+            reader.ReadUInt32());
         reader.Complete();
         if (!Enum.IsDefined(category)) PayloadFormat.Malformed("Unknown asset explorer category");
         return value;

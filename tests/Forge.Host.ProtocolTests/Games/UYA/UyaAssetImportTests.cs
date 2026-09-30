@@ -42,8 +42,8 @@ internal static class UyaAssetImportTests
             Equal(true, result.Resumed, "resumed import");
             Equal(2, result.CompletedLevels, "completed levels");
             Equal(2, result.TotalLevels, "total levels");
-            Equal(10, result.AssetAppearances, "asset appearances");
-            Equal(5, result.UniqueAssets, "deduplicated assets");
+            Equal(12, result.AssetAppearances, "asset appearances");
+            Equal(6, result.UniqueAssets, "deduplicated assets");
             Equal(0, result.FailedAssets, "failed assets");
 
             var catalog = await AssetCatalogStore.OpenAsync(root);
@@ -63,6 +63,9 @@ internal static class UyaAssetImportTests
             Equal(true, texture.Tags.Contains("texture:placeholder"), "placeholder texture tag");
             Equal(new AssetTextureUse(AssetKind.Moby, 101, "material", 0, false),
                 texture.Sources[0].TextureUse, "texture owner provenance");
+            var sky = catalog.Query(new(Kind: AssetKind.Sky)).Single();
+            Equal(2, sky.Sources.Count, "sky source appearances");
+            Equal(true, sky.Aliases.Contains("sky-shell:00"), "sky shell index alias");
 
             var repairTarget = mobys[0];
             File.Delete(catalog.ResolveBlobPath(repairTarget.Id)!);
@@ -125,9 +128,10 @@ internal static class UyaAssetImportTests
         var levelData = wad[UyaLevelConstants.SectorSize..];
         WriteByteBlock(levelData, 0x08, 0x100, 0x160);
         WriteByteBlock(levelData, 0x10, 0x240, 1);
-        WriteByteBlock(levelData, 0x48, 0x300, 0x50);
+        WriteByteBlock(levelData, 0x48, 0x300, 0xb0);
 
         var assetHeader = levelData[0x100..];
+        WriteInt32(assetHeader, 0x10, 0x50);
         WriteInt32(assetHeader, 0x18, 2);
         WriteInt32(assetHeader, 0x1c, 0xc0);
         WriteInt32(assetHeader, 0x20, 1);
@@ -145,11 +149,13 @@ internal static class UyaAssetImportTests
         BinaryPrimitives.WriteInt16LittleEndian(assetHeader[0x154..], 1);
         BinaryPrimitives.WriteInt16LittleEndian(assetHeader[0x156..], 1);
 
-        var assets = levelData[0x300..0x350];
+        var assets = levelData[0x300..0x3b0];
         assets[0x10..0x20].Fill(0x11);
         assets[0x20..0x30].Fill(0x22);
         assets[0x30..0x40].Fill(0x33);
         assets[0x40..0x50].Fill(0x44);
+        BinaryPrimitives.WriteInt16LittleEndian(assets[0x56..], 1);
+        WriteInt32(assets, 0x70, 0x30);
         return bytes;
     }
 

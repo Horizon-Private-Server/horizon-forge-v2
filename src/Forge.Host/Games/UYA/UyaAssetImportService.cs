@@ -12,7 +12,7 @@ namespace Forge.Host.Games.UYA;
 
 public static class UyaAssetImportService
 {
-    public const string ImporterVersionPrefix = "forge-uya-v3+";
+    public const string ImporterVersionPrefix = "forge-uya-v4+";
     public const uint CanonicalFormatVersion = 1;
     public const uint TextureCanonicalFormatVersion = 1;
     private const int StateSchemaVersion = 0;
@@ -199,6 +199,10 @@ public static class UyaAssetImportService
                 request);
             AddTextures(results, kind, asset.ClassId, asset.SourceIndex, asset.Textures, level, request);
         }
+        var sky = UyaBaseLayerService.ExtractSky(UyaLevelWadUnpacker.Unpack(levelWadBytes));
+        if (sky is not null)
+            results.AddRange(UyaBaseLayerService.CreateCatalogPuts(
+                [sky], new("UYA", "NTSC-U", request.Revision, level, request.Fingerprint), request.ImporterVersion));
         return new(results, extracted.FailedAssetCount);
     }
 

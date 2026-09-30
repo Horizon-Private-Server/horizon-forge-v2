@@ -10,6 +10,25 @@ namespace Forge.Host.Games.UYA;
 
 internal static class UyaBaseLayerService
 {
+    public static UyaBaseLayerPayload? ExtractSky(UyaLevelWadPackage package)
+    {
+        var source = UyaLevelWadRenderPackageBuilder.ReadAssetSourceFiles(package.Files);
+        var header = LevelAssetReader.ReadHeader(source.HeaderBytes);
+        var assetBytes = BinaryMagic.IsWad(source.AssetWadBytes)
+            ? WadCompression.Decompress(source.AssetWadBytes)
+            : source.AssetWadBytes;
+        var offsets = LevelAssetReader.CollectKnownAssetOffsets(
+            header,
+            assetBytes.Length,
+            LevelAssetReader.ReadModelDefinitions(source.HeaderBytes, header.MobyModelOffset, header.MobyModelCount),
+            LevelAssetReader.ReadModelDefinitions(source.HeaderBytes, header.TieModelOffset, header.TieModelCount),
+            LevelAssetReader.ReadShrubDefinitions(source.HeaderBytes, header.ShrubModelOffset, header.ShrubModelCount),
+            [header.SceneViewSize]);
+        var bytes = LevelAssetReader.ReadAssetSlice(assetBytes, header.SkyOffset, offsets);
+        return bytes.Length == 0 ? null : new(
+            BakeLayerId.Sky, "sky.bin", AssetKind.Sky, "level_wad/assets/asset_wad.bin", 0, bytes);
+    }
+
     public static IReadOnlyList<UyaBaseLayerPayload> Extract(UyaLevelWadPackage package)
     {
         var files = package.Files.ToDictionary(file => file.Path, StringComparer.Ordinal);

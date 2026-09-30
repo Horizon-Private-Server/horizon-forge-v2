@@ -25,6 +25,7 @@ interface Vector3Like {
   z: number;
 }
 
+
 export interface CameraFlight {
   cameraStart: THREE.Vector3;
   cameraEnd: THREE.Vector3;
@@ -105,39 +106,6 @@ export function applySceneEnvironment(
     : new THREE.Color(0x151922);
   if (backgroundScene !== scene) scene.background = null;
   scene.fog = environment ? createSceneFog(environment) : null;
-}
-
-export function configureSkybox(root: THREE.Object3D): { eye: THREE.Vector3; pieces: string[] } {
-  root.updateMatrixWorld(true);
-  const bounds = new THREE.Box3().setFromObject(root);
-  const center = bounds.getCenter(new THREE.Vector3());
-  const size = bounds.getSize(new THREE.Vector3());
-  const maxDimension = Math.max(size.x, size.y, size.z, 1);
-  const eye = new THREE.Vector3(
-    center.x,
-    bounds.min.y <= 0 && bounds.max.y >= 0 ? maxDimension / 10_000 : bounds.min.y,
-    center.z,
-  );
-  const pieces: string[] = [];
-  root.traverse((object) => {
-    object.frustumCulled = false;
-    if (!(object instanceof THREE.Mesh)) return;
-    pieces.push(object.name || `Sky piece ${pieces.length + 1}`);
-    const metadata = { ...object.userData, ...object.geometry.userData };
-    const order = Number(metadata.SkyboxDrawOrder ?? metadata.SkyboxSourceDrawOrder ?? 0);
-    object.renderOrder = -1_000 + (Number.isFinite(order) ? order : 0);
-    const blendMode = String(metadata.SkyboxDrawBlendMode ?? '');
-    for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
-      material.side = THREE.DoubleSide;
-      material.depthTest = false;
-      material.depthWrite = false;
-      material.fog = false;
-      material.toneMapped = false;
-      if (blendMode === 'Bloom') material.blending = THREE.AdditiveBlending;
-      material.needsUpdate = true;
-    }
-  });
-  return { eye, pieces };
 }
 
 export function framePs2Positions(

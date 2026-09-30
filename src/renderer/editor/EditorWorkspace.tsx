@@ -79,9 +79,9 @@ export function EditorWorkspace({
   const buildRunning = useRef(false);
   const [terrain, setTerrain] = useState<EditorTerrainSource>();
   const [sceneLoad, setSceneLoad] = useState<EditorLoadProgress>();
-  const [skyPieces, setSkyPieces] = useState<string[]>([]);
   const [cameraFocus, setCameraFocus] = useState<{ entityId: string }>();
   const [splinePointSelection, setSplinePointSelection] = useState<string[]>([]);
+  const [skyCompositionSelected, setSkyCompositionSelected] = useState(false);
   const splinePointClipboard = useRef<ProjectVector4[]>([]);
   const [showOcclusionOctants, setShowOcclusionOctants] = useState(false);
   const [assetPreview, setAssetPreview] = useState<AssetExplorerFamily>();
@@ -90,14 +90,14 @@ export function EditorWorkspace({
   useEffect(() => {
     let disposed = false;
     setTerrain(undefined);
-    setSkyPieces([]);
     setCameraFocus(undefined);
     setAssetPreview(undefined);
     setSplinePointSelection([]);
+    setSkyCompositionSelected(false);
     splinePointClipboard.current = [];
-    setSceneLoad({ status: 'loading', label: 'Preparing UYA render package…', completed: 0, total: 1 });
+    setSceneLoad({ status: 'loading', label: 'Preparing render package…', completed: 0, total: 1 });
     const stopProgress = window.forge.onEditorTerrainProgress((progress) => {
-      if (!disposed) setSceneLoad({ status: 'loading', label: 'Preparing UYA render package…', ...progress });
+      if (!disposed) setSceneLoad({ status: 'loading', label: 'Preparing render package…', ...progress });
     });
     void window.forge.getEditorTerrain().then((source) => {
       if (disposed) return;
@@ -207,9 +207,9 @@ export function EditorWorkspace({
     }
   }, [onProjectChange]);
 
-  const inspectAsset = useCallback((family: AssetExplorerFamily) => {
+  const inspectAsset = useCallback((family: AssetExplorerFamily, activate = true) => {
     setAssetPreview(family);
-    if (api) showEditorPanel(api, 'assetPreview');
+    if (activate && api) showEditorPanel(api, 'assetPreview');
   }, [api]);
 
   const execute = useCallback(async (command: EditorCommand) => {
@@ -278,12 +278,12 @@ export function EditorWorkspace({
     terrain,
     sceneLoad,
     setSceneLoad,
-    skyPieces,
-    setSkyPieces,
     cameraFocus,
     setCameraFocus,
     splinePointSelection,
     setSplinePointSelection,
+    skyCompositionSelected,
+    setSkyCompositionSelected,
     showViewportStats,
     showOcclusionOctants,
     setShowOcclusionOctants,
@@ -304,7 +304,8 @@ export function EditorWorkspace({
       finally { setBusy(false); }
     },
   }), [assetPreview, buildAndPatch, buildProgress, buildResult, busy, cameraFocus, execute, hostStatus, inspectAsset, keybindings,
-    project, sceneLoad, sceneTreeColors, showOcclusionOctants, showViewportStats, skyPieces, splinePointSelection,
+    project, sceneLoad, sceneTreeColors, showOcclusionOctants, showViewportStats, skyCompositionSelected,
+    splinePointSelection,
     terrain]);
 
   return <EditorContext.Provider value={context}>

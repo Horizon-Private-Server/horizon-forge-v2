@@ -6,11 +6,13 @@ import type { AssetPreviewKind } from '../types/AssetExplorer.js';
 
 const CACHE_DIRECTORY = 'asset-thumbnails';
 const CACHE_BYTES = 128 * 1024 * 1024;
+const PRUNE_INTERVAL_BYTES = 8 * 1024 * 1024;
 const MAX_ENTRY_BYTES = 2 * 1024 * 1024;
 const MODEL_PREVIEW_SCHEMA = 1;
 // Bump when raster size, format, material setup, framing, or lighting changes.
 const MODEL_THUMBNAIL_SCHEMA = 'png-256-model-v3';
 const TEXTURE_THUMBNAIL_SCHEMA = 'png-256-texture-v2';
+const SKY_THUMBNAIL_SCHEMA = 'png-256-sky-v4';
 
 export interface CachedAssetThumbnail {
   cacheKey: string;
@@ -23,6 +25,7 @@ export class AssetThumbnailCache {
   private readonly cacheRoot: string;
   private readonly validate: (bytes: Uint8Array) => boolean;
   private readonly maxBytes: number;
+  private bytesSincePrune = 0;
 
   constructor(
     cacheRoot: string,
@@ -34,9 +37,11 @@ export class AssetThumbnailCache {
     this.maxBytes = maxBytes;
   }
 
-  async get(assetId: string, kind: AssetPreviewKind, sdkRevision: string): Promise<CachedAssetThumbnail | undefined> {
+  async get(
+    targetGame: string, assetId: string, kind: AssetPreviewKind, sdkRevision: string, shellIndex?: number,
+  ): Promise<CachedAssetThumbnail | undefined> {
     const rootPath = path.join(this.cacheRoot, CACHE_DIRECTORY);
-    const entryPath = path.join(rootPath, this.fileName(assetId, kind, sdkRevision));
+    const entryPath = path.join(rootPath, this.fileName(targetGame, assetId, kind, sdkRevision, shellIndex));
     try {
       const info = await stat(entryPath);
       if (!info.isFile() || info.size <= 0 || info.size > MAX_ENTRY_BYTES) throw new Error('Invalid thumbnail size');
@@ -53,14 +58,16 @@ export class AssetThumbnailCache {
   }
 
   async store(
+    targetGame: string,
     assetId: string,
     kind: AssetPreviewKind,
     sdkRevision: string,
     bytes: Uint8Array,
+    shellIndex?: number,
   ): Promise<CachedAssetThumbnail> {
     if (bytes.byteLength <= 0 || bytes.byteLength > MAX_ENTRY_BYTES || !this.validate(bytes))
       throw new TypeError('Asset thumbnail is not a valid 256px PNG image');
-    const fileName = this.fileName(assetId, kind, sdkRevision);
+    const fileName = this.fileName(targetGame, assetId, kind, sdkRevision, shellIndex);
     const existing = this.pendingWrites.get(fileName);
     if (existing) return existing;
     const write = this.write(fileName, bytes);
@@ -82,7 +89,12 @@ export class AssetThumbnailCache {
       if (current) return current;
       await writeFile(partialPath, bytes, { flag: 'wx' });
       await rename(partialPath, entryPath);
-      await this.prune(rootPath, entryPath);
+      this.bytesSincePrune += bytes.byteLength;
+      // ponytail: allows at most one small write interval of cache overshoot; track total size if a strict cap is needed.
+      if (this.bytesSincePrune >= Math.min(PRUNE_INTERVAL_BYTES, this.maxBytes)) {
+        await this.prune(rootPath, entryPath);
+        this.bytesSincePrune = 0;
+      }
       return { cacheKey: CACHE_DIRECTORY, rootPath, path: fileName };
     } finally {
       await unlink(partialPath).catch(() => undefined);
@@ -128,11 +140,15 @@ export class AssetThumbnailCache {
     }
   }
 
-  private fileName(assetId: string, kind: AssetPreviewKind, sdkRevision: string): string {
+  private fileName(
+    targetGame: string, assetId: string, kind: AssetPreviewKind, sdkRevision: string, shellIndex?: number,
+  ): string {
     const previewSchema = kind === 'texture' ? 2 : MODEL_PREVIEW_SCHEMA;
-    const preset = kind === 'texture' ? 'texture-default' : 'model-default';
-    const thumbnailSchema = kind === 'texture' ? TEXTURE_THUMBNAIL_SCHEMA : MODEL_THUMBNAIL_SCHEMA;
-    const identity = `UYA\n${assetId}\n${kind}\n${sdkRevision}\n${previewSchema}\n${preset}\n${thumbnailSchema}`;
+    const preset = kind === 'texture' ? 'texture-default' : kind === 'sky' ? 'sky-default' : 'model-default';
+    const thumbnailSchema = kind === 'texture'
+      ? TEXTURE_THUMBNAIL_SCHEMA
+      : kind === 'sky' ? SKY_THUMBNAIL_SCHEMA : MODEL_THUMBNAIL_SCHEMA;
+    const identity = `${targetGame}\n${assetId}\n${kind}\n${shellIndex ?? ''}\n${sdkRevision}\n${previewSchema}\n${preset}\n${thumbnailSchema}`;
     return `${createHash('sha256').update(identity).digest('hex')}.png`;
   }
 }

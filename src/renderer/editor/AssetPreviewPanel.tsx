@@ -2,7 +2,7 @@ import { Badge, Button, Code, Group, SegmentedControl, Select, Stack, Text } fro
 import { useEffect, useRef, useState } from 'react';
 
 import type { AssetExplorerCategory, AssetExplorerItem, AssetPreviewKind } from '../../types/AssetExplorer.js';
-import { createAssetPlacementCommand } from '../../utils/AssetPlacement.ts';
+import { createAssetPlacementCommand, createSkyShellAddCommand } from '../../utils/AssetPlacement.ts';
 import { errorMessage } from '../../utils/Errors.ts';
 import { applyTextureChannel, type TextureChannel } from '../../utils/TexturePreview.ts';
 import { AssetModelPreview } from './AssetModelPreview.tsx';
@@ -26,8 +26,10 @@ export function AssetPreviewPanel() {
       {kind === 'texture' && item.previewState !== 'missingBlob'
         ? <AssetTexturePreview assetId={item.assetId} label={item.displayLabel} />
         : kind && kind !== 'texture' && item.previewState !== 'missingBlob'
-          ? <AssetModelPreview assetId={item.assetId} kind={kind} label={item.displayLabel} />
-        : <EditorEmptyState message="Interactive preview unavailable for this asset." />}
+          ? <AssetModelPreview
+              assetId={item.assetId} kind={kind} label={item.displayLabel} shellIndex={item.shellIndex}
+            />
+          : <EditorEmptyState message="Interactive preview unavailable for this asset." />}
       <Text fw={600}>{family.displayLabel}</Text>
       <Group gap="xs">
         <Badge variant="light">{categoryLabel(family.category)}</Badge>
@@ -68,13 +70,20 @@ export function AssetPreviewPanel() {
           source.textureUse.restorable ? 'restorable' : 'placeholder, non-restorable'}`}
       </Text>)}
       {!item.canPlace && <Text c="dimmed" size="sm">{item.placementDisabledReason}</Text>}
-      {kind && kind !== 'texture' && family.classId !== undefined && <Button
+      {kind && kind !== 'texture' && kind !== 'sky' && family.classId !== undefined && <Button
         disabled={busy || !item.canPlace}
         title={item.canPlace ? 'Place at project origin' : item.placementDisabledReason}
         onClick={() => void execute(createAssetPlacementCommand({
           assetId: item.assetId, kind, classId: family.classId!,
         }, { x: 0, y: 0, z: 0 }))}
       >Place at origin</Button>}
+      {kind === 'sky' && item.shellIndex !== undefined && <Button
+        disabled={busy || !item.canPlace}
+        title={item.canPlace ? 'Append this shell to the project sky' : item.placementDisabledReason}
+        onClick={() => void execute(createSkyShellAddCommand({
+          assetId: item.assetId, kind: 'sky', shellIndex: item.shellIndex!,
+        }))}
+      >Add to sky</Button>}
     </Stack>
   </EditorPanel>;
 }
@@ -84,6 +93,7 @@ function previewKind(item: AssetExplorerItem): AssetPreviewKind | undefined {
   if (item.category === 'shrubs') return 'shrub';
   if (item.category === 'mobys') return 'moby';
   if (item.category === 'textures') return 'texture';
+  if (item.category === 'skyShells') return 'sky';
   return undefined;
 }
 

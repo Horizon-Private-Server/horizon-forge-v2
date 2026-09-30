@@ -60,7 +60,8 @@ public sealed record UyaAssetPreviewRequest(
     AssetId AssetId,
     AssetKind Kind,
     string TargetGame,
-    string ViewPreset = "model-default");
+    string ViewPreset = "model-default",
+    int? ShellIndex = null);
 
 public sealed record UyaAssetPreviewResult(
     string RootPath,

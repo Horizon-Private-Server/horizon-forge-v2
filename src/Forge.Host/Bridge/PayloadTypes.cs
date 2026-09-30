@@ -83,7 +83,8 @@ public sealed record AssetExplorerRequestPayload(
     uint Limit,
     string TargetGame,
     string TargetRegion,
-    string TargetRevision);
+    string TargetRevision,
+    uint CurrentSkyShellCount);
 public sealed record AssetExplorerTextureUsePayload(
     string OwnerKind,
     uint OwnerClassId,
@@ -171,7 +172,8 @@ public sealed record AssetPreviewRequestPayload(
     string AssetId,
     string Kind,
     string TargetGame,
-    string ViewPreset);
+    string ViewPreset,
+    uint? ShellIndex = null);
 public sealed record AssetPreviewResultPayload(
     string RootPath,
     string CacheKey,

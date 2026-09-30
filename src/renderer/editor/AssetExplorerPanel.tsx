@@ -1,5 +1,4 @@
 import { Alert, Badge, Button, MultiSelect, SegmentedControl, Select, Text, TextInput } from '@mantine/core';
-import { PlaceholderIcon } from '@phosphor-icons/react/dist/csr/Placeholder';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type {
@@ -13,13 +12,15 @@ import type {
 } from '../../types/AssetExplorer.js';
 import type { SceneTreeColors, SceneTreeKind } from '../../types/SceneTree.js';
 import { errorMessage } from '../../utils/Errors.ts';
-import { ASSET_PLACEMENT_MIME } from '../../utils/AssetPlacement.ts';
+import { ASSET_PLACEMENT_MIME, SKY_SHELL_PLACEMENT_MIME } from '../../utils/AssetPlacement.ts';
 import { AssetPreviewMeshMissingError, AssetThumbnailRuntime } from './AssetThumbnailRuntime.ts';
 import {
   assetExplorerFilterCount,
+  assetExplorerQueryKey,
   assetGridWindow,
   buildAssetFamilies,
   isStaleAssetExplorerCursor,
+  retainAssetExplorerPageDepth,
 } from './EditorPanelState.ts';
 import { useEditor } from './EditorContext.ts';
 
@@ -34,7 +35,7 @@ const CATEGORIES: { label: string; value: AssetExplorerCategory }[] = [
 const EMPTY_FACETS: AssetExplorerFacets = { games: [], levels: [], regions: [], revisions: [], tags: [] };
 
 export function AssetExplorerPanel() {
-  const { inspectAsset, project, sceneTreeColors } = useEditor();
+  const { assetPreview, inspectAsset, project, sceneTreeColors } = useEditor();
   const [category, setCategory] = useState<AssetExplorerCategory>('ties');
   const [search, setSearch] = useState('');
   const [querySearch, setQuerySearch] = useState('');
@@ -43,6 +44,7 @@ export function AssetExplorerPanel() {
   });
   const [facets, setFacets] = useState<AssetExplorerFacets>(EMPTY_FACETS);
   const [items, setItems] = useState<AssetExplorerItem[]>([]);
+  const skyShellCount = project.entities.filter((entity) => entity.skyShell).length;
   const [nextCursor, setNextCursor] = useState<string>();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -51,6 +53,9 @@ export function AssetExplorerPanel() {
   const [thumbnails, setThumbnails] = useState<AssetThumbnailRuntime | null>();
   const generation = useRef(0);
   const loadingRef = useRef(false);
+  const lastQueryKey = useRef('');
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
 
   useEffect(() => {
     const timer = setTimeout(() => setQuerySearch(search.trim()), 180);
@@ -59,13 +64,13 @@ export function AssetExplorerPanel() {
 
   useEffect(() => {
     try {
-      const runtime = new AssetThumbnailRuntime();
+      const runtime = new AssetThumbnailRuntime(project.target.game);
       setThumbnails(runtime);
       return () => runtime.dispose();
     } catch {
       setThumbnails(null);
     }
-  }, []);
+  }, [project.target.game]);
 
   const loadPage = useCallback(async (
     currentCategory: AssetExplorerCategory,
@@ -74,6 +79,7 @@ export function AssetExplorerPanel() {
     cursor: string | undefined,
     append: boolean,
     version: number,
+    minimumItemCount = 0,
   ) => {
     if (loadingRef.current) return;
     loadingRef.current = true;
@@ -96,6 +102,13 @@ export function AssetExplorerPanel() {
         page = await query();
         restart = true;
       }
+      if (!append && !restart && minimumItemCount > page.items.length) {
+        page = await retainAssetExplorerPageDepth(page, minimumItemCount, async (nextCursor) => {
+          if (generation.current !== version) return undefined;
+          const next = await query(nextCursor);
+          return generation.current === version ? next : undefined;
+        });
+      }
       if (generation.current !== version) return;
       setItems((current) => append && !restart ? [...current, ...page.items] : page.items);
       setFacets(page.facets);
@@ -112,16 +125,20 @@ export function AssetExplorerPanel() {
 
   useEffect(() => {
     const version = ++generation.current;
+    const queryKey = assetExplorerQueryKey(category, querySearch, filters);
+    const queryChanged = lastQueryKey.current !== queryKey;
+    lastQueryKey.current = queryKey;
+    const minimumItemCount = queryChanged ? 0 : itemsRef.current.length;
     loadingRef.current = false;
-    setItems([]);
+    if (queryChanged) setItems([]);
     setFacets(EMPTY_FACETS);
     setNextCursor(undefined);
-    void loadPage(category, querySearch, filters, undefined, false, version);
+    void loadPage(category, querySearch, filters, undefined, false, version, minimumItemCount);
     return () => {
       if (generation.current === version) generation.current += 1;
       void window.forge.cancelAssetExplorerQuery();
     };
-  }, [category, filters, loadPage, querySearch]);
+  }, [category, filters, loadPage, querySearch, category === 'skyShells' ? skyShellCount : 0]);
 
   useEffect(() => {
     if (!scrollElement) return;
@@ -154,6 +171,11 @@ export function AssetExplorerPanel() {
     revision: project.baseLevel.revision,
     level: project.baseLevel.level,
   }), [items, project.baseLevel]);
+  useEffect(() => {
+    if (!assetPreview) return;
+    const updated = families.find((family) => family.familyId === assetPreview.familyId);
+    if (updated) inspectAsset(updated, false);
+  }, [assetPreview?.familyId, families, inspectAsset]);
   const windowed = assetGridWindow(families.length, viewport.width, viewport.height, viewport.scrollTop);
   useEffect(() => {
     if (error || !nextCursor || loading || windowed.endIndex < families.length - windowed.columns * 2) return;
@@ -202,7 +224,12 @@ export function AssetExplorerPanel() {
         </div>
       </details>
     </div>
-    {error && <Alert color="red" title="Could not load assets">{error}</Alert>}
+    {error && <Alert color="red" title="Could not load assets">
+      <Text size="sm">{error}</Text>
+      <Button mt="xs" size="compact-xs" variant="light" onClick={() => void loadPage(
+        category, querySearch, filters, nextCursor, items.length > 0, generation.current,
+      )}>Retry</Button>
+    </Alert>}
     <div className="asset-explorer-grid-scroll" ref={setScrollElement}>
       <div
         aria-label={`${CATEGORIES.find((value) => value.value === category)?.label ?? 'Asset'} results`}
@@ -260,11 +287,11 @@ function AssetCard({ color, family, root, runtime, onActivate }: {
     const observer = new IntersectionObserver((entries) => {
       if (!entries.some((entry) => entry.isIntersecting)) return;
       observer.disconnect();
-      void runtime.get(item.assetId, kind, cancellation.signal)
+      void runtime.get(item.assetId, kind, item.shellIndex, cancellation.signal)
         .then(setThumbnail)
         .catch((cause: unknown) => {
           if (cause instanceof DOMException && cause.name === 'AbortError') return;
-          setFailure(cause instanceof AssetPreviewMeshMissingError && kind === 'moby' ? 'meshless' : 'unavailable');
+          setFailure(cause instanceof AssetPreviewMeshMissingError ? 'meshless' : 'unavailable');
         });
     }, { root });
     if (element.current) observer.observe(element.current);
@@ -272,12 +299,13 @@ function AssetCard({ color, family, root, runtime, onActivate }: {
       observer.disconnect();
       cancellation.abort();
     };
-  }, [item.assetId, item.previewState, kind, root, runtime]);
+  }, [item.assetId, item.previewState, item.shellIndex, kind, root, runtime]);
 
   const previewLabel = item.previewState === 'missingBlob' ? 'Blob missing'
     : failure === 'unavailable' || runtime === null || !kind ? 'Preview unavailable'
       : thumbnail ? '' : 'Preview waiting';
-  const draggable = item.canPlace && family.classId !== undefined && kind !== undefined;
+  const draggable = item.canPlace && kind !== undefined
+    && (kind === 'sky' ? item.shellIndex !== undefined : family.classId !== undefined && kind !== 'texture');
   const texture = kind === 'texture';
   return <button
     ref={element}
@@ -291,16 +319,18 @@ function AssetCard({ color, family, root, runtime, onActivate }: {
         return;
       }
       event.dataTransfer.effectAllowed = 'copy';
-      event.dataTransfer.setData(ASSET_PLACEMENT_MIME, JSON.stringify({
-        assetId: item.assetId, kind, classId: family.classId,
-      }));
+      const payload = kind === 'sky'
+        ? { assetId: item.assetId, kind, shellIndex: item.shellIndex }
+        : { assetId: item.assetId, kind, classId: family.classId };
+      event.dataTransfer.setData(ASSET_PLACEMENT_MIME, JSON.stringify(payload));
+      if (kind === 'sky') event.dataTransfer.setData(SKY_SHELL_PLACEMENT_MIME, '1');
     }}
     onClick={onActivate}
   >
     <span className={`asset-explorer-thumbnail${texture ? ' asset-explorer-thumbnail-texture' : ''}`}>
       {thumbnail ? <img alt="" src={thumbnail} />
         : failure === 'meshless'
-          ? <PlaceholderIcon aria-hidden className="asset-explorer-thumbnail-placeholder" size={48} weight="duotone" />
+          ? <span>No renderable geometry</span>
           : <span>{previewLabel}</span>}
     </span>
     <span className="asset-explorer-card-meta">
@@ -326,6 +356,7 @@ function previewKind(item: AssetExplorerItem): AssetPreviewKind | undefined {
   if (item.category === 'shrubs') return 'shrub';
   if (item.category === 'mobys') return 'moby';
   if (item.category === 'textures') return 'texture';
+  if (item.category === 'skyShells') return 'sky';
   return undefined;
 }
 

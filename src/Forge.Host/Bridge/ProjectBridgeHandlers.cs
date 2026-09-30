@@ -1,5 +1,6 @@
 using Forge.Host.Domain;
 using Forge.Host.Games.UYA;
+using RatchetPs2.Core.Skyboxes;
 
 namespace Forge.Host.Bridge;
 
@@ -249,6 +250,7 @@ internal static class ProjectBridgeHandlers
         UyaSkyShellIndexItem item)
     {
         var entry = item.Entry;
+        var (canPlace, disabledReason) = SkyShellPlacementCompatibility(entry, request, item);
         return new(
             entry.Id.ToString(),
             request.Category,
@@ -262,9 +264,27 @@ internal static class ProjectBridgeHandlers
                 checked((uint)source.SourceIndex))).ToArray(),
             [],
             item.BlobAvailable ? "notCached" : "missingBlob",
-            false,
-            item.BlobAvailable ? "Sky shells are preview-only." : "The catalog blob is missing.",
+            canPlace,
+            disabledReason,
             item.ShellIndex is { } shellIndex ? checked((uint)shellIndex) : null);
+    }
+
+    private static (bool CanPlace, string? DisabledReason) SkyShellPlacementCompatibility(
+        AssetCatalogEntry entry,
+        AssetExplorerRequestPayload request,
+        UyaSkyShellIndexItem item)
+    {
+        if (!item.BlobAvailable) return (false, "The catalog blob is missing.");
+        if (item.ShellIndex is null) return (false, "The source shell index is unavailable.");
+        if (request.TargetGame != "UYA" || request.TargetRegion != "NTSC-U")
+            return (false, $"Sky shell editing is not supported for {request.TargetGame} {request.TargetRegion}.");
+        if (!entry.Sources.Any(source => source.Game == request.TargetGame
+                && source.Region == request.TargetRegion && source.Revision == request.TargetRevision))
+            return (false,
+                $"The shell is not compatible with {request.TargetGame} {request.TargetRegion} {request.TargetRevision}.");
+        if (request.CurrentSkyShellCount >= SkyboxFormat.MaxShellCount)
+            return (false, $"UYA skyboxes support at most {SkyboxFormat.MaxShellCount} shells.");
+        return (true, null);
     }
 
     private static AssetExplorerItemPayload ToExplorerItem(

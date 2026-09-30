@@ -1,5 +1,10 @@
 import type { EditorEntity } from '../../types/EditorRuntime.js';
-import type { AssetExplorerFamily, AssetExplorerItem, AssetExplorerQuery } from '../../types/AssetExplorer.js';
+import type {
+  AssetExplorerFamily,
+  AssetExplorerItem,
+  AssetExplorerPage,
+  AssetExplorerQuery,
+} from '../../types/AssetExplorer.js';
 
 export interface SceneEntityGroup {
   layer: string;
@@ -18,6 +23,30 @@ export function assetExplorerFilterCount(
   query: Pick<AssetExplorerQuery, 'game' | 'level' | 'region' | 'revision' | 'tags'>,
 ): number {
   return [query.game, query.level, query.region, query.revision].filter(Boolean).length + (query.tags?.length ?? 0);
+}
+
+export function assetExplorerQueryKey(
+  category: AssetExplorerQuery['category'],
+  search: string,
+  query: Pick<AssetExplorerQuery, 'game' | 'level' | 'region' | 'revision' | 'tags'>,
+): string {
+  return JSON.stringify([category, search, query.game, query.level, query.region, query.revision, query.tags ?? []]);
+}
+
+export async function retainAssetExplorerPageDepth(
+  firstPage: AssetExplorerPage,
+  minimumItemCount: number,
+  loadNext: (cursor: string) => Promise<AssetExplorerPage | undefined>,
+): Promise<AssetExplorerPage> {
+  const items = [...firstPage.items];
+  let page = firstPage;
+  while (page.nextCursor && items.length < minimumItemCount) {
+    const next = await loadNext(page.nextCursor);
+    if (!next) break;
+    items.push(...next.items);
+    page = next;
+  }
+  return { ...page, items };
 }
 
 export function isStaleAssetExplorerCursor(reason: unknown): boolean {

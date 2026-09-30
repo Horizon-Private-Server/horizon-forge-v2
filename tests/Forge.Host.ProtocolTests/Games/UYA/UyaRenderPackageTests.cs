@@ -1,5 +1,7 @@
 using Forge.Host.Games.UYA;
 using Forge.Host.Domain;
+using System.Buffers.Binary;
+using System.Text.Json;
 using RatchetPs2.Core.Textures.Pif;
 using RatchetPs2.Core.Textures.Png;
 using RatchetPs2.Core.Wad.Models;
@@ -15,12 +17,19 @@ internal static class UyaRenderPackageTests
         var projectPath = Path.Combine(root, "project");
         var catalogPath = Path.Combine(root, "catalog");
         var fingerprint = new string('a', 32);
+        var skyAssetId = AssetId.Compute(AssetKind.Sky, 0, "sky render source"u8);
         await ForgeProjectWorkspace.CreateAsync(
             projectPath,
             "Render test",
             new("UYA", "NTSC-U", "1.00", "uya-ntsc-u"),
             new("UYA", "NTSC-U", "1.00", 3, fingerprint, EntityVersion: ProjectSchema.CurrentBaseEntityVersion),
-            []);
+            [
+                new(
+                    EntityId.New(), "Sky shell 1", "sky", ProjectTransform.Identity,
+                    new(skyAssetId, AssetKind.Sky),
+                    new("UYA", 3, "level_wad/assets/sky", 0),
+                    SkyShell: new(0, 0, new(0, 0, 0), new(0, 0, 0))),
+            ]);
         var request = new UyaRenderPackageRequest("", cache, fingerprint, 3, projectPath, catalogPath);
         const string sdkRevision = "test-sdk";
         try
@@ -47,6 +56,7 @@ internal static class UyaRenderPackageTests
             var cached = await UyaRenderPackageService.PrepareAsync(request, sdkRevision);
             Equal(true, cached.CacheHit, "terrain cache hit without source ISO");
             Equal(written.CacheKey, cached.CacheKey, "stable terrain cache key");
+            Equal(0, cached.Assets.Count, "sky entities bypass the model render-asset list");
 
             var previewRequest = new UyaAssetPreviewRequest(
                 cache,
@@ -115,6 +125,37 @@ internal static class UyaRenderPackageTests
             Equal(false, (await UyaAssetPreviewService.PrepareAsync(textureRequest, sdkRevision)).CacheHit,
                 "corrupt texture preview cache is replaced");
 
+            var skyBytes = BuildUyaSkyboxFixture(2);
+            var skyEntry = await catalog.PutAsync(
+                AssetKind.Sky,
+                0,
+                skyBytes,
+                new("test", new("UYA", "NTSC-U", "1.00", "level03", "assets.bin", 0, fingerprint),
+                    UyaSkyShellIndexService.Aliases(skyBytes)));
+            var firstSkyRequest = new UyaAssetPreviewRequest(
+                cache, catalogPath, skyEntry.Id, AssetKind.Sky, "UYA", "sky-default", 0);
+            var firstSkyPreview = await UyaAssetPreviewService.PrepareAsync(firstSkyRequest, sdkRevision);
+            var secondSkyPreview = await UyaAssetPreviewService.PrepareAsync(
+                firstSkyRequest with { ShellIndex = 1 }, sdkRevision);
+            Equal("model.gltf", firstSkyPreview.ModelPath, "sky shell preview route");
+            Equal(false, firstSkyPreview.CacheKey == secondSkyPreview.CacheKey,
+                "sky shell preview cache identity");
+
+            var emptyShellSkyBytes = BuildUyaSkyboxFixture(2);
+            BinaryPrimitives.WriteInt16LittleEndian(emptyShellSkyBytes.AsSpan(0x30), 0);
+            var emptyShellSky = await catalog.PutAsync(
+                AssetKind.Sky,
+                0,
+                emptyShellSkyBytes,
+                new("test", new("UYA", "NTSC-U", "1.00", "level03", "assets.bin", 0, fingerprint),
+                    UyaSkyShellIndexService.Aliases(emptyShellSkyBytes)));
+            var emptyShellPreview = await UyaAssetPreviewService.PrepareAsync(
+                firstSkyRequest with { AssetId = emptyShellSky.Id }, sdkRevision);
+            using (var emptyShellGltf = JsonDocument.Parse(await File.ReadAllBytesAsync(
+                Path.Combine(emptyShellPreview.RootPath, emptyShellPreview.ModelPath))))
+                Equal(false, emptyShellGltf.RootElement.TryGetProperty("meshes", out _),
+                    "empty sky shell preview is valid meshless glTF");
+
             var previewTraversal = PackedFilePackageBuilder.Pack([
                 new("model.gltf", "{}"u8.ToArray(), "model/gltf+json"),
                 new("../escape.bin", [11], "application/octet-stream"),
@@ -151,6 +192,51 @@ internal static class UyaRenderPackageTests
         {
             if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
         }
+    }
+
+    private static byte[] BuildUyaSkyboxFixture(int shellCount)
+    {
+        var dataStart = 0x30 + (shellCount * 0x30);
+        var bytes = new byte[dataStart + (shellCount * 0x28)];
+        using var stream = new MemoryStream(bytes, writable: true);
+        using var writer = new BinaryWriter(stream);
+        stream.Position = 6;
+        writer.Write(checked((short)shellCount));
+        stream.Position = 0x20;
+        for (var index = 0; index < shellCount; index++) writer.Write(checked((uint)(0x30 + (index * 0x30))));
+        for (var index = 0; index < shellCount; index++)
+        {
+            var shellOffset = 0x30 + (index * 0x30);
+            var dataOffset = dataStart + (index * 0x28);
+            stream.Position = shellOffset;
+            writer.Write((short)1);
+            writer.Write((short)1);
+            for (var value = 0; value < 6; value++) writer.Write((short)0);
+            stream.Position = shellOffset + 0x10;
+            writer.Write(0f);
+            writer.Write(0f);
+            writer.Write(0f);
+            writer.Write(1f);
+            writer.Write(dataOffset);
+            writer.Write((short)3);
+            writer.Write((short)1);
+            writer.Write((short)0);
+            writer.Write((short)24);
+            writer.Write((short)36);
+            writer.Write((short)40);
+            stream.Position = dataOffset;
+            foreach (var vertex in new (short X, short Y, short Z)[]
+                { (0, 0, 0), (1024, 0, 0), (0, 1024, 0) })
+            {
+                writer.Write(vertex.X);
+                writer.Write(vertex.Y);
+                writer.Write(vertex.Z);
+                writer.Write((short)0x80);
+            }
+            stream.Position = dataOffset + 36;
+            writer.Write(new byte[] { 0, 1, 2, 0xFF });
+        }
+        return bytes;
     }
 
     private static async Task ThrowsAsync<T>(Func<Task> action) where T : Exception

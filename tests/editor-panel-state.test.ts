@@ -7,6 +7,7 @@ import test from 'node:test';
 import { AssetThumbnailCache } from '../src/main/AssetThumbnailCache.ts';
 import {
   assetExplorerFilterCount,
+  assetExplorerQueryKey,
   assetGridWindow,
   buildAssetFamilies,
   buildSceneEntityGroups,
@@ -16,12 +17,13 @@ import {
   entityTreeKind,
   entityTreeText,
   isStaleAssetExplorerCursor,
+  retainAssetExplorerPageDepth,
   nextTreeSelection,
   nextViewportSelection,
 } from '../src/renderer/editor/EditorPanelState.ts';
 import type { AssetExplorerItem } from '../src/types/AssetExplorer.js';
 import type { EditorEntity } from '../src/types/EditorRuntime.js';
-import { createAssetPlacementCommand } from '../src/utils/AssetPlacement.ts';
+import { createAssetPlacementCommand, createSkyShellAddCommand } from '../src/utils/AssetPlacement.ts';
 import { parseSplinePointId, removeSplinePoints, splinePointId } from '../src/utils/SplinePoints.ts';
 import { applyTextureChannel } from '../src/utils/TexturePreview.ts';
 
@@ -74,16 +76,30 @@ test('asset thumbnails persist, reject corruption, and prune least-recently-used
   const valid = (bytes: Uint8Array) => bytes[0] === 42;
   try {
     const cache = new AssetThumbnailCache(root, valid, 5);
-    const first = await cache.store('a'.repeat(64), 'tie', 'sdk', Uint8Array.of(42, 1, 1));
-    assert.equal((await cache.get('a'.repeat(64), 'tie', 'sdk'))?.path, first.path);
-    await cache.store('b'.repeat(64), 'shrub', 'sdk', Uint8Array.of(42, 2, 2));
+    const first = await cache.store('UYA', 'a'.repeat(64), 'tie', 'sdk', Uint8Array.of(42, 1, 1));
+    assert.equal((await cache.get('UYA', 'a'.repeat(64), 'tie', 'sdk'))?.path, first.path);
+    await cache.store('UYA', 'b'.repeat(64), 'shrub', 'sdk', Uint8Array.of(42, 2, 2));
     await assert.rejects(stat(path.join(first.rootPath, first.path)), { code: 'ENOENT' });
 
-    const second = await cache.get('b'.repeat(64), 'shrub', 'sdk');
+    const second = await cache.get('UYA', 'b'.repeat(64), 'shrub', 'sdk');
     assert.ok(second);
     await writeFile(path.join(second.rootPath, second.path), Uint8Array.of(0, 2, 2));
-    assert.equal(await cache.get('b'.repeat(64), 'shrub', 'sdk'), undefined);
+    assert.equal(await cache.get('UYA', 'b'.repeat(64), 'shrub', 'sdk'), undefined);
     await assert.rejects(readFile(path.join(second.rootPath, second.path)), { code: 'ENOENT' });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('sky shell thumbnail cache keys include the shell index', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'forge-thumbnail-shell-cache-'));
+  try {
+    const cache = new AssetThumbnailCache(root, () => true);
+    const first = await cache.store('UYA', 'a'.repeat(64), 'sky', 'sdk', Uint8Array.of(1), 0);
+    const second = await cache.store('UYA', 'a'.repeat(64), 'sky', 'sdk', Uint8Array.of(2), 1);
+    assert.notEqual(first.path, second.path);
+    const otherGame = await cache.store('GC', 'a'.repeat(64), 'sky', 'sdk', Uint8Array.of(3), 0);
+    assert.notEqual(first.path, otherGame.path);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -99,6 +115,31 @@ test('asset explorer counts active facets and recognizes stale cursors', () => {
   assert.equal(isStaleAssetExplorerCursor(new Error('Catalog query failed.')), false);
 });
 
+test('asset explorer query identity changes only with visible query controls', () => {
+  const key = assetExplorerQueryKey('skyShells', '', { tags: [] });
+  assert.equal(key, assetExplorerQueryKey('skyShells', '', { tags: [] }));
+  assert.notEqual(key, assetExplorerQueryKey('skyShells', 'cloud', { tags: [] }));
+  assert.notEqual(key, assetExplorerQueryKey('skyShells', '', { level: 'level51', tags: [] }));
+});
+
+test('asset explorer refresh retains its loaded page depth before replacing items', async () => {
+  const item = (assetId: string): AssetExplorerItem => ({
+    assetId, category: 'skyShells', displayLabel: assetId, canonicalFormatVersion: 1, byteSize: 1,
+    aliases: [], tags: [], sources: [], classIds: [], previewState: 'notCached', canPlace: true, shellIndex: 0,
+  });
+  const pages = new Map([
+    ['page-2', { items: [item('b')], facets: { games: [], levels: [], regions: [], revisions: [], tags: [] }, nextCursor: 'page-3' }],
+    ['page-3', { items: [item('c')], facets: { games: [], levels: [], regions: [], revisions: [], tags: [] } }],
+  ]);
+  const page = await retainAssetExplorerPageDepth(
+    { items: [item('a')], facets: { games: [], levels: [], regions: [], revisions: [], tags: [] }, nextCursor: 'page-2' },
+    3,
+    async (cursor) => pages.get(cursor),
+  );
+  assert.deepEqual(page.items.map((value) => value.assetId), ['a', 'b', 'c']);
+  assert.equal(page.nextCursor, undefined);
+});
+
 test('asset placement uses one shared identity transform command', () => {
   const command = createAssetPlacementCommand({ assetId: 'a'.repeat(64), kind: 'shrub', classId: 42 }, { x: 1, y: 2, z: 3 });
   assert.equal(command.kind, 'createEntityFromAsset');
@@ -110,6 +151,12 @@ test('asset placement uses one shared identity transform command', () => {
       scale: { x: 1, y: 1, z: 1 },
     },
   });
+});
+
+test('sky shell addition uses the source shell without a spatial transform', () => {
+  const command = createSkyShellAddCommand({ assetId: 'b'.repeat(64), kind: 'sky', shellIndex: 3 });
+  assert.equal(command.kind, 'addSkyShellFromAsset');
+  assert.deepEqual(command.source, { assetId: 'b'.repeat(64), shellIndex: 3 });
 });
 
 test('asset explorer groups exact variants by target class and prefers the base-level source', () => {

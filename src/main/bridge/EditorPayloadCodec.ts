@@ -28,6 +28,9 @@ const commandKinds = {
   updateLevelSettings: 14,
   updateSplinePoints: 15,
   createEntityFromAsset: 16,
+  addSkyShellFromAsset: 17,
+  updateSkyShell: 18,
+  reorderSkyShell: 19,
 } as const;
 const eventKinds: Record<number, EditorEvent['kind']> = {
   1: 'projectOpened', 2: 'projectChanged', 3: 'selectionChanged', 4: 'projectSaved',
@@ -91,6 +94,21 @@ export function encodeEditorCommand(value: EditorCommand): Buffer {
     writer.writeUInt32(value.placement.classId);
     writeTransform(writer, value.placement.transform);
   }
+  writer.writeBoolean(value.kind === 'addSkyShellFromAsset');
+  if (value.kind === 'addSkyShellFromAsset') {
+    writer.writeString(value.source.assetId);
+    writer.writeUInt32(value.source.shellIndex);
+  }
+  writer.writeBoolean(value.kind === 'updateSkyShell');
+  if (value.kind === 'updateSkyShell') {
+    writer.writeBoolean(value.update.initialRotationRadians !== undefined);
+    if (value.update.initialRotationRadians) writeVector(writer, value.update.initialRotationRadians);
+    writer.writeBoolean(value.update.angularVelocityRadiansPerSecond !== undefined);
+    if (value.update.angularVelocityRadiansPerSecond)
+      writeVector(writer, value.update.angularVelocityRadiansPerSecond);
+  }
+  writer.writeBoolean(value.kind === 'reorderSkyShell');
+  if (value.kind === 'reorderSkyShell') writer.writeUInt32(value.destinationOrder);
   return writer.toBuffer();
 }
 
@@ -171,6 +189,12 @@ function readEntity(reader: PayloadReader): EditorEntity {
     points: readList(reader, MAX_ENTITIES, () => ({
       x: reader.readFloat32(), y: reader.readFloat32(), z: reader.readFloat32(), w: reader.readFloat32(),
     })),
+  };
+  if (reader.readBoolean()) value.skyShell = {
+    sourceShellIndex: reader.readUInt32(),
+    order: reader.readUInt32(),
+    initialRotationRadians: readVector(reader),
+    angularVelocityRadiansPerSecond: readVector(reader),
   };
   const transformCapabilities = reader.readUInt32();
   value.transformModes = [

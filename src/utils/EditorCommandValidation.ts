@@ -6,6 +6,7 @@ const commandKinds = new Set([
   'deleteEntities', 'duplicateEntities', 'copyEntities', 'pasteEntities',
   'updateLevelSettings', 'updateSplinePoints',
   'createEntityFromAsset',
+  'addSkyShellFromAsset', 'updateSkyShell', 'reorderSkyShell',
 ]);
 
 export function isEditorCommand(value: unknown): value is EditorCommand {
@@ -22,7 +23,29 @@ export function isEditorCommand(value: unknown): value is EditorCommand {
       && command.points.length <= 100_000 && command.points.every(isPoint);
   if (command.kind === 'createEntityFromAsset')
     return command.entityIds.length === 0 && isAssetPlacement(command.placement);
+  if (command.kind === 'addSkyShellFromAsset')
+    return command.entityIds.length === 0 && isSkyShellSource(command.source);
+  if (command.kind === 'updateSkyShell')
+    return command.entityIds.length === 1 && isSkyShellUpdate(command.update);
+  if (command.kind === 'reorderSkyShell')
+    return command.entityIds.length === 1 && Number.isInteger(command.destinationOrder)
+      && Number(command.destinationOrder) >= 0 && Number(command.destinationOrder) <= 100_000;
   return true;
+}
+
+function isSkyShellSource(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const source = value as Record<string, unknown>;
+  return typeof source.assetId === 'string' && /^[0-9a-f]{64}$/.test(source.assetId)
+    && Number.isInteger(source.shellIndex) && Number(source.shellIndex) >= 0 && Number(source.shellIndex) <= 0xffff;
+}
+
+function isSkyShellUpdate(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const update = value as Record<string, unknown>;
+  return (update.initialRotationRadians !== undefined || update.angularVelocityRadiansPerSecond !== undefined)
+    && (update.initialRotationRadians === undefined || isVector(update.initialRotationRadians))
+    && (update.angularVelocityRadiansPerSecond === undefined || isVector(update.angularVelocityRadiansPerSecond));
 }
 
 function isAssetPlacement(value: unknown): boolean {

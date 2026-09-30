@@ -3,6 +3,7 @@ using System.Numerics;
 using RatchetPs2.Core.Games;
 using RatchetPs2.Core.Gameplay;
 using RatchetPs2.Core.LevelAssets;
+using RatchetPs2.Core.Skyboxes;
 using RatchetPs2.Games.UYA.Gameplay;
 using RatchetPs2.Games.UYA.Level;
 using RatchetPs2.Sdk;
@@ -91,6 +92,8 @@ internal static class UyaBaseLevelService
         AddGeometryEntities(entities, geometry, cameraCollision, level, ref fallbackTransforms);
         AddLightingEntities(entities, lighting, level, ref fallbackTransforms);
         AddEnvironmentInstances(entities, cameras, sounds, level, ref fallbackTransforms);
+        var baseLayers = UyaBaseLayerService.Extract(package);
+        AddSkyShells(entities, baseLayers, level);
 
         var missing = CountMissing(mobys.Select(value => value.ClassId), mobyClasses, mobyAssets)
             + CountMissing(ties.Select(value => value.ClassId), tieClasses, tieAssets)
@@ -107,7 +110,7 @@ internal static class UyaBaseLevelService
             missingClasses,
             fallbackTransforms,
             UyaOpaqueContentService.Capture(levelWad, package),
-            UyaBaseLayerService.Extract(package),
+            baseLayers,
             [
                 new(BakeLayerId.Ties, UyaTieInstancesReader.RecordSize,
                     tieTable.HeaderWords, tieTable.TrailingBytes),
@@ -131,6 +134,37 @@ internal static class UyaBaseLevelService
         Math.Max(0, Finite(value.FogFarDistance) / 1024),
         Math.Clamp(Finite(value.FogNearIntensity), 0, 255),
         Math.Clamp(Finite(value.FogFarIntensity), 0, 255));
+
+    private static void AddSkyShells(
+        ICollection<ProjectEntity> entities,
+        IReadOnlyList<UyaBaseLayerPayload> baseLayers,
+        int level)
+    {
+        var payload = baseLayers.SingleOrDefault(value => value.Layer == BakeLayerId.Sky);
+        if (payload is null) return;
+        using var stream = new MemoryStream(payload.Bytes, writable: false);
+        var skybox = SkyboxReader.Read(stream, GameId.UYA);
+        var asset = new ProjectAssetReference(
+            AssetId.Compute(AssetKind.Sky, UyaBaseLayerSchema.CanonicalFormatVersion, payload.Bytes),
+            AssetKind.Sky);
+        const float tick = SkyboxFormat.RotationTickRadians;
+        foreach (var shell in skybox.Shells)
+        {
+            entities.Add(new(
+                EntityId.New(),
+                $"Sky shell {shell.Index + 1}",
+                "sky",
+                ProjectTransform.Identity,
+                asset,
+                new("UYA", level, "level_wad/assets/sky", shell.Index),
+                SkyShell: new(
+                    shell.Index,
+                    shell.Index,
+                    new(shell.RotationX * tick, shell.RotationY * tick, shell.RotationZ * tick),
+                    new(shell.RotationDeltaX * tick * 60, shell.RotationDeltaY * tick * 60,
+                        shell.RotationDeltaZ * tick * 60))));
+        }
+    }
 
     private static float Finite(float value) => float.IsFinite(value) ? value : 0;
 

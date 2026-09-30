@@ -31,7 +31,7 @@ internal static class AssetCatalogTests
             Metadata("level03", 7, ["tie:291", "tie:0x0123"], ["vanilla"]));
         var request = new AssetExplorerRequestPayload(
             root, AssetExplorerCategoryPayload.Ties, "0x0123", "UYA", "level03", "NTSC-U", "1.00",
-            ["vanilla"], null, 64, "UYA", "NTSC-U", "1.00");
+            ["vanilla"], null, 64, "UYA", "NTSC-U", "1.00", 0);
         var page = await QueryExplorerAsync(request);
         Equal(entry.Id.ToString(), page.Items.Single().AssetId, "explorer bridge asset");
         Equal(true, page.Items[0].CanPlace, "explorer bridge tie placement support");
@@ -71,11 +71,16 @@ internal static class AssetCatalogTests
         };
         var firstSkyPage = await QueryExplorerAsync(skyRequest);
         Equal(0u, firstSkyPage.Items.Single().ShellIndex, "explorer first sky shell index");
+        Equal(true, firstSkyPage.Items.Single().CanPlace, "explorer sky shell placement support");
         Equal(true, firstSkyPage.NextCursor is not null, "explorer sky shell cursor");
         var secondSkyPage = await QueryExplorerAsync(skyRequest with { Cursor = firstSkyPage.NextCursor });
         Equal(1u, secondSkyPage.Items.Single().ShellIndex, "explorer second sky shell index");
         var searchedSkyPage = await QueryExplorerAsync(skyRequest with { Search = "shell 01", Limit = 64 });
         Equal(1u, searchedSkyPage.Items.Single().ShellIndex, "explorer sky shell search");
+        var fullSkyPage = await QueryExplorerAsync(skyRequest with { CurrentSkyShellCount = 8, Limit = 64 });
+        Equal(true, fullSkyPage.Items.All(item => !item.CanPlace
+            && item.PlacementDisabledReason == "UYA skyboxes support at most 8 shells."),
+            "explorer sky shell limit reason");
         File.Delete(store.ResolveBlobPath(sky.Id)!);
         var missingSkyPage = await QueryExplorerAsync(skyRequest with { Limit = 64 });
         Equal(true, missingSkyPage.Items.Count == 2
@@ -85,6 +90,8 @@ internal static class AssetCatalogTests
         await store.UpdateMetadataAsync(
             entry.Id,
             Metadata("level03", 7, ["tie:292"], ["vanilla"]));
+        await ExpectAsync<InvalidDataException>(() => QueryExplorerAsync(
+            skyRequest with { Cursor = firstSkyPage.NextCursor }));
         var lowerClass = await store.PutAsync(
             AssetKind.Tie,
             2,
@@ -146,6 +153,14 @@ internal static class AssetCatalogTests
             bytes,
             Metadata("level03", 7, ["Crate"], ["interactive", "vanilla"]));
         var blob = store.ResolveBlobPath(first.Id) ?? throw new InvalidOperationException("Stored blob did not resolve.");
+        Equal(true, (await AssetCatalogBlobReader.ReadVerifiedAsync(
+            first, blob, bytes.Length, CancellationToken.None)).SequenceEqual(bytes), "verified catalog blob read");
+        await ExpectAsync<InvalidDataException>(() => AssetCatalogBlobReader.ReadVerifiedAsync(
+            first, blob, bytes.Length - 1, CancellationToken.None));
+        var corruptBlob = Path.Combine(root, "corrupt.blob");
+        await File.WriteAllBytesAsync(corruptBlob, bytes.Select(value => (byte)(value ^ 0xff)).ToArray());
+        await ExpectAsync<InvalidDataException>(() => AssetCatalogBlobReader.ReadVerifiedAsync(
+            first, corruptBlob, bytes.Length, CancellationToken.None));
         var preservedWriteTime = new DateTime(2001, 2, 3, 4, 5, 6, DateTimeKind.Utc);
         File.SetLastWriteTimeUtc(blob, preservedWriteTime);
 

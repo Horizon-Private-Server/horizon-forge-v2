@@ -4,8 +4,10 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-import type { EditorEntity, EditorTransformUpdate, ProjectVector4 } from '../../types/EditorRuntime.js';
-import type { AssetPlacementDragData } from '../../types/AssetExplorer.js';
+import type {
+  EditorEntity, EditorTransformUpdate, ProjectVector3, ProjectVector4,
+} from '../../types/EditorRuntime.js';
+import type { AssetModelPlacementDragData, AssetPlacementDragData } from '../../types/AssetExplorer.js';
 import type { KeybindingMap } from '../../types/Keybindings.js';
 import type { SceneTreeColors } from '../../types/SceneTree.js';
 import type { EditorLoadProgress, EditorSceneEnvironment, EditorTerrainSource } from '../../types/ForgeApi.js';
@@ -13,7 +15,6 @@ import type { EditorSnapSource, EditorSnapTarget } from '../../types/EditorViewp
 import {
   disposeObject,
   applySceneEnvironment,
-  configureSkybox,
   frameObject,
   framePs2Positions,
   positionCameraAtPreferredMoby,
@@ -23,6 +24,7 @@ import {
   updateCameraMovement,
 } from '../../utils/Scene.ts';
 import type { CameraFlight } from '../../utils/Scene.ts';
+import { configureSkybox, skyEyeFromBounds } from '../../utils/SkyboxScene.ts';
 import {
   configurePs2AssetVisibility,
   configurePs2MaterialAlpha,
@@ -30,7 +32,9 @@ import {
 } from '../../utils/Ps2Materials.ts';
 import { isTextInput } from '../../utils/Dom.ts';
 import { findKeybindingCommand, transformModeForKeybinding } from '../../utils/Keybindings.ts';
-import { ASSET_PLACEMENT_MIME, readAssetPlacementDrag } from '../../utils/AssetPlacement.ts';
+import {
+  ASSET_PLACEMENT_MIME, readAssetPlacementDrag, SKY_SHELL_PLACEMENT_MIME,
+} from '../../utils/AssetPlacement.ts';
 import { nextViewportSelection } from './EditorPanelState.ts';
 import { buildGroundPlacement } from './ScenePlacement.ts';
 import { SceneProjection } from './SceneProjection.ts';
@@ -52,11 +56,17 @@ interface SceneViewportProps {
   showOcclusionOctants: boolean;
   onFocusHandled(): void;
   onLoadProgress(progress?: EditorLoadProgress): void;
-  onSkyPiecesChange(values: string[]): void;
   onSelectionChange(values: string[]): void;
   onTransformsCommit(values: EditorTransformUpdate[]): Promise<boolean>;
   onSplinePointsCommit(entityId: string, points: ProjectVector4[]): Promise<boolean>;
-  onAssetDrop(asset: AssetPlacementDragData, position: { x: number; y: number; z: number }): Promise<boolean>;
+  onAssetDrop(asset: AssetPlacementDragData, position?: ProjectVector3): Promise<boolean>;
+}
+
+interface SkyShellProjection {
+  root: THREE.Object3D;
+  bounds: THREE.Box3;
+  update(deltaSeconds: number): void;
+  setRotation(initial: ProjectVector3, velocity: ProjectVector3): void;
 }
 
 export function SceneViewport({
@@ -72,7 +82,6 @@ export function SceneViewport({
   showOcclusionOctants,
   onFocusHandled,
   onLoadProgress,
-  onSkyPiecesChange,
   onSelectionChange,
   onTransformsCommit,
   onSplinePointsCommit,
@@ -88,6 +97,7 @@ export function SceneViewport({
   const [rotationSnap, setRotationSnap] = useState(15);
   const [scaleSnap, setScaleSnap] = useState(0.1);
   const [notice, setNotice] = useState<string>();
+  const [skyDropActive, setSkyDropActive] = useState(false);
   const [stats, setStats] = useState<{ fps: number; calls: number; triangles: number }>();
   const currentShowStats = useRef(showStats);
   const currentSelection = useRef(selection);
@@ -124,15 +134,20 @@ export function SceneViewport({
     occlusion: THREE.Group;
     sky: THREE.Group;
     skyEye: THREE.Vector3;
+    updateSky(deltaSeconds: number): void;
     velocity: THREE.Vector3;
     flight?: CameraFlight;
     framed: boolean;
     dropGhost: THREE.Mesh;
     placedTemplates: Map<string, THREE.Object3D>;
+    skyShells: Map<string, SkyShellProjection>;
     previewRequests: Set<string>;
   }>(null);
   const dropFrame = useRef<number | undefined>(undefined);
   const pendingDrop = useRef<{ x: number; y: number } | undefined>(undefined);
+  const skySourceSignature = entities.filter((entity) => entity.skyShell && entity.asset)
+    .map((entity) => `${entity.id}:${entity.asset!.id}:${entity.skyShell!.sourceShellIndex}`)
+    .sort().join('|');
 
   useEffect(() => {
     const element = container.current;
@@ -146,12 +161,12 @@ export function SceneViewport({
     const content = new THREE.Group();
     content.name = 'Forge scene content';
     const terrain = new THREE.Group();
-    terrain.name = 'UYA terrain';
+    terrain.name = 'Terrain';
     const occlusion = new THREE.Group();
-    occlusion.name = 'UYA occlusion octants';
+    occlusion.name = 'Occlusion octants';
     occlusion.visible = showOcclusionOctants;
     const sky = new THREE.Group();
-    sky.name = 'UYA sky';
+    sky.name = 'Sky';
     const currentProjection = new SceneProjection();
     content.add(terrain, occlusion, currentProjection.root);
     skyScene.add(sky);
@@ -242,10 +257,14 @@ export function SceneViewport({
       occlusion,
       sky,
       skyEye: new THREE.Vector3(),
+      updateSky: (deltaSeconds) => {
+        viewport.current?.skyShells.forEach((shell) => shell.update(deltaSeconds));
+      },
       velocity,
       framed: false,
       dropGhost,
       placedTemplates: new Map(),
+      skyShells: new Map(),
       previewRequests: new Set(),
     };
 
@@ -412,6 +431,7 @@ export function SceneViewport({
       const flight = viewport.current?.flight;
       if (flight && updateCameraFlight(camera.position, controls.target, flight, delta) && viewport.current)
         viewport.current.flight = undefined;
+      viewport.current?.updateSky(delta);
       sky.position.copy(camera.position).sub(viewport.current?.skyEye ?? ZERO_VECTOR);
       controls.update();
       renderer.info.reset();
@@ -472,6 +492,7 @@ export function SceneViewport({
       currentProjection.dispose();
       viewport.current?.previewRequests.forEach((token) => { void window.forge.cancelAssetPreview(token); });
       viewport.current?.placedTemplates.forEach(disposeObject);
+      viewport.current?.skyShells.forEach((shell) => disposeObject(shell.root));
       if (viewport.current?.projection === currentProjection) viewport.current = null;
       renderer.dispose();
       renderer.forceContextLoss();
@@ -481,7 +502,6 @@ export function SceneViewport({
 
   useEffect(() => {
     if (!terrainSource) return;
-    onSkyPiecesChange([]);
     let disposed = false;
     const loadedScenes: THREE.Object3D[] = [];
     const octants = createOcclusionOverlay(terrainSource.occlusionOctants, sceneTreeColors.occlusionOctant);
@@ -489,7 +509,7 @@ export function SceneViewport({
       viewport.current!.occlusion.add(octants);
       loadedScenes.push(octants);
     }
-    const total = terrainSource.urls.length + terrainSource.assets.length + (terrainSource.skyUrl ? 1 : 0);
+    const total = terrainSource.urls.length + terrainSource.assets.length;
     let completed = 0;
     const reportLoaded = () => {
       completed += 1;
@@ -504,20 +524,16 @@ export function SceneViewport({
     void Promise.resolve().then(async () => {
       if (!terrainSource.urls.length) throw new Error('The render package contains no terrain');
       const loader = new GLTFLoader();
-      const [terrainResults, assetResults, skyResults] = await Promise.all([
+      const [terrainResults, assetResults] = await Promise.all([
         Promise.allSettled(terrainSource.urls.map((url) => loader.loadAsync(url).finally(reportLoaded))),
         Promise.allSettled(terrainSource.assets.map((asset) =>
           (asset.url ? loader.loadAsync(asset.url) : Promise.reject(new Error(asset.error ?? 'Asset has no render payload')))
             .finally(reportLoaded))),
-        Promise.allSettled(terrainSource.skyUrl
-          ? [loader.loadAsync(terrainSource.skyUrl).finally(reportLoaded)]
-          : []),
       ]);
       const loaded = terrainResults.flatMap((result) => result.status === 'fulfilled' ? [result.value.scene] : []);
       if (disposed || !viewport.current) {
         for (const scene of loaded) disposeObject(scene);
         for (const result of assetResults) if (result.status === 'fulfilled') disposeObject(result.value.scene);
-        for (const result of skyResults) if (result.status === 'fulfilled') disposeObject(result.value.scene);
         return;
       }
       if (!loaded.length) throw terrainResults.find((result) => result.status === 'rejected')?.reason
@@ -528,15 +544,6 @@ export function SceneViewport({
         scene.traverse((object) => { if (/^lod_[1-9]/i.test(object.name)) object.visible = false; });
         viewport.current.terrain.add(scene);
         loadedScenes.push(scene);
-      }
-      if (skyResults[0]?.status === 'fulfilled') {
-        const skyScene = skyResults[0].value.scene;
-        configurePs2MaterialAlpha(skyScene, 'sky');
-        const sky = configureSkybox(skyScene);
-        viewport.current.skyEye.copy(sky.eye);
-        onSkyPiecesChange(sky.pieces);
-        viewport.current.sky.add(skyScene);
-        loadedScenes.push(skyScene);
       }
       const templates = new Map<string, THREE.Object3D>();
       const failedAssets = new Set<string>();
@@ -565,13 +572,11 @@ export function SceneViewport({
         viewport.current.framed = true;
       }
       const terrainFailures = terrainResults.length - loaded.length;
-      const skyFailures = skyResults.filter((result) => result.status === 'rejected').length;
       const firstAssetFailure = assetResults.findIndex((result) => result.status === 'rejected');
       const firstAssetError = firstAssetFailure < 0 ? '' : terrainSource.assets[firstAssetFailure].error
         ?? String((assetResults[firstAssetFailure] as PromiseRejectedResult).reason);
       const failures = [
         terrainFailures && `${terrainFailures} terrain section${terrainFailures === 1 ? '' : 's'}`,
-        skyFailures && 'sky',
         ...failedAssetFamilies(terrainSource, assetResults),
       ].filter(Boolean);
       loadProgressChanged.current(failures.length ? {
@@ -594,7 +599,7 @@ export function SceneViewport({
       }
       for (const scene of loadedScenes) disposeObject(scene);
     };
-  }, [onSkyPiecesChange, terrainSource]);
+  }, [terrainSource]);
 
   useEffect(() => {
     const current = viewport.current;
@@ -606,10 +611,68 @@ export function SceneViewport({
   useEffect(() => {
     const current = viewport.current;
     if (!current) return;
+    let disposed = false;
+    const desired = new Map(currentEntities.current.filter((entity) => entity.skyShell && entity.asset)
+      .map((entity) => [entity.id, entity]));
+    current.skyShells.forEach((shell, entityId) => {
+      if (desired.has(entityId)) return;
+      current.skyShells.delete(entityId);
+      disposeObject(shell.root);
+    });
+    syncSkyShellProjections(current, currentEntities.current);
+
+    const requests = new Set<string>();
+    for (const entity of desired.values()) {
+      if (current.skyShells.has(entity.id)) continue;
+      const requestToken = crypto.randomUUID();
+      requests.add(requestToken);
+      current.previewRequests.add(requestToken);
+      void window.forge.getAssetPreview(
+        entity.asset!.id, 'sky', requestToken, entity.skyShell!.sourceShellIndex,
+      ).then((source) => new GLTFLoader().loadAsync(source.url))
+        .then((gltf) => {
+          if (disposed || viewport.current !== current || !desired.has(entity.id)
+            || current.skyShells.has(entity.id)) {
+            disposeObject(gltf.scene);
+            return;
+          }
+          configurePs2MaterialAlpha(gltf.scene, 'sky');
+          const configured = configureSkybox(gltf.scene);
+          current.skyShells.set(entity.id, {
+            root: gltf.scene,
+            bounds: configured.bounds,
+            update: configured.update,
+            setRotation: configured.setRotation,
+          });
+          current.sky.add(gltf.scene);
+          syncSkyShellProjections(current, currentEntities.current);
+        })
+        .catch(() => {
+          if (!disposed && viewport.current === current && desired.has(entity.id))
+            setNotice(`Sky shell ${entity.skyShell!.order + 1} preview unavailable.`);
+        })
+        .finally(() => {
+          requests.delete(requestToken);
+          current.previewRequests.delete(requestToken);
+        });
+    }
+    return () => {
+      disposed = true;
+      requests.forEach((token) => {
+        current.previewRequests.delete(token);
+        void window.forge.cancelAssetPreview(token);
+      });
+    };
+  }, [skySourceSignature]);
+
+  useEffect(() => {
+    const current = viewport.current;
+    if (!current) return;
     current.projection.sync(
       entities,
       selection,
     );
+    syncSkyShellProjections(current, entities);
     current.transformTool.sync(entities, selection, current.projection);
     if (!current.framed && entities.length) {
       if (!positionCameraAtPreferredMoby(current.camera, current.controls, entities))
@@ -645,7 +708,7 @@ export function SceneViewport({
     const current = viewport.current;
     const entity = currentEntities.current.find((value) => value.id === focusEntityId);
     focusHandled.current();
-    if (!current || !entity) return;
+    if (!current || !entity || entity.skyShell) return;
     const sphere = current.projection.getBounds(entity.id)?.getBoundingSphere(new THREE.Sphere());
     const center = sphere?.center ?? ps2PositionToScene(entity.transform.position);
     const radius = Math.max(sphere?.radius ?? 8, 1);
@@ -682,6 +745,15 @@ export function SceneViewport({
     if (!event.dataTransfer.types.includes(ASSET_PLACEMENT_MIME)) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = 'copy';
+    if (event.dataTransfer.types.includes(SKY_SHELL_PLACEMENT_MIME)) {
+      setSkyDropActive(true);
+      pendingDrop.current = undefined;
+      if (dropFrame.current !== undefined) cancelAnimationFrame(dropFrame.current);
+      dropFrame.current = undefined;
+      if (viewport.current) viewport.current.dropGhost.visible = false;
+      return;
+    }
+    setSkyDropActive(false);
     pendingDrop.current = { x: event.clientX, y: event.clientY };
     if (dropFrame.current !== undefined) return;
     dropFrame.current = requestAnimationFrame(() => {
@@ -692,7 +764,7 @@ export function SceneViewport({
     });
   };
 
-  const loadPlacedAsset = async (asset: AssetPlacementDragData) => {
+  const loadPlacedAsset = async (asset: AssetModelPlacementDragData) => {
     const current = viewport.current;
     if (!current || current.projection.hasAssetTemplate(asset.assetId)) return;
     const requestToken = crypto.randomUUID();
@@ -727,6 +799,14 @@ export function SceneViewport({
     if (dropFrame.current !== undefined) cancelAnimationFrame(dropFrame.current);
     dropFrame.current = undefined;
     pendingDrop.current = undefined;
+    setSkyDropActive(false);
+    if (asset.kind === 'sky') {
+      current.dropGhost.visible = false;
+      void assetDropped.current(asset).then((placed) => {
+        setNotice(placed ? 'Sky shell added.' : 'Sky shell addition failed.');
+      });
+      return;
+    }
     positionAssetDrop(event.clientX, event.clientY);
     if (!current.dropGhost.visible) return;
     const point = current.dropGhost.position;
@@ -748,11 +828,13 @@ export function SceneViewport({
           dropFrame.current = undefined;
           pendingDrop.current = undefined;
           viewport.current.dropGhost.visible = false;
+          setSkyDropActive(false);
         }
       }}
       onDrop={dropAsset}
     >
       <div className="scene-canvas" ref={container} />
+      {skyDropActive && <div className="scene-drop-affordance" role="status">Add sky shell</div>}
       <ViewportToolbar
         mode={mode}
         space={space}
@@ -777,6 +859,32 @@ export function SceneViewport({
       </div>}
     </div>
   );
+}
+
+function syncSkyShellProjections(
+  current: { skyShells: Map<string, SkyShellProjection>; skyEye: THREE.Vector3 },
+  entities: readonly EditorEntity[],
+): void {
+  const shells = entities.filter((entity) => entity.skyShell)
+    .sort((left, right) => left.skyShell!.order - right.skyShell!.order);
+  const bounds = new THREE.Box3();
+  for (const entity of shells) {
+    const projection = current.skyShells.get(entity.id);
+    if (!projection) continue;
+    projection.root.visible = !entity.state.hidden && !entity.state.disabled;
+    if (projection.root.visible) bounds.union(projection.bounds);
+    projection.setRotation(
+      entity.skyShell!.initialRotationRadians,
+      entity.skyShell!.angularVelocityRadiansPerSecond,
+    );
+    projection.root.traverse((object) => {
+      const base = typeof object.userData.forgeSkyRenderOrder === 'number'
+        ? object.userData.forgeSkyRenderOrder : object.renderOrder;
+      object.userData.forgeSkyRenderOrder = base;
+      object.renderOrder = base + entity.skyShell!.order * 100;
+    });
+  }
+  skyEyeFromBounds(bounds, current.skyEye);
 }
 
 function createOcclusionOverlay(

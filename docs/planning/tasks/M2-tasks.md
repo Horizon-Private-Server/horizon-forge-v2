@@ -684,5 +684,5 @@ retained all-level import report containing metrics and hashes but no proprietar
 
 ## Feature task specifications
 
-M2-021 through M2-026 are maintained with their design and acceptance criteria in
-the [Asset Explorer v0 feature specification](../../features/asset-explorer-v0.md#implementation-tasks).
+- M2-021 through M2-026: [Asset Explorer v0](../../features/asset-explorer-v0.md#implementation-tasks)
+- M2-027 through M2-030: [Skybox Editor v0](../../features/skybox-editor-v0.md#implementation-tasks)

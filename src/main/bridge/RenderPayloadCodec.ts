@@ -14,6 +14,8 @@ export function encodeAssetPreviewRequest(value: AssetPreviewRequest): Buffer {
   writer.writeString(value.kind);
   writer.writeString(value.targetGame);
   writer.writeString(value.viewPreset);
+  writer.writeBoolean(value.shellIndex !== undefined);
+  if (value.shellIndex !== undefined) writer.writeUInt32(value.shellIndex);
   return writer.toBuffer();
 }
 
@@ -23,7 +25,7 @@ export function decodeAssetPreviewRequest(payload: Uint8Array): AssetPreviewRequ
   const catalogRootPath = reader.readString();
   const assetId = reader.readString();
   const kind = reader.readString();
-  if (kind !== 'moby' && kind !== 'tie' && kind !== 'shrub' && kind !== 'texture')
+  if (kind !== 'moby' && kind !== 'tie' && kind !== 'shrub' && kind !== 'texture' && kind !== 'sky')
     malformed('Asset preview kind is invalid');
   const value: AssetPreviewRequest = {
     cacheRootPath,
@@ -33,6 +35,7 @@ export function decodeAssetPreviewRequest(payload: Uint8Array): AssetPreviewRequ
     targetGame: reader.readString(),
     viewPreset: reader.readString(),
   };
+  if (reader.readBoolean()) value.shellIndex = reader.readUInt32();
   reader.complete();
   return value;
 }

@@ -18,6 +18,9 @@ public enum EditorCommandKind : byte
     UpdateLevelSettings = 14,
     UpdateSplinePoints = 15,
     CreateEntityFromAsset = 16,
+    AddSkyShellFromAsset = 17,
+    UpdateSkyShell = 18,
+    ReorderSkyShell = 19,
 }
 
 public enum EditorEventKind : byte
@@ -48,7 +51,10 @@ public sealed record EditorCommand(
     IReadOnlyList<EditorTransformUpdate>? Transforms = null,
     ProjectLevelSettings? LevelSettings = null,
     IReadOnlyList<ProjectVector4>? Points = null,
-    EditorAssetPlacement? Placement = null);
+    EditorAssetPlacement? Placement = null,
+    EditorSkyShellSource? SkyShellSource = null,
+    EditorSkyShellUpdate? SkyShellUpdate = null,
+    int? DestinationOrder = null);
 
 public sealed record EditorAssetPlacement(
     AssetId AssetId,
@@ -60,6 +66,18 @@ public delegate Task<ProjectEntity> EditorAssetPlacementResolver(
     ForgeProjectWorkspace workspace,
     string catalogRootPath,
     EditorAssetPlacement placement,
+    CancellationToken cancellationToken);
+
+public sealed record EditorSkyShellSource(AssetId AssetId, int ShellIndex);
+
+public sealed record EditorSkyShellUpdate(
+    ProjectVector3? InitialRotationRadians = null,
+    ProjectVector3? AngularVelocityRadiansPerSecond = null);
+
+public delegate Task<IReadOnlyList<EntityId>> EditorSkyShellCommandExecutor(
+    ForgeProjectWorkspace workspace,
+    string catalogRootPath,
+    EditorCommand command,
     CancellationToken cancellationToken);
 
 public sealed record EditorTransformUpdate(EntityId EntityId, ProjectTransform Transform);
@@ -120,7 +138,8 @@ public sealed record EditorEntitySnapshot(
     int? SourceClassId,
     EditorEntityGeometry? Geometry,
     EditorTransformCapabilities TransformCapabilities,
-    EditorEntityStatus State);
+    EditorEntityStatus State,
+    ProjectSkyShell? SkyShell);
 
 public sealed record EditorEvent(
     long Sequence,

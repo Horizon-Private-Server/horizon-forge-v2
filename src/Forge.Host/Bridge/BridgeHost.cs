@@ -16,7 +16,8 @@ public static class BridgeHost
         var writer = new FrameWriter(output);
         await using var editor = new EditorRuntime(
             UyaAssetPlacementService.CreateAsync,
-            UyaEditorCapabilities.ResolveTransformCapabilities);
+            UyaEditorCapabilities.ResolveTransformCapabilities,
+            UyaSkyShellEditorService.ExecuteAsync);
         var requests = new ConcurrentDictionary<uint, CancellationTokenSource>();
         var tasks = new ConcurrentDictionary<uint, Task>();
 

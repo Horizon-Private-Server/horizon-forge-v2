@@ -2,6 +2,8 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Forge.Host.Domain;
+using RatchetPs2.Core.Games;
+using RatchetPs2.Core.Skyboxes;
 using RatchetPs2.Core.Textures.Pif;
 using RatchetPs2.Core.Textures.Png;
 using RatchetPs2.Core.Wad.Models;
@@ -13,7 +15,6 @@ public static class UyaAssetPreviewService
     public const int SchemaVersion = 1;
     private const int TextureRasterSchemaVersion = 2;
     private const string MarkerName = ".forge-asset-preview.json";
-    private const long MaxTextureBytes = 64L * 1024 * 1024;
     // ponytail: bounded lock striping avoids per-key lock retention; increase stripes only if collisions profile hot.
     private static readonly SemaphoreSlim[] WriteLocks = Enumerable.Range(0, 16)
         .Select(_ => new SemaphoreSlim(1, 1)).ToArray();
@@ -34,10 +35,13 @@ public static class UyaAssetPreviewService
             ?? throw new InvalidDataException($"Asset {request.AssetId} is not present in the catalog.");
         if (entry.Kind != request.Kind) throw new InvalidDataException("Asset kind does not match the catalog entry.");
         var path = catalog.ResolveBlobPath(entry.Id) ?? throw new FileNotFoundException("Asset blob is missing.");
-        var package = entry.Kind == AssetKind.Texture
-            ? await BuildTexturePackageAsync(entry, path, cancellationToken)
-            : await UyaRenderPackageService.BuildAssetPackageAsync(
-                entry.Id, entry.Kind, entry.CanonicalFormatVersion, entry.Size, path, cancellationToken);
+        var package = entry.Kind switch
+        {
+            AssetKind.Texture => await BuildTexturePackageAsync(entry, path, cancellationToken),
+            AssetKind.Sky => await BuildSkyPackageAsync(entry, path, request.ShellIndex!.Value, cancellationToken),
+            _ => await UyaRenderPackageService.BuildAssetPackageAsync(
+                entry.Id, entry.Kind, entry.CanonicalFormatVersion, entry.Size, path, cancellationToken),
+        };
         return await MaterializeAsync(request, sdkRevision, package, cancellationToken);
     }
 
@@ -85,6 +89,7 @@ public static class UyaAssetPreviewService
                     cacheKey,
                     request.AssetId.ToString(),
                     request.Kind,
+                    request.ShellIndex,
                     request.ViewPreset,
                     sdkRevision,
                     entries.Select(entry => new CacheFile(entry.Path, entry.Length)).ToArray(),
@@ -114,7 +119,7 @@ public static class UyaAssetPreviewService
     {
         Validate(request, sdkRevision);
         var schema = request.Kind == AssetKind.Texture ? TextureRasterSchemaVersion : SchemaVersion;
-        var identity = $"{request.AssetId}\n{request.Kind}\n{sdkRevision}\n{schema}\n{request.ViewPreset}";
+        var identity = $"{request.AssetId}\n{request.Kind}\n{request.ShellIndex}\n{sdkRevision}\n{schema}\n{request.ViewPreset}";
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity))).ToLowerInvariant()[..24];
         return $"uya-preview-{hash}";
     }
@@ -126,17 +131,42 @@ public static class UyaAssetPreviewService
     {
         if (entry.CanonicalFormatVersion != UyaAssetImportService.TextureCanonicalFormatVersion)
             throw new InvalidDataException($"Unsupported canonical texture format {entry.CanonicalFormatVersion}.");
-        var info = new FileInfo(path);
-        if (info.Length != entry.Size || info.Length is <= 0 or > MaxTextureBytes)
-            throw new InvalidDataException("Texture blob size does not match its catalog entry.");
-        var bytes = await File.ReadAllBytesAsync(path, cancellationToken);
-        if (AssetId.Compute(entry.Kind, entry.CanonicalFormatVersion, bytes) != entry.Id)
-            throw new InvalidDataException("Texture blob failed its identity check.");
+        var bytes = await AssetCatalogBlobReader.ReadVerifiedAsync(
+            entry, path, UyaAssetLimits.MaxTextureBytes, cancellationToken);
         var png = await Task.Run(
             () => PifAssetExporter.Export(bytes, options: new() { DoubleAlpha = true }).PngBytes,
             cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         return PackedFilePackageBuilder.Pack([new("texture.png", png, "image/png")]);
+    }
+
+    private static async Task<PackedFilePackage> BuildSkyPackageAsync(
+        AssetCatalogEntry entry,
+        string path,
+        int shellIndex,
+        CancellationToken cancellationToken)
+    {
+        var bytes = await AssetCatalogBlobReader.ReadVerifiedAsync(
+            entry, path, UyaAssetLimits.MaxCanonicalBytes, cancellationToken);
+        return await Task.Run(() =>
+        {
+            using var stream = new MemoryStream(bytes, writable: false);
+            var sky = SkyboxReader.Read(stream, GameId.UYA);
+            var shell = sky.Shells.SingleOrDefault(value => value.Index == shellIndex)
+                ?? throw new InvalidDataException($"Sky shell {shellIndex} is not present in the asset.");
+            var selected = new Skybox(
+                sky.Header with { ShellCount = 1, SpriteCount = 0, SpriteMax = 0 },
+                [shell], sky.Textures, [], sky.FxList, sky.ByteLength);
+            var export = SkyboxGltfExporter.Export(selected, "model.gltf",
+                SkyboxGameProfile.ForGame(GameId.UYA).CreateExportOptions(
+                    "model.buffer.bin", null, 1, includeDiagnostics: false, minify: true));
+            return PackedFilePackageBuilder.Pack([
+                new("model.gltf", export.GltfBytes, "model/gltf+json"),
+                new("model.buffer.bin", export.BinBytes, "application/octet-stream"),
+                .. export.Textures.Select(texture =>
+                    new PackedFile($"textures/{texture.FileName}", texture.PngBytes, "image/png")),
+            ]);
+        }, cancellationToken);
     }
 
     private static async Task<UyaAssetPreviewResult?> TryOpenAsync(
@@ -161,6 +191,7 @@ public static class UyaAssetPreviewService
             || marker.CacheKey != Path.GetFileName(root)
             || marker.AssetId != request.AssetId.ToString()
             || marker.Kind != request.Kind
+            || marker.ShellIndex != request.ShellIndex
             || marker.ViewPreset != request.ViewPreset
             || marker.SdkRevision != sdkRevision
             || marker.Files is null
@@ -201,11 +232,20 @@ public static class UyaAssetPreviewService
         ArgumentException.ThrowIfNullOrWhiteSpace(request.ViewPreset);
         ArgumentException.ThrowIfNullOrWhiteSpace(sdkRevision);
         if (request.TargetGame != "UYA") throw new NotSupportedException("Asset preview target must be UYA.");
-        if (request.Kind is not (AssetKind.Moby or AssetKind.Tie or AssetKind.Shrub or AssetKind.Texture))
+        if (request.Kind is not (AssetKind.Moby or AssetKind.Tie or AssetKind.Shrub or AssetKind.Texture or AssetKind.Sky))
             throw new NotSupportedException($"{request.Kind} previews are not supported.");
         if (request.AssetId.ToString().Length != AssetId.TextLength)
             throw new ArgumentException("Asset preview ID is invalid.", nameof(request));
-        var preset = request.Kind == AssetKind.Texture ? "texture-default" : "model-default";
+        if (request.Kind == AssetKind.Sky && request.ShellIndex is not (>= 0 and < 8))
+            throw new ArgumentException("Sky preview shell index is invalid.", nameof(request));
+        if (request.Kind != AssetKind.Sky && request.ShellIndex is not null)
+            throw new ArgumentException("Only sky previews accept a shell index.", nameof(request));
+        var preset = request.Kind switch
+        {
+            AssetKind.Texture => "texture-default",
+            AssetKind.Sky => "sky-default",
+            _ => "model-default",
+        };
         if (request.ViewPreset != preset)
             throw new ArgumentException("Asset preview view preset is invalid.", nameof(request));
     }
@@ -215,6 +255,7 @@ public static class UyaAssetPreviewService
         string CacheKey,
         string AssetId,
         AssetKind Kind,
+        int? ShellIndex,
         string ViewPreset,
         string SdkRevision,
         IReadOnlyList<CacheFile> Files,

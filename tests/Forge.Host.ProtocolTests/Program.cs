@@ -183,7 +183,7 @@ internal static class Program
             }, decodedMaintenance, "catalog maintenance payload");
         var explorerRequest = new AssetExplorerRequestPayload(
             "assets", AssetExplorerCategoryPayload.Ties, "crate", "UYA", "level03", "NTSC-U", "1.00",
-            ["vanilla"], "cursor", 64, "UYA", "NTSC-U", "1.00");
+            ["vanilla"], "cursor", 64, "UYA", "NTSC-U", "1.00", 3);
         var decodedExplorerRequest = AssetExplorerPayloadCodec.DecodeRequest(
             AssetExplorerPayloadCodec.EncodeRequest(explorerRequest));
         Equal(explorerRequest with { Tags = decodedExplorerRequest.Tags }, decodedExplorerRequest,
@@ -267,7 +267,7 @@ internal static class Program
             "render-package occlusion octants");
 
         var assetPreviewRequest = new AssetPreviewRequestPayload(
-            "render-cache", "catalog", new string('c', 64), "tie", "UYA", "model-default");
+            "render-cache", "catalog", new string('c', 64), "sky", "UYA", "sky-default", 2);
         Equal(assetPreviewRequest, BridgePayloadCodec.DecodeAssetPreviewRequest(
             BridgePayloadCodec.EncodeAssetPreviewRequest(assetPreviewRequest)), "asset-preview request payload");
         var assetPreviewResult = new AssetPreviewResultPayload(

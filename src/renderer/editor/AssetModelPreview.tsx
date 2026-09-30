@@ -9,14 +9,16 @@ import type { AssetModelKind } from '../../types/AssetExplorer.js';
 import { errorMessage } from '../../utils/Errors.ts';
 import { configurePs2AssetPreview } from '../../utils/Ps2Materials.ts';
 import { disposeObject, frameCameraOnObject } from '../../utils/Scene.ts';
+import { configureSkybox } from '../../utils/SkyboxScene.ts';
 
 interface AssetModelPreviewProps {
   assetId: string;
-  kind: AssetModelKind;
+  kind: AssetModelKind | 'sky';
   label: string;
+  shellIndex?: number;
 }
 
-export function AssetModelPreview({ assetId, kind, label }: AssetModelPreviewProps) {
+export function AssetModelPreview({ assetId, kind, label, shellIndex }: AssetModelPreviewProps) {
   const container = useRef<HTMLDivElement>(null);
   const resetView = useRef<() => void>(() => undefined);
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -27,6 +29,7 @@ export function AssetModelPreview({ assetId, kind, label }: AssetModelPreviewPro
     if (!element) return;
     let disposed = false;
     let root: THREE.Object3D | undefined;
+    let updateSky: ((deltaSeconds: number) => void) | undefined;
     let renderer: THREE.WebGLRenderer;
     try {
       renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -63,7 +66,9 @@ export function AssetModelPreview({ assetId, kind, label }: AssetModelPreviewPro
     resize();
     const observer = new ResizeObserver(resize);
     observer.observe(element);
+    const clock = new THREE.Clock();
     renderer.setAnimationLoop(() => {
+      updateSky?.(Math.min(clock.getDelta(), 0.05));
       controls.update();
       renderer.render(scene, camera);
     });
@@ -88,7 +93,7 @@ export function AssetModelPreview({ assetId, kind, label }: AssetModelPreviewPro
       event.preventDefault();
     };
     renderer.domElement.addEventListener('keydown', keyDown);
-    void window.forge.getAssetPreview(assetId, kind, requestToken).then((source) => {
+    void window.forge.getAssetPreview(assetId, kind, requestToken, shellIndex).then((source) => {
       if (disposed) return;
       return new GLTFLoader().loadAsync(source.url);
     }).then((gltf) => {
@@ -100,6 +105,7 @@ export function AssetModelPreview({ assetId, kind, label }: AssetModelPreviewPro
         return;
       }
       if (!configurePs2AssetPreview(root, kind)) throw new Error('Asset has no renderable mesh data.');
+      if (kind === 'sky') updateSky = configureSkybox(root).update;
       scene.add(root);
       frame();
       setState('ready');
@@ -123,7 +129,7 @@ export function AssetModelPreview({ assetId, kind, label }: AssetModelPreviewPro
       renderer.forceContextLoss();
       renderer.domElement.remove();
     };
-  }, [assetId, kind, label]);
+  }, [assetId, kind, label, shellIndex]);
 
   return <div className="asset-model-preview">
     <div className="asset-model-preview-canvas" ref={container} />

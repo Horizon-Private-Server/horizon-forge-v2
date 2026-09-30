@@ -34,6 +34,7 @@ export function encodeAssetExplorerRequest(value: AssetExplorerBridgeRequest): B
   writer.writeString(value.targetGame);
   writer.writeString(value.targetRegion);
   writer.writeString(value.targetRevision);
+  writer.writeUInt32(value.currentSkyShellCount);
   return writer.toBuffer();
 }
 
@@ -52,10 +53,11 @@ export function decodeAssetExplorerRequest(payload: Uint8Array): AssetExplorerBr
   const targetGame = reader.readString();
   const targetRegion = reader.readString();
   const targetRevision = reader.readString();
+  const currentSkyShellCount = reader.readUInt32();
   reader.complete();
   return {
     catalogRootPath, category, search, game, level, region, revision, tags, cursor, limit,
-    targetGame, targetRegion, targetRevision,
+    targetGame, targetRegion, targetRevision, currentSkyShellCount,
   };
 }
 

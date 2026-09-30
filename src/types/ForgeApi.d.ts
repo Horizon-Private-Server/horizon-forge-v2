@@ -311,10 +311,10 @@ export interface ForgeApi {
   collectCatalogGarbage(confirmationToken: string): Promise<CatalogMaintenancePreview>;
   queryAssetExplorer(query: AssetExplorerQuery): Promise<AssetExplorerPage>;
   cancelAssetExplorerQuery(): Promise<void>;
-  getAssetPreview(assetId: string, kind: AssetPreviewKind, requestToken: string): Promise<AssetPreviewSource>;
+  getAssetPreview(assetId: string, kind: AssetPreviewKind, requestToken: string, shellIndex?: number): Promise<AssetPreviewSource>;
   cancelAssetPreview(requestToken: string): Promise<void>;
-  getAssetThumbnail(assetId: string, kind: AssetPreviewKind): Promise<AssetPreviewSource | undefined>;
-  storeAssetThumbnail(assetId: string, kind: AssetPreviewKind, bytes: Uint8Array): Promise<AssetPreviewSource>;
+  getAssetThumbnail(targetGame: string, assetId: string, kind: AssetPreviewKind, shellIndex?: number): Promise<AssetPreviewSource | undefined>;
+  storeAssetThumbnail(targetGame: string, assetId: string, kind: AssetPreviewKind, bytes: Uint8Array, shellIndex?: number): Promise<AssetPreviewSource>;
   removeRecentProject(path: string): Promise<ProjectHubState>;
   revealForgeProject(path: string): Promise<void>;
   revealLogs(): Promise<void>;

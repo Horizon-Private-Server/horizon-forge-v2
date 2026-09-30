@@ -169,6 +169,7 @@ export class SceneProjection {
     showMarkers = true,
   ) {
     if (this.disposed) throw new Error('Scene projection is disposed');
+    entities = entities.filter((entity) => !entity.skyShell);
     const selected = new Set(selection);
     const selectedPoints = new Map<string, number[]>();
     selection.forEach((value) => {

@@ -176,6 +176,39 @@ test('asset placement commands validate their untrusted token and transform', ()
   assert.equal(isEditorCommand({ ...command, placement: { ...command.placement, classId: 65_536 } }), false);
 });
 
+test('sky shell commands validate source, rotation, and order payloads', () => {
+  assert.equal(isEditorCommand({
+    id: '30000000-0000-4000-8000-000000000010',
+    kind: 'addSkyShellFromAsset',
+    entityIds: [],
+    source: { assetId: 'b'.repeat(64), shellIndex: 7 },
+  }), true);
+  assert.equal(isEditorCommand({
+    id: '30000000-0000-4000-8000-000000000010',
+    kind: 'addSkyShellFromAsset',
+    entityIds: [],
+    source: { assetId: '../catalog', shellIndex: 0 },
+  }), false);
+  assert.equal(isEditorCommand({
+    id: '30000000-0000-4000-8000-000000000011',
+    kind: 'updateSkyShell',
+    entityIds: ['shell'],
+    update: { angularVelocityRadiansPerSecond: { x: 0, y: -1, z: 2 } },
+  }), true);
+  assert.equal(isEditorCommand({
+    id: '30000000-0000-4000-8000-000000000011',
+    kind: 'updateSkyShell',
+    entityIds: ['shell'],
+    update: { initialRotationRadians: { x: Number.NaN, y: 0, z: 0 } },
+  }), false);
+  assert.equal(isEditorCommand({
+    id: '30000000-0000-4000-8000-000000000012',
+    kind: 'reorderSkyShell',
+    entityIds: ['shell'],
+    destinationOrder: -1,
+  }), false);
+});
+
 test('fragmented and coalesced reads retain frame boundaries', () => {
   const stream = Buffer.concat(vectors.map((vector) => Buffer.from(vector.frameHex, 'hex')));
 
@@ -306,6 +339,7 @@ test('operation payloads round trip and reject trailing data', () => {
     catalogRootPath: '/assets', category: 'ties' as const, search: 'crate', game: 'UYA', level: 'level03',
     region: 'NTSC-U', revision: '1.00', tags: ['vanilla'], cursor: 'cursor', limit: 64,
     targetGame: 'UYA', targetRegion: 'NTSC-U', targetRevision: '1.00',
+    currentSkyShellCount: 3,
   };
   assert.deepEqual(decodeAssetExplorerRequest(encodeAssetExplorerRequest(explorerRequest)), explorerRequest);
   const explorerPage = {
@@ -378,9 +412,10 @@ test('operation payloads round trip and reject trailing data', () => {
     cacheRootPath: '/cache',
     catalogRootPath: '/assets',
     assetId: 'c'.repeat(64),
-    kind: 'texture' as const,
+    kind: 'sky' as const,
     targetGame: 'UYA',
-    viewPreset: 'texture-default',
+    viewPreset: 'sky-default',
+    shellIndex: 2,
   };
   assert.deepEqual(
     decodeAssetPreviewRequest(encodeAssetPreviewRequest(assetPreviewRequest)),

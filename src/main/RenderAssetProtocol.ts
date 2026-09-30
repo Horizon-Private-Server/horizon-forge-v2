@@ -38,7 +38,7 @@ export class RenderAssetProtocol {
     });
   }
 
-  async addPackage(value: UyaRenderPackageResult): Promise<EditorTerrainSource> {
+  async addUyaPackage(value: UyaRenderPackageResult): Promise<EditorTerrainSource> {
     const url = await this.registerRoot(value.cacheKey, value.rootPath);
     return {
       urls: value.terrainPaths.map(url),
@@ -61,23 +61,27 @@ export class RenderAssetProtocol {
   }
 
   async getThumbnail(
+    targetGame: string,
     assetId: string,
     kind: AssetPreviewKind,
     sdkRevision: string,
+    shellIndex?: number,
   ): Promise<AssetPreviewSource | undefined> {
-    const value = await this.thumbnails.get(assetId, kind, sdkRevision);
+    const value = await this.thumbnails.get(targetGame, assetId, kind, sdkRevision, shellIndex);
     if (!value) return undefined;
     const url = await this.registerRoot(value.cacheKey, value.rootPath);
     return { url: url(value.path), cacheHit: true };
   }
 
   async storeThumbnail(
+    targetGame: string,
     assetId: string,
     kind: AssetPreviewKind,
     sdkRevision: string,
     bytes: Uint8Array,
+    shellIndex?: number,
   ): Promise<AssetPreviewSource> {
-    const value = await this.thumbnails.store(assetId, kind, sdkRevision, bytes);
+    const value = await this.thumbnails.store(targetGame, assetId, kind, sdkRevision, bytes, shellIndex);
     const url = await this.registerRoot(value.cacheKey, value.rootPath);
     return { url: url(value.path), cacheHit: false };
   }

@@ -10,7 +10,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 import type { EditorEntity, EditorLevelSettings } from '../../types/EditorRuntime.js';
 import type { SceneTreeKind } from '../../types/SceneTree.js';
-import { createAssetPlacementCommand } from '../../utils/AssetPlacement.ts';
+import { createAssetPlacementCommand, createSkyShellAddCommand } from '../../utils/AssetPlacement.ts';
 import { DEFAULT_SCENE_TREE_COLORS, SCENE_TREE_LABELS } from '../../utils/SceneTreeColors.ts';
 import { parseSplinePointId, splinePointId } from '../../utils/SplinePoints.ts';
 import { ColorPickerInput } from '../ColorPickerInput.tsx';
@@ -18,7 +18,6 @@ import { EntityProperties, MultiEntityProperties } from './EntityProperties.tsx'
 import { useEditor } from './EditorContext.ts';
 import {
   buildSceneEntityGroups,
-  buildSkyTreeItems,
   buildTerrainTreeItems,
   entityTreeKind,
   entityTreeText,
@@ -33,11 +32,13 @@ import {
   EditorTree,
 } from './EditorPrimitives.tsx';
 import { SceneViewport } from './SceneViewport.tsx';
+import { SkyCompositionProperties } from './SkyCompositionProperties.tsx';
 
 export function ViewportPanel() {
   const {
-    project, keybindings, sceneTreeColors, terrain, cameraFocus, setCameraFocus, setSceneLoad, setSkyPieces,
+    project, keybindings, sceneTreeColors, terrain, cameraFocus, setCameraFocus, setSceneLoad,
     execute, busy, showViewportStats, showOcclusionOctants, splinePointSelection, setSplinePointSelection,
+    setSkyCompositionSelected,
   } = useEditor();
   const levelSettingsSignature = JSON.stringify(project.levelSettings);
   const environment = useMemo(() => project.levelSettings
@@ -56,8 +57,8 @@ export function ViewportPanel() {
     environment={environment}
     onFocusHandled={() => setCameraFocus(undefined)}
     onLoadProgress={setSceneLoad}
-    onSkyPiecesChange={setSkyPieces}
     onSelectionChange={(values) => {
+      setSkyCompositionSelected(false);
       const points = values.filter((value) => parseSplinePointId(value));
       if (points.length) {
         const entityId = parseSplinePointId(points.at(-1)!)!.entityId;
@@ -75,7 +76,9 @@ export function ViewportPanel() {
     onSplinePointsCommit={(entityId, points) => execute({
       id: crypto.randomUUID(), kind: 'updateSplinePoints', entityIds: [entityId], points,
     })}
-    onAssetDrop={(asset, position) => execute(createAssetPlacementCommand(asset, position))}
+    onAssetDrop={(asset, position) => execute(asset.kind === 'sky'
+      ? createSkyShellAddCommand(asset)
+      : createAssetPlacementCommand(asset, position!))}
   />;
 }
 
@@ -172,13 +175,22 @@ function parseRgb(value: string): [number, number, number] {
 
 export function SceneTreePanel() {
   const {
-    project, terrain, skyPieces, setCameraFocus, execute, busy,
+    project, terrain, setCameraFocus, execute, busy,
     splinePointSelection, setSplinePointSelection,
+    skyCompositionSelected, setSkyCompositionSelected,
   } = useEditor();
   const [filter, setFilter] = useState('');
-  const model = useMemo(() => buildSceneEntityGroups(project.entities, filter), [filter, project.entities]);
+  const model = useMemo(() => buildSceneEntityGroups(
+    project.entities.filter((entity) => !entity.skyShell), filter,
+  ), [filter, project.entities]);
   const tfrags = useMemo(() => buildTerrainTreeItems(terrain?.urls ?? [], filter), [filter, terrain]);
-  const sky = useMemo(() => buildSkyTreeItems(skyPieces, filter), [filter, skyPieces]);
+  const sky = useMemo(() => {
+    const query = filter.trim().toLocaleLowerCase();
+    return project.entities.filter((entity) => entity.skyShell
+      && (!query || `${entity.name} ${entity.layer} sky shell ${entity.skyShell.order + 1}`
+        .toLocaleLowerCase().includes(query)))
+      .sort((left, right) => left.skyShell!.order - right.skyShell!.order);
+  }, [filter, project.entities]);
   const entityIds = useMemo(() => new Set(project.entities.map((entity) => entity.id)), [project.entities]);
   const nodes = useMemo<TreeNodeData[]>(() => [
     ...(tfrags.length ? [{
@@ -193,10 +205,13 @@ export function SceneTreePanel() {
     ...(sky.length ? [{
       value: 'render:sky',
       label: <SceneTreeLabel kind="sky">({sky.length})</SceneTreeLabel>,
-      children: sky.map((item) => ({
-        ...item,
-        label: <SceneTreeLabel kind="sky" dot>{item.label.replace(/^sky /i, '')}</SceneTreeLabel>,
-        nodeProps: { selectable: false },
+      nodeProps: { selectable: true },
+      children: sky.map((entity) => ({
+        value: entity.id,
+        label: <SceneTreeNode entities={[entity]} disabled={busy}>
+          <SceneTreeLabel kind="sky" dot>#{entity.skyShell!.order + 1} · {entity.name}</SceneTreeLabel>
+        </SceneTreeNode>,
+        nodeProps: { selectable: true },
       })),
     }] : []),
     ...model.groups.map((group) => ({
@@ -235,10 +250,23 @@ export function SceneTreePanel() {
         ? <EditorTree
           label="Scene hierarchy"
           nodes={nodes}
-          selected={splinePointSelection.length ? splinePointSelection : project.selection}
+          selected={skyCompositionSelected
+            ? ['render:sky']
+            : splinePointSelection.length ? splinePointSelection : project.selection}
           multiple
-          onActivate={(value) => setCameraFocus({ entityId: parseSplinePointId(value)?.entityId ?? value })}
+          onActivate={(value) => {
+            if (value !== 'render:sky') setCameraFocus({ entityId: parseSplinePointId(value)?.entityId ?? value });
+          }}
           onSelectionChange={(values) => {
+            if (values.includes('render:sky')) {
+              setSkyCompositionSelected(true);
+              setSplinePointSelection([]);
+              if (project.selection.length) void execute({
+                id: crypto.randomUUID(), kind: 'setSelection', entityIds: [],
+              });
+              return;
+            }
+            setSkyCompositionSelected(false);
             const points = values.map(parseSplinePointId).filter((value) => value !== undefined);
             if (points.length) {
               const entityId = points.at(-1)!.entityId;
@@ -337,14 +365,16 @@ function groupTreeKind(entities: readonly EditorEntity[]): string {
 }
 
 export function PropertiesPanel() {
-  const { project, splinePointSelection } = useEditor();
+  const { project, splinePointSelection, skyCompositionSelected } = useEditor();
   const pointEntityId = parseSplinePointId(splinePointSelection[0] ?? '')?.entityId;
   const entities = (pointEntityId ? [pointEntityId] : project.selection)
     .map((id) => project.entities.find((entity) => entity.id === id))
     .filter((entity): entity is EditorEntity => Boolean(entity));
 
   return <EditorPanel label="Properties">
-    {entities.length === 1
+    {skyCompositionSelected
+      ? <SkyCompositionProperties />
+      : entities.length === 1
       ? <EntityProperties entity={entities[0]} />
       : entities.length > 1
         ? <MultiEntityProperties entities={entities} />

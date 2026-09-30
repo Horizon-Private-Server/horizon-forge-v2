@@ -1,6 +1,6 @@
 export type AssetExplorerCategory = 'ties' | 'shrubs' | 'mobys' | 'skyShells' | 'textures';
 export type AssetModelKind = 'tie' | 'shrub' | 'moby';
-export type AssetPreviewKind = AssetModelKind | 'texture';
+export type AssetPreviewKind = AssetModelKind | 'texture' | 'sky';
 
 export interface AssetPreviewSource {
   url: string;
@@ -60,11 +60,19 @@ export interface AssetExplorerFamily {
   representativeAssetId: string;
 }
 
-export interface AssetPlacementDragData {
+export interface AssetModelPlacementDragData {
   assetId: string;
   kind: AssetModelKind;
   classId: number;
 }
+
+export interface AssetSkyShellDragData {
+  assetId: string;
+  kind: 'sky';
+  shellIndex: number;
+}
+
+export type AssetPlacementDragData = AssetModelPlacementDragData | AssetSkyShellDragData;
 
 export interface AssetExplorerFacets {
   games: string[];

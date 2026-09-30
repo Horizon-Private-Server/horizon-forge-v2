@@ -52,6 +52,7 @@ Feature-specific design, acceptance criteria, and tasks live together when keepi
 them in a milestone-wide task register would split one implementation plan:
 
 - [Asset Explorer v0](../features/asset-explorer-v0.md) — M2-021 through M2-026
+- [Skybox Editor v0](../features/skybox-editor-v0.md) — M2-027 through M2-030
 
 ## Task conventions
 

@@ -11,15 +11,23 @@ public static partial class BridgePayloadCodec
         writer.WriteString(value.Kind);
         writer.WriteString(value.TargetGame);
         writer.WriteString(value.ViewPreset);
+        writer.WriteBoolean(value.ShellIndex is not null);
+        if (value.ShellIndex is { } shellIndex) writer.WriteUInt32(shellIndex);
         return writer.ToArray();
     }
 
     public static AssetPreviewRequestPayload DecodeAssetPreviewRequest(ReadOnlySpan<byte> payload)
     {
         var reader = new PayloadReader(payload);
+        var cacheRootPath = reader.ReadString();
+        var catalogRootPath = reader.ReadString();
+        var assetId = reader.ReadString();
+        var kind = reader.ReadString();
+        var targetGame = reader.ReadString();
+        var viewPreset = reader.ReadString();
         var value = new AssetPreviewRequestPayload(
-            reader.ReadString(), reader.ReadString(), reader.ReadString(),
-            reader.ReadString(), reader.ReadString(), reader.ReadString());
+            cacheRootPath, catalogRootPath, assetId, kind, targetGame, viewPreset,
+            reader.ReadBoolean() ? reader.ReadUInt32() : null);
         reader.Complete();
         return value;
     }

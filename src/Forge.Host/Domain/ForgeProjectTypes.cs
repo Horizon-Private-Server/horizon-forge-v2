@@ -49,6 +49,12 @@ public sealed record ProjectEntitySource(
     bool ModelLess = false,
     int? SourceIndex = null);
 
+public sealed record ProjectSkyShell(
+    int SourceShellIndex,
+    int Order,
+    ProjectVector3 InitialRotationRadians,
+    ProjectVector3 AngularVelocityRadiansPerSecond);
+
 public sealed record ProjectEntity(
     EntityId EntityId,
     string Name,
@@ -62,7 +68,8 @@ public sealed record ProjectEntity(
     ProjectEntityLighting? Lighting = null,
     ProjectTieLighting? TieLighting = null,
     ProjectCameraInstance? Camera = null,
-    ProjectAmbientSoundInstance? AmbientSound = null);
+    ProjectAmbientSoundInstance? AmbientSound = null,
+    ProjectSkyShell? SkyShell = null);
 
 public sealed record ProjectAttachedAsset(
     AssetId Id,

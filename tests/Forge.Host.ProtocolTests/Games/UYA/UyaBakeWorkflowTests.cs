@@ -7,6 +7,7 @@ using RatchetPs2.Core.Games;
 using RatchetPs2.Core.Gameplay;
 using RatchetPs2.Core.IO;
 using RatchetPs2.Core.LevelAssets;
+using RatchetPs2.Core.Skyboxes;
 using RatchetPs2.Core.Textures.Palettes;
 using RatchetPs2.Core.Textures.Pif;
 using RatchetPs2.Core.Wad;
@@ -237,7 +238,94 @@ internal static class UyaBakeWorkflowTests
                 { MobyTextureCount: 0, TieTextureCount: 0, ShrubTextureCount: 0 },
                 "unchanged source asset payload is retained without recompilation");
 
+            var compositionSourceSky = await catalog.PutAsync(
+                AssetKind.Sky,
+                UyaBaseLayerSchema.CanonicalFormatVersion,
+                global::EditorRuntimeTests.BuildSkybox(),
+                new(
+                    "test-sky",
+                    new("UYA", "NTSC-U", "1.00", "level41", "level_wad/assets/asset_wad.bin", 0,
+                        new string('a', 32)),
+                    ["sky:level41"],
+                    ["vanilla", "game:UYA", "level:41"]));
             var workspace = await ForgeProjectWorkspace.OpenAsync(project);
+            var firstSkyId = EntityId.New();
+            var secondSkyId = EntityId.New();
+            workspace.AddEntity(SkyShell(firstSkyId, compositionSourceSky.Id, 0, 11, 2));
+            workspace.AddEntity(SkyShell(secondSkyId, compositionSourceSky.Id, 1, -7, -3));
+            await workspace.SaveAsync();
+            var addedSkyBake = await UyaBakeService.BakeAsync(project, catalog, context);
+            Equal(true, addedSkyBake.WrittenLayers.Select(value => value.Layer).SequenceEqual([BakeLayerId.Sky]),
+                "sky shell addition rebuilds only sky");
+            var addedSkyPack = await UyaLevelPackService.PackAsync(project, catalog, sourceLevelWad, context);
+            Equal(true, addedSkyPack.Succeeded, "composed sky packs: "
+                + string.Join(" | ", addedSkyPack.Diagnostics.Select(value => value.Cause)));
+            var addedSky = ReadSkybox(addedSkyPack.OutputBytes!);
+            Equal(true, addedSky.Shells.Select(value => (value.RotationX, value.RotationDeltaZ))
+                .SequenceEqual(new[] { ((short)11, (short)2), ((short)-7, (short)-3) }),
+                "packed sky preserves shell order and effective rotations");
+
+            workspace = await ForgeProjectWorkspace.OpenAsync(project);
+            await UyaSkyShellEditorService.ExecuteAsync(
+                workspace,
+                catalog.RootPath,
+                new(
+                    Guid.NewGuid().ToString("D"),
+                    EditorCommandKind.UpdateSkyShell,
+                    [firstSkyId],
+                    SkyShellUpdate: new(
+                        InitialRotationRadians: new(25 * (MathF.PI / 32768f), 0, 0),
+                        AngularVelocityRadiansPerSecond: new(0, 0, 5 * (MathF.PI / 32768f) * 60))),
+                CancellationToken.None);
+            await workspace.SaveAsync();
+            workspace = await ForgeProjectWorkspace.OpenAsync(project);
+            Equal(5f, MathF.Round(workspace.Content.Entities.Single(value => value.EntityId == firstSkyId)
+                    .SkyShell!.AngularVelocityRadiansPerSecond.Z / ((MathF.PI / 32768f) * 60)),
+                "edited sky rotational velocity survives save and reopen");
+            var skyValidation = await UyaBakeValidationService.PreflightAsync(project, catalog, context);
+            var skyPlan = skyValidation.Plan.Layers.Single(value => value.Layer == BakeLayerId.Sky);
+            var stagingBeforeSkyFailure = await BakeStagingStore.OpenAsync(project);
+            var manifestBeforeSkyFailure = ManifestBytes(stagingBeforeSkyFailure.Manifest);
+            await ThrowsAsync<InvalidDataException>(() => UyaBaseLayerStore.StageAsync(
+                project,
+                catalog,
+                stagingBeforeSkyFailure,
+                skyPlan,
+                fault: output => File.WriteAllBytes(Path.Combine(output, "sky.bin"), [0]),
+                cancellationToken: CancellationToken.None));
+            var manifestAfterSkyFailure = (await BakeStagingStore.OpenAsync(project)).Manifest;
+            Equal(true, manifestBeforeSkyFailure.SequenceEqual(ManifestBytes(manifestAfterSkyFailure)),
+                "invalid composed sky preserves the last good stage");
+            var editedSkyBake = await UyaBakeService.BakeAsync(project, catalog, context);
+            Equal(true, editedSkyBake.WrittenLayers.Select(value => value.Layer).SequenceEqual([BakeLayerId.Sky]),
+                "rotation property edit rebuilds only sky");
+            var editedSkyPack = await UyaLevelPackService.PackAsync(project, catalog, sourceLevelWad, context);
+            Equal(true, ReadSkybox(editedSkyPack.OutputBytes!).Shells
+                .Select(value => (value.RotationX, value.RotationDeltaZ))
+                .SequenceEqual(new[] { ((short)25, (short)5), ((short)-7, (short)-3) }),
+                "packed sky preserves edited initial rotation and rotational velocity");
+
+            workspace.ReorderSkyShell(secondSkyId, 0);
+            await workspace.SaveAsync();
+            var reorderedSkyBake = await UyaBakeService.BakeAsync(project, catalog, context);
+            Equal(true, reorderedSkyBake.WrittenLayers.Select(value => value.Layer).SequenceEqual([BakeLayerId.Sky]),
+                "sky shell reorder rebuilds only sky");
+            var reorderedSkyPack = await UyaLevelPackService.PackAsync(project, catalog, sourceLevelWad, context);
+            Equal(true, ReadSkybox(reorderedSkyPack.OutputBytes!).Shells
+                .Select(value => value.RotationX).SequenceEqual(new short[] { -7, 25 }),
+                "packed sky preserves reordered shells");
+
+            workspace = await ForgeProjectWorkspace.OpenAsync(project);
+            workspace.RemoveEntities([firstSkyId, secondSkyId]);
+            await workspace.SaveAsync();
+            var restoredSkyBake = await UyaBakeService.BakeAsync(project, catalog, context);
+            Equal(true, restoredSkyBake.WrittenLayers.Select(value => value.Layer).SequenceEqual([BakeLayerId.Sky]),
+                "sky shell removal rebuilds only sky");
+            var restoredSkyPack = await UyaLevelPackService.PackAsync(project, catalog, sourceLevelWad, context);
+            Equal(packedSource.OutputSha256, restoredSkyPack.OutputSha256,
+                "restoring the imported sky composition restores byte-identical output");
+
+            workspace = await ForgeProjectWorkspace.OpenAsync(project);
             var directionalLight = workspace.Content.Entities.Single(
                 value => value.Lighting?.DirectionalLight is not null);
             workspace.UpdateTransform(directionalLight.EntityId, directionalLight.Transform with
@@ -759,6 +847,31 @@ internal static class UyaBakeWorkflowTests
 
     private static byte[] ManifestBytes(BakeManifest manifest) =>
         JsonSerializer.SerializeToUtf8Bytes(manifest);
+
+    private static ProjectEntity SkyShell(
+        EntityId id,
+        AssetId assetId,
+        int order,
+        short rotationX,
+        short rotationDeltaZ) => new(
+        id,
+        $"Sky shell {order + 1}",
+        "sky",
+        ProjectTransform.Identity,
+        new(assetId, AssetKind.Sky),
+        new("UYA", 41, "level_wad/assets/sky", 0),
+        SkyShell: new(
+            0,
+            order,
+            new(rotationX * (MathF.PI / 32768f), 0, 0),
+            new(0, 0, rotationDeltaZ * (MathF.PI / 32768f) * 60)));
+
+    private static Skybox ReadSkybox(byte[] levelWad)
+    {
+        var bytes = UyaBaseLayerService.ExtractSky(UyaLevelWadUnpacker.Unpack(levelWad))!.Bytes;
+        using var stream = new MemoryStream(bytes, writable: false);
+        return SkyboxReader.Read(stream, GameId.UYA);
+    }
 
     private static int[] ReadClassIds(IReadOnlyList<PackedFile> files, string family)
     {

@@ -18,11 +18,14 @@ export function registerRenderIpcHandlers(options: RenderIpcHandlersOptions): vo
   const activePreviewRequests = new Map<string, number>();
   let terrainLoading = false;
 
-  function assertPreview(assetId: unknown, kind?: unknown): asserts assetId is string {
+  function assertPreview(assetId: unknown, kind?: unknown, shellIndex?: unknown): asserts assetId is string {
     if (typeof assetId !== 'string' || !/^[0-9a-f]{64}$/.test(assetId))
       throw new TypeError('Asset preview ID is invalid');
-    if (kind !== undefined && kind !== 'moby' && kind !== 'tie' && kind !== 'shrub' && kind !== 'texture')
+    if (kind !== undefined && kind !== 'moby' && kind !== 'tie' && kind !== 'shrub' && kind !== 'texture' && kind !== 'sky')
       throw new TypeError('Asset preview kind is invalid');
+    if ((kind === 'sky' && (!Number.isInteger(shellIndex) || Number(shellIndex) < 0 || Number(shellIndex) >= 8))
+      || (kind !== 'sky' && shellIndex !== undefined))
+      throw new TypeError('Asset preview shell index is invalid');
   }
 
   function assertRequestToken(value: unknown): asserts value is string {
@@ -31,8 +34,9 @@ export function registerRenderIpcHandlers(options: RenderIpcHandlersOptions): vo
       throw new TypeError('Asset preview request token is invalid');
   }
 
-  function assertThumbnail(assetId: unknown, kind: unknown): asserts assetId is string {
-    assertPreview(assetId, kind);
+  function assertTargetGame(value: unknown): asserts value is string {
+    if (typeof value !== 'string' || !/^[A-Z0-9]{2,16}$/.test(value))
+      throw new TypeError('Asset thumbnail target game is invalid');
   }
 
   ipcMain.handle('forge:editor-terrain', async (event) => {
@@ -56,7 +60,7 @@ export function registerRenderIpcHandlers(options: RenderIpcHandlersOptions): vo
         catalogRootPath: settings.paths.assets,
       }, (progress) => event.sender.send('forge:editor-terrain-progress', progress));
       activeRequestId = request.requestId;
-      return await renderAssets.addPackage(await request.result);
+      return await renderAssets.addUyaPackage(await request.result);
     } finally {
       activeRequestId = undefined;
       terrainLoading = false;
@@ -69,10 +73,10 @@ export function registerRenderIpcHandlers(options: RenderIpcHandlersOptions): vo
   });
 
   ipcMain.handle('forge:asset-preview', async (
-    event, assetId: unknown, kind: unknown, requestToken: unknown,
+    event, assetId: unknown, kind: unknown, requestToken: unknown, shellIndex: unknown,
   ) => {
     assertSender(event.sender.id);
-    assertPreview(assetId, kind);
+    assertPreview(assetId, kind, shellIndex);
     assertRequestToken(requestToken);
     if (activePreviewRequests.has(requestToken)) throw new Error('Asset preview request token is already active');
     const project = await (await host.getEditorSnapshot()).result;
@@ -83,7 +87,8 @@ export function registerRenderIpcHandlers(options: RenderIpcHandlersOptions): vo
       assetId,
       kind: kind as AssetPreviewKind,
       targetGame: project.target.game,
-      viewPreset: kind === 'texture' ? 'texture-default' : 'model-default',
+      viewPreset: kind === 'texture' ? 'texture-default' : kind === 'sky' ? 'sky-default' : 'model-default',
+      ...(shellIndex !== undefined ? { shellIndex: shellIndex as number } : {}),
     });
     activePreviewRequests.set(requestToken, request.requestId);
     try {
@@ -100,21 +105,29 @@ export function registerRenderIpcHandlers(options: RenderIpcHandlersOptions): vo
     if (requestId !== undefined) await host.cancel(requestId);
   });
 
-  ipcMain.handle('forge:asset-thumbnail', async (event, assetId: unknown, kind: unknown) => {
+  ipcMain.handle('forge:asset-thumbnail', async (
+    event, targetGame: unknown, assetId: unknown, kind: unknown, shellIndex: unknown,
+  ) => {
     assertSender(event.sender.id);
-    assertThumbnail(assetId, kind);
+    assertTargetGame(targetGame);
+    assertPreview(assetId, kind, shellIndex);
     const { sdkRevision } = await host.start();
-    return renderAssets.getThumbnail(assetId, kind as AssetPreviewKind, sdkRevision);
+    return renderAssets.getThumbnail(
+      targetGame, assetId, kind as AssetPreviewKind, sdkRevision, shellIndex as number | undefined,
+    );
   });
 
   ipcMain.handle('forge:asset-thumbnail-store', async (
-    event, assetId: unknown, kind: unknown, bytes: unknown,
+    event, targetGame: unknown, assetId: unknown, kind: unknown, bytes: unknown, shellIndex: unknown,
   ) => {
     assertSender(event.sender.id);
-    assertThumbnail(assetId, kind);
+    assertTargetGame(targetGame);
+    assertPreview(assetId, kind, shellIndex);
     if (!(bytes instanceof Uint8Array) || bytes.byteLength <= 0 || bytes.byteLength > 2 * 1024 * 1024)
       throw new TypeError('Asset thumbnail bytes are invalid');
     const { sdkRevision } = await host.start();
-    return renderAssets.storeThumbnail(assetId, kind as AssetPreviewKind, sdkRevision, bytes);
+    return renderAssets.storeThumbnail(
+      targetGame, assetId, kind as AssetPreviewKind, sdkRevision, bytes, shellIndex as number | undefined,
+    );
   });
 }

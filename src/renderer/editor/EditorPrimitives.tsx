@@ -98,7 +98,6 @@ export function EditorTree({ label, nodes, selected = [], multiple = false, onAc
       onClick={(event) => {
         event.stopPropagation();
         if (event.detail > 1) return;
-        if (hasChildren) controller.toggleExpanded(node.value);
         select(node.value, event);
         event.currentTarget.closest<HTMLElement>('[role="treeitem"]')?.focus();
       }}
@@ -107,7 +106,18 @@ export function EditorTree({ label, nodes, selected = [], multiple = false, onAc
         if (valueSet.has(node.value)) onActivate?.(node.value);
       }}
     >
-      <span aria-hidden="true" className="editor-tree-chevron">{hasChildren ? (expanded ? '▾' : '▸') : ''}</span>
+      {hasChildren
+        ? <button
+          aria-expanded={expanded}
+          aria-label={expanded ? 'Collapse branch' : 'Expand branch'}
+          className="editor-tree-chevron"
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            controller.toggleExpanded(node.value);
+          }}
+        >{expanded ? '▾' : '▸'}</button>
+        : <span aria-hidden="true" className="editor-tree-chevron" />}
       <span className="editor-tree-content">{node.label}</span>
     </div>}
   />;

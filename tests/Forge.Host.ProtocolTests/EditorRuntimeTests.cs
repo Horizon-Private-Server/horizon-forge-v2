@@ -24,6 +24,8 @@ internal static class EditorRuntimeTests
             await ForgeProjectWorkspace.CreateAsync(secondPath, "Second", target, baseLevel,
                 [Entity(EntityId.New(), "Other")]);
             await VerifyAssetPlacementHistoryAsync(root, target, baseLevel);
+            await VerifySkyShellHistoryAsync(root, target, baseLevel);
+            await VerifyUyaSkyShellCommandsAsync(root, target, baseLevel);
 
             var snapshot = await runtime.OpenAsync(firstPath, TimeSpan.FromMilliseconds(25));
             Equal(false, snapshot.IsDirty, "opened runtime clean state");
@@ -194,10 +196,191 @@ internal static class EditorRuntimeTests
         Equal(placedId, snapshot.Entities.Single().EntityId, "placement redo preserves generated entity ID");
     }
 
+    private static async Task VerifySkyShellHistoryAsync(
+        string root,
+        ProjectTargetProfile target,
+        ProjectBaseLevel baseLevel)
+    {
+        var assetId = AssetId.Parse(new string('b', AssetId.TextLength));
+        var firstId = EntityId.New();
+        var secondId = EntityId.New();
+        var projectPath = Path.Combine(root, "sky-shells");
+        await ForgeProjectWorkspace.CreateAsync(projectPath, "Sky shells", target, baseLevel,
+        [
+            SkyShell(firstId, assetId, 0),
+            SkyShell(secondId, assetId, 1),
+        ]);
+        await using var runtime = new EditorRuntime(skyShellCommandExecutor: (workspace, _, command, _) =>
+        {
+            if (command.Kind == EditorCommandKind.UpdateSkyShell)
+            {
+                var entity = workspace.Content.Entities.Single(value => value.EntityId == command.EntityIds[0]);
+                workspace.UpdateSkyShell(entity.EntityId, entity.SkyShell! with
+                {
+                    InitialRotationRadians = command.SkyShellUpdate!.InitialRotationRadians
+                        ?? entity.SkyShell.InitialRotationRadians,
+                    AngularVelocityRadiansPerSecond = command.SkyShellUpdate.AngularVelocityRadiansPerSecond
+                        ?? entity.SkyShell.AngularVelocityRadiansPerSecond,
+                });
+            }
+            else if (command.Kind == EditorCommandKind.ReorderSkyShell)
+            {
+                workspace.ReorderSkyShell(command.EntityIds[0], command.DestinationOrder!.Value);
+            }
+            else if (command.Kind is not (EditorCommandKind.DeleteEntities
+                or EditorCommandKind.DuplicateEntities or EditorCommandKind.PasteEntities
+                or EditorCommandKind.SetEntityState))
+            {
+                throw new InvalidOperationException("Unexpected fake sky shell command.");
+            }
+            return Task.FromResult(command.EntityIds);
+        });
+        var snapshot = await runtime.OpenAsync(projectPath, Path.Combine(root, "sky-catalog"), TimeSpan.Zero);
+        var first = snapshot.Entities.Single(entity => entity.EntityId == firstId);
+        Equal(0, first.SkyShell!.Order, "sky shell snapshot order");
+        Equal(EditorTransformCapabilities.None, first.TransformCapabilities, "sky shell transform tools disabled");
+        Equal(false, first.State.ReadOnly, "sky shell structural commands remain enabled");
+
+        var rotation = new ProjectVector3(0.25f, -0.5f, 0.75f);
+        snapshot = await runtime.ExecuteAsync(new(
+            Guid.NewGuid().ToString("D"), EditorCommandKind.UpdateSkyShell, [firstId],
+            SkyShellUpdate: new(InitialRotationRadians: rotation)));
+        Equal(rotation, snapshot.Entities.Single(entity => entity.EntityId == firstId)
+            .SkyShell!.InitialRotationRadians, "sky shell rotation update");
+        snapshot = await runtime.ExecuteAsync(Command(EditorCommandKind.Undo, []));
+        Equal(new ProjectVector3(0, 0, 0), snapshot.Entities.Single(entity => entity.EntityId == firstId)
+            .SkyShell!.InitialRotationRadians, "sky shell update undo");
+
+        snapshot = await runtime.ExecuteAsync(new(
+            Guid.NewGuid().ToString("D"), EditorCommandKind.ReorderSkyShell, [secondId], DestinationOrder: 0));
+        Equal(0, snapshot.Entities.Single(entity => entity.EntityId == secondId).SkyShell!.Order,
+            "sky shell reorder command");
+        Equal(1, snapshot.Entities.Single(entity => entity.EntityId == firstId).SkyShell!.Order,
+            "sky shell reorder normalizes sibling order");
+        snapshot = await runtime.ExecuteAsync(Command(EditorCommandKind.DeleteEntities, [secondId]));
+        Equal(0, snapshot.Entities.Single(entity => entity.EntityId == firstId).SkyShell!.Order,
+            "sky shell deletion normalizes remaining order");
+    }
+
+    private static async Task VerifyUyaSkyShellCommandsAsync(
+        string root,
+        ProjectTargetProfile target,
+        ProjectBaseLevel baseLevel)
+    {
+        var projectPath = Path.Combine(root, "uya-sky-shells");
+        var catalogPath = Path.Combine(root, "uya-sky-catalog");
+        var catalog = await AssetCatalogStore.OpenAsync(catalogPath);
+        var bytes = BuildSkybox();
+        var source = new OpaqueContentSource(
+            "UYA", "NTSC-U", target.Revision, baseLevel.Level, baseLevel.SourceFingerprint);
+        var payload = new UyaBaseLayerPayload(
+            BakeLayerId.Sky, "sky.bin", AssetKind.Sky, "level_wad/assets/asset_wad.bin", 0, bytes);
+        var entry = (await catalog.PutManyAsync(
+            UyaBaseLayerService.CreateCatalogPuts([payload], source, "test-sky"))).Single();
+        var firstId = EntityId.New();
+        await ForgeProjectWorkspace.CreateAsync(projectPath, "UYA sky commands", target, baseLevel,
+            [SkyShell(firstId, entry.Id, 0)]);
+        await UyaBaseLayerStore.WriteAsync(projectPath, source, [payload], [entry]);
+
+        await using var runtime = new EditorRuntime(
+            skyShellCommandExecutor: UyaSkyShellEditorService.ExecuteAsync);
+        var snapshot = await runtime.OpenAsync(projectPath, catalogPath, TimeSpan.Zero);
+        snapshot = await runtime.ExecuteAsync(new(
+            Guid.NewGuid().ToString("D"),
+            EditorCommandKind.AddSkyShellFromAsset,
+            [],
+            SkyShellSource: new(entry.Id, 0)));
+        var addedId = snapshot.Selection.Single();
+        Equal(2, snapshot.Entities.Count(entity => entity.SkyShell is not null),
+            "UYA sky shell add command");
+
+        var requested = new ProjectVector3(0.1f, -0.2f, 0.3f);
+        snapshot = await runtime.ExecuteAsync(new(
+            Guid.NewGuid().ToString("D"),
+            EditorCommandKind.UpdateSkyShell,
+            [addedId],
+            SkyShellUpdate: new(InitialRotationRadians: requested)));
+        const float tick = MathF.PI / 32768f;
+        var expected = new ProjectVector3(
+            MathF.Round(requested.X / tick, MidpointRounding.AwayFromZero) * tick,
+            MathF.Round(requested.Y / tick, MidpointRounding.AwayFromZero) * tick,
+            MathF.Round(requested.Z / tick, MidpointRounding.AwayFromZero) * tick);
+        Equal(expected, snapshot.Entities.Single(entity => entity.EntityId == addedId)
+            .SkyShell!.InitialRotationRadians, "UYA sky shell native rotation quantization");
+
+        snapshot = await runtime.ExecuteAsync(new(
+            Guid.NewGuid().ToString("D"),
+            EditorCommandKind.ReorderSkyShell,
+            [addedId],
+            DestinationOrder: 0));
+        Equal(0, snapshot.Entities.Single(entity => entity.EntityId == addedId).SkyShell!.Order,
+            "UYA sky shell validated reorder");
+
+        while (snapshot.Entities.Count(entity => entity.SkyShell is not null) < 8)
+            snapshot = await runtime.ExecuteAsync(new(
+                Guid.NewGuid().ToString("D"),
+                EditorCommandKind.AddSkyShellFromAsset,
+                [],
+                SkyShellSource: new(entry.Id, 0)));
+        var sequence = snapshot.LastEventSequence;
+        await ThrowsAsync<InvalidDataException>(() => runtime.ExecuteAsync(new(
+            Guid.NewGuid().ToString("D"),
+            EditorCommandKind.AddSkyShellFromAsset,
+            [],
+            SkyShellSource: new(entry.Id, 0))));
+        snapshot = await runtime.GetSnapshotAsync();
+        Equal(8, snapshot.Entities.Count(entity => entity.SkyShell is not null),
+            "UYA sky shell limit failure preserves composition");
+        Equal(sequence, snapshot.LastEventSequence,
+            "UYA sky shell limit failure emits no project event");
+
+        await runtime.SaveAsync();
+        await runtime.CloseAsync();
+        var reopened = await ForgeProjectWorkspace.OpenAsync(projectPath);
+        Equal(true, reopened.Content.Entities.Where(entity => entity.SkyShell is not null)
+            .OrderBy(entity => entity.SkyShell!.Order)
+            .Select(entity => entity.SkyShell!.Order)
+            .SequenceEqual(Enumerable.Range(0, 8)),
+            "UYA sky shell order survives save and reopen");
+    }
+
+    internal static byte[] BuildSkybox()
+    {
+        var bytes = new byte[0x50];
+        using var writer = new BinaryWriter(new MemoryStream(bytes, writable: true));
+        writer.BaseStream.Position = 6;
+        writer.Write((short)1);
+        writer.BaseStream.Position = 16;
+        writer.Write((uint)0x40);
+        writer.Write((uint)0x40);
+        writer.Write(0x40);
+        writer.Write((uint)0);
+        writer.Write((uint)0x40);
+        writer.BaseStream.Position = 0x40;
+        writer.Write((short)0);
+        writer.Write((short)1);
+        writer.Write((short)2);
+        writer.Write((short)-3);
+        writer.Write((short)4);
+        writer.Write((short)1);
+        writer.Write((short)0);
+        writer.Write((short)-1);
+        return bytes;
+    }
+
     private const int EditorRuntimeEventLimit = 1_024;
 
     private static ProjectEntity Entity(EntityId id, string name) => new(
         id, name, "mobys", ProjectTransform.Identity, null, new("UYA", 3, "gameplay/core/moby_instances", 0));
+
+    private static ProjectEntity SkyShell(EntityId id, AssetId assetId, int order) => new(
+        id,
+        $"Sky shell {order + 1}",
+        "sky",
+        ProjectTransform.Identity,
+        new(assetId, AssetKind.Sky),
+        new("UYA", 3, "level_wad/assets/sky", order),
+        SkyShell: new(order, order, new(0, 0, 0), new(0, 0, 0)));
 
     private static EditorCommand Command(
         EditorCommandKind kind,

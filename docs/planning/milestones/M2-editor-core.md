@@ -4,7 +4,8 @@ Priority: P0
 Depends on: M1  
 Task register: [M2 tasks](../tasks/M2-tasks.md)
 
-Feature tasks: [Asset Explorer v0](../../features/asset-explorer-v0.md#implementation-tasks)
+Feature tasks: [Asset Explorer v0](../../features/asset-explorer-v0.md#implementation-tasks),
+[Skybox Editor v0](../../features/skybox-editor-v0.md#implementation-tasks)
 
 ## Outcome
 
@@ -27,6 +28,8 @@ bounded command history while viewing the real UYA level rather than editor prox
 - Dockable vanilla asset exploration with cursor-backed infinite scrolling, lazy
   previews, exact source variants grouped by class family, and target-compatible
   tie, shrub, and moby placement.
+- Typed sky-shell composition with catalog insertion, removal, ordering, and editable
+  initial rotation and angular velocity.
 - Hidden/disabled/locked behavior.
 - Translate/rotate/scale, grid/center/vertex snapping, and Page Down placement.
 - Undo/redo, delete/duplicate, clipboard, keybindings, and accessibility basics.

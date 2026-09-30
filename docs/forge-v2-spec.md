@@ -556,11 +556,13 @@ interactive orbit preview.
 Catalog metadata and compatibility come from the host rather than renderer file
 access. Exact content hashes that share a target-specific kind/class identity MUST
 be presented as one family without discarding source variants or weakening Asset ID
-verification. Dragging a compatible tie, shrub, or moby into the viewport MUST create one
-undoable target-native entity with validated supplemental data. Cross-game assets,
-sky shells, textures, ambiguous class identities, and missing assets remain
-browseable but cannot silently create an incompatible scene entity. The detailed
-contract and tasks are in the
+verification. Dragging a compatible tie, shrub, or moby into the viewport MUST
+create one undoable target-native entity with validated supplemental data. A
+compatible sky shell MAY be appended only through the validated project composition
+and target writer defined by [Skybox Editor v0](features/skybox-editor-v0.md).
+Cross-game assets, textures, ambiguous class identities, missing assets, and
+unsupported sky shells remain browseable but cannot silently create incompatible
+project content. The explorer contract and tasks are in the
 [Asset Explorer v0 feature specification](features/asset-explorer-v0.md).
 
 ### 8.3 Scene and editing

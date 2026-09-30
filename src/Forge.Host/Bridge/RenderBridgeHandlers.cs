@@ -18,6 +18,7 @@ internal static class RenderBridgeHandlers
             "tie" => AssetKind.Tie,
             "shrub" => AssetKind.Shrub,
             "texture" => AssetKind.Texture,
+            "sky" => AssetKind.Sky,
             _ => throw new ArgumentException($"Unknown asset preview kind: {request.Kind}."),
         };
         var result = await UyaAssetPreviewService.PrepareAsync(new(
@@ -26,7 +27,8 @@ internal static class RenderBridgeHandlers
             AssetId.Parse(request.AssetId),
             kind,
             request.TargetGame,
-            request.ViewPreset), sdkRevision, cancellationToken);
+            request.ViewPreset,
+            request.ShellIndex is { } shellIndex ? checked((int)shellIndex) : null), sdkRevision, cancellationToken);
         return BridgePayloadCodec.EncodeAssetPreviewResult(new(
             result.RootPath, result.CacheKey, result.ModelPath, result.CacheHit));
     }

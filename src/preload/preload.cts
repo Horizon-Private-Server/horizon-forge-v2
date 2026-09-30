@@ -43,13 +43,13 @@ const forgeApi = Object.freeze({
   collectCatalogGarbage: (confirmationToken: string) => ipcRenderer.invoke('forge:catalog-gc-collect', confirmationToken),
   queryAssetExplorer: (query: AssetExplorerQuery) => ipcRenderer.invoke('forge:asset-explorer-query', query),
   cancelAssetExplorerQuery: () => ipcRenderer.invoke('forge:asset-explorer-cancel'),
-  getAssetPreview: (assetId: string, kind: AssetPreviewKind, requestToken: string) =>
-    ipcRenderer.invoke('forge:asset-preview', assetId, kind, requestToken),
+  getAssetPreview: (assetId: string, kind: AssetPreviewKind, requestToken: string, shellIndex?: number) =>
+    ipcRenderer.invoke('forge:asset-preview', assetId, kind, requestToken, shellIndex),
   cancelAssetPreview: (requestToken: string) => ipcRenderer.invoke('forge:asset-preview-cancel', requestToken),
-  getAssetThumbnail: (assetId: string, kind: AssetPreviewKind) =>
-    ipcRenderer.invoke('forge:asset-thumbnail', assetId, kind),
-  storeAssetThumbnail: (assetId: string, kind: AssetPreviewKind, bytes: Uint8Array) =>
-    ipcRenderer.invoke('forge:asset-thumbnail-store', assetId, kind, bytes),
+  getAssetThumbnail: (targetGame: string, assetId: string, kind: AssetPreviewKind, shellIndex?: number) =>
+    ipcRenderer.invoke('forge:asset-thumbnail', targetGame, assetId, kind, shellIndex),
+  storeAssetThumbnail: (targetGame: string, assetId: string, kind: AssetPreviewKind, bytes: Uint8Array, shellIndex?: number) =>
+    ipcRenderer.invoke('forge:asset-thumbnail-store', targetGame, assetId, kind, bytes, shellIndex),
   removeRecentProject: (path: string) => ipcRenderer.invoke('forge:projects-remove-recent', path),
   revealForgeProject: (path: string) => ipcRenderer.invoke('forge:projects-reveal', path),
   revealLogs: () => ipcRenderer.invoke('forge:logs-reveal'),

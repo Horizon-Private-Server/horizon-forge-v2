@@ -14,7 +14,6 @@ namespace Forge.Host.Games.UYA;
 public static class UyaRenderPackageService
 {
     public const int SchemaVersion = 5;
-    private const long MaxAssetBytes = 256L * 1024 * 1024;
     private const string MarkerName = ".forge-render-package.json";
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
@@ -325,6 +324,7 @@ public static class UyaRenderPackageService
         foreach (var reference in workspace.Content.Entities
                      .Select(entity => entity.Asset)
                      .OfType<ProjectAssetReference>()
+                     .Where(reference => reference.Kind is AssetKind.Moby or AssetKind.Tie or AssetKind.Shrub)
                      .Distinct()
                      .OrderBy(reference => reference.Id.ToString(), StringComparer.Ordinal))
         {
@@ -395,13 +395,8 @@ public static class UyaRenderPackageService
         if (canonicalFormatVersion is not 0
             && canonicalFormatVersion != UyaAssetImportService.CanonicalFormatVersion)
             throw new InvalidDataException($"Unsupported canonical asset format {canonicalFormatVersion}.");
-        if (!File.Exists(path)) throw new FileNotFoundException("Asset blob is missing.");
-        var info = new FileInfo(path);
-        if (info.Length != size || info.Length is <= 0 or > MaxAssetBytes)
-            throw new InvalidDataException("Asset blob size does not match its catalog entry.");
-        var bytes = await File.ReadAllBytesAsync(path, cancellationToken);
-        if (AssetId.Compute(kind, canonicalFormatVersion, bytes) != id)
-            throw new InvalidDataException("Asset blob failed its identity check.");
+        var bytes = await AssetCatalogBlobReader.ReadVerifiedAsync(
+            id, kind, canonicalFormatVersion, size, path, UyaAssetLimits.MaxCanonicalBytes, cancellationToken);
         var canonical = UyaCanonicalAssetCodec.Decode(bytes);
         var frontendKind = kind switch
         {

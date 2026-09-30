@@ -35,10 +35,8 @@ public static class UyaAssetPlacementService
             throw new InvalidDataException("The catalog asset does not contain the selected compatible UYA class.");
         var path = workspace.ResolveAssetPath(entry.Id, catalog)
             ?? throw new FileNotFoundException($"Asset blob {entry.Id} is missing.");
-        var bytes = await File.ReadAllBytesAsync(path, cancellationToken);
-        if (bytes.LongLength != entry.Size
-            || AssetId.Compute(entry.Kind, entry.CanonicalFormatVersion, bytes) != entry.Id)
-            throw new InvalidDataException("The asset blob failed identity validation.");
+        var bytes = await AssetCatalogBlobReader.ReadVerifiedAsync(
+            entry, path, UyaAssetLimits.MaxCanonicalBytes, cancellationToken);
         var canonical = UyaCanonicalAssetCodec.Decode(bytes);
         if (canonical.DefinitionBytes.Length != (placement.Kind == AssetKind.Shrub ? 0x30 : 0x20))
             throw new InvalidDataException("The asset canonical definition does not match its kind.");

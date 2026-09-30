@@ -33,13 +33,14 @@ immutable global Asset ID. It does not copy or mutate the catalog blob.
 | Ties | Yes | Yes | Yes, when compatible with the project target |
 | Shrubs | Yes | Yes | Yes, when compatible with the project target |
 | Mobys | Yes | Yes | Yes, with neutral instance data and stubbed Pvars |
-| Sky shells | Yes | Yes, isolated or with the owning sky | No |
+| Sky shells | Yes | Yes, isolated or with the owning sky | No in v0; composition is specified by [Skybox Editor v0](skybox-editor-v0.md) |
 | Textures | Yes | Yes, with transparency controls | No |
 
 Cross-game browsing does not imply cross-game conversion. Assets from another game
 remain visible and inspectable, but scene placement is disabled unless the current
 target adapter explicitly supports them. Sky shells and textures are preview-only
-until dedicated sky-composition and material-assignment commands exist.
+until dedicated commands exist. Sky-shell composition is defined separately by
+[Skybox Editor v0](skybox-editor-v0.md); material assignment remains outside v0.
 
 Custom/project-local assets, remote catalogs, asset editing, favorites,
 collections, and cross-project drag-and-drop are outside v0.
@@ -48,9 +49,9 @@ collections, and cross-project drag-and-drop are outside v0.
 
 Forge already has a content-addressed catalog with Asset IDs, aliases, tags, source
 appearances, game and level filters, and immutable blobs. The UYA importer currently
-catalogs tie, shrub, and moby model bundles plus their standalone normalized PIFs.
-Project creation catalogs the whole base sky payload, while model bundles retain
-their embedded texture copies for source-faithful bake and repair.
+catalogs tie, shrub, and moby model bundles, their standalone normalized PIFs, and
+the parent sky payload for every populated level. Model bundles retain their embedded
+texture copies for source-faithful bake and repair.
 
 The explorer requires:
 
@@ -364,7 +365,9 @@ retain one compact identity row; source levels and full provenance stay in the d
 dock. Model and texture grid rasters now persist in a validated, atomically written
 128 MiB LRU so later sessions can skip preview-package and rendering work. The selected
 texture preview exposes RGBA, opaque RGB, individual color, and alpha channels.
-Sky-shell previews remain open.
+Sky shells now use the same bounded glTF preview path, apply SDK-exported material,
+initial rotation, and runtime rotation metadata, and isolate the selected shell in
+both grid and detail views.
 
 ### M2-023 — Implement the Asset Explorer dock
 
@@ -385,15 +388,20 @@ Acceptance:
 - Stable placeholders and errors never block scrolling.
 - Detail metadata includes Asset ID, aliases/class identities, tags, all source
   games/levels/revisions, compatibility, and missing/repair state.
-- The grid renders one card per target-specific class family. It shows the exact
-  variant count, prefers the current base level's variant, and exposes other exact
-  source variants in the Properties-grouped Asset Preview dock.
+- The grid renders one compact card per target-specific class family and prefers the
+  current base level's variant. Exact variant count, aggregated source levels, and
+  other exact variants remain in the Properties-grouped Asset Preview dock so card
+  metadata does not reduce thumbnail space.
 - Cross-game and preview-only assets remain inspectable while their scene-drag
   affordance is absent or disabled with a reason.
 
 Verification: layout round trip, keyboard/focus checks, query-state tests, virtual
 grid profile, infinite-scroll boundary tests, empty/missing/error states, and
 narrow/high-DPI layouts.
+
+Progress: the dock, accessible category/search/facet controls, bounded virtual grid,
+cursor-backed infinite loading, stable error retry, family selection, and the
+Properties-grouped interactive detail surface are wired.
 
 ### M2-024 — Place catalog assets with target-native defaults
 
@@ -498,7 +506,8 @@ Acceptance:
 
 - Cursor batches merge into stable family cards without duplicate class cards or
   unbounded DOM growth.
-- The family card discloses its exact variant count and aggregated source levels.
+- The selected family's detail dock discloses its exact variant count and aggregated
+  source levels without adding another metadata row to every grid card.
 - Selecting a family previews the exact variant sourced by the current base level
   when available, with a deterministic fallback and an exact-variant selector.
 - Exact Asset IDs, blobs, verification, repair, preview cache keys, and bake inputs
@@ -553,7 +562,8 @@ Progress: visible model and texture cards check the persistent raster tier befor
 requesting a preview package. Cold misses encode one 256px PNG through the existing
 bounded renderer path; the privileged boundary validates dimensions and format,
 writes atomically, serves through `forge-asset:`, and prunes the LRU to 128 MiB.
-Sky-shell thumbnails and retained integration/soak coverage remain open.
+Sky-shell thumbnails use the same path with the shell index included in every cache
+key. Retained integration and soak coverage remain open.
 
 ## Delivery plan
 

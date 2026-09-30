@@ -49,10 +49,24 @@ public static class UyaBaseLayerStore
             cancellationToken);
     }
 
-    public static async Task<UyaBaseLayerInspection> InspectAsync(
+    public static Task<UyaBaseLayerInspection> InspectAsync(
         string projectRoot,
         AssetCatalogStore catalog,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        InspectAsync(projectRoot, catalog, null, cancellationToken);
+
+    internal static Task<UyaBaseLayerInspection> InspectAsync(
+        string projectRoot,
+        AssetCatalogStore catalog,
+        BakeLayerId layer,
+        CancellationToken cancellationToken) =>
+        InspectAsync(projectRoot, catalog, (BakeLayerId?)layer, cancellationToken);
+
+    private static async Task<UyaBaseLayerInspection> InspectAsync(
+        string projectRoot,
+        AssetCatalogStore catalog,
+        BakeLayerId? requestedLayer,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(catalog);
         var blockers = UyaBaseLayerSchema.Layers.ToDictionary(layer => layer, _ => new List<string>());
@@ -80,6 +94,7 @@ public static class UyaBaseLayerStore
         foreach (var layer in manifest.Layers ?? [])
         {
             if (layer is null || !blockers.ContainsKey(layer.Layer)) continue;
+            if (requestedLayer is not null && layer.Layer != requestedLayer) continue;
             foreach (var asset in layer.Assets ?? [])
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -139,6 +154,25 @@ public static class UyaBaseLayerStore
     {
         var inspection = await InspectAsync(projectRoot, catalog, cancellationToken);
         var workspace = await ForgeProjectWorkspace.OpenAsync(projectRoot, cancellationToken);
+        var blockers = inspection.Blockers.ToDictionary(pair => pair.Key, pair => pair.Value.ToList());
+        if (blockers[BakeLayerId.Sky].Count == 0)
+        {
+            try
+            {
+                _ = await UyaSkyShellEditorService.ComposeAsync(
+                    workspace, catalog, workspace.Content.Entities, inspection, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception exception) when (exception is InvalidDataException or IOException
+                or UnauthorizedAccessException or OverflowException or NotSupportedException)
+            {
+                blockers[BakeLayerId.Sky].Add(
+                    $"Sky composition is invalid ({exception.Message}); restore its source assets or correct the shell settings.");
+            }
+        }
         return UyaBaseLayerSchema.Layers.Select(layer =>
         {
             var record = inspection.Manifest?.Layers?.SingleOrDefault(value => value.Layer == layer);
@@ -149,14 +183,25 @@ public static class UyaBaseLayerStore
                     inspection.Manifest.DocumentType,
                     inspection.Manifest.Source,
                     [record]));
+            var assetIds = record?.Assets?.Select(value => value.Asset.Id) ?? [];
+            if (layer == BakeLayerId.Sky)
+                assetIds = assetIds.Concat(EnabledSkyShells(workspace)
+                    .Where(value => value.Asset is not null).Select(value => value.Asset!.Id));
             return new BakeLayerInput(
                 layer,
                 content,
-                record?.Assets?.Select(value => value.Asset.Id).ToArray() ?? [],
+                assetIds.ToArray(),
                 layer switch
                 {
                     BakeLayerId.World when workspace.Content.LevelSettings is not null =>
                         ForgeProjectPersistence.Serialize(workspace.Content.LevelSettings),
+                    BakeLayerId.Sky => ForgeProjectPersistence.Serialize(EnabledSkyShells(workspace).Select(value => new
+                    {
+                        AssetId = value.Asset?.Id,
+                        value.SkyShell!.SourceShellIndex,
+                        value.SkyShell.InitialRotationRadians,
+                        value.SkyShell.AngularVelocityRadiansPerSecond,
+                    }).ToArray()),
                     BakeLayerId.Lighting => ForgeProjectPersistence.Serialize(new
                     {
                         TieAmbient = UyaStaticLayerStore.OrderedEntities(workspace, BakeLayerId.Ties)
@@ -167,16 +212,25 @@ public static class UyaBaseLayerStore
                     }),
                     _ => ReadOnlyMemory<byte>.Empty,
                 },
-                inspection.Blockers[layer]);
+                blockers[layer]);
         }).ToArray();
     }
 
-    public static async Task<BakeLayerSnapshot> StageAsync(
+    public static Task<BakeLayerSnapshot> StageAsync(
         string projectRoot,
         AssetCatalogStore catalog,
         BakeStagingStore staging,
         BakeLayerPlan plan,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        StageAsync(projectRoot, catalog, staging, plan, null, cancellationToken);
+
+    internal static async Task<BakeLayerSnapshot> StageAsync(
+        string projectRoot,
+        AssetCatalogStore catalog,
+        BakeStagingStore staging,
+        BakeLayerPlan plan,
+        Action<string>? fault,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(staging);
         ArgumentNullException.ThrowIfNull(plan);
@@ -189,6 +243,10 @@ public static class UyaBaseLayerStore
         var workspace = await ForgeProjectWorkspace.OpenAsync(projectRoot, cancellationToken);
         var layerManifest = inspection.Manifest with { Layers = [record] };
         var manifestBytes = ForgeProjectPersistence.Serialize(layerManifest);
+        var skyComposition = plan.Layer == BakeLayerId.Sky
+            ? await UyaSkyShellEditorService.ComposeAsync(
+                workspace, catalog, workspace.Content.Entities, inspection, cancellationToken)
+            : null;
         return await staging.CommitAsync(plan, async (output, token) =>
         {
             await ForgeProjectPersistence.WriteFileSafelyAsync(
@@ -203,6 +261,11 @@ public static class UyaBaseLayerStore
                 {
                     var bytes = WriteLevelSettings(await File.ReadAllBytesAsync(source, token), settings);
                     await ForgeProjectPersistence.WriteFileSafelyAsync(Path.Combine(output, asset.Name), bytes, token);
+                }
+                else if (plan.Layer == BakeLayerId.Sky && asset.Name == "sky.bin")
+                {
+                    await ForgeProjectPersistence.WriteFileSafelyAsync(
+                        Path.Combine(output, asset.Name), skyComposition!.Bytes, token);
                 }
                 else if (plan.Layer == BakeLayerId.Lighting && asset.Name == PointLightsAssetName)
                 {
@@ -229,6 +292,7 @@ public static class UyaBaseLayerStore
             }
         }, async (output, token) =>
         {
+            fault?.Invoke(output);
             var stagedManifest = await File.ReadAllBytesAsync(Path.Combine(output, "manifest.json"), token);
             if (!stagedManifest.SequenceEqual(manifestBytes))
                 throw new InvalidDataException($"{plan.Layer} staged manifest changed during write.");
@@ -243,6 +307,11 @@ public static class UyaBaseLayerStore
                     var expected = WriteLevelSettings(await File.ReadAllBytesAsync(source, token), settings);
                     if (!bytes.SequenceEqual(expected))
                         throw new InvalidDataException("World staged level settings changed during write.");
+                }
+                else if (plan.Layer == BakeLayerId.Sky && asset.Name == "sky.bin")
+                {
+                    if (!bytes.SequenceEqual(skyComposition!.Bytes))
+                        throw new InvalidDataException("Sky staged composition changed during write.");
                 }
                 else if (plan.Layer == BakeLayerId.Lighting && asset.Name == PointLightsAssetName)
                 {
@@ -344,6 +413,10 @@ public static class UyaBaseLayerStore
     private static IEnumerable<ProjectEntity> PointLights(ForgeProjectWorkspace workspace) =>
         workspace.Content.Entities.Where(value => value.Lighting?.PointLight is not null)
             .OrderBy(value => value.Provenance?.SourceIndex ?? int.MaxValue);
+
+    private static IEnumerable<ProjectEntity> EnabledSkyShells(ForgeProjectWorkspace workspace) =>
+        workspace.Content.Entities.Where(value => value.SkyShell is not null && value.State?.Disabled != true)
+            .OrderBy(value => value.SkyShell!.Order);
 
     private static bool EquivalentPointLightTransform(ProjectTransform transform, UyaPointLight source)
     {

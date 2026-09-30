@@ -70,8 +70,21 @@ internal static class EditorPayloadCodec
                 checked((int)reader.ReadUInt32()),
                 ReadTransform(ref reader));
         }
+        var skyShellSource = reader.ReadBoolean()
+            ? new EditorSkyShellSource(AssetId.Parse(reader.ReadString()), checked((int)reader.ReadUInt32()))
+            : null;
+        EditorSkyShellUpdate? skyShellUpdate = null;
+        if (reader.ReadBoolean())
+        {
+            var initialRotation = reader.ReadBoolean() ? ReadVector(ref reader) : null;
+            var angularVelocity = reader.ReadBoolean() ? ReadVector(ref reader) : null;
+            skyShellUpdate = new(initialRotation, angularVelocity);
+        }
+        int? destinationOrder = reader.ReadBoolean() ? checked((int)reader.ReadUInt32()) : null;
         reader.Complete();
-        return new(id, kind, entities, transform, text, state, transforms, levelSettings, points, placement);
+        return new(
+            id, kind, entities, transform, text, state, transforms, levelSettings, points, placement,
+            skyShellSource, skyShellUpdate, destinationOrder);
     }
 
     public static byte[] EncodeSnapshot(EditorSnapshot value)
@@ -184,6 +197,14 @@ internal static class EditorPayloadCodec
                 writer.WriteSingle(point.Z);
                 writer.WriteSingle(point.W);
             }
+        }
+        writer.WriteBoolean(value.SkyShell is not null);
+        if (value.SkyShell is not null)
+        {
+            writer.WriteUInt32(checked((uint)value.SkyShell.SourceShellIndex));
+            writer.WriteUInt32(checked((uint)value.SkyShell.Order));
+            WriteVector(writer, value.SkyShell.InitialRotationRadians);
+            WriteVector(writer, value.SkyShell.AngularVelocityRadiansPerSecond);
         }
         writer.WriteUInt32((uint)value.TransformCapabilities);
         writer.WriteBoolean(value.State.Dirty);

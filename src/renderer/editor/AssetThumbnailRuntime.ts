@@ -5,6 +5,7 @@ import type { AssetPreviewKind } from '../../types/AssetExplorer.js';
 import type { ForgeApi } from '../../types/ForgeApi.js';
 import { configurePs2AssetPreview } from '../../utils/Ps2Materials.ts';
 import { disposeObject, frameCameraOnObject } from '../../utils/Scene.ts';
+import { configureSkybox } from '../../utils/SkyboxScene.ts';
 
 const THUMBNAIL_SIZE = 256;
 const MAX_THUMBNAILS = 128;
@@ -76,35 +77,34 @@ export class AssetThumbnailRuntime {
   private readonly camera = new THREE.PerspectiveCamera(45, 1, 0.1, 10_000);
   private readonly target = new THREE.Vector3();
   private readonly cache = new Map<string, string>();
-  private readonly inFlight = new Map<string, Promise<string>>();
   private readonly activeRequests = new Set<string>();
+  private readonly targetGame: string;
   private disposed = false;
 
-  constructor() {
+  constructor(targetGame: string) {
+    this.targetGame = targetGame;
     this.renderer.setPixelRatio(1);
     this.renderer.setSize(THUMBNAIL_SIZE, THUMBNAIL_SIZE, false);
     this.scene.background = new THREE.Color(0x151922);
     this.scene.add(new THREE.HemisphereLight(0xffffff, 0x5c6370, 2));
   }
 
-  get(assetId: string, kind: AssetPreviewKind, signal?: AbortSignal): Promise<string> {
-    const key = `${kind}:${assetId}`;
+  get(assetId: string, kind: AssetPreviewKind, shellIndex?: number, signal?: AbortSignal): Promise<string> {
+    const key = `${kind}:${assetId}:${shellIndex ?? ''}`;
     const cached = this.cache.get(key);
     if (cached) {
       this.cache.delete(key);
       this.cache.set(key, cached);
       return Promise.resolve(cached);
     }
-    const existing = this.inFlight.get(key);
-    if (existing) return existing;
-    const request = this.scheduler.schedule(signal, async () => {
+    return this.scheduler.schedule(signal, async () => {
       this.throwIfCancelled(signal);
-      const persisted = await forgeApi().getAssetThumbnail(assetId, kind).catch(() => undefined);
+      const persisted = await forgeApi().getAssetThumbnail(
+        this.targetGame, assetId, kind, shellIndex,
+      ).catch(() => undefined);
       this.throwIfCancelled(signal);
       if (persisted) {
-        this.cache.set(key, persisted.url);
-        if (this.cache.size > MAX_THUMBNAILS) this.cache.delete(this.cache.keys().next().value!);
-        return persisted.url;
+        return this.remember(key, persisted.url);
       }
       const requestToken = crypto.randomUUID();
       const cancel = () => { void forgeApi().cancelAssetPreview(requestToken); };
@@ -112,42 +112,36 @@ export class AssetThumbnailRuntime {
       this.activeRequests.add(requestToken);
       let root: THREE.Object3D | undefined;
       try {
-        const source = await forgeApi().getAssetPreview(assetId, kind, requestToken);
+        const source = await forgeApi().getAssetPreview(assetId, kind, requestToken, shellIndex);
         this.throwIfCancelled(signal);
         if (kind === 'texture') {
           const blob = await textureThumbnail(source.url, signal);
           this.throwIfCancelled(signal);
           const thumbnail = (await forgeApi().storeAssetThumbnail(
-            assetId, kind, new Uint8Array(await blob.arrayBuffer()),
+            this.targetGame, assetId, kind, new Uint8Array(await blob.arrayBuffer()),
+            shellIndex,
           ).catch(() => undefined))?.url ?? source.url;
-          this.cache.set(key, thumbnail);
-          if (this.cache.size > MAX_THUMBNAILS) this.cache.delete(this.cache.keys().next().value!);
-          return thumbnail;
+          return this.remember(key, thumbnail);
         }
         root = (await this.loader.loadAsync(source.url)).scene;
         this.throwIfCancelled(signal);
         if (!configurePs2AssetPreview(root, kind)) throw new AssetPreviewMeshMissingError();
+        if (kind === 'sky') configureSkybox(root);
         frameCameraOnObject(this.camera, root, this.target);
         this.scene.add(root);
         this.renderer.render(this.scene, this.camera);
         const raster = this.renderer.domElement.toDataURL('image/png');
         root.removeFromParent();
         const bytes = decodeDataUrl(raster);
-        const thumbnail = (await forgeApi().storeAssetThumbnail(assetId, kind, bytes)
+        const thumbnail = (await forgeApi().storeAssetThumbnail(this.targetGame, assetId, kind, bytes, shellIndex)
           .catch(() => undefined))?.url ?? raster;
-        this.cache.set(key, thumbnail);
-        if (this.cache.size > MAX_THUMBNAILS) this.cache.delete(this.cache.keys().next().value!);
-        return thumbnail;
+        return this.remember(key, thumbnail);
       } finally {
         signal?.removeEventListener('abort', cancel);
         this.activeRequests.delete(requestToken);
         if (root) disposeObject(root);
       }
     });
-    this.inFlight.set(key, request);
-    const settled = () => { if (this.inFlight.get(key) === request) this.inFlight.delete(key); };
-    void request.then(settled, settled);
-    return request;
   }
 
   dispose(): void {
@@ -157,7 +151,6 @@ export class AssetThumbnailRuntime {
     for (const requestToken of this.activeRequests) void forgeApi().cancelAssetPreview(requestToken);
     this.activeRequests.clear();
     this.cache.clear();
-    this.inFlight.clear();
     this.scene.clear();
     this.renderer.dispose();
     this.renderer.forceContextLoss();
@@ -165,6 +158,12 @@ export class AssetThumbnailRuntime {
 
   private throwIfCancelled(signal?: AbortSignal): void {
     if (this.disposed || signal?.aborted) throw cancelled(signal);
+  }
+
+  private remember(key: string, url: string): string {
+    this.cache.set(key, url);
+    if (this.cache.size > MAX_THUMBNAILS) this.cache.delete(this.cache.keys().next().value!);
+    return url;
   }
 }
 

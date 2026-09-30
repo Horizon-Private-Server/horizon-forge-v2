@@ -2,8 +2,9 @@
 
 The importer reads every populated entry in the NTSC-U UYA level-info table
 through the pinned Ratchet SDK. Each level contributes its vanilla moby, tie, and
-shrub model definitions plus standalone normalized textures to the per-user asset
-catalog.
+shrub model definitions, standalone normalized textures, and complete parent sky
+payload to the per-user asset catalog. Sky shells remain indexed subresources of
+that parent payload rather than independent canonical assets.
 
 ## Canonical asset bundle
 
@@ -39,7 +40,7 @@ deletion removed a blob, the next import revalidates the source and rebuilds the
 catalog rather than trusting the stale completion marker. Imported blobs remain
 independent of the source path.
 
-The importer version is `forge-uya-v3+<pinned-sdk-revision>`. A different source
+The importer version is `forge-uya-v4+<pinned-sdk-revision>`. A different source
 fingerprint or importer version receives an independent checkpoint and is scanned
 incrementally into the same content-addressed catalog.
 

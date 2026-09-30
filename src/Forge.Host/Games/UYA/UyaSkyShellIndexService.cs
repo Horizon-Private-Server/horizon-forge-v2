@@ -27,7 +27,6 @@ public sealed record UyaSkyShellIndexPage(
 public static class UyaSkyShellIndexService
 {
     private const string AliasPrefix = "sky-shell:";
-    private const long MaxSkyBytes = 256L * 1024 * 1024;
 
     public static async Task<UyaSkyShellIndexPage> QueryAsync(
         AssetCatalogStore catalog,
@@ -112,7 +111,7 @@ public static class UyaSkyShellIndexService
     private static IEnumerable<int> ShellIndexes(AssetCatalogEntry entry) => entry.Aliases
         .Where(alias => alias.StartsWith(AliasPrefix, StringComparison.Ordinal))
         .Select(alias => int.TryParse(alias.AsSpan(AliasPrefix.Length), out var index) ? index : -1)
-        .Where(index => index >= 0)
+        .Where(index => index is >= 0 and < SkyboxFormat.MaxShellCount)
         .Distinct()
         .Order();
 
@@ -121,21 +120,19 @@ public static class UyaSkyShellIndexService
         string path,
         CancellationToken cancellationToken)
     {
-        var info = new FileInfo(path);
-        if (info.Length != entry.Size || info.Length is <= 0 or > MaxSkyBytes) return [];
-        var bytes = await File.ReadAllBytesAsync(path, cancellationToken);
-        return await Task.Run(() =>
+        try
         {
-            try
+            var bytes = await AssetCatalogBlobReader.ReadVerifiedAsync(
+                entry, path, UyaAssetLimits.MaxCanonicalBytes, cancellationToken);
+            return await Task.Run(() =>
             {
-                if (AssetId.Compute(entry.Kind, entry.CanonicalFormatVersion, bytes) != entry.Id) return [];
                 return Aliases(bytes).Select(alias => int.Parse(alias.AsSpan(AliasPrefix.Length))).ToArray();
-            }
-            catch (Exception exception) when (exception is ArgumentException or InvalidDataException or IOException or OverflowException)
-            {
-                return [];
-            }
-        }, cancellationToken);
+            }, cancellationToken);
+        }
+        catch (Exception exception) when (exception is ArgumentException or InvalidDataException or IOException or OverflowException)
+        {
+            return [];
+        }
     }
 
     private static IEnumerable<string> SearchValues(UyaSkyShellIndexItem item) => item.Entry.Aliases

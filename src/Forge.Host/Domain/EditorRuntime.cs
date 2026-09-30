@@ -10,7 +10,7 @@ public sealed class EditorRuntime : IAsyncDisposable
         "editor.entity.rename", "editor.entity.layer", "editor.entity.state", "editor.entity.delete",
         "editor.entity.duplicate", "editor.level-settings.update", "editor.clipboard", "editor.history",
         "editor.save", "editor.recovery",
-        "editor.asset.create",
+        "editor.asset.create", "editor.sky-shell.add", "editor.sky-shell.update", "editor.sky-shell.reorder",
     ];
     private static readonly EditorTool[] RuntimeTools =
     [
@@ -26,6 +26,7 @@ public sealed class EditorRuntime : IAsyncDisposable
     private readonly EditorHistory _history = new();
     private readonly EditorAssetPlacementResolver? _placementResolver;
     private readonly EditorTransformCapabilityResolver? _transformCapabilityResolver;
+    private readonly EditorSkyShellCommandExecutor? _skyShellCommandExecutor;
     private ForgeProjectWorkspace? _workspace;
     private HashSet<AssetId> _missingAssets = [];
     private Dictionary<EntityId, ProjectEntity> _savedEntities = [];
@@ -39,10 +40,12 @@ public sealed class EditorRuntime : IAsyncDisposable
 
     public EditorRuntime(
         EditorAssetPlacementResolver? placementResolver = null,
-        EditorTransformCapabilityResolver? transformCapabilityResolver = null)
+        EditorTransformCapabilityResolver? transformCapabilityResolver = null,
+        EditorSkyShellCommandExecutor? skyShellCommandExecutor = null)
     {
         _placementResolver = placementResolver;
         _transformCapabilityResolver = transformCapabilityResolver;
+        _skyShellCommandExecutor = skyShellCommandExecutor;
     }
 
     public bool HasCapability(string capability) => RuntimeCapabilities.Contains(capability, StringComparer.Ordinal);
@@ -148,7 +151,12 @@ public sealed class EditorRuntime : IAsyncDisposable
                     ScheduleAutosave();
                     break;
                 case EditorCommandKind.SetEntityState:
+                    var changesSkyComposition = command.State!.Disabled is not null
+                        && workspace.GetEntities(command.EntityIds).Any(entity => entity.SkyShell is not null);
                     workspace.SetEntityState(command.EntityIds, command.State!.Hidden, command.State.Disabled, command.State.Locked);
+                    if (changesSkyComposition)
+                        await ValidateSkyMutationAsync(
+                            workspace, command, stateBefore, selectionBefore, cancellationToken);
                     AddEvent(EditorEventKind.ProjectChanged, command.Id, command.EntityIds, "Entity state updated");
                     ScheduleAutosave();
                     break;
@@ -159,13 +167,21 @@ public sealed class EditorRuntime : IAsyncDisposable
                     ApplyHistory(workspace, command.Id, undo: false);
                     break;
                 case EditorCommandKind.DeleteEntities:
+                    var deletesSkyShell = workspace.GetEntities(command.EntityIds).Any(entity => entity.SkyShell is not null);
                     _selection = workspace.RemoveEntities(command.EntityIds);
+                    if (deletesSkyShell)
+                        await ValidateSkyMutationAsync(
+                            workspace, command, stateBefore, selectionBefore, cancellationToken);
                     AddEvent(EditorEventKind.ProjectChanged, command.Id, command.EntityIds, "Entities deleted");
                     ScheduleAutosave();
                     break;
                 case EditorCommandKind.DuplicateEntities:
+                    var duplicatesSkyShell = workspace.GetEntities(command.EntityIds).Any(entity => entity.SkyShell is not null);
                     _selection = workspace.AddCopies(workspace.GetEntities(command.EntityIds))
                         .Select(entity => entity.EntityId).ToArray();
+                    if (duplicatesSkyShell)
+                        await ValidateSkyMutationAsync(
+                            workspace, command, stateBefore, selectionBefore, cancellationToken);
                     historyEntityIds = _selection;
                     AddEvent(EditorEventKind.ProjectChanged, command.Id, _selection, "Entities duplicated");
                     ScheduleAutosave();
@@ -175,7 +191,11 @@ public sealed class EditorRuntime : IAsyncDisposable
                     break;
                 case EditorCommandKind.PasteEntities:
                     if (_clipboard.Length == 0) break;
+                    var pastesSkyShell = _clipboard.Any(entity => entity.SkyShell is not null);
                     _selection = workspace.AddCopies(_clipboard).Select(entity => entity.EntityId).ToArray();
+                    if (pastesSkyShell)
+                        await ValidateSkyMutationAsync(
+                            workspace, command, stateBefore, selectionBefore, cancellationToken);
                     historyEntityIds = _selection;
                     AddEvent(EditorEventKind.ProjectChanged, command.Id, _selection, "Entities pasted");
                     ScheduleAutosave();
@@ -199,6 +219,25 @@ public sealed class EditorRuntime : IAsyncDisposable
                     _selection = [placed.EntityId];
                     historyEntityIds = _selection;
                     AddEvent(EditorEventKind.ProjectChanged, command.Id, _selection, "Asset placed");
+                    ScheduleAutosave();
+                    break;
+                case EditorCommandKind.AddSkyShellFromAsset:
+                case EditorCommandKind.UpdateSkyShell:
+                case EditorCommandKind.ReorderSkyShell:
+                    if (_skyShellCommandExecutor is null || _catalogRootPath is null)
+                        throw new InvalidOperationException("Sky shell editing is unavailable.");
+                    var changedSkyShells = await _skyShellCommandExecutor(
+                        workspace, _catalogRootPath, command, cancellationToken);
+                    if (command.Kind == EditorCommandKind.AddSkyShellFromAsset)
+                        _selection = changedSkyShells.ToArray();
+                    historyEntityIds = changedSkyShells;
+                    AddEvent(EditorEventKind.ProjectChanged, command.Id, changedSkyShells,
+                        command.Kind switch
+                        {
+                            EditorCommandKind.AddSkyShellFromAsset => "Sky shell added",
+                            EditorCommandKind.UpdateSkyShell => "Sky shell updated",
+                            _ => "Sky shells reordered",
+                        });
                     ScheduleAutosave();
                     break;
                 default:
@@ -395,7 +434,8 @@ public sealed class EditorRuntime : IAsyncDisposable
                         state.Hidden, state.Disabled, state.Locked,
                         IsReadOnlySource(entity),
                         HasInvalidGeometryLinks(entity),
-                        entity.Asset is not null && _missingAssets.Contains(entity.Asset.Id)));
+                        entity.Asset is not null && _missingAssets.Contains(entity.Asset.Id)),
+                    entity.SkyShell);
             }).ToArray(),
             _selection.ToArray(),
             workspace.IsDirty,
@@ -446,11 +486,12 @@ public sealed class EditorRuntime : IAsyncDisposable
         return null;
     }
 
-    private bool IsReadOnlySource(ProjectEntity entity) =>
-        IsDecodedSource(entity) && TransformCapabilities(entity) == EditorTransformCapabilities.None;
+    private bool IsReadOnlySource(ProjectEntity entity) => entity.SkyShell is null
+        && IsDecodedSource(entity) && TransformCapabilities(entity) == EditorTransformCapabilities.None;
 
     private static bool IsDecodedSource(ProjectEntity entity) => entity.Geometry is not null
-        || entity.Lighting is not null || entity.Camera is not null || entity.AmbientSound is not null;
+        || entity.Lighting is not null || entity.Camera is not null || entity.AmbientSound is not null
+        || entity.SkyShell is not null;
 
     private EditorTransformCapabilities TransformCapabilities(ProjectEntity entity)
     {
@@ -485,6 +526,12 @@ public sealed class EditorRuntime : IAsyncDisposable
             throw new ArgumentException("Only spline point commands can contain points.", nameof(command));
         if (command.Kind != EditorCommandKind.CreateEntityFromAsset && command.Placement is not null)
             throw new ArgumentException("Only asset placement commands can contain placement data.", nameof(command));
+        if (command.Kind != EditorCommandKind.AddSkyShellFromAsset && command.SkyShellSource is not null)
+            throw new ArgumentException("Only sky shell add commands can contain a source.", nameof(command));
+        if (command.Kind != EditorCommandKind.UpdateSkyShell && command.SkyShellUpdate is not null)
+            throw new ArgumentException("Only sky shell update commands can contain rotation values.", nameof(command));
+        if (command.Kind != EditorCommandKind.ReorderSkyShell && command.DestinationOrder is not null)
+            throw new ArgumentException("Only sky shell reorder commands can contain an order.", nameof(command));
         var locked = workspace.Content.Entities
             .Where(entity => entity.State?.Locked == true)
             .Select(entity => entity.EntityId)
@@ -515,7 +562,9 @@ public sealed class EditorRuntime : IAsyncDisposable
                 or EditorCommandKind.SetEntityLayer
                 or EditorCommandKind.DeleteEntities
                 or EditorCommandKind.DuplicateEntities
-                or EditorCommandKind.UpdateSplinePoints)
+                or EditorCommandKind.UpdateSplinePoints
+                or EditorCommandKind.UpdateSkyShell
+                or EditorCommandKind.ReorderSkyShell)
             throw new ArgumentException("Locked entities cannot be modified.", nameof(command));
         if (command.EntityIds.Any(locked.Contains)
             && command.Kind == EditorCommandKind.SetEntityState
@@ -572,6 +621,26 @@ public sealed class EditorRuntime : IAsyncDisposable
                 || command.Transforms?.Count > 0 || command.LevelSettings is not null || command.Points is not null
                 || command.Placement is null:
                 throw new ArgumentException("Asset placement commands require only placement data.", nameof(command));
+            case EditorCommandKind.AddSkyShellFromAsset when command.EntityIds.Count != 0
+                || command.Transform is not null || command.Text is not null || command.State is not null
+                || command.Transforms?.Count > 0 || command.LevelSettings is not null || command.Points is not null
+                || command.Placement is not null || command.SkyShellSource is null
+                || command.SkyShellSource.ShellIndex < 0:
+                throw new ArgumentException("Sky shell add commands require only a source asset and shell index.", nameof(command));
+            case EditorCommandKind.UpdateSkyShell when command.EntityIds.Count != 1
+                || command.Transform is not null || command.Text is not null || command.State is not null
+                || command.Transforms?.Count > 0 || command.LevelSettings is not null || command.Points is not null
+                || command.Placement is not null || command.SkyShellUpdate is null
+                || command.SkyShellUpdate.InitialRotationRadians is null
+                    && command.SkyShellUpdate.AngularVelocityRadiansPerSecond is null
+                || workspace.Content.Entities.Single(entity => entity.EntityId == command.EntityIds[0]).SkyShell is null:
+                throw new ArgumentException("Sky shell update commands require one sky shell and at least one rotation value.", nameof(command));
+            case EditorCommandKind.ReorderSkyShell when command.EntityIds.Count != 1
+                || command.Transform is not null || command.Text is not null || command.State is not null
+                || command.Transforms?.Count > 0 || command.LevelSettings is not null || command.Points is not null
+                || command.Placement is not null || command.DestinationOrder is null or < 0
+                || workspace.Content.Entities.Single(entity => entity.EntityId == command.EntityIds[0]).SkyShell is null:
+                throw new ArgumentException("Sky shell reorder commands require one sky shell and a destination order.", nameof(command));
         }
         if (command.Kind is EditorCommandKind.UpdateTransform or EditorCommandKind.UpdateTransforms)
             ValidateTransformCapabilities(command, workspace);
@@ -614,6 +683,27 @@ public sealed class EditorRuntime : IAsyncDisposable
         AddEvent(EditorEventKind.ProjectChanged, commandId, entityIds, undo ? "Undo" : "Redo");
         if (workspace.IsDirty) ScheduleAutosave();
         else CancelAutosave();
+    }
+
+    private async Task ValidateSkyMutationAsync(
+        ForgeProjectWorkspace workspace,
+        EditorCommand command,
+        ForgeProjectState stateBefore,
+        EntityId[] selectionBefore,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (_skyShellCommandExecutor is null || _catalogRootPath is null)
+                throw new InvalidOperationException("Sky shell editing is unavailable.");
+            await _skyShellCommandExecutor(workspace, _catalogRootPath, command, cancellationToken);
+        }
+        catch
+        {
+            workspace.RestoreState(stateBefore);
+            _selection = selectionBefore;
+            throw;
+        }
     }
 
     private static long EstimateHistoryBytes(EditorCommand command, ForgeProjectState before) =>

@@ -30,6 +30,13 @@ export interface EditorAssetPlacement {
   transform: ProjectTransform;
 }
 
+export interface EditorSkyShell {
+  sourceShellIndex: number;
+  order: number;
+  initialRotationRadians: ProjectVector3;
+  angularVelocityRadiansPerSecond: ProjectVector3;
+}
+
 export interface EditorLevelSettings {
   backgroundColor: [number, number, number];
   fogColor: [number, number, number];
@@ -53,6 +60,7 @@ export interface EditorEntity {
       | 'camera' | 'ambientSound';
     points: ProjectVector4[];
   };
+  skyShell?: EditorSkyShell;
   transformModes: Array<'translate' | 'rotate' | 'scale'>;
   state: {
     dirty: boolean;
@@ -82,7 +90,15 @@ export type EditorCommand =
   | { id: string; kind: 'deleteEntities' | 'duplicateEntities' | 'copyEntities'; entityIds: string[] }
   | { id: string; kind: 'updateLevelSettings'; entityIds: []; levelSettings: EditorLevelSettings }
   | { id: string; kind: 'updateSplinePoints'; entityIds: [string]; points: ProjectVector4[] }
-  | { id: string; kind: 'createEntityFromAsset'; entityIds: []; placement: EditorAssetPlacement };
+  | { id: string; kind: 'createEntityFromAsset'; entityIds: []; placement: EditorAssetPlacement }
+  | { id: string; kind: 'addSkyShellFromAsset'; entityIds: []; source: { assetId: string; shellIndex: number } }
+  | {
+    id: string;
+    kind: 'updateSkyShell';
+    entityIds: [string];
+    update: { initialRotationRadians?: ProjectVector3; angularVelocityRadiansPerSecond?: ProjectVector3 };
+  }
+  | { id: string; kind: 'reorderSkyShell'; entityIds: [string]; destinationOrder: number };
 
 export interface EditorEvent {
   sequence: number;
