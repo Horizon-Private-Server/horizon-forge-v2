@@ -9,11 +9,12 @@ interface RenderIpcHandlersOptions {
   host: HostClient;
   settings: SettingsStore;
   renderAssets: RenderAssetProtocol;
+  getEditorTargetGame(): string | undefined;
   assertSender(senderId: number): void;
 }
 
 export function registerRenderIpcHandlers(options: RenderIpcHandlersOptions): void {
-  const { host, settings, renderAssets, assertSender } = options;
+  const { host, settings, renderAssets, getEditorTargetGame, assertSender } = options;
   let activeRequestId: number | undefined;
   const activePreviewRequests = new Map<string, number>();
   let terrainLoading = false;
@@ -23,7 +24,8 @@ export function registerRenderIpcHandlers(options: RenderIpcHandlersOptions): vo
       throw new TypeError('Asset preview ID is invalid');
     if (kind !== undefined && kind !== 'moby' && kind !== 'tie' && kind !== 'shrub' && kind !== 'texture' && kind !== 'sky')
       throw new TypeError('Asset preview kind is invalid');
-    if ((kind === 'sky' && (!Number.isInteger(shellIndex) || Number(shellIndex) < 0 || Number(shellIndex) >= 8))
+    if ((kind === 'sky' && shellIndex !== undefined
+        && (!Number.isInteger(shellIndex) || Number(shellIndex) < 0 || Number(shellIndex) >= 8))
       || (kind !== 'sky' && shellIndex !== undefined))
       throw new TypeError('Asset preview shell index is invalid');
   }
@@ -79,14 +81,14 @@ export function registerRenderIpcHandlers(options: RenderIpcHandlersOptions): vo
     assertPreview(assetId, kind, shellIndex);
     assertRequestToken(requestToken);
     if (activePreviewRequests.has(requestToken)) throw new Error('Asset preview request token is already active');
-    const project = await (await host.getEditorSnapshot()).result;
-    if (project.target.game !== 'UYA') throw new Error('Asset previews currently require a UYA project');
+    const targetGame = getEditorTargetGame();
+    if (targetGame !== 'UYA') throw new Error('Asset previews currently require a UYA project');
     const request = await host.prepareAssetPreview({
       cacheRootPath: settings.paths.renderCache,
       catalogRootPath: settings.paths.assets,
       assetId,
       kind: kind as AssetPreviewKind,
-      targetGame: project.target.game,
+      targetGame,
       viewPreset: kind === 'texture' ? 'texture-default' : kind === 'sky' ? 'sky-default' : 'model-default',
       ...(shellIndex !== undefined ? { shellIndex: shellIndex as number } : {}),
     });

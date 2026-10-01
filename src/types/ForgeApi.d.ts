@@ -289,6 +289,7 @@ export interface ForgeApi {
   setSetting(key: string, value: unknown): Promise<SettingsSnapshot>;
   resetSettings(key?: string): Promise<SettingsSnapshot>;
   exportSettings(includeMachinePaths: boolean): Promise<boolean>;
+  clearRenderCache(): Promise<boolean>;
   checkForUpdates(): Promise<UpdateCheckResult>;
   getNotifications(): Promise<ForgeNotification[]>;
   dismissNotification(id: string): Promise<void>;

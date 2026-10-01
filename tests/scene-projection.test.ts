@@ -6,7 +6,7 @@ import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 
 import { SceneProjection } from '../src/renderer/editor/SceneProjection.ts';
-import { AssetPreviewScheduler } from '../src/renderer/editor/AssetThumbnailRuntime.ts';
+import { AssetPreviewScheduler, collectSkyShellObjects } from '../src/renderer/editor/AssetThumbnailRuntime.ts';
 import { buildGroundPlacement } from '../src/renderer/editor/ScenePlacement.ts';
 import { resolvePointerSnapTarget, VertexSnapIndex } from '../src/renderer/editor/SceneSnapping.ts';
 import type { EditorEntity } from '../src/types/EditorRuntime.js';
@@ -80,6 +80,16 @@ test('asset preview scheduler caps work at four and cancels queued jobs', async 
   await Promise.all(jobs);
   assert.equal(maximum, 4);
   scheduler.dispose();
+});
+
+test('sky thumbnail batches collect shell nodes in source order', () => {
+  const root = new THREE.Group();
+  root.add(
+    new THREE.Group(),
+    Object.assign(new THREE.Group(), { name: 'skybox_shell_07' }),
+    Object.assign(new THREE.Group(), { name: 'skybox_shell_01' }),
+  );
+  assert.deepEqual(collectSkyShellObjects(root).map(([index]) => index), [1, 7]);
 });
 
 test('model preview framing targets object bounds without fog state', () => {

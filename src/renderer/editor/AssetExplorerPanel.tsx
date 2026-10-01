@@ -293,7 +293,7 @@ function AssetCard({ color, family, root, runtime, onActivate }: {
           if (cause instanceof DOMException && cause.name === 'AbortError') return;
           setFailure(cause instanceof AssetPreviewMeshMissingError ? 'meshless' : 'unavailable');
         });
-    }, { root });
+    }, { root, rootMargin: '436px 0px' });
     if (element.current) observer.observe(element.current);
     return () => {
       observer.disconnect();

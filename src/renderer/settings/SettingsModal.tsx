@@ -46,6 +46,8 @@ export function SettingsModal({
   const [updateChannel, setUpdateChannel] = useState<'stable' | 'nightly'>('stable');
   const [keybindingOverrides, setKeybindingOverrides] = useState<KeybindingOverrides>({});
   const [resettingTreeColors, setResettingTreeColors] = useState(false);
+  const [clearingRenderCache, setClearingRenderCache] = useState(false);
+  const [renderCacheCleared, setRenderCacheCleared] = useState(false);
   const [savedUiSize, setSavedUiSize] = useState<UiSize>('xs');
   const [error, setError] = useState<string>();
 
@@ -72,6 +74,7 @@ export function SettingsModal({
       onSceneTreeColorsChange(readSceneTreeColors(snapshot.entries));
       onKeybindingsChange(resolveKeybindings(overrides));
       onViewportStatsChange(stats?.value === true);
+      setRenderCacheCleared(false);
       setError(undefined);
     }).catch((reason: unknown) => setError(errorMessage(reason)));
   }, [opened]);
@@ -86,6 +89,19 @@ export function SettingsModal({
       setError(errorMessage(reason));
     } finally {
       setResettingTreeColors(false);
+    }
+  };
+
+  const clearRenderCache = async () => {
+    setClearingRenderCache(true);
+    setRenderCacheCleared(false);
+    setError(undefined);
+    try {
+      setRenderCacheCleared(await window.forge.clearRenderCache());
+    } catch (reason) {
+      setError(errorMessage(reason));
+    } finally {
+      setClearingRenderCache(false);
     }
   };
 
@@ -170,6 +186,18 @@ export function SettingsModal({
                 });
               }}
             />
+            <Paper withBorder p="md">
+              <Text fw={500}>Render cache</Text>
+              <Text c="dimmed" size="sm" mb="sm">
+                Remove generated asset previews and thumbnails. Imported assets and projects are not affected.
+              </Text>
+              <Button color="red" variant="light" loading={clearingRenderCache} onClick={() => void clearRenderCache()}>
+                Clear render cache
+              </Button>
+            </Paper>
+            {renderCacheCleared && <Alert color="green" title="Render cache cleared">
+              Previews will be regenerated as needed.
+            </Alert>}
             {error && <Alert color="red" title="Settings error">{error}</Alert>}
           </Stack>
         </Tabs.Panel>

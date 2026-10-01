@@ -77,7 +77,9 @@ export class AssetThumbnailRuntime {
   private readonly camera = new THREE.PerspectiveCamera(45, 1, 0.1, 10_000);
   private readonly target = new THREE.Vector3();
   private readonly cache = new Map<string, string>();
+  private readonly skyBatches = new Map<string, Promise<void>>();
   private readonly activeRequests = new Set<string>();
+  private readonly lifetime = new AbortController();
   private readonly targetGame: string;
   private disposed = false;
 
@@ -89,23 +91,30 @@ export class AssetThumbnailRuntime {
     this.scene.add(new THREE.HemisphereLight(0xffffff, 0x5c6370, 2));
   }
 
-  get(assetId: string, kind: AssetPreviewKind, shellIndex?: number, signal?: AbortSignal): Promise<string> {
+  async get(assetId: string, kind: AssetPreviewKind, shellIndex?: number, signal?: AbortSignal): Promise<string> {
     const key = `${kind}:${assetId}:${shellIndex ?? ''}`;
     const cached = this.cache.get(key);
     if (cached) {
       this.cache.delete(key);
       this.cache.set(key, cached);
-      return Promise.resolve(cached);
+      return cached;
+    }
+    this.throwIfCancelled(signal);
+    const persisted = await forgeApi().getAssetThumbnail(
+      this.targetGame, assetId, kind, shellIndex,
+    ).catch(() => undefined);
+    this.throwIfCancelled(signal);
+    if (persisted) return this.remember(key, persisted.url);
+    if (kind === 'sky') {
+      if (shellIndex === undefined) throw new AssetPreviewMeshMissingError();
+      await this.getSkyBatch(assetId);
+      this.throwIfCancelled(signal);
+      const thumbnail = this.cache.get(key);
+      if (!thumbnail) throw new AssetPreviewMeshMissingError();
+      return thumbnail;
     }
     return this.scheduler.schedule(signal, async () => {
       this.throwIfCancelled(signal);
-      const persisted = await forgeApi().getAssetThumbnail(
-        this.targetGame, assetId, kind, shellIndex,
-      ).catch(() => undefined);
-      this.throwIfCancelled(signal);
-      if (persisted) {
-        return this.remember(key, persisted.url);
-      }
       const requestToken = crypto.randomUUID();
       const cancel = () => { void forgeApi().cancelAssetPreview(requestToken); };
       signal?.addEventListener('abort', cancel, { once: true });
@@ -126,7 +135,6 @@ export class AssetThumbnailRuntime {
         root = (await this.loader.loadAsync(source.url)).scene;
         this.throwIfCancelled(signal);
         if (!configurePs2AssetPreview(root, kind)) throw new AssetPreviewMeshMissingError();
-        if (kind === 'sky') configureSkybox(root);
         frameCameraOnObject(this.camera, root, this.target);
         this.scene.add(root);
         this.renderer.render(this.scene, this.camera);
@@ -147,10 +155,12 @@ export class AssetThumbnailRuntime {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.lifetime.abort();
     this.scheduler.dispose();
     for (const requestToken of this.activeRequests) void forgeApi().cancelAssetPreview(requestToken);
     this.activeRequests.clear();
     this.cache.clear();
+    this.skyBatches.clear();
     this.scene.clear();
     this.renderer.dispose();
     this.renderer.forceContextLoss();
@@ -165,6 +175,67 @@ export class AssetThumbnailRuntime {
     if (this.cache.size > MAX_THUMBNAILS) this.cache.delete(this.cache.keys().next().value!);
     return url;
   }
+
+  private getSkyBatch(assetId: string): Promise<void> {
+    const existing = this.skyBatches.get(assetId);
+    if (existing) return existing;
+    const batch = this.scheduler.schedule(this.lifetime.signal, async () => {
+      await this.generateSkyBatch(assetId);
+      return '';
+    }).then(() => undefined);
+    this.skyBatches.set(assetId, batch);
+    const settled = () => { if (this.skyBatches.get(assetId) === batch) this.skyBatches.delete(assetId); };
+    void batch.then(settled, settled);
+    return batch;
+  }
+
+  private async generateSkyBatch(assetId: string): Promise<void> {
+    const signal = this.lifetime.signal;
+    this.throwIfCancelled(signal);
+    const requestToken = crypto.randomUUID();
+    const cancel = () => { void forgeApi().cancelAssetPreview(requestToken); };
+    signal.addEventListener('abort', cancel, { once: true });
+    this.activeRequests.add(requestToken);
+    let root: THREE.Object3D | undefined;
+    try {
+      const source = await forgeApi().getAssetPreview(assetId, 'sky', requestToken);
+      this.throwIfCancelled(signal);
+      root = (await this.loader.loadAsync(source.url)).scene;
+      this.throwIfCancelled(signal);
+      if (!configurePs2AssetPreview(root, 'sky')) throw new AssetPreviewMeshMissingError();
+      configureSkybox(root);
+      const shells = collectSkyShellObjects(root);
+      if (!shells.length) throw new AssetPreviewMeshMissingError();
+      this.scene.add(root);
+      const rasters = shells.map(([shellIndex, shell]) => {
+        for (const [, candidate] of shells) candidate.visible = candidate === shell;
+        frameCameraOnObject(this.camera, shell, this.target);
+        this.renderer.render(this.scene, this.camera);
+        const raster = this.renderer.domElement.toDataURL('image/png');
+        return { shellIndex, raster, bytes: decodeDataUrl(raster) };
+      });
+      root.removeFromParent();
+      await Promise.all(rasters.map(async ({ shellIndex, raster, bytes }) => {
+        const thumbnail = (await forgeApi().storeAssetThumbnail(
+          this.targetGame, assetId, 'sky', bytes, shellIndex,
+        ).catch(() => undefined))?.url ?? raster;
+        this.remember(`sky:${assetId}:${shellIndex}`, thumbnail);
+      }));
+    } finally {
+      signal.removeEventListener('abort', cancel);
+      this.activeRequests.delete(requestToken);
+      if (root) disposeObject(root);
+    }
+  }
+}
+
+export function collectSkyShellObjects(root: THREE.Object3D): [number, THREE.Object3D][] {
+  const shells = new Map<number, THREE.Object3D>();
+  root.traverse((object) => {
+    const match = object.name.match(/^skybox_shell_(\d+)$/i);
+    if (match) shells.set(Number(match[1]), object);
+  });
+  return [...shells].sort(([left], [right]) => left - right);
 }
 
 function cancelled(signal?: AbortSignal): Error {

@@ -140,6 +140,25 @@ internal static class UyaRenderPackageTests
             Equal("model.gltf", firstSkyPreview.ModelPath, "sky shell preview route");
             Equal(false, firstSkyPreview.CacheKey == secondSkyPreview.CacheKey,
                 "sky shell preview cache identity");
+            Equal(true, File.Exists(Path.Combine(firstSkyPreview.RootPath, "textures", "tex.0000.png")),
+                "first sky shell includes its texture");
+            Equal(false, File.Exists(Path.Combine(firstSkyPreview.RootPath, "textures", "tex.0001.png")),
+                "first sky shell omits sibling texture");
+            Equal(true, File.Exists(Path.Combine(secondSkyPreview.RootPath, "textures", "tex.0001.png")),
+                "second sky shell includes its texture");
+            Equal(false, File.Exists(Path.Combine(secondSkyPreview.RootPath, "textures", "tex.0000.png")),
+                "second sky shell omits sibling texture");
+            var fullSkyPreview = await UyaAssetPreviewService.PrepareAsync(
+                firstSkyRequest with { ShellIndex = null }, sdkRevision);
+            Equal(false, fullSkyPreview.CacheKey == firstSkyPreview.CacheKey,
+                "full sky thumbnail source cache identity");
+            using (var fullSkyGltf = JsonDocument.Parse(await File.ReadAllBytesAsync(
+                Path.Combine(fullSkyPreview.RootPath, fullSkyPreview.ModelPath))))
+                Equal(2, fullSkyGltf.RootElement.GetProperty("meshes").GetArrayLength(),
+                    "full sky thumbnail source shells");
+            Equal(true, File.Exists(Path.Combine(fullSkyPreview.RootPath, "textures", "tex.0000.png"))
+                && File.Exists(Path.Combine(fullSkyPreview.RootPath, "textures", "tex.0001.png")),
+                "full sky thumbnail source textures");
 
             var emptyShellSkyBytes = BuildUyaSkyboxFixture(2);
             BinaryPrimitives.WriteInt16LittleEndian(emptyShellSkyBytes.AsSpan(0x30), 0);
@@ -197,11 +216,19 @@ internal static class UyaRenderPackageTests
     private static byte[] BuildUyaSkyboxFixture(int shellCount)
     {
         var dataStart = 0x30 + (shellCount * 0x30);
-        var bytes = new byte[dataStart + (shellCount * 0x28)];
+        var textureDefinitions = dataStart + (shellCount * 0x28);
+        var textureData = textureDefinitions + (shellCount * 0x10);
+        const int textureStride = 0x401;
+        var bytes = new byte[textureData + (shellCount * textureStride)];
         using var stream = new MemoryStream(bytes, writable: true);
         using var writer = new BinaryWriter(stream);
         stream.Position = 6;
         writer.Write(checked((short)shellCount));
+        stream.Position = 12;
+        writer.Write(checked((short)shellCount));
+        stream.Position = 16;
+        writer.Write(checked((uint)textureDefinitions));
+        writer.Write(checked((uint)textureData));
         stream.Position = 0x20;
         for (var index = 0; index < shellCount; index++) writer.Write(checked((uint)(0x30 + (index * 0x30))));
         for (var index = 0; index < shellCount; index++)
@@ -234,7 +261,14 @@ internal static class UyaRenderPackageTests
                 writer.Write((short)0x80);
             }
             stream.Position = dataOffset + 36;
-            writer.Write(new byte[] { 0, 1, 2, 0xFF });
+            writer.Write(new byte[] { 0, 1, 2, checked((byte)index) });
+            stream.Position = textureDefinitions + (index * 0x10);
+            writer.Write(checked((uint)(index * textureStride)));
+            writer.Write(checked((uint)((index * textureStride) + 0x400)));
+            writer.Write(1);
+            writer.Write(1);
+            stream.Position = textureData + (index * textureStride);
+            writer.Write(new byte[] { 0xff, 0xff, 0xff, 0x80 });
         }
         return bytes;
     }

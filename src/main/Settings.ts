@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 
 import { writeJsonSafely } from '../utils/FileSystem.ts';
@@ -134,6 +134,14 @@ export class SettingsStore {
     this.writes = result.then(() => undefined, () => undefined);
     return result;
   }
+}
+
+export async function clearRenderCache(paths: ApplicationPaths): Promise<void> {
+  const dataRoot = path.resolve(paths.data);
+  const cacheRoot = path.resolve(paths.renderCache);
+  if (cacheRoot !== path.join(dataRoot, 'render-cache')) throw new Error('Render cache path is unsafe');
+  await rm(cacheRoot, { recursive: true, force: true });
+  await mkdir(cacheRoot, { recursive: true });
 }
 
 function createDefinitions(paths: ApplicationPaths, defaultUpdateChannel: UpdateChannel): SettingDefinition[] {

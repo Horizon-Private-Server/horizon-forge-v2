@@ -14,10 +14,13 @@ public static class UyaAssetPreviewService
 {
     public const int SchemaVersion = 1;
     private const int TextureRasterSchemaVersion = 2;
+    private const int SkyRenderSchemaVersion = 2;
     private const string MarkerName = ".forge-asset-preview.json";
     // ponytail: bounded lock striping avoids per-key lock retention; increase stripes only if collisions profile hot.
     private static readonly SemaphoreSlim[] WriteLocks = Enumerable.Range(0, 16)
         .Select(_ => new SemaphoreSlim(1, 1)).ToArray();
+    private static readonly object CatalogCacheLock = new();
+    private static CatalogCache? CachedCatalog;
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
     public static async Task<UyaAssetPreviewResult> PrepareAsync(
@@ -30,7 +33,7 @@ public static class UyaAssetPreviewService
         var target = Path.Combine(Path.GetFullPath(request.CacheRootPath), cacheKey);
         var cached = await TryOpenAsync(target, request, sdkRevision, cancellationToken);
         if (cached is not null) return cached with { CacheHit = true };
-        var catalog = await AssetCatalogStore.OpenAsync(request.CatalogRootPath, cancellationToken);
+        var catalog = await OpenCatalogAsync(request.CatalogRootPath, cancellationToken);
         var entry = catalog.Query(new(Id: request.AssetId)).SingleOrDefault()
             ?? throw new InvalidDataException($"Asset {request.AssetId} is not present in the catalog.");
         if (entry.Kind != request.Kind) throw new InvalidDataException("Asset kind does not match the catalog entry.");
@@ -38,7 +41,7 @@ public static class UyaAssetPreviewService
         var package = entry.Kind switch
         {
             AssetKind.Texture => await BuildTexturePackageAsync(entry, path, cancellationToken),
-            AssetKind.Sky => await BuildSkyPackageAsync(entry, path, request.ShellIndex!.Value, cancellationToken),
+            AssetKind.Sky => await BuildSkyPackageAsync(entry, path, request.ShellIndex, cancellationToken),
             _ => await UyaRenderPackageService.BuildAssetPackageAsync(
                 entry.Id, entry.Kind, entry.CanonicalFormatVersion, entry.Size, path, cancellationToken),
         };
@@ -118,7 +121,12 @@ public static class UyaAssetPreviewService
     internal static string CreateCacheKey(UyaAssetPreviewRequest request, string sdkRevision)
     {
         Validate(request, sdkRevision);
-        var schema = request.Kind == AssetKind.Texture ? TextureRasterSchemaVersion : SchemaVersion;
+        var schema = request.Kind switch
+        {
+            AssetKind.Texture => TextureRasterSchemaVersion,
+            AssetKind.Sky => SkyRenderSchemaVersion,
+            _ => SchemaVersion,
+        };
         var identity = $"{request.AssetId}\n{request.Kind}\n{request.ShellIndex}\n{sdkRevision}\n{schema}\n{request.ViewPreset}";
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity))).ToLowerInvariant()[..24];
         return $"uya-preview-{hash}";
@@ -140,10 +148,45 @@ public static class UyaAssetPreviewService
         return PackedFilePackageBuilder.Pack([new("texture.png", png, "image/png")]);
     }
 
+    private static async Task<AssetCatalogStore> OpenCatalogAsync(
+        string rootPath,
+        CancellationToken cancellationToken)
+    {
+        var root = Path.GetFullPath(rootPath);
+        var catalogPath = Path.Combine(root, "catalog-v0.json");
+        var info = new FileInfo(catalogPath);
+        var length = info.Exists ? info.Length : -1;
+        var modified = info.Exists ? info.LastWriteTimeUtc.Ticks : 0;
+        Task<AssetCatalogStore> opening;
+        lock (CatalogCacheLock)
+        {
+            if (CachedCatalog is { } cached
+                && cached.RootPath == root
+                && cached.Length == length
+                && cached.Modified == modified)
+                opening = cached.Opening;
+            else
+            {
+                opening = AssetCatalogStore.OpenAsync(root);
+                CachedCatalog = new(root, length, modified, opening);
+            }
+        }
+        try
+        {
+            return await opening.WaitAsync(cancellationToken);
+        }
+        catch
+        {
+            lock (CatalogCacheLock)
+                if (CachedCatalog?.Opening == opening) CachedCatalog = null;
+            throw;
+        }
+    }
+
     private static async Task<PackedFilePackage> BuildSkyPackageAsync(
         AssetCatalogEntry entry,
         string path,
-        int shellIndex,
+        int? shellIndex,
         CancellationToken cancellationToken)
     {
         var bytes = await AssetCatalogBlobReader.ReadVerifiedAsync(
@@ -152,11 +195,22 @@ public static class UyaAssetPreviewService
         {
             using var stream = new MemoryStream(bytes, writable: false);
             var sky = SkyboxReader.Read(stream, GameId.UYA);
-            var shell = sky.Shells.SingleOrDefault(value => value.Index == shellIndex)
-                ?? throw new InvalidDataException($"Sky shell {shellIndex} is not present in the asset.");
+            IReadOnlyList<SkyboxShell> shells = shellIndex is { } index
+                ? [sky.Shells.SingleOrDefault(value => value.Index == index)
+                    ?? throw new InvalidDataException($"Sky shell {index} is not present in the asset.")]
+                : sky.Shells;
+            var textureIds = shells.SelectMany(shell => shell.Clusters).SelectMany(cluster => cluster.Triangles)
+                .Select(triangle => (int)triangle.TextureId).ToHashSet();
+            var textures = sky.Textures.Where(texture => textureIds.Contains(texture.Index)).ToArray();
             var selected = new Skybox(
-                sky.Header with { ShellCount = 1, SpriteCount = 0, SpriteMax = 0 },
-                [shell], sky.Textures, [], sky.FxList, sky.ByteLength);
+                sky.Header with
+                {
+                    ShellCount = checked((short)shells.Count),
+                    SpriteCount = 0,
+                    SpriteMax = 0,
+                    TextureCount = checked((short)textures.Length),
+                },
+                shells, textures, [], sky.FxList, sky.ByteLength);
             var export = SkyboxGltfExporter.Export(selected, "model.gltf",
                 SkyboxGameProfile.ForGame(GameId.UYA).CreateExportOptions(
                     "model.buffer.bin", null, 1, includeDiagnostics: false, minify: true));
@@ -236,7 +290,7 @@ public static class UyaAssetPreviewService
             throw new NotSupportedException($"{request.Kind} previews are not supported.");
         if (request.AssetId.ToString().Length != AssetId.TextLength)
             throw new ArgumentException("Asset preview ID is invalid.", nameof(request));
-        if (request.Kind == AssetKind.Sky && request.ShellIndex is not (>= 0 and < 8))
+        if (request.Kind == AssetKind.Sky && request.ShellIndex is not null and not (>= 0 and < 8))
             throw new ArgumentException("Sky preview shell index is invalid.", nameof(request));
         if (request.Kind != AssetKind.Sky && request.ShellIndex is not null)
             throw new ArgumentException("Only sky previews accept a shell index.", nameof(request));
@@ -260,6 +314,12 @@ public static class UyaAssetPreviewService
         string SdkRevision,
         IReadOnlyList<CacheFile> Files,
         string ModelPath);
+
+    private sealed record CatalogCache(
+        string RootPath,
+        long Length,
+        long Modified,
+        Task<AssetCatalogStore> Opening);
 
     private sealed record CacheFile(string Path, long Length);
 }

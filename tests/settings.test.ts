@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
 import { createApplicationPaths } from '../src/utils/ApplicationPaths.ts';
-import { SettingsStore } from '../src/main/Settings.ts';
+import { clearRenderCache, SettingsStore } from '../src/main/Settings.ts';
 import { createForgeTheme } from '../src/renderer/theme.ts';
 import { DEFAULT_SCENE_TREE_COLORS } from '../src/utils/SceneTreeColors.ts';
 
@@ -101,6 +101,26 @@ test('settings validate defaults and preserve unknown keys', async () => {
 
 test('default scene colors are unique', () => {
   assert.equal(new Set(Object.values(DEFAULT_SCENE_TREE_COLORS)).size, Object.keys(DEFAULT_SCENE_TREE_COLORS).length);
+});
+
+test('render cache clearing cannot remove other application data', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'forge-render-cache-'));
+  try {
+    const paths = createApplicationPaths(path.join(directory, 'data'), directory);
+    await mkdir(paths.renderCache, { recursive: true });
+    await mkdir(paths.assets, { recursive: true });
+    await writeFile(path.join(paths.renderCache, 'preview.bin'), 'cached');
+    const assetPath = path.join(paths.assets, 'asset.bin');
+    await writeFile(assetPath, 'asset');
+
+    await clearRenderCache(paths);
+
+    await assert.rejects(access(path.join(paths.renderCache, 'preview.bin')));
+    await access(assetPath);
+    await assert.rejects(clearRenderCache({ ...paths, renderCache: paths.data }), /unsafe/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test('interface size raises fixed Mantine tokens to the selected breakpoint', () => {

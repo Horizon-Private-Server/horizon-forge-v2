@@ -17,7 +17,7 @@ import { registerBuildIpcHandlers } from './BuildIpcHandlers.js';
 import { setEditorMenuState, setEditorTextInputActive } from './ApplicationMenu.js';
 import type { RenderAssetProtocol } from './RenderAssetProtocol.js';
 import { registerRenderIpcHandlers } from './RenderIpcHandlers.js';
-import type { SettingsStore } from './Settings.js';
+import { clearRenderCache, type SettingsStore } from './Settings.js';
 import type { UpdateService } from './UpdateService.js';
 import { registerUpdateIpcHandlers } from './UpdateIpcHandlers.js';
 import { registerWindowIpcHandlers } from './WindowIpcHandlers.js';
@@ -70,7 +70,13 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
       || Number(query.limit) > 128)) throw new TypeError('Asset explorer batch size is invalid');
   }
 
-  registerRenderIpcHandlers({ host, settings, renderAssets, assertSender });
+  registerRenderIpcHandlers({
+    host,
+    settings,
+    renderAssets,
+    getEditorTargetGame: () => activeEditorSnapshot?.target.game,
+    assertSender,
+  });
   registerBuildIpcHandlers({ host, settings, getMainWindow, assertSender });
   registerWindowIpcHandlers({ getMainWindow, assertSender });
   registerNotificationIpcHandlers(notifications, assertSender);
@@ -210,6 +216,22 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
     });
     if (selection.canceled || !selection.filePath) return false;
     await writeJsonSafely(selection.filePath, await settings.export(includeMachinePaths));
+    return true;
+  });
+  ipcMain.handle('forge:render-cache-clear', async (event) => {
+    assertSender(event.sender.id);
+    const window = getMainWindow();
+    const confirmation = window ? await dialog.showMessageBox(window, {
+      type: 'warning',
+      buttons: ['Cancel', 'Clear render cache'],
+      defaultId: 0,
+      cancelId: 0,
+      title: 'Clear render cache?',
+      message: 'Clear generated previews and thumbnails?',
+      detail: 'Imported assets and projects will not be removed. Forge will regenerate previews as needed.',
+    }) : { response: 0 };
+    if (confirmation.response !== 1) return false;
+    await clearRenderCache(settings.paths);
     return true;
   });
   ipcMain.handle('forge:setup-state', async (event) => {

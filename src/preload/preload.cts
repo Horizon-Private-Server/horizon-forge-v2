@@ -20,6 +20,7 @@ const forgeApi = Object.freeze({
   setSetting: (key: string, value: unknown) => ipcRenderer.invoke('forge:settings-set', key, value),
   resetSettings: (key?: string) => ipcRenderer.invoke('forge:settings-reset', key),
   exportSettings: (includeMachinePaths: boolean) => ipcRenderer.invoke('forge:settings-export', includeMachinePaths),
+  clearRenderCache: () => ipcRenderer.invoke('forge:render-cache-clear'),
   checkForUpdates: () => ipcRenderer.invoke('forge:updates-check'),
   getNotifications: () => ipcRenderer.invoke('forge:notifications-get'),
   dismissNotification: (id: string) => ipcRenderer.invoke('forge:notifications-dismiss', id),
