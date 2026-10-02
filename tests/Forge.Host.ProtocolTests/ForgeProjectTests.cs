@@ -1,5 +1,6 @@
 using Forge.Host.Games.UYA;
 using System.Security.Cryptography;
+using System.IO.Compression;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Forge.Host.Domain;
@@ -40,6 +41,9 @@ internal static class ForgeProjectTests
             var otherProject = await ForgeProjectWorkspace.CreateAsync(otherPath, "Other project", target, baseLevel, entities);
             Equal(false, project.IsDirty, "new project is clean after creation");
             Equal(false, project.MigrationPending, "new project needs no migration");
+            var summary = await ForgeProjectWorkspace.SummarizeAsync(originalPath);
+            Equal("Portable project", summary.Name, "project summary reads the manifest");
+            Equal(false, summary.HasRecovery, "clean project summary has no recovery");
 
             var migrationPath = Path.Combine(root, "collision-migration");
             var migrating = await ForgeProjectWorkspace.CreateAsync(
@@ -91,6 +95,8 @@ internal static class ForgeProjectTests
 
             var manifestBefore = await File.ReadAllBytesAsync(Path.Combine(originalPath, ForgeProjectWorkspace.ManifestFileName));
             var contentBefore = await File.ReadAllBytesAsync(Path.Combine(originalPath, ForgeProjectWorkspace.DefaultContentPath));
+            Equal(true, contentBefore is [0x1f, 0x8b, ..], "project content is gzip compressed");
+            Equal(true, contentBefore.Length < Decompress(contentBefore).Length, "compressed project content is smaller");
             Equal(false, System.Text.Encoding.UTF8.GetString(manifestBefore).Contains(root, StringComparison.Ordinal), "manifest contains no machine path");
             var movedPath = Path.Combine(root, "moved-project-a");
             Directory.Move(originalPath, movedPath);
@@ -106,10 +112,13 @@ internal static class ForgeProjectTests
             var contentPath = Path.Combine(movedPath, ForgeProjectWorkspace.DefaultContentPath);
             var futureContent = System.Text.Encoding.UTF8.GetBytes(
                 $"{{\"schemaVersion\":{ProjectSchema.CurrentVersion + 1},\"futureData\":true}}");
-            await File.WriteAllBytesAsync(contentPath, futureContent);
+            var storedFutureContent = Compress(futureContent);
+            await File.WriteAllBytesAsync(contentPath, storedFutureContent);
+            Equal("Portable project", (await ForgeProjectWorkspace.SummarizeAsync(movedPath)).Name,
+                "project summary does not parse content");
             await ThrowsAsync<UnsupportedProjectSchemaException>(() => ForgeProjectWorkspace.OpenAsync(movedPath));
             var rejectedContent = await File.ReadAllBytesAsync(contentPath);
-            Equal(true, futureContent.SequenceEqual(rejectedContent), "future content remains unchanged");
+            Equal(true, storedFutureContent.SequenceEqual(rejectedContent), "future content remains unchanged");
             await File.WriteAllBytesAsync(contentPath, contentAfter);
 
             project.UpdateTransform(firstId, ProjectTransform.Identity with { Position = new(9, 8, 7) });
@@ -119,6 +128,8 @@ internal static class ForgeProjectTests
             var secondRecovery = await project.WriteRecoveryAsync()
                 ?? throw new InvalidOperationException("Expected second recovery snapshot");
             Equal(2, (await project.ListRecoveriesAsync()).Count, "recovery snapshots listed");
+            Equal(true, (await ForgeProjectWorkspace.SummarizeAsync(movedPath)).HasRecovery,
+                "project summary detects newer recovery without loading it");
             var explicitProject = await ForgeProjectWorkspace.OpenAsync(movedPath);
             Equal(new ProjectVector3(1, 2, 3), explicitProject.Content.Entities[0].Transform.Position,
                 "autosave does not replace explicit save");
@@ -165,8 +176,9 @@ internal static class ForgeProjectTests
 
             var legacyPath = Path.Combine(root, "legacy-project");
             Directory.CreateDirectory(Path.Combine(legacyPath, "content"));
-            await WriteLegacyV0Async(savedManifest, Path.Combine(legacyPath, ForgeProjectWorkspace.ManifestFileName));
-            await WriteLegacyV0Async(savedContent, Path.Combine(legacyPath, ForgeProjectWorkspace.DefaultContentPath));
+            var savedContentJson = Decompress(savedContent);
+            await WriteLegacyManifestAsync(savedManifest, Path.Combine(legacyPath, ForgeProjectWorkspace.ManifestFileName), 0);
+            await WriteSchemaVersionAsync(savedContentJson, Path.Combine(legacyPath, ForgeProjectWorkspace.LegacyContentPath), 0, true);
             var legacy = await ForgeProjectWorkspace.OpenAsync(legacyPath);
             Equal(true, legacy.MigrationPending, "v0 project migration is pending");
             Equal(true, legacy.IsDirty, "migration marks project dirty");
@@ -175,6 +187,10 @@ internal static class ForgeProjectTests
             Equal(0, ReadSchemaVersion(await File.ReadAllBytesAsync(Path.Combine(legacyPath, ForgeProjectWorkspace.ManifestFileName))),
                 "migration does not silently overwrite v0 manifest");
             await legacy.SaveAsync();
+            Equal(false, File.Exists(Path.Combine(legacyPath, ForgeProjectWorkspace.LegacyContentPath)),
+                "explicit save removes legacy content");
+            Equal(true, File.Exists(Path.Combine(legacyPath, ForgeProjectWorkspace.DefaultContentPath)),
+                "explicit save writes compressed content");
             legacyDescriptor = await UyaProjectService.InspectAsync(legacyPath, catalog);
             Equal(true, legacyDescriptor.MigrationPending,
                 "schema-only migration still requires UYA source-backed content upgrade");
@@ -184,8 +200,8 @@ internal static class ForgeProjectTests
 
             var versionOnePath = Path.Combine(root, "version-one-project");
             Directory.CreateDirectory(Path.Combine(versionOnePath, "content"));
-            await WriteSchemaVersionAsync(savedManifest, Path.Combine(versionOnePath, ForgeProjectWorkspace.ManifestFileName), 1);
-            await WriteSchemaVersionAsync(savedContent, Path.Combine(versionOnePath, ForgeProjectWorkspace.DefaultContentPath), 1);
+            await WriteLegacyManifestAsync(savedManifest, Path.Combine(versionOnePath, ForgeProjectWorkspace.ManifestFileName), 1);
+            await WriteSchemaVersionAsync(savedContentJson, Path.Combine(versionOnePath, ForgeProjectWorkspace.LegacyContentPath), 1);
             var versionOne = await ForgeProjectWorkspace.OpenAsync(versionOnePath);
             Equal(true, versionOne.MigrationPending, "v1 project migration is pending");
             await versionOne.SaveAsync();
@@ -229,21 +245,39 @@ internal static class ForgeProjectTests
         ProjectTransform.Identity,
         new(assetId, AssetKind.Moby));
 
-    private static async Task WriteLegacyV0Async(byte[] currentBytes, string path)
-    {
-        var document = JsonNode.Parse(currentBytes)?.AsObject()
-            ?? throw new InvalidOperationException("Current project document is invalid");
-        document["schemaVersion"] = 0;
-        document.Remove("documentType");
-        await File.WriteAllTextAsync(path, document.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n");
-    }
-
-    private static async Task WriteSchemaVersionAsync(byte[] currentBytes, string path, int version)
+    private static async Task WriteLegacyManifestAsync(byte[] currentBytes, string path, int version)
     {
         var document = JsonNode.Parse(currentBytes)?.AsObject()
             ?? throw new InvalidOperationException("Current project document is invalid");
         document["schemaVersion"] = version;
+        document["content"] = ForgeProjectWorkspace.LegacyContentPath;
+        if (version == 0) document.Remove("documentType");
         await File.WriteAllTextAsync(path, document.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n");
+    }
+
+    private static async Task WriteSchemaVersionAsync(byte[] currentBytes, string path, int version, bool legacyV0 = false)
+    {
+        var document = JsonNode.Parse(currentBytes)?.AsObject()
+            ?? throw new InvalidOperationException("Current project document is invalid");
+        document["schemaVersion"] = version;
+        if (legacyV0) document.Remove("documentType");
+        await File.WriteAllTextAsync(path, document.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n");
+    }
+
+    private static byte[] Compress(byte[] bytes)
+    {
+        using var output = new MemoryStream();
+        using (var gzip = new GZipStream(output, CompressionLevel.Fastest, leaveOpen: true)) gzip.Write(bytes);
+        return output.ToArray();
+    }
+
+    private static byte[] Decompress(byte[] bytes)
+    {
+        using var input = new MemoryStream(bytes);
+        using var gzip = new GZipStream(input, CompressionMode.Decompress);
+        using var output = new MemoryStream();
+        gzip.CopyTo(output);
+        return output.ToArray();
     }
 
     private static int ReadSchemaVersion(byte[] bytes) =>

@@ -27,6 +27,7 @@ import {
   decodeUyaAssetImportResult,
   decodeUyaIsoValidation,
   decodeForgeProjectDescriptor,
+  decodeForgeProjectSummary,
   decodeProjectInspectRequest,
   decodeProjectRecoveryRequest,
   decodeProjectRenameRequest,
@@ -44,6 +45,7 @@ import {
   encodeUyaAssetImportResult,
   encodeUyaIsoValidation,
   encodeForgeProjectDescriptor,
+  encodeForgeProjectSummary,
   encodeProjectInspectRequest,
   encodeProjectRecoveryRequest,
   encodeProjectRenameRequest,
@@ -321,6 +323,12 @@ test('operation payloads round trip and reject trailing data', () => {
   assert.deepEqual(decodeProjectRenameRequest(encodeProjectRenameRequest(renameProject)), renameProject);
   const recoveryRequest = { ...inspectProject, recoveryId: '1000-0123456789abcdef0123456789abcdef' };
   assert.deepEqual(decodeProjectRecoveryRequest(encodeProjectRecoveryRequest(recoveryRequest)), recoveryRequest);
+  const summary = {
+    path: '/project', name: 'Test', targetGame: 'UYA', targetRegion: 'NTSC-U', targetRevision: '1.00',
+    bakeProfile: 'uya-ntsc-u', baseLevel: 3, modifiedUnixMilliseconds: 1000,
+    migrationPending: false, hasRecovery: true,
+  };
+  assert.deepEqual(decodeForgeProjectSummary(encodeForgeProjectSummary(summary)), summary);
   const repairRequest = { ...inspectProject, sourceIsoPath: '/clean.iso' };
   assert.deepEqual(decodeProjectAssetRepairRequest(encodeProjectAssetRepairRequest(repairRequest)), repairRequest);
   const maintenanceRequest = { catalogRootPath: '/assets', projectRoots: ['/projects', '/external'] };

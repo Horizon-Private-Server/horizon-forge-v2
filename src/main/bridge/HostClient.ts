@@ -12,6 +12,7 @@ import type {
   EditorSnapshot,
   ForgeHostStatus,
   ForgeProjectDescriptor,
+  ForgeProjectSummary,
   Progress,
   UyaAssetImportResult,
   UyaIsoIdentity,
@@ -55,6 +56,7 @@ import {
   decodeUyaAssetImportResult,
   decodeUyaIsoValidation,
   decodeForgeProjectDescriptor,
+  decodeForgeProjectSummary,
   decodeUyaProjectOptions,
   decodeUyaProjectPreflight,
   encodeDevelopmentIsoRequest,
@@ -259,6 +261,11 @@ export class HostClient {
   async inspectForgeProject(projectPath: string, catalogRootPath: string): Promise<HostRequest<ForgeProjectDescriptor>> {
     const request = await this.#request(BridgeOpcode.InspectForgeProject, encodeProjectInspectRequest({ projectPath, catalogRootPath }));
     return { requestId: request.requestId, result: request.result.then(decodeForgeProjectDescriptor) };
+  }
+
+  async inspectForgeProjectSummary(projectPath: string): Promise<HostRequest<ForgeProjectSummary>> {
+    const request = await this.#request(BridgeOpcode.InspectForgeProjectSummary, encodeText(projectPath));
+    return { requestId: request.requestId, result: request.result.then(decodeForgeProjectSummary) };
   }
 
   async renameForgeProject(projectPath: string, catalogRootPath: string, name: string): Promise<HostRequest<ForgeProjectDescriptor>> {

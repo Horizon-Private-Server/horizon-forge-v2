@@ -148,7 +148,7 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
     }
     const recent = await Promise.all(paths.map(async (projectPath) => {
       try {
-        const project = await (await host.inspectForgeProject(projectPath, settings.paths.assets)).result;
+        const project = await (await host.inspectForgeProjectSummary(projectPath)).result;
         return { path: projectPath, project };
       } catch (error) {
         return { path: projectPath, error: errorMessage(error) };

@@ -27,6 +27,7 @@ public static class UyaBakeService
             .ToArray();
         var before = staging.Manifest;
         var written = new List<BakeLayerSnapshot>(pending.Length);
+        UyaBakeResult result;
         try
         {
             for (var index = 0; index < pending.Length; index++)
@@ -62,7 +63,7 @@ public static class UyaBakeService
                 UyaBakePhase.Complete, null, pending.Length, pending.Length,
                 pending.Length > 0 ? "Bake complete."
                     : allCurrent ? "Staging is current." : "Selected layers are current; unchecked changes remain deferred."));
-            return new(
+            result = new(
                 true,
                 allCurrent,
                 finalValidation,
@@ -75,6 +76,8 @@ public static class UyaBakeService
             await staging.RestoreManifestAsync(before, CancellationToken.None);
             throw;
         }
+        await staging.PruneAsync(CancellationToken.None);
+        return result;
     }
 
     private static Task<BakeLayerSnapshot> StageAsync(

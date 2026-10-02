@@ -352,6 +352,33 @@ public static partial class BridgePayloadCodec
         return writer.ToArray();
     }
 
+    public static byte[] EncodeForgeProjectSummary(ForgeProjectSummaryPayload value)
+    {
+        var writer = new PayloadWriter();
+        writer.WriteString(value.Path);
+        writer.WriteString(value.Name);
+        writer.WriteString(value.TargetGame);
+        writer.WriteString(value.TargetRegion);
+        writer.WriteString(value.TargetRevision);
+        writer.WriteString(value.BakeProfile);
+        writer.WriteUInt32(value.BaseLevel);
+        writer.WriteUInt64(value.ModifiedUnixMilliseconds);
+        writer.WriteBoolean(value.MigrationPending);
+        writer.WriteBoolean(value.HasRecovery);
+        return writer.ToArray();
+    }
+
+    public static ForgeProjectSummaryPayload DecodeForgeProjectSummary(ReadOnlySpan<byte> payload)
+    {
+        var reader = new PayloadReader(payload);
+        var value = new ForgeProjectSummaryPayload(
+            reader.ReadString(), reader.ReadString(), reader.ReadString(), reader.ReadString(),
+            reader.ReadString(), reader.ReadString(), reader.ReadUInt32(), reader.ReadUInt64(),
+            reader.ReadBoolean(), reader.ReadBoolean());
+        reader.Complete();
+        return value;
+    }
+
     public static ForgeProjectDescriptorPayload DecodeForgeProjectDescriptor(ReadOnlySpan<byte> payload)
     {
         var reader = new PayloadReader(payload);

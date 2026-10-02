@@ -126,6 +126,7 @@ public static class BridgeHost
                 case BridgeOpcode.ListUyaProjectLevels:
                 case BridgeOpcode.CreateUyaProject:
                 case BridgeOpcode.InspectForgeProject:
+                case BridgeOpcode.InspectForgeProjectSummary:
                 case BridgeOpcode.RenameForgeProject:
                 case BridgeOpcode.PreflightUyaProject:
                 case BridgeOpcode.RestoreForgeProjectRecovery:

@@ -6,12 +6,21 @@ import { errorMessage } from '../../utils/Errors.ts';
 
 interface MissingAssetsModalProps {
   project: ForgeProjectDescriptor;
+  opened: boolean;
+  onClose(): void;
+  onContinue(): void;
   onOpenSetup(): void;
-  onRepaired(): void;
+  onRepaired(project: ForgeProjectDescriptor): void;
 }
 
-export function MissingAssetsModal({ project, onOpenSetup, onRepaired }: MissingAssetsModalProps) {
-  const [opened, setOpened] = useState(false);
+export function MissingAssetsModal({
+  project,
+  opened,
+  onClose,
+  onContinue,
+  onOpenSetup,
+  onRepaired,
+}: MissingAssetsModalProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const repairable = project.missingAssets.some((asset) => asset.repairable);
@@ -21,9 +30,7 @@ export function MissingAssetsModal({ project, onOpenSetup, onRepaired }: Missing
     try {
       setBusy(true);
       setError(undefined);
-      await window.forge.repairForgeProjectAssets(project.path);
-      setOpened(false);
-      onRepaired();
+      onRepaired(await window.forge.repairForgeProjectAssets(project.path));
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -31,9 +38,7 @@ export function MissingAssetsModal({ project, onOpenSetup, onRepaired }: Missing
     }
   }
 
-  return <>
-    <Button variant="subtle" color="red" onClick={() => setOpened(true)}>Assets…</Button>
-    <Modal opened={opened} onClose={() => setOpened(false)} title="Missing project assets" size="lg">
+  return <Modal opened={opened} onClose={onClose} title="Missing project assets" size="lg">
       <Stack>
         {error && <Alert color="red" title="Repair could not continue">{error}</Alert>}
         {project.missingAssets.map((asset) => (
@@ -49,10 +54,10 @@ export function MissingAssetsModal({ project, onOpenSetup, onRepaired }: Missing
         </Alert>}
         <Group justify="flex-end">
           <Button variant="default" onClick={onOpenSetup}>Open Setup</Button>
+          <Button variant="default" onClick={onContinue}>Open anyway</Button>
           {busy && <Button variant="default" onClick={() => void window.forge.cancelSetupOperation()}>Cancel repair</Button>}
           <Button onClick={() => void repair()} loading={busy} disabled={!repairable}>Repair from clean ISO</Button>
         </Group>
       </Stack>
-    </Modal>
-  </>;
+    </Modal>;
 }

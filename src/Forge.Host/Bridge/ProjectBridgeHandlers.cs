@@ -78,6 +78,7 @@ internal static class ProjectBridgeHandlers
         BridgeOpcode.CreateUyaProject => await CreateProjectAsync(frame.Payload, progress, cancellationToken),
         BridgeOpcode.PreflightUyaProject => await PreflightAsync(frame.Payload, cancellationToken),
         BridgeOpcode.InspectForgeProject => await InspectAsync(frame.Payload, cancellationToken),
+        BridgeOpcode.InspectForgeProjectSummary => await InspectSummaryAsync(frame.Payload, cancellationToken),
         BridgeOpcode.RenameForgeProject => await RenameAsync(frame.Payload, cancellationToken),
         BridgeOpcode.RestoreForgeProjectRecovery => await RestoreAsync(frame.Payload, cancellationToken),
         BridgeOpcode.MigrateForgeProject => await MigrateAsync(frame.Payload, cancellationToken),
@@ -137,6 +138,10 @@ internal static class ProjectBridgeHandlers
         return EncodeProject(await UyaProjectService.InspectAsync(
             request.ProjectPath, catalog, cancellationToken: cancellationToken));
     }
+
+    private static async Task<byte[]> InspectSummaryAsync(byte[] payload, CancellationToken cancellationToken) =>
+        EncodeProjectSummary(await ForgeProjectWorkspace.SummarizeAsync(
+            BridgePayloadCodec.DecodeText(payload), cancellationToken));
 
     private static async Task<byte[]> RenameAsync(byte[] payload, CancellationToken cancellationToken)
     {
@@ -379,6 +384,19 @@ internal static class ProjectBridgeHandlers
                 checked((uint)missing.EntityCount),
                 missing.Repairable,
                 missing.Provenance)).ToArray()));
+
+    private static byte[] EncodeProjectSummary(ForgeProjectSummary result) =>
+        BridgePayloadCodec.EncodeForgeProjectSummary(new(
+            result.Path,
+            result.Name,
+            result.TargetGame,
+            result.TargetRegion,
+            result.TargetRevision,
+            result.BakeProfile,
+            checked((uint)result.BaseLevel),
+            checked((ulong)result.ModifiedUnixMilliseconds),
+            result.MigrationPending,
+            result.HasRecovery));
 
     private static byte[] EncodeMaintenance(AssetCatalogMaintenanceReport result) =>
         BridgePayloadCodec.EncodeCatalogMaintenance(new(

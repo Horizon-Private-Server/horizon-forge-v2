@@ -4,6 +4,7 @@ import type {
   DevelopmentIsoResult,
   ForgeHostStatus,
   ForgeProjectDescriptor,
+  ForgeProjectSummary,
   Progress,
   UyaAssetImportResult,
   UyaIsoIdentity,
@@ -371,6 +372,39 @@ export function encodeForgeProjectDescriptor(value: ForgeProjectDescriptor): Buf
     writer.writeStrings(missing.provenance);
   });
   return writer.toBuffer();
+}
+
+export function encodeForgeProjectSummary(value: ForgeProjectSummary): Buffer {
+  const writer = new PayloadWriter();
+  writer.writeString(value.path);
+  writer.writeString(value.name);
+  writer.writeString(value.targetGame);
+  writer.writeString(value.targetRegion);
+  writer.writeString(value.targetRevision);
+  writer.writeString(value.bakeProfile);
+  writer.writeUInt32(value.baseLevel);
+  writer.writeUInt64(value.modifiedUnixMilliseconds);
+  writer.writeBoolean(value.migrationPending);
+  writer.writeBoolean(value.hasRecovery);
+  return writer.toBuffer();
+}
+
+export function decodeForgeProjectSummary(payload: Uint8Array): ForgeProjectSummary {
+  const reader = new PayloadReader(payload);
+  const value: ForgeProjectSummary = {
+    path: reader.readString(),
+    name: reader.readString(),
+    targetGame: reader.readString(),
+    targetRegion: reader.readString(),
+    targetRevision: reader.readString(),
+    bakeProfile: reader.readString(),
+    baseLevel: reader.readUInt32(),
+    modifiedUnixMilliseconds: reader.readUInt64(),
+    migrationPending: reader.readBoolean(),
+    hasRecovery: reader.readBoolean(),
+  };
+  reader.complete();
+  return value;
 }
 
 export function decodeForgeProjectDescriptor(payload: Uint8Array): ForgeProjectDescriptor {

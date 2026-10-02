@@ -34,6 +34,7 @@ export const BridgeOpcode = {
   GetUyaBuildPlan: 23,
   QueryAssetExplorer: 24,
   PrepareAssetPreview: 25,
+  InspectForgeProjectSummary: 26,
 } as const;
 
 export const BridgeErrorCode = {

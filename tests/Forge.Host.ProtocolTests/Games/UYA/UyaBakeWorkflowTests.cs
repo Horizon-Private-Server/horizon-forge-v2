@@ -1,6 +1,7 @@
 using Forge.Host.Games.UYA;
 using System.Buffers.Binary;
 using System.Security.Cryptography;
+using System.IO.Compression;
 using System.Text.Json;
 using Forge.Host.Domain;
 using RatchetPs2.Core.Games;
@@ -190,7 +191,7 @@ internal static class UyaBakeWorkflowTests
             Equal(3, paletteReport.Optimization.Assignments.Count, "palette report traces every texture assignment");
             Equal(6, paletteReport.Optimization.Assignments.Sum(value => value.IndexRemaps.Count),
                 "palette report traces every referenced old-to-new index mapping");
-            Equal("874161869e9cc2f3b6232f6a7020b5970aada3851213b250e15bb7bb66c3e22d", Convert.ToHexString(SHA256.HashData(
+            Equal("bdda42b46385d629f6e8c2b8deddaa437c6dad19c58296b09d3c808595a8820b", Convert.ToHexString(SHA256.HashData(
                 ForgeProjectPersistence.Serialize(paletteReport))).ToLowerInvariant(),
                 "palette report schema snapshot");
             var textureInventory = await UyaTextureInventoryService.BuildAsync(project, catalog);
@@ -459,9 +460,8 @@ internal static class UyaBakeWorkflowTests
 
             var crossLevelTie = await PutAsync(catalog, AssetKind.Tie, 200, 0x44, "level45");
             var contentPath = (await ForgeProjectWorkspace.OpenAsync(project)).ContentFilePath;
-            await File.WriteAllTextAsync(contentPath,
-                (await File.ReadAllTextAsync(contentPath)).Replace(
-                    baseTie.Id.ToString(), crossLevelTie.Id.ToString(), StringComparison.Ordinal));
+            await ReplaceCompressedTextAsync(
+                contentPath, baseTie.Id.ToString(), crossLevelTie.Id.ToString());
             var crossLevelBake = await UyaBakeService.BakeAsync(project, catalog, context);
             Equal(true, crossLevelBake.WrittenLayers.Select(value => value.Layer)
                 .SequenceEqual([BakeLayerId.Ties, BakeLayerId.Lighting]),
@@ -814,8 +814,11 @@ internal static class UyaBakeWorkflowTests
             catalog,
             new("synthetic.iso", catalog.RootPath, project, "Collision bake",
                 new string('a', 32), "1.00", 3, true));
-        Equal(true, (await UyaBakeService.BakeAsync(project, catalog, context)).Succeeded,
+        var initialBake = await UyaBakeService.BakeAsync(project, catalog, context);
+        Equal(true, initialBake.Succeeded,
             "collision qualification project initially bakes");
+        var initialCollisionPath = initialBake.Manifest.Layers
+            .Single(value => value.Layer == BakeLayerId.Collision).RelativePath;
 
         var source = UyaRenderPackageTests.BuildCollisionFixture();
         var entry = await catalog.PutAsync(
@@ -874,6 +877,9 @@ internal static class UyaBakeWorkflowTests
         var movedBake = await UyaBakeService.BakeAsync(project, catalog, context);
         Equal(true, movedBake.WrittenLayers.Select(value => value.Layer).SequenceEqual([BakeLayerId.Collision]),
             "collision transforms rebuild only collision");
+        Equal(false, Directory.Exists(ForgeProjectPersistence.ResolveRelativePath(
+            Path.Combine(project, BakeStagingStore.StagingDirectoryName), initialCollisionPath)),
+            "successful bake prunes replaced staging output");
         var movedPack = await UyaLevelPackService.PackAsync(project, catalog, sourceLevelWad, context);
         Equal(true, movedPack.Succeeded, "edited collision staging packs: "
             + string.Join(" | ", movedPack.Diagnostics.Select(value => value.Cause)));
@@ -1029,6 +1035,19 @@ internal static class UyaBakeWorkflowTests
         return Enumerable.Range(0, count)
             .Select(index => BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(4 + index * 4)))
             .ToArray();
+    }
+
+    private static async Task ReplaceCompressedTextAsync(string path, string oldValue, string newValue)
+    {
+        string text;
+        await using (var input = File.OpenRead(path))
+        await using (var gzip = new GZipStream(input, CompressionMode.Decompress))
+        using (var reader = new StreamReader(gzip))
+            text = await reader.ReadToEndAsync();
+        await using var output = File.Create(path);
+        await using var compressed = new GZipStream(output, CompressionLevel.Fastest);
+        await using var writer = new StreamWriter(compressed);
+        await writer.WriteAsync(text.Replace(oldValue, newValue, StringComparison.Ordinal));
     }
 
     private static async Task<T> ThrowsAsync<T>(Func<Task> action) where T : Exception

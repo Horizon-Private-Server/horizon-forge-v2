@@ -3,7 +3,8 @@ namespace Forge.Host.Domain;
 public sealed class ForgeProjectWorkspace
 {
     public const string ManifestFileName = "forge-project.json";
-    public const string DefaultContentPath = "content/project.json";
+    public const string DefaultContentPath = "content/project.json.gz";
+    public const string LegacyContentPath = "content/project.json";
     public const string RecoveryDirectoryName = ForgeProjectPersistence.RecoveryDirectoryName;
     public const int MaxRecoverySnapshots = ForgeProjectPersistence.MaxRecoverySnapshots;
     public const long MaxRecoveryBytes = ForgeProjectPersistence.MaxRecoveryBytes;
@@ -97,12 +98,56 @@ public sealed class ForgeProjectWorkspace
         return workspace;
     }
 
+    public static async Task<ForgeProjectSummary> SummarizeAsync(
+        string rootPath,
+        CancellationToken cancellationToken = default)
+    {
+        var root = Path.GetFullPath(rootPath);
+        var (manifest, storedVersion) = await ForgeProjectPersistence.LoadManifestAsync(root, cancellationToken);
+        var manifestPath = Path.Combine(root, ManifestFileName);
+        var contentPath = ForgeProjectPersistence.ResolveRelativePath(root, manifest.Content);
+        if (!File.Exists(contentPath)) throw new InvalidDataException("Project content is missing.");
+        var modified = new[] { File.GetLastWriteTimeUtc(manifestPath), File.GetLastWriteTimeUtc(contentPath) }.Max();
+        var modifiedUnixMilliseconds = new DateTimeOffset(modified).ToUnixTimeMilliseconds();
+        var recoveryRoot = Path.Combine(root, RecoveryDirectoryName);
+        var hasRecovery = Directory.Exists(recoveryRoot)
+            && Directory.EnumerateDirectories(recoveryRoot)
+                .Select(Path.GetFileName)
+                .Any(value => ForgeProjectPersistence.TryGetRecoveryCreated(value, out var created)
+                    && created > modifiedUnixMilliseconds);
+        return new(
+            root,
+            manifest.Name,
+            manifest.Target.Game,
+            manifest.Target.Region,
+            manifest.Target.Revision,
+            manifest.Target.BakeProfile,
+            manifest.BaseLevel.Level,
+            modifiedUnixMilliseconds,
+            storedVersion != ProjectSchema.CurrentVersion
+                || manifest.BaseLevel.EntityVersion < ProjectSchema.CurrentBaseEntityVersion,
+            hasRecovery);
+    }
+
     public async Task SaveAsync(CancellationToken cancellationToken = default)
     {
-        Validate();
-        await ForgeProjectPersistence.SaveAsync(RootPath, Manifest, Content, cancellationToken);
-        _savedFingerprint = CurrentFingerprint;
-        _migrationPending = false;
+        var previousManifest = Manifest;
+        var previousContent = Content;
+        try
+        {
+            Manifest = Manifest with { SchemaVersion = ProjectSchema.CurrentVersion, Content = DefaultContentPath };
+            Content = Content with { SchemaVersion = ProjectSchema.CurrentVersion };
+            Validate();
+            await ForgeProjectPersistence.SaveAsync(RootPath, Manifest, Content, cancellationToken);
+            _savedFingerprint = CurrentFingerprint;
+            _migrationPending = false;
+        }
+        catch
+        {
+            Manifest = previousManifest;
+            Content = previousContent;
+            throw;
+        }
     }
 
     public async Task<ProjectRecoverySnapshot?> WriteRecoveryAsync(CancellationToken cancellationToken = default)

@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.IO.Compression;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -9,12 +10,13 @@ internal static class ForgeProjectPersistence
     public const string RecoveryDirectoryName = "recovery";
     public const int MaxRecoverySnapshots = 10;
     public const long MaxRecoveryBytes = 256L * 1024 * 1024;
+    private const long MaxManifestBytes = 1024 * 1024;
+    private const long MaxContentBytes = 512L * 1024 * 1024;
     private const string SaveJournalDirectoryName = ".save-journal";
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        WriteIndented = true,
-        NewLine = "\n",
+        WriteIndented = false,
         MaxDepth = 64,
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
         Converters = { new JsonStringEnumConverter() },
@@ -29,6 +31,27 @@ internal static class ForgeProjectPersistence
         return await LoadDirectoryAsync(root, cancellationToken);
     }
 
+    public static async Task<(ForgeProjectManifest Manifest, int StoredVersion)> LoadManifestAsync(
+        string rootPath,
+        CancellationToken cancellationToken = default)
+    {
+        var root = Path.GetFullPath(rootPath);
+        var manifestPath = Path.Combine(root, ForgeProjectWorkspace.ManifestFileName);
+        if (new FileInfo(manifestPath).Length > MaxManifestBytes)
+            throw new InvalidDataException("Project manifest exceeds the size limit.");
+        var manifestBytes = await File.ReadAllBytesAsync(manifestPath, cancellationToken);
+        var version = ReadVersion(manifestBytes);
+        var manifest = version switch
+        {
+            0 => Migrate(Deserialize<ManifestV0>(manifestBytes, "Project manifest")),
+            1 or 2 or 3 => Migrate(Deserialize<ForgeProjectManifest>(manifestBytes, "Project manifest")),
+            ProjectSchema.CurrentVersion => Deserialize<ForgeProjectManifest>(manifestBytes, "Project manifest"),
+            _ => throw new UnsupportedProjectSchemaException(version),
+        };
+        ForgeProjectValidation.ValidateManifest(root, manifest);
+        return (manifest, version);
+    }
+
     public static async Task SaveAsync(
         string rootPath,
         ForgeProjectManifest manifest,
@@ -40,20 +63,40 @@ internal static class ForgeProjectPersistence
         var manifestPath = Path.Combine(root, ForgeProjectWorkspace.ManifestFileName);
         var contentPath = ResolveRelativePath(root, manifest.Content);
         var manifestExists = File.Exists(manifestPath);
-        var contentExists = File.Exists(contentPath);
-        if (manifestExists != contentExists)
+        var previousRelativeContentPath = manifest.Content;
+        var previousContentPath = contentPath;
+        if (manifestExists)
+        {
+            var previousManifestBytes = await File.ReadAllBytesAsync(manifestPath, cancellationToken);
+            using var previousManifest = ProjectSchema.Parse(previousManifestBytes);
+            previousRelativeContentPath = previousManifest.RootElement.GetProperty("content").GetString()
+                ?? throw new InvalidDataException("Project manifest has no content path.");
+            previousContentPath = ResolveRelativePath(root, previousRelativeContentPath);
+            if (!File.Exists(previousContentPath))
+                throw new InvalidDataException("Project save is incomplete and has no recovery journal.");
+        }
+        else if (File.Exists(contentPath))
+        {
             throw new InvalidDataException("Project save is incomplete and has no recovery journal.");
+        }
 
-        if (manifestExists) await CreateSaveJournalAsync(root, manifestPath, contentPath, manifest.Content, cancellationToken);
+        if (manifestExists)
+            await CreateSaveJournalAsync(
+                root, manifestPath, previousContentPath, previousRelativeContentPath, cancellationToken);
         try
         {
-            await WriteFileSafelyAsync(contentPath, Serialize(content), cancellationToken);
+            await WriteFileSafelyAsync(contentPath, Compress(Serialize(content)), cancellationToken);
             await WriteFileSafelyAsync(manifestPath, Serialize(manifest), cancellationToken);
+            if (!SamePath(previousContentPath, contentPath)) File.Delete(previousContentPath);
             DeleteDirectory(Path.Combine(root, RecoveryDirectoryName, SaveJournalDirectoryName));
         }
         catch
         {
-            if (manifestExists) await RecoverInterruptedSaveAsync(root, CancellationToken.None);
+            if (manifestExists)
+            {
+                await RecoverInterruptedSaveAsync(root, CancellationToken.None);
+                if (!SamePath(previousContentPath, contentPath)) File.Delete(contentPath);
+            }
             else
             {
                 File.Delete(manifestPath);
@@ -72,10 +115,11 @@ internal static class ForgeProjectPersistence
         var root = Path.GetFullPath(rootPath);
         var manifestBytes = Serialize(manifest);
         var contentBytes = Serialize(content);
+        var storedContentBytes = Compress(contentBytes);
         var fingerprint = Fingerprint(manifestBytes, contentBytes);
         var existing = await ListRecoveriesAsync(root, cancellationToken);
         if (existing.FirstOrDefault()?.Fingerprint == fingerprint) return existing[0];
-        if (manifestBytes.LongLength + contentBytes.LongLength > MaxRecoveryBytes) return null;
+        if (manifestBytes.LongLength + storedContentBytes.LongLength > MaxRecoveryBytes) return null;
 
         var created = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var id = $"{created}-{Guid.NewGuid():N}";
@@ -86,7 +130,8 @@ internal static class ForgeProjectPersistence
         try
         {
             await WriteFileSafelyAsync(Path.Combine(temporary, ForgeProjectWorkspace.ManifestFileName), manifestBytes, cancellationToken);
-            await WriteFileSafelyAsync(ResolveRelativePath(temporary, manifest.Content), contentBytes, cancellationToken);
+            await WriteFileSafelyAsync(
+                ResolveRelativePath(temporary, manifest.Content), storedContentBytes, cancellationToken);
             Directory.Move(temporary, destination);
         }
         finally
@@ -156,24 +201,16 @@ internal static class ForgeProjectPersistence
 
     private static async Task<LoadedProject> LoadDirectoryAsync(string root, CancellationToken cancellationToken)
     {
-        var manifestBytes = await File.ReadAllBytesAsync(Path.Combine(root, ForgeProjectWorkspace.ManifestFileName), cancellationToken);
-        var manifestVersion = ReadVersion(manifestBytes);
-        var manifest = manifestVersion switch
-        {
-            0 => Migrate(Deserialize<ManifestV0>(manifestBytes, "Project manifest")),
-            1 => Migrate(Deserialize<ForgeProjectManifest>(manifestBytes, "Project manifest")),
-            2 => Migrate(Deserialize<ForgeProjectManifest>(manifestBytes, "Project manifest")),
-            ProjectSchema.CurrentVersion => Deserialize<ForgeProjectManifest>(manifestBytes, "Project manifest"),
-            _ => throw new UnsupportedProjectSchemaException(manifestVersion),
-        };
-        var contentBytes = await File.ReadAllBytesAsync(ResolveRelativePath(root, manifest.Content), cancellationToken);
+        var (manifest, manifestVersion) = await LoadManifestAsync(root, cancellationToken);
+        var storedContentBytes = await ReadContentFileAsync(
+            ResolveRelativePath(root, manifest.Content), cancellationToken);
+        var contentBytes = manifestVersion >= 4 ? Decompress(storedContentBytes) : storedContentBytes;
         var contentVersion = ReadVersion(contentBytes);
         if (manifestVersion != contentVersion) throw new InvalidDataException("Project manifest and content schema versions do not match.");
         var content = contentVersion switch
         {
             0 => Migrate(Deserialize<ContentV0>(contentBytes, "Project content")),
-            1 => Migrate(Deserialize<ForgeProjectContent>(contentBytes, "Project content")),
-            2 => Migrate(Deserialize<ForgeProjectContent>(contentBytes, "Project content")),
+            1 or 2 or 3 => Migrate(Deserialize<ForgeProjectContent>(contentBytes, "Project content")),
             ProjectSchema.CurrentVersion => Deserialize<ForgeProjectContent>(contentBytes, "Project content"),
             _ => throw new UnsupportedProjectSchemaException(contentVersion),
         };
@@ -211,6 +248,36 @@ internal static class ForgeProjectPersistence
     internal static T Deserialize<T>(byte[] bytes, string description) =>
         JsonSerializer.Deserialize<T>(bytes, JsonOptions)
         ?? throw new InvalidDataException($"{description} is empty.");
+
+    private static async Task<byte[]> ReadContentFileAsync(string path, CancellationToken cancellationToken)
+    {
+        if (new FileInfo(path).Length > MaxContentBytes)
+            throw new InvalidDataException("Project content exceeds the size limit.");
+        return await File.ReadAllBytesAsync(path, cancellationToken);
+    }
+
+    private static byte[] Compress(byte[] bytes)
+    {
+        using var output = new MemoryStream();
+        using (var gzip = new GZipStream(output, CompressionLevel.Fastest, leaveOpen: true)) gzip.Write(bytes);
+        return output.ToArray();
+    }
+
+    private static byte[] Decompress(byte[] bytes)
+    {
+        using var input = new MemoryStream(bytes, writable: false);
+        using var gzip = new GZipStream(input, CompressionMode.Decompress);
+        using var output = new MemoryStream();
+        var buffer = new byte[64 * 1024];
+        int read;
+        while ((read = gzip.Read(buffer)) > 0)
+        {
+            if (output.Length + read > MaxContentBytes)
+                throw new InvalidDataException("Decompressed project content exceeds the size limit.");
+            output.Write(buffer, 0, read);
+        }
+        return output.ToArray();
+    }
 
     private static async Task CreateSaveJournalAsync(
         string root,
@@ -327,8 +394,20 @@ internal static class ForgeProjectPersistence
             && value.AsSpan(separator + 1).ToString().All(Uri.IsHexDigit);
     }
 
+    internal static bool TryGetRecoveryCreated(string? value, out long created)
+    {
+        if (value is not null) return TryParseRecoveryId(value, out created);
+        created = 0;
+        return false;
+    }
+
     private static long DirectorySize(string path) =>
         Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories).Sum(file => new FileInfo(file).Length);
+
+    private static bool SamePath(string left, string right) =>
+        string.Equals(left, right, OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal);
 
     private static void DeleteDirectory(string path)
     {

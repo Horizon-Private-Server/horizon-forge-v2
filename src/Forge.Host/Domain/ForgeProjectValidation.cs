@@ -4,20 +4,19 @@ internal static class ForgeProjectValidation
 {
     public static void Validate(string rootPath, ForgeProjectManifest manifest, ForgeProjectContent content)
     {
+        ValidateManifest(rootPath, manifest);
+        ValidateContent(content);
+    }
+
+    public static void ValidateManifest(string rootPath, ForgeProjectManifest manifest)
+    {
         if (manifest.SchemaVersion != ProjectSchema.CurrentVersion)
             throw new UnsupportedProjectSchemaException(manifest.SchemaVersion);
-        if (content.SchemaVersion != ProjectSchema.CurrentVersion)
-            throw new UnsupportedProjectSchemaException(content.SchemaVersion);
         if (manifest.DocumentType != ProjectSchema.ManifestDocumentType)
             throw new InvalidDataException("Project manifest document type is invalid.");
-        if (content.DocumentType != ProjectSchema.ContentDocumentType)
-            throw new InvalidDataException("Project content document type is invalid.");
         if (manifest.ProjectId.Value == Guid.Empty) throw new InvalidDataException("Project ID cannot be empty.");
         if (manifest.Target is null || manifest.BaseLevel is null)
             throw new InvalidDataException("Project target and base level are required.");
-        if (content.Entities is null || content.Assets is null)
-            throw new InvalidDataException("Project content lists are required.");
-        if (content.LevelSettings is not null) ValidateLevelSettings(content.LevelSettings);
         ValidateText(manifest.Name, nameof(manifest.Name));
         ValidateText(manifest.Target.Game, nameof(manifest.Target.Game));
         ValidateText(manifest.Target.Region, nameof(manifest.Target.Region));
@@ -34,7 +33,17 @@ internal static class ForgeProjectValidation
             || !manifest.BaseLevel.SourceFingerprint.All(Uri.IsHexDigit))
             throw new InvalidDataException("Base-level source fingerprint must be a 32-character MD5 value.");
         _ = ForgeProjectPersistence.ResolveRelativePath(rootPath, manifest.Content);
+    }
 
+    private static void ValidateContent(ForgeProjectContent content)
+    {
+        if (content.SchemaVersion != ProjectSchema.CurrentVersion)
+            throw new UnsupportedProjectSchemaException(content.SchemaVersion);
+        if (content.DocumentType != ProjectSchema.ContentDocumentType)
+            throw new InvalidDataException("Project content document type is invalid.");
+        if (content.Entities is null || content.Assets is null)
+            throw new InvalidDataException("Project content lists are required.");
+        if (content.LevelSettings is not null) ValidateLevelSettings(content.LevelSettings);
         if (content.Entities.Any(entity => entity is null))
             throw new InvalidDataException("Project entities cannot contain null entries.");
         if (content.Entities.Select(entity => entity.EntityId).Distinct().Count() != content.Entities.Count)

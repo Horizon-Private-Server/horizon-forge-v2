@@ -159,6 +159,10 @@ internal static class Program
         var recoveryRequest = new ProjectRecoveryRequestPayload("project", "assets", "1000-0123456789abcdef0123456789abcdef");
         Equal(recoveryRequest, BridgePayloadCodec.DecodeProjectRecoveryRequest(
             BridgePayloadCodec.EncodeProjectRecoveryRequest(recoveryRequest)), "project recovery request payload");
+        var summary = new ForgeProjectSummaryPayload(
+            "project", "Test", "UYA", "NTSC-U", "1.00", "uya-ntsc-u", 3, 1000, false, true);
+        Equal(summary, BridgePayloadCodec.DecodeForgeProjectSummary(
+            BridgePayloadCodec.EncodeForgeProjectSummary(summary)), "project summary payload");
         var repairRequest = new ProjectAssetRepairRequestPayload("project", "assets", "source.iso");
         Equal(repairRequest, BridgePayloadCodec.DecodeProjectAssetRepairRequest(
             BridgePayloadCodec.EncodeProjectAssetRepairRequest(repairRequest)), "project repair request payload");

@@ -15,7 +15,13 @@ import {
 } from '@mantine/core';
 import { useCallback, useEffect, useState } from 'react';
 
-import type { ForgeHostStatus, ForgeProjectDescriptor, ProjectHubState, UyaProjectPreflight } from '../../types/ForgeApi.js';
+import type {
+  ForgeHostStatus,
+  ForgeProjectDescriptor,
+  ForgeProjectSummary,
+  ProjectHubState,
+  UyaProjectPreflight,
+} from '../../types/ForgeApi.js';
 import { errorMessage } from '../../utils/Errors.ts';
 import { fileName, formatBytes } from '../../utils/Format.ts';
 import { CatalogMaintenanceModal } from './CatalogMaintenanceModal.tsx';
@@ -35,7 +41,7 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen, 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [createOpened, setCreateOpened] = useState(false);
-  const [renameProject, setRenameProject] = useState<ForgeProjectDescriptor>();
+  const [renameProject, setRenameProject] = useState<ForgeProjectSummary>();
   const [name, setName] = useState('');
   const [level, setLevel] = useState<string | null>(null);
   const [allowPartial, setAllowPartial] = useState(false);
@@ -43,9 +49,14 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen, 
   const [preflightBusy, setPreflightBusy] = useState(false);
   const [rename, setRename] = useState('');
   const [recoveryProject, setRecoveryProject] = useState<ForgeProjectDescriptor>();
+  const [missingProject, setMissingProject] = useState<ForgeProjectDescriptor>();
   const [recoveryId, setRecoveryId] = useState<string | null>(null);
 
-  const offerProject = useCallback((project: ForgeProjectDescriptor) => {
+  const offerProject = useCallback((project: ForgeProjectDescriptor, skipMissing = false) => {
+    if (project.missingAssetCount > 0 && !skipMissing) {
+      setMissingProject(project);
+      return;
+    }
     if (project.recoveries.length === 0 && !project.migrationPending) {
       onOpen(project);
       return;
@@ -203,7 +214,7 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen, 
               <Table.Th>Target</Table.Th>
               <Table.Th>Base</Table.Th>
               <Table.Th>Modified</Table.Th>
-              <Table.Th>Assets</Table.Th>
+              <Table.Th>Attention</Table.Th>
               <Table.Th aria-label="Actions" />
             </Table.Tr>
           </Table.Thead>
@@ -221,21 +232,15 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen, 
                   <Table.Td>{project ? `Level ${project.baseLevel}` : '—'}</Table.Td>
                   <Table.Td>{project ? new Date(project.modifiedUnixMilliseconds).toLocaleString() : '—'}</Table.Td>
                   <Table.Td>
-                    {project && <Badge color={project.missingAssetCount ? 'red' : 'teal'} variant="light">
-                      {project.missingAssetCount ? `${project.missingAssetCount} missing` : 'Ready'}
+                    {project?.hasRecovery && <Badge color="yellow" variant="light">
+                      Recovery available
                     </Badge>}
-                    {project && project.recoveries.length > 0 && <Badge color="yellow" variant="light" ml="xs">
-                      Recovery
-                    </Badge>}
-                    {project?.migrationPending && <Badge color="yellow" variant="light" ml="xs">Upgrade</Badge>}
+                    {project?.migrationPending && <Badge color="yellow" variant="light" ml="xs">Upgrade required</Badge>}
+                    {project && !project.hasRecovery && !project.migrationPending
+                      && <Text c="dimmed" size="xs">—</Text>}
                   </Table.Td>
                   <Table.Td>
                     <Group justify="flex-end" wrap="nowrap">
-                      {project?.missingAssetCount ? <MissingAssetsModal
-                        project={project}
-                        onOpenSetup={onOpenSetup}
-                        onRepaired={() => void refresh()}
-                      /> : null}
                       <Button variant="subtle" onClick={() => void openRecent(recent.path)} disabled={!project || busy}>Open</Button>
                       <Button variant="subtle" onClick={() => {
                         if (!project) return;
@@ -361,6 +366,21 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen, 
           </Group>
         </Stack>
       </Modal>
+
+      {missingProject && <MissingAssetsModal
+        project={missingProject}
+        opened
+        onClose={() => setMissingProject(undefined)}
+        onContinue={() => {
+          setMissingProject(undefined);
+          offerProject(missingProject, true);
+        }}
+        onOpenSetup={onOpenSetup}
+        onRepaired={(project) => {
+          setMissingProject(undefined);
+          offerProject(project);
+        }}
+      />}
     </section>
   );
 }

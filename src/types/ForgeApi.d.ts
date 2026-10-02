@@ -186,6 +186,19 @@ export interface ForgeProjectDescriptor {
   missingAssets: MissingProjectAsset[];
 }
 
+export interface ForgeProjectSummary {
+  path: string;
+  name: string;
+  targetGame: string;
+  targetRegion: string;
+  targetRevision: string;
+  bakeProfile: string;
+  baseLevel: number;
+  modifiedUnixMilliseconds: number;
+  migrationPending: boolean;
+  hasRecovery: boolean;
+}
+
 export interface MissingProjectAsset {
   id: string;
   kind: string;
@@ -217,7 +230,7 @@ export interface ProjectRecoverySnapshot {
 
 export interface RecentForgeProject {
   path: string;
-  project?: ForgeProjectDescriptor;
+  project?: ForgeProjectSummary;
   error?: string;
 }
 

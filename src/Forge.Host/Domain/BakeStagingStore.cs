@@ -147,6 +147,51 @@ public sealed class BakeStagingStore
         }
     }
 
+    public async Task PruneAsync(CancellationToken cancellationToken = default)
+    {
+        await _commitGate.WaitAsync(cancellationToken);
+        try
+        {
+            var layersRoot = Path.Combine(RootPath, "layers");
+            if (!Directory.Exists(layersRoot)) return;
+            var retained = Manifest.Layers.Select(value => value.RelativePath).ToHashSet(StringComparer.Ordinal);
+            foreach (var layerPath in Directory.EnumerateDirectories(layersRoot))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if ((File.GetAttributes(layerPath) & FileAttributes.ReparsePoint) != 0) continue;
+                foreach (var snapshotPath in Directory.EnumerateDirectories(layerPath))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if ((File.GetAttributes(snapshotPath) & FileAttributes.ReparsePoint) != 0) continue;
+                    var relative = Path.GetRelativePath(RootPath, snapshotPath)
+                        .Replace(Path.DirectorySeparatorChar, '/');
+                    if (retained.Contains(relative)) continue;
+                    try
+                    {
+                        Directory.Delete(snapshotPath, recursive: true);
+                    }
+                    catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+                    {
+                        // ponytail: cache cleanup is best-effort; add diagnostics if failures become actionable.
+                    }
+                }
+                if (!Directory.EnumerateFileSystemEntries(layerPath).Any())
+                {
+                    try { Directory.Delete(layerPath); }
+                    catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { }
+                }
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // ponytail: cache cleanup is best-effort; add diagnostics if failures become actionable.
+        }
+        finally
+        {
+            _commitGate.Release();
+        }
+    }
+
     private static async Task ValidateManifestAsync(
         string root,
         BakeManifest manifest,

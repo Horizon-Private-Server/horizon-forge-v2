@@ -38,6 +38,7 @@ public enum BridgeOpcode : ushort
     GetUyaBuildPlan = 23,
     QueryAssetExplorer = 24,
     PrepareAssetPreview = 25,
+    InspectForgeProjectSummary = 26,
 }
 
 public enum BridgeErrorCode : ushort

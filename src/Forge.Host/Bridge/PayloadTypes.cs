@@ -196,6 +196,17 @@ public sealed record ProjectRecoverySnapshotPayload(
     uint EntityCount,
     string Fingerprint,
     ulong Size);
+public sealed record ForgeProjectSummaryPayload(
+    string Path,
+    string Name,
+    string TargetGame,
+    string TargetRegion,
+    string TargetRevision,
+    string BakeProfile,
+    uint BaseLevel,
+    ulong ModifiedUnixMilliseconds,
+    bool MigrationPending,
+    bool HasRecovery);
 public sealed record MissingProjectAssetPayload(
     string Id,
     string Kind,

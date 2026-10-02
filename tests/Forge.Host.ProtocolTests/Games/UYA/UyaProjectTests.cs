@@ -1,6 +1,7 @@
 using Forge.Host.Games.UYA;
 using System.Buffers.Binary;
 using System.Security.Cryptography;
+using System.IO.Compression;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Forge.Host.Domain;
@@ -407,11 +408,11 @@ internal static class UyaProjectTests
             await File.WriteAllTextAsync(legacyManifestPath,
                 legacyManifest.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n");
             var legacyContentPath = Path.Combine(legacyPath, ForgeProjectWorkspace.DefaultContentPath);
-            var legacyContent = JsonNode.Parse(await File.ReadAllBytesAsync(legacyContentPath))!.AsObject();
+            var legacyContent = JsonNode.Parse(await ReadCompressedAsync(legacyContentPath))!.AsObject();
             foreach (var legacyEntity in legacyContent["entities"]!.AsArray().Select(value => value!.AsObject()))
                 if (legacyEntity["layer"]!.GetValue<string>() == "mobys") legacyEntity.Remove("source");
-            await File.WriteAllTextAsync(legacyContentPath,
-                legacyContent.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n");
+            await WriteCompressedAsync(legacyContentPath,
+                System.Text.Encoding.UTF8.GetBytes(legacyContent.ToJsonString() + "\n"));
             var migrated = await UyaProjectService.MigrateValidatedAsync(
                 legacyPath, catalog, new MemoryStream(iso, writable: false));
             Equal(false, migrated.MigrationPending, "base entity migration completes");
@@ -762,6 +763,22 @@ internal static class UyaProjectTests
         bytes[14 + definitionLength] = modelByte;
         WriteInt32(bytes, 15 + definitionLength, 0);
         return bytes;
+    }
+
+    private static async Task<byte[]> ReadCompressedAsync(string path)
+    {
+        await using var input = File.OpenRead(path);
+        await using var gzip = new GZipStream(input, CompressionMode.Decompress);
+        using var output = new MemoryStream();
+        await gzip.CopyToAsync(output);
+        return output.ToArray();
+    }
+
+    private static async Task WriteCompressedAsync(string path, byte[] bytes)
+    {
+        await using var output = File.Create(path);
+        await using var gzip = new GZipStream(output, CompressionLevel.Fastest);
+        await gzip.WriteAsync(bytes);
     }
 
     private static void Equal<T>(T expected, T actual, string context)

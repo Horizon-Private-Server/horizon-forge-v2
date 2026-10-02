@@ -7,6 +7,18 @@ public sealed record MissingProjectAsset(
     bool Repairable,
     IReadOnlyList<string> Provenance);
 
+public sealed record ForgeProjectSummary(
+    string Path,
+    string Name,
+    string TargetGame,
+    string TargetRegion,
+    string TargetRevision,
+    string BakeProfile,
+    int BaseLevel,
+    long ModifiedUnixMilliseconds,
+    bool MigrationPending,
+    bool HasRecovery);
+
 public sealed record ForgeProjectDescriptor(
     string Path,
     string Name,
