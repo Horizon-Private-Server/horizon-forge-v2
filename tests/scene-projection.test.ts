@@ -11,6 +11,7 @@ import { buildGroundPlacement } from '../src/renderer/editor/ScenePlacement.ts';
 import { resolvePointerSnapTarget, VertexSnapIndex } from '../src/renderer/editor/SceneSnapping.ts';
 import type { EditorEntity } from '../src/types/EditorRuntime.js';
 import { DEFAULT_SCENE_TREE_COLORS } from '../src/utils/SceneTreeColors.ts';
+import { DEFAULT_UYA_COLLISION_VISUALIZATION } from '../src/utils/UyaCollisionVisualization.ts';
 import {
   applySceneEnvironment,
   disposeObject,
@@ -22,12 +23,17 @@ import {
   updateCameraMovement,
 } from '../src/utils/Scene.ts';
 import { configureSkybox, skyEyeFromBounds } from '../src/utils/SkyboxScene.ts';
+import { configureCollisionMaterials } from '../src/utils/CollisionMaterials.ts';
 import {
   configurePs2AssetPreview,
   configurePs2MaterialAlpha,
   configurePs2MaterialFog,
   createPs2OpaquePassMaterial,
 } from '../src/utils/Ps2Materials.ts';
+import {
+  createSelectionOverrideMaterial,
+  INSTANCE_SELECTION_MARKER,
+} from '../src/utils/SelectionMaterials.ts';
 import { projectTransformToSceneMatrix, sceneMatrixToProjectTransform } from '../src/utils/Transforms.ts';
 import { splinePointId, transformSplinePoints } from '../src/utils/SplinePoints.ts';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -322,6 +328,18 @@ test('scene projection renders decoded geometry and lighting markers', () => {
   projection.dispose();
 });
 
+test('scene projection tolerates empty and single-point paths', () => {
+  const empty = entity('empty', 0, false);
+  empty.geometry = { kind: 'spline', points: [] };
+  const single = entity('single', 0, false);
+  single.geometry = { kind: 'grindPath', points: [{ x: 1, y: 2, z: 3, w: 1 }] };
+  const projection = new SceneProjection();
+  projection.sync([empty, single]);
+  assert.ok(projection.getObject(empty.id));
+  assert.ok(projection.getObject(single.id));
+  projection.dispose();
+});
+
 test('spline point transforms preserve unselected points and gameplay metadata', () => {
   const points = [{ x: 0, y: 0, z: 0, w: 7 }, { x: 4, y: 5, z: 6, w: 8 }];
   const transform = {
@@ -442,6 +460,7 @@ test('scene projection merges matching parts, instances assets, and resolves ins
   billboard.name = 'shrub_billboard';
   template.add(new THREE.Mesh(geometry, material), new THREE.SkinnedMesh(geometry, material), billboard);
   const projection = new SceneProjection();
+  projection.setSelectionColor('#123456');
   projection.setAssetTemplates(new Map([['asset', template]]));
   projection.sync([entity('a'), entity('b', 10)], ['b']);
 
@@ -450,6 +469,10 @@ test('scene projection merges matching parts, instances assets, and resolves ins
   assert.equal(meshes.length, 1);
   const mesh = meshes[0];
   assert.equal(mesh.count, 2);
+  assert.notEqual(mesh.getColorAt(1, new THREE.Color()).getHexString(), 'ffffff');
+  const selectionOutlines = projection.getSelectionOutlineObjects();
+  assert.equal(selectionOutlines.length, 1);
+  assert.equal(selectionOutlines[0].children.length, 2);
   assert.equal(mesh.geometry.getAttribute('position').count, geometry.getAttribute('position').count * 2);
   assert.equal(projection.resolvePick([{ object: mesh, instanceId: 1 }] as unknown as THREE.Intersection[]), 'b');
   assert.ok(Math.abs(projection.getBounds('b')!.getCenter(new THREE.Vector3()).x - 10) < 1e-6);
@@ -459,6 +482,102 @@ test('scene projection merges matching parts, instances assets, and resolves ins
 
   projection.dispose();
   disposeObject(template);
+});
+
+test('scene projection batches unique collision pieces and resolves batch picks', () => {
+  const material = new THREE.MeshBasicMaterial();
+  const templates = new Map<string, THREE.Object3D>();
+  const pieces = ['a', 'b'].map((id, index) => {
+    const value = entity(id, index * 10);
+    value.asset = { id: 'collision', kind: 'collision' };
+    value.collision = {
+      kind: 'solid', sourcePayloadIndex: 0, sourcePieceIndex: index,
+      faceCount: 1, vertexCount: 3, types: [],
+    };
+    value.transformModes = ['translate'];
+    templates.set(`collision:solid:${index}`, new THREE.Mesh(new THREE.BoxGeometry(), material));
+    return value;
+  });
+  const projection = new SceneProjection();
+  projection.setAssetTemplates(templates);
+  projection.sync(pieces, ['b']);
+
+  const meshes: THREE.BatchedMesh[] = [];
+  projection.root.traverse((object) => { if (object instanceof THREE.BatchedMesh) meshes.push(object); });
+  const outlines = projection.getSelectionOutlineObjects();
+  assert.equal(meshes.length, 1);
+  assert.equal(meshes[0].instanceCount, 2);
+  assert.equal(meshes[0].getColorAt(1, new THREE.Color()).getHexString(), '22d3ee');
+  assert.equal(outlines.length, 1);
+  const outlineMesh = outlines[0].children[0] as THREE.Mesh;
+  assert.equal(outlineMesh.material instanceof THREE.MeshBasicMaterial, true);
+  assert.equal((outlineMesh.material as THREE.MeshBasicMaterial).colorWrite, false);
+  assert.equal(projection.resolvePick([
+    { object: meshes[0], batchId: 1 },
+  ] as unknown as THREE.Intersection[]), 'b');
+  assert.ok(Math.abs(projection.getBounds('b')!.getCenter(new THREE.Vector3()).x - 10) < 1e-6);
+  assert.ok(projection.getWorldVertices(['b']).length > 0);
+
+  pieces[1] = { ...pieces[1], state: { ...pieces[1].state, hidden: true } };
+  projection.sync(pieces);
+  assert.equal(meshes[0].getVisibleAt(1), false);
+  pieces[1] = { ...pieces[1], state: { ...pieces[1].state, hidden: false } };
+  projection.sync(pieces, [], undefined, true, new Set());
+  assert.equal(meshes[0].getVisibleAt(1), false);
+  assert.equal(projection.resolvePick([
+    { object: meshes[0], batchId: 1 },
+  ] as unknown as THREE.Intersection[]), undefined);
+  projection.dispose();
+  templates.forEach(disposeObject);
+});
+
+test('scene projection keeps a representative heavy collision level in one batch', () => {
+  const pieceCount = 3_036;
+  const geometry = new THREE.BufferGeometry().setAttribute(
+    'position',
+    new THREE.Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3),
+  );
+  const material = new THREE.MeshBasicMaterial();
+  const templates = new Map<string, THREE.Object3D>();
+  const pieces = Array.from({ length: pieceCount }, (_, index) => {
+    const value = entity(`collision-${index}`, index % 64);
+    value.asset = { id: 'collision', kind: 'collision' };
+    value.collision = {
+      kind: index < 2_967 ? 'solid' : 'playerBarrier',
+      sourcePayloadIndex: 0,
+      sourcePieceIndex: index,
+      faceCount: 1,
+      vertexCount: 3,
+      types: [],
+    };
+    value.transformModes = ['translate'];
+    templates.set(
+      `collision:${value.collision.kind}:${index}`,
+      new THREE.Mesh(geometry, material),
+    );
+    return value;
+  });
+  const projection = new SceneProjection();
+  projection.setAssetTemplates(templates);
+  projection.sync(pieces);
+
+  const batches: THREE.BatchedMesh[] = [];
+  projection.root.traverse((object) => { if (object instanceof THREE.BatchedMesh) batches.push(object); });
+  assert.equal(batches.length, 1);
+  assert.equal(batches[0].instanceCount, pieceCount);
+  const batch = batches[0];
+  pieces[1] = {
+    ...pieces[1],
+    transform: { ...pieces[1].transform, position: { x: 99, y: 2, z: 3 } },
+  };
+  projection.sync(pieces, ['collision-1']);
+  assert.equal(batches[0], batch);
+  assert.ok(Math.abs(projection.getBounds('collision-1')!.getCenter(new THREE.Vector3()).x - 99.5) < 1e-6);
+
+  projection.dispose();
+  assert.equal(projection.root.children.length, 0);
+  geometry.dispose();
+  material.dispose();
 });
 
 test('projection and scene resources dispose once across repeated loads', () => {
@@ -578,6 +697,66 @@ test('PS2 fog clamps to the game far intensity instead of increasing to full fog
   disposeObject(root);
 });
 
+test('player barrier materials receive a stable translucent stripe decorator', () => {
+  const material = new THREE.MeshBasicMaterial({ transparent: true });
+  material.name = 'player_barrier';
+  const root = new THREE.Mesh(new THREE.BoxGeometry(), material);
+  configureCollisionMaterials(root, DEFAULT_UYA_COLLISION_VISUALIZATION);
+  const compile = material.onBeforeCompile;
+  configureCollisionMaterials(root, DEFAULT_UYA_COLLISION_VISUALIZATION);
+  assert.equal(material.onBeforeCompile, compile);
+  assert.equal(material.depthWrite, false);
+  assert.match(material.customProgramCacheKey(), /player-barrier-object-stripes/);
+  const shader = {
+    vertexShader: 'void main() {\n#include <begin_vertex>\n}',
+    fragmentShader: 'void main() {\n#include <color_fragment>\n#include <dithering_fragment>\n}',
+  };
+  material.onBeforeCompile(shader as never, {} as never);
+  assert.match(shader.fragmentShader, /forgeBarrierStripe/);
+  assert.match(shader.fragmentShader, /forgeBarrierSelectionColor = vColor\.rgb/);
+  assert.match(shader.fragmentShader, /gl_FragColor\.a \*= 1\.0 - forgeBarrierStripe/);
+  assert.equal(material.vertexColors, false);
+  assert.match(shader.vertexShader, /vForgeBarrierPosition = transformed/);
+  assert.doesNotMatch(shader.fragmentShader, /gl_FragCoord/);
+  disposeObject(root);
+});
+
+test('solid collision materials combine live nibble palettes with a size-independent tint', () => {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3));
+  geometry.setAttribute('_collision_type', new THREE.Uint8BufferAttribute([11, 11, 11], 1));
+  geometry.setAttribute('_sound_type', new THREE.Uint8BufferAttribute([10, 10, 10], 1));
+  const material = new THREE.MeshBasicMaterial();
+  material.name = 'solid_collision';
+  const root = new THREE.Mesh(geometry, material);
+  configureCollisionMaterials(root, DEFAULT_UYA_COLLISION_VISUALIZATION);
+  const compile = material.onBeforeCompile;
+  const shader = {
+    vertexShader: 'void main() {\n#include <begin_vertex>\n#include <project_vertex>\n}',
+    fragmentShader: 'void main() {\n#include <color_fragment>\n}',
+    uniforms: {} as Record<string, { value: THREE.Color[] }>,
+  };
+  material.onBeforeCompile(shader as never, {} as never);
+  assert.match(shader.vertexShader, /_collision_type/);
+  assert.match(shader.fragmentShader, /forgeSoundColors\[forgeSoundIndex\], 0\.2/);
+  assert.match(shader.fragmentShader, /forgeFaceNormal.*cross/s);
+  assert.match(shader.fragmentShader, /mix\(forgeSurfaceColor, forgeSelectionColor, forgeSelected\).*forgeLight/s);
+  assert.equal(material.vertexColors, false);
+  assert.doesNotMatch(shader.fragmentShader, /gl_FragCoord/);
+  const changed = {
+    ...DEFAULT_UYA_COLLISION_VISUALIZATION,
+    collisionTypeColors: [...DEFAULT_UYA_COLLISION_VISUALIZATION.collisionTypeColors],
+    soundTypeColors: [...DEFAULT_UYA_COLLISION_VISUALIZATION.soundTypeColors],
+  };
+  changed.collisionTypeColors[11] = '#010203';
+  changed.soundTypeColors[10] = '#040506';
+  configureCollisionMaterials(root, changed);
+  assert.equal(material.onBeforeCompile, compile);
+  assert.ok(shader.uniforms.forgeCollisionColors.value[11].equals(new THREE.Color('#010203')));
+  assert.ok(shader.uniforms.forgeSoundColors.value[10].equals(new THREE.Color('#040506')));
+  disposeObject(root);
+});
+
 test('PS2 blend materials normalize byte 127 to full opacity', () => {
   const material = new THREE.MeshBasicMaterial({ map: new THREE.Texture(), transparent: true });
   material.userData.TieTextureFullOpacityAlpha = 127;
@@ -596,6 +775,28 @@ test('PS2 blend materials normalize byte 127 to full opacity', () => {
   assert.match(translucentShader.fragmentShader, /if \(diffuseColor\.a >= 0\.99607843\) discard/);
   opaque.dispose();
   disposeObject(root);
+});
+
+test('selected asset materials tint textured luminance while preserving alpha', () => {
+  const source = new THREE.MeshBasicMaterial({ map: new THREE.Texture(), transparent: true });
+  const selectionColor = new THREE.Color('#22d3ee');
+  const material = createSelectionOverrideMaterial(source, selectionColor);
+  const shader = {
+    vertexShader: 'void main() {\n#include <color_vertex>\n}',
+    fragmentShader: 'void main() {\n#include <map_fragment>\n#include <opaque_fragment>\n}',
+    uniforms: {} as Record<string, { value: THREE.Color }>,
+  };
+  material.onBeforeCompile(shader as never, {} as never);
+  assert.match(shader.vertexShader, /vForgeInstanceColor = instanceColor\.rgb/);
+  assert.match(shader.fragmentShader, /distance\(vForgeInstanceColor, forgeInstanceSelectionMarker\) < 0\.001/);
+  assert.match(shader.fragmentShader, /forgeSelectionLuminance = dot\(outgoingLight/);
+  assert.match(shader.fragmentShader, /outgoingLight = forgeSelectionColor \* mix/);
+  assert.match(shader.fragmentShader, /#include <map_fragment>/);
+  assert.doesNotMatch(shader.fragmentShader, /diffuseColor\.a\s*=/);
+  assert.equal(shader.uniforms.forgeSelectionColor.value, selectionColor);
+  assert.equal(shader.uniforms.forgeInstanceSelectionMarker.value, INSTANCE_SELECTION_MARKER);
+  material.dispose();
+  source.dispose();
 });
 
 test('asset previews hide unsupported moby metals and shrub billboards', () => {
@@ -748,7 +949,7 @@ test('mirrored instances use a culling-aware outer reflection without changing t
   mirrored.transform.scale.x = -1;
   const projection = new SceneProjection();
   projection.setAssetTemplates(new Map([['asset', template]]));
-  projection.sync([entity('normal'), mirrored]);
+  projection.sync([entity('normal'), mirrored], ['mirrored']);
   const meshes: THREE.InstancedMesh[] = [];
   projection.root.traverse((object) => { if (object instanceof THREE.InstancedMesh) meshes.push(object); });
   assert.equal(meshes.length, 2);
@@ -757,6 +958,7 @@ test('mirrored instances use a culling-aware outer reflection without changing t
   mirroredMesh.getMatrixAt(0, instanceMatrix);
   assert.ok(instanceMatrix.determinant() > 0);
   assert.ok(mirroredMesh.matrix.clone().multiply(instanceMatrix).determinant() < 0);
+  assert.ok(projection.getSelectionOutlineObjects()[0].matrix.determinant() < 0);
   projection.dispose();
   disposeObject(template);
 });

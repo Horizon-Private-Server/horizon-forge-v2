@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 
 import type { KeybindingMap, KeybindingOverrides } from '../../types/Keybindings.js';
 import type { SceneTreeColors, SceneTreeKind } from '../../types/SceneTree.js';
+import type { CollisionVisualization } from '../../types/CollisionVisualization.js';
 import type { UiSize } from '../../types/ForgeApi.js';
 import { errorMessage } from '../../utils/Errors.ts';
 import { parseKeybindingOverrides, resolveKeybindings } from '../../utils/Keybindings.ts';
@@ -17,6 +18,9 @@ import {
 import { ColorPickerInput } from '../ColorPickerInput.tsx';
 import { KeybindingsSettings } from './KeybindingsSettings.tsx';
 import { isUiSize, UI_SIZES } from '../../utils/UiSize.ts';
+import { readSelectionColor, SELECTION_COLOR_KEY } from '../../utils/SelectionVisualization.ts';
+import { readUyaCollisionVisualization } from '../../utils/UyaCollisionVisualization.ts';
+import { UyaCollisionVisualizationSettings } from './UyaCollisionVisualizationSettings.tsx';
 
 interface SettingsModalProps {
   opened: boolean;
@@ -24,6 +28,10 @@ interface SettingsModalProps {
   onKeybindingsChange(value: KeybindingMap): void;
   sceneTreeColors: SceneTreeColors;
   onSceneTreeColorsChange(value: SceneTreeColors): void;
+  selectionColor: string;
+  onSelectionColorChange(value: string): void;
+  collisionVisualization: CollisionVisualization;
+  onCollisionVisualizationChange(value: CollisionVisualization): void;
   onViewportStatsChange(value: boolean): void;
   uiSize: UiSize;
   onUiSizeChange(value: UiSize): void;
@@ -35,6 +43,10 @@ export function SettingsModal({
   onKeybindingsChange,
   sceneTreeColors,
   onSceneTreeColorsChange,
+  selectionColor,
+  onSelectionColorChange,
+  collisionVisualization,
+  onCollisionVisualizationChange,
   onViewportStatsChange,
   uiSize,
   onUiSizeChange,
@@ -72,6 +84,8 @@ export function SettingsModal({
       setUpdateChannel(channel?.value === 'nightly' ? 'nightly' : 'stable');
       setKeybindingOverrides(overrides);
       onSceneTreeColorsChange(readSceneTreeColors(snapshot.entries));
+      onSelectionColorChange(readSelectionColor(snapshot.entries));
+      onCollisionVisualizationChange(readUyaCollisionVisualization(snapshot.entries));
       onKeybindingsChange(resolveKeybindings(overrides));
       onViewportStatsChange(stats?.value === true);
       setRenderCacheCleared(false);
@@ -235,7 +249,23 @@ export function SettingsModal({
               />
             </Input.Wrapper>
           </Paper>
-          <SimpleGrid cols={{ base: 1, sm: 2 }}>
+          <ColorPickerInput
+            label="Selection color"
+            value={selectionColor}
+            format="hex"
+            onChange={(value) => {
+              if (isHexColor(value)) onSelectionColorChange(value);
+            }}
+            onChangeEnd={(value) => {
+              if (!isHexColor(value)) return;
+              void window.forge.setSetting(SELECTION_COLOR_KEY, value).catch((reason: unknown) => {
+                setError(errorMessage(reason));
+                void window.forge.getSettings().then((snapshot) =>
+                  onSelectionColorChange(readSelectionColor(snapshot.entries)));
+              });
+            }}
+          />
+          <SimpleGrid cols={{ base: 1, sm: 2, md: 4 }}>
             {SCENE_TREE_KINDS.map((kind) => <ColorPickerInput
               key={kind}
               label={kind === 'occlusionOctant' ? 'Occlusion octant color' : `${SCENE_TREE_LABELS[kind]} tree color`}
@@ -250,6 +280,11 @@ export function SettingsModal({
           <Button mt="sm" variant="default" loading={resettingTreeColors} onClick={() => void resetTreeColors()}>
             Reset scene colors
           </Button>
+          <UyaCollisionVisualizationSettings
+            value={collisionVisualization}
+            onChange={onCollisionVisualizationChange}
+            onError={setError}
+          />
           {error && <Alert color="red" title="Settings error" mt="sm">{error}</Alert>}
         </Tabs.Panel>
         <Tabs.Panel value="keybindings" pt="sm">

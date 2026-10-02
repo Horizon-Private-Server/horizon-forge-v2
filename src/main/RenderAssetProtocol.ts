@@ -11,6 +11,7 @@ import { AssetThumbnailCache } from './AssetThumbnailCache.js';
 export class RenderAssetProtocol {
   private readonly roots = new Map<string, string>();
   private readonly thumbnails: AssetThumbnailCache;
+  private editorRootKey?: string;
 
   constructor(private readonly cacheRoot: string) {
     this.thumbnails = new AssetThumbnailCache(cacheRoot, (bytes) => {
@@ -40,6 +41,8 @@ export class RenderAssetProtocol {
 
   async addUyaPackage(value: UyaRenderPackageResult): Promise<EditorTerrainSource> {
     const url = await this.registerRoot(value.cacheKey, value.rootPath);
+    if (this.editorRootKey && this.editorRootKey !== value.cacheKey) this.roots.delete(this.editorRootKey);
+    this.editorRootKey = value.cacheKey;
     return {
       urls: value.terrainPaths.map(url),
       skyUrl: value.skyPath ? url(value.skyPath) : undefined,

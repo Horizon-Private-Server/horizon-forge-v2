@@ -5,7 +5,7 @@ namespace Forge.Host.Domain;
 public static class ProjectSchema
 {
     public const int CurrentVersion = 3;
-    public const int CurrentBaseEntityVersion = 10;
+    public const int CurrentBaseEntityVersion = 11;
     public const string ManifestDocumentType = "forge-project";
     public const string ContentDocumentType = "forge-project-content";
 

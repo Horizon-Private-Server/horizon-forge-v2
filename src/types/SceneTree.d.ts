@@ -11,6 +11,8 @@ export type SceneTreeKind =
   | 'spline'
   | 'grindPath'
   | 'area'
+  | 'collision'
+  | 'playerBarrier'
   | 'directionalLight'
   | 'pointLight'
   | 'environmentSample'

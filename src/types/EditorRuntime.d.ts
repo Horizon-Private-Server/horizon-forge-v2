@@ -37,6 +37,15 @@ export interface EditorSkyShell {
   angularVelocityRadiansPerSecond: ProjectVector3;
 }
 
+export interface EditorCollisionPiece {
+  kind: 'solid' | 'playerBarrier';
+  sourcePayloadIndex: number;
+  sourcePieceIndex: number;
+  faceCount: number;
+  vertexCount: number;
+  types: Array<{ rawType: number; count: number }>;
+}
+
 export interface EditorLevelSettings {
   backgroundColor: [number, number, number];
   fogColor: [number, number, number];
@@ -61,6 +70,7 @@ export interface EditorEntity {
     points: ProjectVector4[];
   };
   skyShell?: EditorSkyShell;
+  collision?: EditorCollisionPiece;
   transformModes: Array<'translate' | 'rotate' | 'scale'>;
   state: {
     dirty: boolean;

@@ -13,7 +13,7 @@ namespace Forge.Host.Games.UYA;
 
 public static class UyaRenderPackageService
 {
-    public const int SchemaVersion = 5;
+    public const int SchemaVersion = 6;
     private const string MarkerName = ".forge-render-package.json";
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
@@ -324,7 +324,8 @@ public static class UyaRenderPackageService
         foreach (var reference in workspace.Content.Entities
                      .Select(entity => entity.Asset)
                      .OfType<ProjectAssetReference>()
-                     .Where(reference => reference.Kind is AssetKind.Moby or AssetKind.Tie or AssetKind.Shrub)
+                     .Where(reference => reference.Kind is AssetKind.Moby or AssetKind.Tie or AssetKind.Shrub
+                         or AssetKind.Collision)
                      .Distinct()
                      .OrderBy(reference => reference.Id.ToString(), StringComparer.Ordinal))
         {
@@ -397,6 +398,20 @@ public static class UyaRenderPackageService
             throw new InvalidDataException($"Unsupported canonical asset format {canonicalFormatVersion}.");
         var bytes = await AssetCatalogBlobReader.ReadVerifiedAsync(
             id, kind, canonicalFormatVersion, size, path, UyaAssetLimits.MaxCanonicalBytes, cancellationToken);
+        if (kind == AssetKind.Collision)
+        {
+            if (canonicalFormatVersion != UyaBaseLayerSchema.CanonicalFormatVersion)
+                throw new InvalidDataException($"Unsupported collision asset format {canonicalFormatVersion}.");
+            var collision = await Task.Run(
+                () => CollisionConverter.ExportGltf(
+                    bytes, GameId.UYA, "model.gltf", "model.buffer.bin", minify: true),
+                cancellationToken);
+            return PackedFilePackageBuilder.Pack(
+            [
+                new("model.gltf", collision.GltfBytes, "model/gltf+json"),
+                new("model.buffer.bin", collision.BinBytes, "application/octet-stream"),
+            ]);
+        }
         var canonical = UyaCanonicalAssetCodec.Decode(bytes);
         var frontendKind = kind switch
         {

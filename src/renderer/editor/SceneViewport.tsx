@@ -3,6 +3,10 @@ import type { DragEvent } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { OutlinePass } from 'three/addons/postprocessing/OutlinePass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 
 import type {
   EditorEntity, EditorTransformUpdate, ProjectVector3, ProjectVector4,
@@ -10,6 +14,7 @@ import type {
 import type { AssetModelPlacementDragData, AssetPlacementDragData } from '../../types/AssetExplorer.js';
 import type { KeybindingMap } from '../../types/Keybindings.js';
 import type { SceneTreeColors } from '../../types/SceneTree.js';
+import type { CollisionVisualization } from '../../types/CollisionVisualization.js';
 import type { EditorLoadProgress, EditorSceneEnvironment, EditorTerrainSource } from '../../types/ForgeApi.js';
 import type { EditorSnapSource, EditorSnapTarget } from '../../types/EditorViewport.js';
 import {
@@ -25,6 +30,7 @@ import {
 } from '../../utils/Scene.ts';
 import type { CameraFlight } from '../../utils/Scene.ts';
 import { configureSkybox, skyEyeFromBounds } from '../../utils/SkyboxScene.ts';
+import { configureCollisionMaterials } from '../../utils/CollisionMaterials.ts';
 import {
   configurePs2AssetVisibility,
   configurePs2MaterialAlpha,
@@ -37,7 +43,7 @@ import {
 } from '../../utils/AssetPlacement.ts';
 import { nextViewportSelection } from './EditorPanelState.ts';
 import { buildGroundPlacement } from './ScenePlacement.ts';
-import { SceneProjection } from './SceneProjection.ts';
+import { assetTemplateKey, SceneProjection } from './SceneProjection.ts';
 import { resolvePointerSnapTarget } from './SceneSnapping.ts';
 import { TransformTool } from './TransformTool.ts';
 import type { EditorTransformMode, EditorTransformSpace } from './TransformTool.ts';
@@ -46,7 +52,9 @@ import { ViewportToolbar } from './ViewportToolbar.tsx';
 interface SceneViewportProps {
   entities: readonly EditorEntity[];
   keybindings: KeybindingMap;
+  selectionColor: string;
   sceneTreeColors: SceneTreeColors;
+  collisionVisualization: CollisionVisualization;
   focusEntityId?: string;
   selection: readonly string[];
   terrain?: EditorTerrainSource;
@@ -54,8 +62,13 @@ interface SceneViewportProps {
   disabled: boolean;
   showStats: boolean;
   showOcclusionOctants: boolean;
+  showTerrain: boolean;
+  showSolidCollision: boolean;
+  showPlayerBarriers: boolean;
   onFocusHandled(): void;
   onLoadProgress(progress?: EditorLoadProgress): void;
+  onSolidCollisionVisibilityChange(value: boolean): void;
+  onPlayerBarrierVisibilityChange(value: boolean): void;
   onSelectionChange(values: string[]): void;
   onTransformsCommit(values: EditorTransformUpdate[]): Promise<boolean>;
   onSplinePointsCommit(entityId: string, points: ProjectVector4[]): Promise<boolean>;
@@ -72,7 +85,9 @@ interface SkyShellProjection {
 export function SceneViewport({
   entities,
   keybindings,
+  selectionColor,
   sceneTreeColors,
+  collisionVisualization,
   focusEntityId,
   selection,
   terrain: terrainSource,
@@ -80,8 +95,13 @@ export function SceneViewport({
   disabled,
   showStats,
   showOcclusionOctants,
+  showTerrain,
+  showSolidCollision,
+  showPlayerBarriers,
   onFocusHandled,
   onLoadProgress,
+  onSolidCollisionVisibilityChange,
+  onPlayerBarrierVisibilityChange,
   onSelectionChange,
   onTransformsCommit,
   onSplinePointsCommit,
@@ -102,8 +122,10 @@ export function SceneViewport({
   const currentShowStats = useRef(showStats);
   const currentSelection = useRef(selection);
   const currentEntities = useRef(entities);
+  const currentCollisionVisibility = useRef(collisionVisibility(showSolidCollision, showPlayerBarriers));
   const currentKeybindings = useRef(keybindings);
   const currentEnvironment = useRef(environment);
+  const currentCollisionVisualization = useRef(collisionVisualization);
   const focusHandled = useRef(onFocusHandled);
   const loadProgressChanged = useRef(onLoadProgress);
   const selectionChanged = useRef(onSelectionChange);
@@ -112,8 +134,10 @@ export function SceneViewport({
   const assetDropped = useRef(onAssetDrop);
   currentSelection.current = selection;
   currentEntities.current = entities;
+  currentCollisionVisibility.current = collisionVisibility(showSolidCollision, showPlayerBarriers);
   currentKeybindings.current = keybindings;
   currentEnvironment.current = environment;
+  currentCollisionVisualization.current = collisionVisualization;
   currentShowStats.current = showStats;
   focusHandled.current = onFocusHandled;
   loadProgressChanged.current = onLoadProgress;
@@ -129,6 +153,7 @@ export function SceneViewport({
     camera: THREE.PerspectiveCamera;
     controls: OrbitControls;
     transformTool: TransformTool;
+    outlinePass: OutlinePass;
     content: THREE.Group;
     terrain: THREE.Group;
     occlusion: THREE.Group;
@@ -142,6 +167,7 @@ export function SceneViewport({
     placedTemplates: Map<string, THREE.Object3D>;
     skyShells: Map<string, SkyShellProjection>;
     previewRequests: Set<string>;
+    collisionScenes: Set<THREE.Object3D>;
   }>(null);
   const dropFrame = useRef<number | undefined>(undefined);
   const pendingDrop = useRef<{ x: number; y: number } | undefined>(undefined);
@@ -162,12 +188,14 @@ export function SceneViewport({
     content.name = 'Forge scene content';
     const terrain = new THREE.Group();
     terrain.name = 'Terrain';
+    terrain.visible = showTerrain;
     const occlusion = new THREE.Group();
     occlusion.name = 'Occlusion octants';
     occlusion.visible = showOcclusionOctants;
     const sky = new THREE.Group();
     sky.name = 'Sky';
     const currentProjection = new SceneProjection();
+    currentProjection.setSelectionColor(selectionColor);
     content.add(terrain, occlusion, currentProjection.root);
     skyScene.add(sky);
     scene.add(content);
@@ -179,6 +207,26 @@ export function SceneViewport({
     renderer.info.autoReset = false;
     renderer.setPixelRatio(1);
     element.append(renderer.domElement);
+
+    const composer = new EffectComposer(renderer);
+    const skyPass = new RenderPass(skyScene, camera);
+    const scenePass = new RenderPass(scene, camera);
+    scenePass.clear = false;
+    scenePass.clearDepth = true;
+    const outlinePass = new OutlinePass(new THREE.Vector2(1, 1), scene, camera);
+    setOutlineColor(outlinePass, selectionColor);
+    outlinePass.edgeStrength = 4;
+    outlinePass.edgeThickness = 3;
+    outlinePass.downSampleRatio = 1;
+    const toolPass = new RenderPass(toolScene, camera);
+    toolPass.clear = false;
+    toolPass.clearDepth = true;
+    const outputPass = new OutputPass();
+    composer.addPass(skyPass);
+    composer.addPass(scenePass);
+    composer.addPass(outlinePass);
+    composer.addPass(toolPass);
+    composer.addPass(outputPass);
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
@@ -252,6 +300,7 @@ export function SceneViewport({
       camera,
       controls,
       transformTool,
+      outlinePass,
       content,
       terrain,
       occlusion,
@@ -266,6 +315,7 @@ export function SceneViewport({
       placedTemplates: new Map(),
       skyShells: new Map(),
       previewRequests: new Set(),
+      collisionScenes: new Set(),
     };
 
     let noticeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -416,6 +466,7 @@ export function SceneViewport({
       camera.aspect = clientWidth / Math.max(clientHeight, 1);
       camera.updateProjectionMatrix();
       renderer.setSize(clientWidth, clientHeight, false);
+      composer.setSize(clientWidth, clientHeight);
       currentProjection.setViewportSize(clientWidth, clientHeight);
     };
 
@@ -435,12 +486,8 @@ export function SceneViewport({
       sky.position.copy(camera.position).sub(viewport.current?.skyEye ?? ZERO_VECTOR);
       controls.update();
       renderer.info.reset();
-      renderer.clear();
-      renderer.render(skyScene, camera);
-      renderer.clearDepth();
-      renderer.render(scene, camera);
-      renderer.clearDepth();
-      renderer.render(toolScene, camera);
+      outlinePass.selectedObjects = currentProjection.getSelectionOutlineObjects();
+      composer.render(delta);
       const now = performance.now();
       if (currentShowStats.current) {
         statsFrames += 1;
@@ -494,6 +541,9 @@ export function SceneViewport({
       viewport.current?.placedTemplates.forEach(disposeObject);
       viewport.current?.skyShells.forEach((shell) => disposeObject(shell.root));
       if (viewport.current?.projection === currentProjection) viewport.current = null;
+      outlinePass.dispose();
+      outputPass.dispose();
+      composer.dispose();
       renderer.dispose();
       renderer.forceContextLoss();
       renderer.domElement.remove();
@@ -547,12 +597,37 @@ export function SceneViewport({
       }
       const templates = new Map<string, THREE.Object3D>();
       const failedAssets = new Set<string>();
+      const collisionEntitiesByAsset = new Map<string, EditorEntity[]>();
+      for (const entity of currentEntities.current) {
+        if (!entity.collision || !entity.asset) continue;
+        const matches = collisionEntitiesByAsset.get(entity.asset.id);
+        if (matches) matches.push(entity);
+        else collisionEntitiesByAsset.set(entity.asset.id, [entity]);
+      }
       assetResults.forEach((result, index) => {
         const asset = terrainSource.assets[index];
         if (result.status === 'fulfilled') {
-          configurePs2MaterialAlpha(result.value.scene, asset.kind);
+          if (asset.kind !== 'collision') configurePs2MaterialAlpha(result.value.scene, asset.kind);
           configurePs2MaterialFog(result.value.scene, currentEnvironment.current);
-          templates.set(asset.assetId, result.value.scene);
+          if (asset.kind === 'collision') {
+            configureCollisionMaterials(result.value.scene, currentCollisionVisualization.current);
+            viewport.current!.collisionScenes.add(result.value.scene);
+            let found = false;
+            const nodes = new Map<string, THREE.Object3D>();
+            result.value.scene.traverse((node) => { if (node.name) nodes.set(node.name, node); });
+            collisionEntitiesByAsset.get(asset.assetId)?.forEach((entity) => {
+              const prefix = entity.collision!.kind === 'solid' ? 'solid_collision' : 'player_barrier';
+              const node = nodes.get(
+                `${prefix}_${String(entity.collision!.sourcePieceIndex).padStart(4, '0')}`,
+              );
+              const key = assetTemplateKey(entity);
+              if (node && key) {
+                templates.set(key, node);
+                found = true;
+              }
+            });
+            if (!found) failedAssets.add(asset.assetId);
+          } else templates.set(asset.assetId, result.value.scene);
           loadedScenes.push(result.value.scene);
         } else {
           failedAssets.add(asset.assetId);
@@ -562,6 +637,9 @@ export function SceneViewport({
       viewport.current.projection.sync(
         currentEntities.current,
         currentSelection.current,
+        undefined,
+        true,
+        currentCollisionVisibility.current,
       );
       viewport.current.transformTool.sync(currentEntities.current, currentSelection.current, viewport.current.projection);
       if (!viewport.current.framed) {
@@ -598,8 +676,13 @@ export function SceneViewport({
         applySceneEnvironment(viewport.current.scene, undefined, viewport.current.skyScene);
       }
       for (const scene of loadedScenes) disposeObject(scene);
+      if (viewport.current) loadedScenes.forEach((scene) => viewport.current!.collisionScenes.delete(scene));
     };
   }, [terrainSource]);
+
+  useEffect(() => {
+    viewport.current?.collisionScenes.forEach((scene) => configureCollisionMaterials(scene, collisionVisualization));
+  }, [collisionVisualization]);
 
   useEffect(() => {
     const current = viewport.current;
@@ -668,9 +751,14 @@ export function SceneViewport({
   useEffect(() => {
     const current = viewport.current;
     if (!current) return;
+    current.projection.setSelectionColor(selectionColor);
+    setOutlineColor(current.outlinePass, selectionColor);
     current.projection.sync(
       entities,
       selection,
+      undefined,
+      true,
+      currentCollisionVisibility.current,
     );
     syncSkyShellProjections(current, entities);
     current.transformTool.sync(entities, selection, current.projection);
@@ -679,7 +767,15 @@ export function SceneViewport({
         frameEntities(current.camera, current.controls, entities);
       current.framed = true;
     }
-  }, [entities, selection]);
+  }, [entities, selection, selectionColor, showPlayerBarriers, showSolidCollision]);
+
+  useEffect(() => {
+    const next = selection.filter((id) => {
+      const collision = entities.find((entity) => entity.id === id)?.collision;
+      return !collision || currentCollisionVisibility.current.has(collision.kind);
+    });
+    if (next.length !== selection.length) selectionChanged.current(next);
+  }, [entities, selection, showPlayerBarriers, showSolidCollision]);
 
   useEffect(() => {
     const current = viewport.current;
@@ -693,6 +789,7 @@ export function SceneViewport({
     });
   }, [sceneTreeColors]);
   useEffect(() => { if (viewport.current) viewport.current.occlusion.visible = showOcclusionOctants; }, [showOcclusionOctants]);
+  useEffect(() => { if (viewport.current) viewport.current.terrain.visible = showTerrain; }, [showTerrain]);
 
   useEffect(() => { if (!showStats) setStats(undefined); }, [showStats]);
 
@@ -781,7 +878,9 @@ export function SceneViewport({
       current.placedTemplates.set(asset.assetId, root);
       current.projection.addAssetTemplate(asset.assetId, root);
       root = undefined;
-      current.projection.sync(currentEntities.current, currentSelection.current);
+      current.projection.sync(
+        currentEntities.current, currentSelection.current, undefined, true, currentCollisionVisibility.current,
+      );
       current.transformTool.sync(currentEntities.current, currentSelection.current, current.projection);
     } catch {
       if (viewport.current === current) setNotice('Asset placed; mesh preview unavailable.');
@@ -844,6 +943,8 @@ export function SceneViewport({
         translationSnap={translationSnap}
         rotationSnap={rotationSnap}
         scaleSnap={scaleSnap}
+        showSolidCollision={showSolidCollision}
+        showPlayerBarriers={showPlayerBarriers}
         onModeChange={setMode}
         onSpaceChange={setSpace}
         onSnapSourceChange={setSnapSource}
@@ -852,6 +953,8 @@ export function SceneViewport({
         onTranslationSnapChange={setTranslationSnap}
         onRotationSnapChange={setRotationSnap}
         onScaleSnapChange={setScaleSnap}
+        onSolidCollisionVisibilityChange={onSolidCollisionVisibilityChange}
+        onPlayerBarrierVisibilityChange={onPlayerBarrierVisibilityChange}
       />
       {notice && <div className="scene-notice" role="status">{notice}</div>}
       {showStats && <div className="scene-stats">
@@ -923,6 +1026,22 @@ function createOcclusionOverlay(
   overlay.name = 'Occlusion octants';
   overlay.add(fill, edges);
   return overlay;
+}
+
+function collisionVisibility(
+  solid: boolean,
+  playerBarriers: boolean,
+): ReadonlySet<'solid' | 'playerBarrier'> {
+  return new Set([
+    ...(solid ? ['solid' as const] : []),
+    ...(playerBarriers ? ['playerBarrier' as const] : []),
+  ]);
+}
+
+function setOutlineColor(pass: OutlinePass, color: THREE.ColorRepresentation): void {
+  const outline = new THREE.Color(color).multiplyScalar(0.7);
+  pass.visibleEdgeColor.copy(outline);
+  pass.hiddenEdgeColor.copy(outline);
 }
 
 const MOVEMENT_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'Space', 'ShiftLeft', 'ShiftRight']);

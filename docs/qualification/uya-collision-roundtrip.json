@@ -1,0 +1,1059 @@
+{
+  "SchemaVersion": 1,
+  "SdkVersion": "1.0.0.0",
+  "GeneratedAtUtc": "2026-10-01T03:18:26.5394596+00:00",
+  "Runtime": ".NET 10.0.12",
+  "OperatingSystem": "Bazzite",
+  "Architecture": "X64",
+  "IsoSize": 4379377664,
+  "LevelCount": 51,
+  "PassedLevelCount": 51,
+  "Levels": [
+    {
+      "LevelIndex": 1,
+      "Succeeded": true,
+      "PayloadCount": 1,
+      "SolidPieceCount": 4913,
+      "PlayerBarrierCount": 51,
+      "FaceCount": 81438,
+      "SourceBytes": 2471488,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 2471488,
+          "SourceSha256": "0bcf82e12b70a35010f5315e07f169ca54fd8ff508268d2a3c9ffe7159ed1ef5",
+          "OutputSha256": "0bcf82e12b70a35010f5315e07f169ca54fd8ff508268d2a3c9ffe7159ed1ef5",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 2,
+      "Succeeded": true,
+      "PayloadCount": 1,
+      "SolidPieceCount": 3038,
+      "PlayerBarrierCount": 31,
+      "FaceCount": 52071,
+      "SourceBytes": 2281536,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 2281536,
+          "SourceSha256": "6d2ff5b0cb9dcbc72271405bf3da94aac187b2c5fd6c228cdc98ce14f9931c48",
+          "OutputSha256": "6d2ff5b0cb9dcbc72271405bf3da94aac187b2c5fd6c228cdc98ce14f9931c48",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 3,
+      "Succeeded": true,
+      "PayloadCount": 1,
+      "SolidPieceCount": 1726,
+      "PlayerBarrierCount": 13,
+      "FaceCount": 33910,
+      "SourceBytes": 1338112,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 1338112,
+          "SourceSha256": "1ad3eabd1b8c5dc4292b2b3dcbbec9abd672483bd8d3cedd531627b50af7efdf",
+          "OutputSha256": "1ad3eabd1b8c5dc4292b2b3dcbbec9abd672483bd8d3cedd531627b50af7efdf",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 4,
+      "Succeeded": true,
+      "PayloadCount": 3,
+      "SolidPieceCount": 3896,
+      "PlayerBarrierCount": 57,
+      "FaceCount": 64526,
+      "SourceBytes": 2437168,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 1715072,
+          "SourceSha256": "cebc910cf765e1e040459f689112b0eebeb2db1fc17812552914bc7114035e0c",
+          "OutputSha256": "cebc910cf765e1e040459f689112b0eebeb2db1fc17812552914bc7114035e0c",
+          "Matched": true
+        },
+        {
+          "Payload": "chunk-1",
+          "SourceBytes": 502816,
+          "SourceSha256": "1cd4c561a1d592bc8154f3474c2de553ba40af14cc820f95591c41add69a160b",
+          "OutputSha256": "1cd4c561a1d592bc8154f3474c2de553ba40af14cc820f95591c41add69a160b",
+          "Matched": true
+        },
+        {
+          "Payload": "chunk-2",
+          "SourceBytes": 219280,
+          "SourceSha256": "a85a90e3fb35e17c7312a401290e1e2bf862f5dda86f3aaf2efda9e381136e05",
+          "OutputSha256": "a85a90e3fb35e17c7312a401290e1e2bf862f5dda86f3aaf2efda9e381136e05",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 5,
+      "Succeeded": true,
+      "PayloadCount": 1,
+      "SolidPieceCount": 2967,
+      "PlayerBarrierCount": 69,
+      "FaceCount": 57429,
+      "SourceBytes": 2031808,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 2031808,
+          "SourceSha256": "84a3cd80e7480064511422d933f0c67888eb8d8bcd4c0a5058e6c123a39ad43a",
+          "OutputSha256": "84a3cd80e7480064511422d933f0c67888eb8d8bcd4c0a5058e6c123a39ad43a",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 6,
+      "Succeeded": true,
+      "PayloadCount": 1,
+      "SolidPieceCount": 1433,
+      "PlayerBarrierCount": 18,
+      "FaceCount": 30827,
+      "SourceBytes": 1267136,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 1267136,
+          "SourceSha256": "47b81a976efa406270a093f226801fde19dc0122d110989d005b0020df3cf56a",
+          "OutputSha256": "47b81a976efa406270a093f226801fde19dc0122d110989d005b0020df3cf56a",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 7,
+      "Succeeded": true,
+      "PayloadCount": 2,
+      "SolidPieceCount": 2498,
+      "PlayerBarrierCount": 28,
+      "FaceCount": 91854,
+      "SourceBytes": 3131984,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 2550144,
+          "SourceSha256": "0126aa2b31b4edddc1a5058806eb593a835ee2bfbdb6cba921e2541742604c96",
+          "OutputSha256": "0126aa2b31b4edddc1a5058806eb593a835ee2bfbdb6cba921e2541742604c96",
+          "Matched": true
+        },
+        {
+          "Payload": "chunk-1",
+          "SourceBytes": 581840,
+          "SourceSha256": "7f81e94bbfa492db4f1e3ce1ffc79ef4a9d131cd6e11581502899468a186016b",
+          "OutputSha256": "7f81e94bbfa492db4f1e3ce1ffc79ef4a9d131cd6e11581502899468a186016b",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 8,
+      "Succeeded": true,
+      "PayloadCount": 3,
+      "SolidPieceCount": 1369,
+      "PlayerBarrierCount": 14,
+      "FaceCount": 31810,
+      "SourceBytes": 1045344,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 1045184,
+          "SourceSha256": "a6ef51034bc663a580df1cf081f9bb14b078e43c8d8fa04760d8192bd60adcbf",
+          "OutputSha256": "a6ef51034bc663a580df1cf081f9bb14b078e43c8d8fa04760d8192bd60adcbf",
+          "Matched": true
+        },
+        {
+          "Payload": "chunk-1",
+          "SourceBytes": 80,
+          "SourceSha256": "edb9179c962d3bfc3b9bdf6d6b538be86bb00535d5b19b7bb30d5241e8a1bcd2",
+          "OutputSha256": "edb9179c962d3bfc3b9bdf6d6b538be86bb00535d5b19b7bb30d5241e8a1bcd2",
+          "Matched": true
+        },
+        {
+          "Payload": "chunk-2",
+          "SourceBytes": 80,
+          "SourceSha256": "edb9179c962d3bfc3b9bdf6d6b538be86bb00535d5b19b7bb30d5241e8a1bcd2",
+          "OutputSha256": "edb9179c962d3bfc3b9bdf6d6b538be86bb00535d5b19b7bb30d5241e8a1bcd2",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 9,
+      "Succeeded": true,
+      "PayloadCount": 3,
+      "SolidPieceCount": 4476,
+      "PlayerBarrierCount": 41,
+      "FaceCount": 76702,
+      "SourceBytes": 4773664,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 2185472,
+          "SourceSha256": "f498be1503e3b67076b89be08cee29564d468b5f2e89eaeeed217713646aa29a",
+          "OutputSha256": "f498be1503e3b67076b89be08cee29564d468b5f2e89eaeeed217713646aa29a",
+          "Matched": true
+        },
+        {
+          "Payload": "chunk-1",
+          "SourceBytes": 402768,
+          "SourceSha256": "3437f6baf451f370e8e5f1d82bf319ed50d0fa11b25f9f86f7e9e4a05c6d940e",
+          "OutputSha256": "3437f6baf451f370e8e5f1d82bf319ed50d0fa11b25f9f86f7e9e4a05c6d940e",
+          "Matched": true
+        },
+        {
+          "Payload": "chunk-2",
+          "SourceBytes": 2185424,
+          "SourceSha256": "b8fde2463ce53aa214a4c8a9de70ffe9582831e6529c4018933c9548114c819e",
+          "OutputSha256": "b8fde2463ce53aa214a4c8a9de70ffe9582831e6529c4018933c9548114c819e",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 10,
+      "Succeeded": true,
+      "PayloadCount": 3,
+      "SolidPieceCount": 1769,
+      "PlayerBarrierCount": 31,
+      "FaceCount": 41360,
+      "SourceBytes": 1266480,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 740160,
+          "SourceSha256": "642338369231507b41bc82b6428e9cf7bdc5563e88a144cf039cc2186846bd96",
+          "OutputSha256": "642338369231507b41bc82b6428e9cf7bdc5563e88a144cf039cc2186846bd96",
+          "Matched": true
+        },
+        {
+          "Payload": "chunk-1",
+          "SourceBytes": 526240,
+          "SourceSha256": "17202be3f6fa6d82bf576c3970e1d08e4d3333c934ce129df532f94c00cb987b",
+          "OutputSha256": "17202be3f6fa6d82bf576c3970e1d08e4d3333c934ce129df532f94c00cb987b",
+          "Matched": true
+        },
+        {
+          "Payload": "chunk-2",
+          "SourceBytes": 80,
+          "SourceSha256": "edb9179c962d3bfc3b9bdf6d6b538be86bb00535d5b19b7bb30d5241e8a1bcd2",
+          "OutputSha256": "edb9179c962d3bfc3b9bdf6d6b538be86bb00535d5b19b7bb30d5241e8a1bcd2",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 11,
+      "Succeeded": true,
+      "PayloadCount": 1,
+      "SolidPieceCount": 2858,
+      "PlayerBarrierCount": 25,
+      "FaceCount": 89593,
+      "SourceBytes": 3659200,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 3659200,
+          "SourceSha256": "612c50f642f15c95d4b4691ceb255d9201d4a66ceabdc5aea56acbd0d230eeec",
+          "OutputSha256": "612c50f642f15c95d4b4691ceb255d9201d4a66ceabdc5aea56acbd0d230eeec",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 12,
+      "Succeeded": true,
+      "PayloadCount": 1,
+      "SolidPieceCount": 2214,
+      "PlayerBarrierCount": 23,
+      "FaceCount": 74994,
+      "SourceBytes": 2357696,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 2357696,
+          "SourceSha256": "ee2ad76c5200955bac956aeb3ae3024d1c6e3706271475170d9392fe18cb840e",
+          "OutputSha256": "ee2ad76c5200955bac956aeb3ae3024d1c6e3706271475170d9392fe18cb840e",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 13,
+      "Succeeded": true,
+      "PayloadCount": 1,
+      "SolidPieceCount": 3860,
+      "PlayerBarrierCount": 32,
+      "FaceCount": 74264,
+      "SourceBytes": 2320256,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 2320256,
+          "SourceSha256": "3b2ff3a604d710660ed988d094a24c93ea42797b644226217d317e2477141c94",
+          "OutputSha256": "3b2ff3a604d710660ed988d094a24c93ea42797b644226217d317e2477141c94",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 14,
+      "Succeeded": true,
+      "PayloadCount": 1,
+      "SolidPieceCount": 4229,
+      "PlayerBarrierCount": 32,
+      "FaceCount": 67220,
+      "SourceBytes": 2359616,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 2359616,
+          "SourceSha256": "e0fe783eeb157e01501a36802dea03c3b2837412e660273280d9e7d28ab41ff9",
+          "OutputSha256": "e0fe783eeb157e01501a36802dea03c3b2837412e660273280d9e7d28ab41ff9",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 16,
+      "Succeeded": true,
+      "PayloadCount": 1,
+      "SolidPieceCount": 1773,
+      "PlayerBarrierCount": 12,
+      "FaceCount": 39636,
+      "SourceBytes": 2646848,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 2646848,
+          "SourceSha256": "901500086a735be3a456a02e2e55149bb75d95ea57a572792bc93096f76a18cc",
+          "OutputSha256": "901500086a735be3a456a02e2e55149bb75d95ea57a572792bc93096f76a18cc",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 17,
+      "Succeeded": true,
+      "PayloadCount": 1,
+      "SolidPieceCount": 1703,
+      "PlayerBarrierCount": 36,
+      "FaceCount": 66661,
+      "SourceBytes": 4242624,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 4242624,
+          "SourceSha256": "94dfb544a950e58dde2a8fff85784b1cab9854793911c76a499e15f0c56a5d41",
+          "OutputSha256": "94dfb544a950e58dde2a8fff85784b1cab9854793911c76a499e15f0c56a5d41",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 18,
+      "Succeeded": true,
+      "PayloadCount": 1,
+      "SolidPieceCount": 2849,
+      "PlayerBarrierCount": 61,
+      "FaceCount": 46132,
+      "SourceBytes": 2209856,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 2209856,
+          "SourceSha256": "6dd1bd5be000c19983f9d2c88f3b242980ff2d3f2d0ab4e21cb9cd57348a37c2",
+          "OutputSha256": "6dd1bd5be000c19983f9d2c88f3b242980ff2d3f2d0ab4e21cb9cd57348a37c2",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 19,
+      "Succeeded": true,
+      "PayloadCount": 2,
+      "SolidPieceCount": 4770,
+      "PlayerBarrierCount": 29,
+      "FaceCount": 106783,
+      "SourceBytes": 3309936,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 2925952,
+          "SourceSha256": "4d32b1211feda6154fb1327df1316d2775eafdeff3bbdb87c0394568de0da66a",
+          "OutputSha256": "4d32b1211feda6154fb1327df1316d2775eafdeff3bbdb87c0394568de0da66a",
+          "Matched": true
+        },
+        {
+          "Payload": "chunk-1",
+          "SourceBytes": 383984,
+          "SourceSha256": "05912bda23fa8e058d8ad9b91bcdab7681753fedd27837d9de95d67cfdd7da52",
+          "OutputSha256": "05912bda23fa8e058d8ad9b91bcdab7681753fedd27837d9de95d67cfdd7da52",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 20,
+      "Succeeded": true,
+      "PayloadCount": 1,
+      "SolidPieceCount": 4905,
+      "PlayerBarrierCount": 5,
+      "FaceCount": 73060,
+      "SourceBytes": 2126272,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 2126272,
+          "SourceSha256": "bb72cc350c168231d72cef982b0022ef789ef5f2449a45157e157c7848af9775",
+          "OutputSha256": "bb72cc350c168231d72cef982b0022ef789ef5f2449a45157e157c7848af9775",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 21,
+      "Succeeded": true,
+      "PayloadCount": 1,
+      "SolidPieceCount": 532,
+      "PlayerBarrierCount": 14,
+      "FaceCount": 17999,
+      "SourceBytes": 577472,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 577472,
+          "SourceSha256": "7c6ac2c52eabf1053a2ae936a7750c4facf18e986ebe3614f67e08777e7c8dc7",
+          "OutputSha256": "7c6ac2c52eabf1053a2ae936a7750c4facf18e986ebe3614f67e08777e7c8dc7",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 22,
+      "Succeeded": true,
+      "PayloadCount": 1,
+      "SolidPieceCount": 908,
+      "PlayerBarrierCount": 9,
+      "FaceCount": 36924,
+      "SourceBytes": 1577280,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 1577280,
+          "SourceSha256": "d4a99c20c58ac6882e3f1fedca708cfabac580c22a2b177622eeed7b0f8b66f6",
+          "OutputSha256": "d4a99c20c58ac6882e3f1fedca708cfabac580c22a2b177622eeed7b0f8b66f6",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 23,
+      "Succeeded": true,
+      "PayloadCount": 1,
+      "SolidPieceCount": 927,
+      "PlayerBarrierCount": 12,
+      "FaceCount": 23563,
+      "SourceBytes": 791808,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 791808,
+          "SourceSha256": "c3d2c07fa99b9d937178c53689f21695a580ee7d3e978ce0cab61d3692bd3eb2",
+          "OutputSha256": "c3d2c07fa99b9d937178c53689f21695a580ee7d3e978ce0cab61d3692bd3eb2",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 24,
+      "Succeeded": true,
+      "PayloadCount": 2,
+      "SolidPieceCount": 470,
+      "PlayerBarrierCount": 0,
+      "FaceCount": 80739,
+      "SourceBytes": 5441248,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 2720640,
+          "SourceSha256": "c7c2ed1186b8b86053ca9757de505d9aa3a54a42e0b9ad341124b26483795c7f",
+          "OutputSha256": "c7c2ed1186b8b86053ca9757de505d9aa3a54a42e0b9ad341124b26483795c7f",
+          "Matched": true
+        },
+        {
+          "Payload": "chunk-1",
+          "SourceBytes": 2720608,
+          "SourceSha256": "7b08ee4eb8096fff6e292af7d2035a0ecf5494498011f01dc6afe662c1b219e8",
+          "OutputSha256": "7b08ee4eb8096fff6e292af7d2035a0ecf5494498011f01dc6afe662c1b219e8",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 26,
+      "Succeeded": true,
+      "PayloadCount": 1,
+      "SolidPieceCount": 1209,
+      "PlayerBarrierCount": 24,
+      "FaceCount": 37207,
+      "SourceBytes": 1675456,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 1675456,
+          "SourceSha256": "f9aee4ffc45cf224457836836bbbcacdb91c1634c6e502749f96739a959e98c6",
+          "OutputSha256": "f9aee4ffc45cf224457836836bbbcacdb91c1634c6e502749f96739a959e98c6",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 27,
+      "Succeeded": true,
+      "PayloadCount": 1,
+      "SolidPieceCount": 1333,
+      "PlayerBarrierCount": 10,
+      "FaceCount": 15161,
+      "SourceBytes": 419072,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 419072,
+          "SourceSha256": "4cdbe22f24cc27e1f334e278bebf081a473084f36c28ed588a1aaa174ebac7d3",
+          "OutputSha256": "4cdbe22f24cc27e1f334e278bebf081a473084f36c28ed588a1aaa174ebac7d3",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 28,
+      "Succeeded": true,
+      "PayloadCount": 1,
+      "SolidPieceCount": 1421,
+      "PlayerBarrierCount": 36,
+      "FaceCount": 83377,
+      "SourceBytes": 2896192,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 2896192,
+          "SourceSha256": "6cb1fbbc7f37073d455c9350b6d3cd5cff2a71797e206863f62e370acabe19cc",
+          "OutputSha256": "6cb1fbbc7f37073d455c9350b6d3cd5cff2a71797e206863f62e370acabe19cc",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 29,
+      "Succeeded": true,
+      "PayloadCount": 1,
+      "SolidPieceCount": 2705,
+      "PlayerBarrierCount": 143,
+      "FaceCount": 52667,
+      "SourceBytes": 2917696,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 2917696,
+          "SourceSha256": "c4fe169306140dba25c39cfd4b4ae93b0a3a226b99fe9b8da1d15ccb64f31271",
+          "OutputSha256": "c4fe169306140dba25c39cfd4b4ae93b0a3a226b99fe9b8da1d15ccb64f31271",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 30,
+      "Succeeded": true,
+      "PayloadCount": 1,
+      "SolidPieceCount": 37,
+      "PlayerBarrierCount": 0,
+      "FaceCount": 10283,
+      "SourceBytes": 233664,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 233664,
+          "SourceSha256": "b8882813cee1b02540c54f7db15ff747f6034bbf02e5f6fc4473136f93560c2f",
+          "OutputSha256": "b8882813cee1b02540c54f7db15ff747f6034bbf02e5f6fc4473136f93560c2f",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 31,
+      "Succeeded": true,
+      "PayloadCount": 1,
+      "SolidPieceCount": 25,
+      "PlayerBarrierCount": 0,
+      "FaceCount": 5300,
+      "SourceBytes": 164224,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 164224,
+          "SourceSha256": "9aa5546dab9cf721cee1e657dd85cc0a64ff06848a9f24db04cb6ee17c1bb037",
+          "OutputSha256": "9aa5546dab9cf721cee1e657dd85cc0a64ff06848a9f24db04cb6ee17c1bb037",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 32,
+      "Succeeded": true,
+      "PayloadCount": 1,
+      "SolidPieceCount": 45,
+      "PlayerBarrierCount": 0,
+      "FaceCount": 2525,
+      "SourceBytes": 90240,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 90240,
+          "SourceSha256": "6a805aa8217405774d38ab78a7f1ce9f6288f9cc65011e4004153c9b9f57e9e3",
+          "OutputSha256": "6a805aa8217405774d38ab78a7f1ce9f6288f9cc65011e4004153c9b9f57e9e3",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 33,
+      "Succeeded": true,
+      "PayloadCount": 1,
+      "SolidPieceCount": 51,
+      "PlayerBarrierCount": 0,
+      "FaceCount": 3146,
+      "SourceBytes": 107968,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 107968,
+          "SourceSha256": "f88d940261b46307cb654851c2793a7c256f48c0daee076521c86ba5e331decd",
+          "OutputSha256": "f88d940261b46307cb654851c2793a7c256f48c0daee076521c86ba5e331decd",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 34,
+      "Succeeded": true,
+      "PayloadCount": 1,
+      "SolidPieceCount": 53,
+      "PlayerBarrierCount": 0,
+      "FaceCount": 2397,
+      "SourceBytes": 84608,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 84608,
+          "SourceSha256": "9092d4408e669808cb5da854664d73b2c5b7843cc1de3d3978df0baa4b66a9b0",
+          "OutputSha256": "9092d4408e669808cb5da854664d73b2c5b7843cc1de3d3978df0baa4b66a9b0",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 35,
+      "Succeeded": true,
+      "PayloadCount": 1,
+      "SolidPieceCount": 103,
+      "PlayerBarrierCount": 0,
+      "FaceCount": 3902,
+      "SourceBytes": 133952,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 133952,
+          "SourceSha256": "28e7fd84fcd95bf9919d2568fe77076e9564949914dbffe6864152d06937daef",
+          "OutputSha256": "28e7fd84fcd95bf9919d2568fe77076e9564949914dbffe6864152d06937daef",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 36,
+      "Succeeded": true,
+      "PayloadCount": 1,
+      "SolidPieceCount": 43,
+      "PlayerBarrierCount": 0,
+      "FaceCount": 8480,
+      "SourceBytes": 267264,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 267264,
+          "SourceSha256": "0e22baea6ac8f26989d21a41853a9c4e1efbd38a05d21c06f0a0dc6cfad363ea",
+          "OutputSha256": "0e22baea6ac8f26989d21a41853a9c4e1efbd38a05d21c06f0a0dc6cfad363ea",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 39,
+      "Succeeded": true,
+      "PayloadCount": 1,
+      "SolidPieceCount": 1,
+      "PlayerBarrierCount": 0,
+      "FaceCount": 1,
+      "SourceBytes": 128,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 128,
+          "SourceSha256": "2f8d83e93c5a8638a50b9c847cf5e2728226e012eb0bdadc76a11ce870cc6e74",
+          "OutputSha256": "2f8d83e93c5a8638a50b9c847cf5e2728226e012eb0bdadc76a11ce870cc6e74",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 40,
+      "Succeeded": true,
+      "PayloadCount": 1,
+      "SolidPieceCount": 4509,
+      "PlayerBarrierCount": 16,
+      "FaceCount": 55621,
+      "SourceBytes": 2472256,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 2472256,
+          "SourceSha256": "7bc895487234ce837c0c34374216ffff28be6494a7d5c1bedfb5524452c7a973",
+          "OutputSha256": "7bc895487234ce837c0c34374216ffff28be6494a7d5c1bedfb5524452c7a973",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 41,
+      "Succeeded": true,
+      "PayloadCount": 1,
+      "SolidPieceCount": 936,
+      "PlayerBarrierCount": 17,
+      "FaceCount": 53983,
+      "SourceBytes": 1728256,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 1728256,
+          "SourceSha256": "b8cdafcce6e242aafbefa4dc319843f1c684269b0a8406e251d9ac1d86d0c4b1",
+          "OutputSha256": "b8cdafcce6e242aafbefa4dc319843f1c684269b0a8406e251d9ac1d86d0c4b1",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 42,
+      "Succeeded": true,
+      "PayloadCount": 1,
+      "SolidPieceCount": 2803,
+      "PlayerBarrierCount": 84,
+      "FaceCount": 50908,
+      "SourceBytes": 2319680,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 2319680,
+          "SourceSha256": "86dbb5a423e646f79a2f3ba296f3a7238633301670d89638936c16a2afef524f",
+          "OutputSha256": "86dbb5a423e646f79a2f3ba296f3a7238633301670d89638936c16a2afef524f",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 43,
+      "Succeeded": true,
+      "PayloadCount": 1,
+      "SolidPieceCount": 3693,
+      "PlayerBarrierCount": 118,
+      "FaceCount": 71963,
+      "SourceBytes": 3210048,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 3210048,
+          "SourceSha256": "c603c07f7e912578b1838717160d7175ee8522a20458c3b05c2327e40fbba19e",
+          "OutputSha256": "c603c07f7e912578b1838717160d7175ee8522a20458c3b05c2327e40fbba19e",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 44,
+      "Succeeded": true,
+      "PayloadCount": 1,
+      "SolidPieceCount": 1161,
+      "PlayerBarrierCount": 43,
+      "FaceCount": 36985,
+      "SourceBytes": 1356544,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 1356544,
+          "SourceSha256": "32e98fe5113011706f187fbf2efe439c1e50f8f74d1b9dd9dca0a4fe22da6e2c",
+          "OutputSha256": "32e98fe5113011706f187fbf2efe439c1e50f8f74d1b9dd9dca0a4fe22da6e2c",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 45,
+      "Succeeded": true,
+      "PayloadCount": 1,
+      "SolidPieceCount": 2441,
+      "PlayerBarrierCount": 25,
+      "FaceCount": 87024,
+      "SourceBytes": 2933184,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 2933184,
+          "SourceSha256": "a77c833fb7a07a41111ca579baef839f402f2fe356d879d6ec6b21e079f8d444",
+          "OutputSha256": "a77c833fb7a07a41111ca579baef839f402f2fe356d879d6ec6b21e079f8d444",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 46,
+      "Succeeded": true,
+      "PayloadCount": 1,
+      "SolidPieceCount": 23,
+      "PlayerBarrierCount": 0,
+      "FaceCount": 3504,
+      "SourceBytes": 79808,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 79808,
+          "SourceSha256": "592eb605ed3dc73577814db7da7e164b4b3ace07031d71dae7430d375030c1fc",
+          "OutputSha256": "592eb605ed3dc73577814db7da7e164b4b3ace07031d71dae7430d375030c1fc",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 47,
+      "Succeeded": true,
+      "PayloadCount": 1,
+      "SolidPieceCount": 649,
+      "PlayerBarrierCount": 16,
+      "FaceCount": 39258,
+      "SourceBytes": 1262272,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 1262272,
+          "SourceSha256": "51d85f5f3d29d16d815aba1108d84309ac95784d4706f58fd79b6ffc80c2c7c1",
+          "OutputSha256": "51d85f5f3d29d16d815aba1108d84309ac95784d4706f58fd79b6ffc80c2c7c1",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 48,
+      "Succeeded": true,
+      "PayloadCount": 1,
+      "SolidPieceCount": 11,
+      "PlayerBarrierCount": 0,
+      "FaceCount": 3391,
+      "SourceBytes": 616704,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 616704,
+          "SourceSha256": "59cadbb79c668f2ec0bc679800e5cc27c1adb9d57b2785de7ee88ee158c9ae3f",
+          "OutputSha256": "59cadbb79c668f2ec0bc679800e5cc27c1adb9d57b2785de7ee88ee158c9ae3f",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 49,
+      "Succeeded": true,
+      "PayloadCount": 1,
+      "SolidPieceCount": 379,
+      "PlayerBarrierCount": 17,
+      "FaceCount": 13860,
+      "SourceBytes": 439936,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 439936,
+          "SourceSha256": "ca308334002a045d103675a01740d5c58527f5d5a25efc2c5ecc438a72be1430",
+          "OutputSha256": "ca308334002a045d103675a01740d5c58527f5d5a25efc2c5ecc438a72be1430",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 50,
+      "Succeeded": true,
+      "PayloadCount": 1,
+      "SolidPieceCount": 4509,
+      "PlayerBarrierCount": 16,
+      "FaceCount": 55621,
+      "SourceBytes": 2472256,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 2472256,
+          "SourceSha256": "7bc895487234ce837c0c34374216ffff28be6494a7d5c1bedfb5524452c7a973",
+          "OutputSha256": "7bc895487234ce837c0c34374216ffff28be6494a7d5c1bedfb5524452c7a973",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 51,
+      "Succeeded": true,
+      "PayloadCount": 1,
+      "SolidPieceCount": 936,
+      "PlayerBarrierCount": 17,
+      "FaceCount": 53983,
+      "SourceBytes": 1728256,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 1728256,
+          "SourceSha256": "b8cdafcce6e242aafbefa4dc319843f1c684269b0a8406e251d9ac1d86d0c4b1",
+          "OutputSha256": "b8cdafcce6e242aafbefa4dc319843f1c684269b0a8406e251d9ac1d86d0c4b1",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 52,
+      "Succeeded": true,
+      "PayloadCount": 1,
+      "SolidPieceCount": 2803,
+      "PlayerBarrierCount": 84,
+      "FaceCount": 50908,
+      "SourceBytes": 2319680,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 2319680,
+          "SourceSha256": "86dbb5a423e646f79a2f3ba296f3a7238633301670d89638936c16a2afef524f",
+          "OutputSha256": "86dbb5a423e646f79a2f3ba296f3a7238633301670d89638936c16a2afef524f",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 53,
+      "Succeeded": true,
+      "PayloadCount": 1,
+      "SolidPieceCount": 3693,
+      "PlayerBarrierCount": 118,
+      "FaceCount": 71963,
+      "SourceBytes": 3210048,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 3210048,
+          "SourceSha256": "c603c07f7e912578b1838717160d7175ee8522a20458c3b05c2327e40fbba19e",
+          "OutputSha256": "c603c07f7e912578b1838717160d7175ee8522a20458c3b05c2327e40fbba19e",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 54,
+      "Succeeded": true,
+      "PayloadCount": 1,
+      "SolidPieceCount": 1161,
+      "PlayerBarrierCount": 43,
+      "FaceCount": 36985,
+      "SourceBytes": 1356544,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 1356544,
+          "SourceSha256": "32e98fe5113011706f187fbf2efe439c1e50f8f74d1b9dd9dca0a4fe22da6e2c",
+          "OutputSha256": "32e98fe5113011706f187fbf2efe439c1e50f8f74d1b9dd9dca0a4fe22da6e2c",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    },
+    {
+      "LevelIndex": 55,
+      "Succeeded": true,
+      "PayloadCount": 1,
+      "SolidPieceCount": 2441,
+      "PlayerBarrierCount": 25,
+      "FaceCount": 87024,
+      "SourceBytes": 2933184,
+      "HashChecks": [
+        {
+          "Payload": "primary",
+          "SourceBytes": 2933184,
+          "SourceSha256": "a77c833fb7a07a41111ca579baef839f402f2fe356d879d6ec6b21e079f8d444",
+          "OutputSha256": "a77c833fb7a07a41111ca579baef839f402f2fe356d879d6ec6b21e079f8d444",
+          "Matched": true
+        }
+      ],
+      "Diagnostics": []
+    }
+  ]
+}

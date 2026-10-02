@@ -121,6 +121,7 @@ public static class UyaLevelPackService
         ReadOnlyMemory<byte>? terrain = null;
         ReadOnlyMemory<byte>? sky = null;
         ReadOnlyMemory<byte>? collision = null;
+        var chunkReplacements = new Dictionary<int, byte[]>();
         foreach (var layer in UyaBaseLayerSchema.Layers)
         {
             var root = SnapshotRoot(staging, layer);
@@ -151,15 +152,24 @@ public static class UyaLevelPackService
                     case (BakeLayerId.Tfrags, var name) when TryChunkIndex(name, out var chunkIndex):
                         var chunkPath = $"level_wad/chunks/chunk{chunkIndex}.wad";
                         var sourceChunk = sourcePackage.Files.Single(value => value.Path == chunkPath);
-                        replacements.Add(chunkPath,
-                            LevelAssetComposer.ComposeTfragChunk(
-                                GameId.UYA, sourceChunk.Bytes, bytes, cancellationToken: cancellationToken));
+                        var currentChunk = chunkReplacements.GetValueOrDefault(chunkIndex) ?? sourceChunk.Bytes;
+                        chunkReplacements[chunkIndex] = LevelAssetComposer.ComposeTfragChunk(
+                            GameId.UYA, currentChunk, bytes, cancellationToken: cancellationToken);
+                        break;
+                    case (BakeLayerId.Collision, var name) when TryChunkIndex(name, out var chunkIndex):
+                        var collisionChunkPath = $"level_wad/chunks/chunk{chunkIndex}.wad";
+                        var sourceCollisionChunk = sourcePackage.Files.Single(value => value.Path == collisionChunkPath);
+                        var currentCollisionChunk = chunkReplacements.GetValueOrDefault(chunkIndex) ?? sourceCollisionChunk.Bytes;
+                        chunkReplacements[chunkIndex] = LevelAssetComposer.ComposeTfragChunkCollision(
+                            GameId.UYA, currentCollisionChunk, bytes, cancellationToken: cancellationToken);
                         break;
                     default:
                         throw new InvalidDataException($"{layer} asset {asset.Name} has no SDK packing route.");
                 }
             }
         }
+        foreach (var (chunkIndex, bytes) in chunkReplacements)
+            replacements.Add($"level_wad/chunks/chunk{chunkIndex}.wad", bytes);
 
         var assets = UyaLevelWadRenderPackageBuilder.ReadAssetSourceFiles(sourcePackage.Files);
         var assetWad = BinaryMagic.IsWad(assets.AssetWadBytes)

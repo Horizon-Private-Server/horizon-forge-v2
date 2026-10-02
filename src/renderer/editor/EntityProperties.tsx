@@ -5,6 +5,7 @@ import { useLayoutEffect, useState } from 'react';
 import type {
   EditorEntity, ProjectQuaternion, ProjectTransform, ProjectVector3,
 } from '../../types/EditorRuntime.js';
+import { formatCollisionType } from '../../utils/CollisionFormat.ts';
 import { useEditor } from './EditorContext.ts';
 import { EditorProperty, EditorPropertyGrid } from './EditorPrimitives.tsx';
 import { EntityStateControls, EntityTextEditor } from './EntityPropertyControls.tsx';
@@ -16,6 +17,7 @@ export function EntityProperties({ entity }: { entity: EditorEntity }) {
   if (entity.skyShell) return <SkyShellProperties entity={entity} />;
   const disabled = busy || entity.state.locked || entity.state.readOnly;
   return <BaseEntityProperties entity={entity} disabled={disabled}>
+    {entity.collision && <CollisionProperties entity={entity} />}
     {(entity.geometry?.kind === 'spline' || entity.geometry?.kind === 'grindPath')
       && <SplineProperties entity={entity} disabled={disabled} />}
   </BaseEntityProperties>;
@@ -41,7 +43,7 @@ function BaseEntityProperties({ entity, disabled, children }: {
           identity={entity.id}
           label="Layer"
           value={entity.layer}
-          disabled={disabled}
+          disabled={disabled || entity.collision !== undefined}
           onApply={(text) => execute({ id: crypto.randomUUID(), kind: 'setEntityLayer', entityIds: [entity.id], text })}
         />
         <EntityStateControls entities={[entity]} disabled={busy || entity.state.readOnly} />
@@ -78,7 +80,7 @@ export function MultiEntityProperties({ entities }: { entities: EditorEntity[] }
         label="Shared layer"
         value={layer}
         placeholder={layer ? undefined : 'Multiple values'}
-        disabled={busy || locked}
+        disabled={busy || locked || entities.some((entity) => entity.collision)}
         onApply={(text) => execute({ id: crypto.randomUUID(), kind: 'setEntityLayer', entityIds: ids, text })}
       />
       <EntityStateControls entities={entities} disabled={busy || readOnly} />
@@ -86,6 +88,22 @@ export function MultiEntityProperties({ entities }: { entities: EditorEntity[] }
         ? <Text size="xs" c="yellow">One or more selected source types have no native writer yet.</Text>
         : locked && <Text size="xs" c="yellow">Unlock all selected entities before changing their shared layer.</Text>}
     </Stack>
+  </Fieldset>;
+}
+
+function CollisionProperties({ entity }: { entity: EditorEntity }) {
+  const { project } = useEditor();
+  const collision = entity.collision!;
+  return <Fieldset legend="Collision">
+    <EditorPropertyGrid>
+      <EditorProperty label="Layer">{collision.kind === 'solid' ? 'Solid collision' : 'Player barrier'}</EditorProperty>
+      <EditorProperty label="Piece"><Code>#{collision.sourcePieceIndex}</Code></EditorProperty>
+      <EditorProperty label="Geometry">{collision.faceCount} faces · {collision.vertexCount} vertices</EditorProperty>
+      <EditorProperty label="Types">{collision.types.length
+        ? collision.types.map((value) =>
+          `${formatCollisionType(value.rawType, project.target.game)} (${value.count})`).join(', ')
+        : 'Player-only barrier'}</EditorProperty>
+    </EditorPropertyGrid>
   </Fieldset>;
 }
 

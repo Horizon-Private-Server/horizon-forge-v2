@@ -686,3 +686,4 @@ retained all-level import report containing metrics and hashes but no proprietar
 
 - M2-021 through M2-026: [Asset Explorer v0](../../features/asset-explorer-v0.md#implementation-tasks)
 - M2-027 through M2-030: [Skybox Editor v0](../../features/skybox-editor-v0.md#implementation-tasks)
+- M2-031 through M2-035: [Collision Editor v0](../../features/collision-editor-v0.md#implementation-tasks)

@@ -94,6 +94,7 @@ internal static class UyaBaseLevelService
         AddEnvironmentInstances(entities, cameras, sounds, level, ref fallbackTransforms);
         var baseLayers = UyaBaseLayerService.Extract(package);
         AddSkyShells(entities, baseLayers, level);
+        AddCollisionPieces(entities, baseLayers, level);
 
         var missing = CountMissing(mobys.Select(value => value.ClassId), mobyClasses, mobyAssets)
             + CountMissing(ties.Select(value => value.ClassId), tieClasses, tieAssets)
@@ -121,6 +122,42 @@ internal static class UyaBaseLevelService
             ],
             gameplay,
             levelSettings is null ? null : ProjectSettings(levelSettings));
+    }
+
+    private static void AddCollisionPieces(
+        ICollection<ProjectEntity> entities,
+        IReadOnlyList<UyaBaseLayerPayload> baseLayers,
+        int level)
+    {
+        foreach (var payload in baseLayers.Where(value => value.Layer == BakeLayerId.Collision))
+        {
+            var asset = new ProjectAssetReference(
+                AssetId.Compute(AssetKind.Collision, UyaBaseLayerSchema.CanonicalFormatVersion, payload.Bytes),
+                AssetKind.Collision);
+            var inspection = CollisionConverter.Inspect(payload.Bytes, GameId.UYA);
+            var payloadLabel = payload.SourceIndex == 0 ? "Primary" : $"Chunk {payload.SourceIndex}";
+            foreach (var piece in inspection.Pieces)
+            {
+                var kind = UyaCollisionAdapter.ToProjectKind(piece.Kind);
+                var kindLabel = kind == ProjectCollisionPieceKind.Solid ? "Solid" : "Player barrier";
+                entities.Add(new(
+                    EntityId.New(),
+                    $"{kindLabel} #{piece.SourcePieceIndex}",
+                    "collision",
+                    ProjectTransform.Identity,
+                    asset,
+                    new("UYA", level,
+                        $"collision/{payloadLabel.ToLowerInvariant().Replace(' ', '-')}/{kind.ToString().ToLowerInvariant()}",
+                        piece.SourcePieceIndex),
+                    Collision: new(
+                        kind,
+                        payload.SourceIndex,
+                        piece.SourcePieceIndex,
+                        piece.FaceCount,
+                        piece.VertexCount,
+                        piece.Types.Select(value => new ProjectCollisionTypeCount(value.RawType, value.Count)).ToArray())));
+            }
+        }
     }
 
     private static ProjectLevelSettings ProjectSettings(UyaLevelSettings value) => new(

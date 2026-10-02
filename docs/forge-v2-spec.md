@@ -665,8 +665,11 @@ object immediately beneath it. It MUST:
 The editor viewport MUST represent the selected UYA base level with actual vanilla
 geometry and materials rather than permanent proxy boxes. P0 coverage includes the
 primary and chunk tfrags, tie instances, shrub instances, renderable moby instances,
-and sky. Tie, shrub, and moby render objects retain a reversible mapping to their
-stable project Entity IDs so picking and project state use the same authority.
+sky, primary/chunk solid collision, and player-only collision barriers. Tie, shrub,
+moby, and collision render objects retain a reversible mapping to their stable
+project Entity IDs so picking and project state use the same authority. Collision
+editing and native round-trip behavior are defined by the
+[Collision Editor v0 feature specification](features/collision-editor-v0.md).
 
 The .NET host uses the pinned SDK to produce versioned render data. The renderer
 MUST NOT parse game archives or read the clean ISO. Large immutable render files are

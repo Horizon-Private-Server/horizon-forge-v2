@@ -72,6 +72,9 @@ internal static class UyaBaseLayerService
             Add(payloads, BakeLayerId.Tfrags, $"chunk-{index}.bin", AssetKind.Tfrag,
                 $"level_wad/chunks/chunk{index}.wad", index,
                 TfragChunkWadReader.ReadTerrainPayload(chunk.Bytes));
+            Add(payloads, BakeLayerId.Collision, $"chunk-{index}.bin", AssetKind.Collision,
+                $"level_wad/chunks/chunk{index}.wad", index,
+                TfragChunkWadReader.ReadCollisionPayload(chunk.Bytes));
         }
         return payloads;
     }

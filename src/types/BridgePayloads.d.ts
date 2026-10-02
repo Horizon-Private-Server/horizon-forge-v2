@@ -106,7 +106,7 @@ export interface UyaRenderPackageResult {
     coreSoundsCount: number;
   };
   occlusionOctants: { x: number; y: number; z: number; maskIndex: number }[];
-  assets: { assetId: string; kind: 'moby' | 'tie' | 'shrub'; path?: string; error?: string }[];
+  assets: { assetId: string; kind: 'moby' | 'tie' | 'shrub' | 'collision'; path?: string; error?: string }[];
   cacheHit: boolean;
 }
 

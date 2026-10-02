@@ -11,6 +11,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { EditorEntity, EditorLevelSettings } from '../../types/EditorRuntime.js';
 import type { SceneTreeKind } from '../../types/SceneTree.js';
 import { createAssetPlacementCommand, createSkyShellAddCommand } from '../../utils/AssetPlacement.ts';
+import { formatCollisionType } from '../../utils/CollisionFormat.ts';
 import { DEFAULT_SCENE_TREE_COLORS, SCENE_TREE_LABELS } from '../../utils/SceneTreeColors.ts';
 import { parseSplinePointId, splinePointId } from '../../utils/SplinePoints.ts';
 import { ColorPickerInput } from '../ColorPickerInput.tsx';
@@ -36,9 +37,10 @@ import { SkyCompositionProperties } from './SkyCompositionProperties.tsx';
 
 export function ViewportPanel() {
   const {
-    project, keybindings, sceneTreeColors, terrain, cameraFocus, setCameraFocus, setSceneLoad,
+    project, keybindings, selectionColor, sceneTreeColors, collisionVisualization, terrain, cameraFocus, setCameraFocus, setSceneLoad,
     execute, busy, showViewportStats, showOcclusionOctants, splinePointSelection, setSplinePointSelection,
-    setSkyCompositionSelected,
+    setSkyCompositionSelected, showSolidCollision, setShowSolidCollision,
+    showPlayerBarriers, setShowPlayerBarriers, showTerrain,
   } = useEditor();
   const levelSettingsSignature = JSON.stringify(project.levelSettings);
   const environment = useMemo(() => project.levelSettings
@@ -48,15 +50,22 @@ export function ViewportPanel() {
     disabled={busy}
     entities={project.entities}
     keybindings={keybindings}
+    selectionColor={selectionColor}
     sceneTreeColors={sceneTreeColors}
+    collisionVisualization={collisionVisualization}
     focusEntityId={cameraFocus?.entityId}
     selection={splinePointSelection.length ? splinePointSelection : project.selection}
     showStats={showViewportStats}
     showOcclusionOctants={showOcclusionOctants}
+    showTerrain={showTerrain}
+    showSolidCollision={showSolidCollision}
+    showPlayerBarriers={showPlayerBarriers}
     terrain={terrain}
     environment={environment}
     onFocusHandled={() => setCameraFocus(undefined)}
     onLoadProgress={setSceneLoad}
+    onSolidCollisionVisibilityChange={setShowSolidCollision}
+    onPlayerBarrierVisibilityChange={setShowPlayerBarriers}
     onSelectionChange={(values) => {
       setSkyCompositionSelected(false);
       const points = values.filter((value) => parseSplinePointId(value));
@@ -178,10 +187,11 @@ export function SceneTreePanel() {
     project, terrain, setCameraFocus, execute, busy,
     splinePointSelection, setSplinePointSelection,
     skyCompositionSelected, setSkyCompositionSelected,
+    showTerrain, setShowTerrain,
   } = useEditor();
   const [filter, setFilter] = useState('');
   const model = useMemo(() => buildSceneEntityGroups(
-    project.entities.filter((entity) => !entity.skyShell), filter,
+    project.entities.filter((entity) => !entity.skyShell && !entity.collision), filter,
   ), [filter, project.entities]);
   const tfrags = useMemo(() => buildTerrainTreeItems(terrain?.urls ?? [], filter), [filter, terrain]);
   const sky = useMemo(() => {
@@ -191,11 +201,34 @@ export function SceneTreePanel() {
         .toLocaleLowerCase().includes(query)))
       .sort((left, right) => left.skyShell!.order - right.skyShell!.order);
   }, [filter, project.entities]);
+  const collision = useMemo(() => {
+    const query = filter.trim().toLocaleLowerCase();
+    return project.entities.filter((entity) => entity.collision
+      && (!query || collisionTreeText(entity, project.target.game).toLocaleLowerCase().includes(query)));
+  }, [filter, project.entities, project.target.game]);
   const entityIds = useMemo(() => new Set(project.entities.map((entity) => entity.id)), [project.entities]);
   const nodes = useMemo<TreeNodeData[]>(() => [
     ...(tfrags.length ? [{
       value: 'render:tfrags',
-      label: <SceneTreeLabel kind="tfrag">({tfrags.length})</SceneTreeLabel>,
+      label: <span className="scene-tree-node">
+        <SceneTreeLabel kind="tfrag">Terrain ({tfrags.length})</SceneTreeLabel>
+        <span className="scene-tree-actions">
+          <ActionIcon
+            aria-label={`${showTerrain ? 'Hide' : 'Show'} terrain`}
+            color={showTerrain ? 'blue' : 'gray'}
+            disabled={busy}
+            size="xs"
+            title={`${showTerrain ? 'Hide' : 'Show'} terrain`}
+            variant="subtle"
+            onClick={(event) => {
+              event.stopPropagation();
+              setShowTerrain(!showTerrain);
+            }}
+          >
+            {showTerrain ? <EyeIcon size={13} /> : <EyeSlashIcon size={13} />}
+          </ActionIcon>
+        </span>
+      </span>,
       children: tfrags.map((item) => ({
         ...item,
         label: <SceneTreeLabel kind="tfrag" dot>{item.label.replace(/ tfrag$/i, '')}</SceneTreeLabel>,
@@ -204,7 +237,9 @@ export function SceneTreePanel() {
     }] : []),
     ...(sky.length ? [{
       value: 'render:sky',
-      label: <SceneTreeLabel kind="sky">({sky.length})</SceneTreeLabel>,
+      label: <SceneTreeNode entities={sky} disabled={busy}>
+        <SceneTreeLabel kind="sky">Sky ({sky.length})</SceneTreeLabel>
+      </SceneTreeNode>,
       nodeProps: { selectable: true },
       children: sky.map((entity) => ({
         value: entity.id,
@@ -214,10 +249,47 @@ export function SceneTreePanel() {
         nodeProps: { selectable: true },
       })),
     }] : []),
+    ...(collision.length ? [{
+      value: 'render:collision',
+      label: <SceneTreeNode entities={collision} disabled={busy}>
+        <SceneTreeLabel kind="collision">Collision ({collision.length})</SceneTreeLabel>
+      </SceneTreeNode>,
+      children: [...new Set(collision.map((entity) => entity.collision!.sourcePayloadIndex))]
+        .sort((left, right) => left - right)
+        .map((payloadIndex) => {
+          const payload = collision.filter((entity) => entity.collision!.sourcePayloadIndex === payloadIndex);
+          return {
+            value: `render:collision:${payloadIndex}`,
+            label: <SceneTreeNode entities={payload} disabled={busy}>
+              <SceneTreeLabel kind="collision">{payloadIndex === 0 ? 'Primary' : `Chunk ${payloadIndex}`}</SceneTreeLabel>
+            </SceneTreeNode>,
+            children: (['solid', 'playerBarrier'] as const).flatMap((kind) => {
+              const pieces = payload.filter((entity) => entity.collision!.kind === kind);
+              return pieces.length ? [{
+                value: `render:collision:${payloadIndex}:${kind}`,
+                label: <SceneTreeNode entities={pieces} disabled={busy}>
+                  <SceneTreeLabel kind={kind === 'solid' ? 'collision' : 'playerBarrier'}>
+                    {kind === 'solid' ? 'Solid collision' : 'Player barriers'} ({pieces.length})
+                  </SceneTreeLabel>
+                </SceneTreeNode>,
+                children: pieces.map((entity) => ({
+                  value: entity.id,
+                  label: <SceneTreeNode entities={[entity]} disabled={busy}>
+                    <SceneTreeLabel kind={kind === 'solid' ? 'collision' : 'playerBarrier'} dot>
+                      {collisionTreeText(entity, project.target.game)}
+                    </SceneTreeLabel>
+                  </SceneTreeNode>,
+                  nodeProps: { selectable: true },
+                })),
+              }] : [];
+            }),
+          };
+        }),
+    }] : []),
     ...model.groups.map((group) => ({
       value: `layer:${group.layer}`,
       label: <SceneTreeNode entities={group.entities} disabled={busy}>
-        <SceneTreeLabel kind={groupTreeKind(group.entities)}>({group.entities.length})</SceneTreeLabel>
+        <SceneTreeLabel kind={groupTreeKind(group.entities)}>{group.layer} ({group.entities.length})</SceneTreeLabel>
       </SceneTreeNode>,
       children: group.entities.map((entity) => ({
         value: entity.id,
@@ -235,8 +307,8 @@ export function SceneTreePanel() {
           : undefined,
       })),
     })),
-  ], [busy, model.groups, sky, tfrags]);
-  const renderItemCount = tfrags.length + sky.length;
+  ], [busy, collision, model.groups, setShowTerrain, showTerrain, sky, tfrags]);
+  const renderItemCount = tfrags.length + sky.length + collision.length;
   const matched = model.matched + renderItemCount;
 
   return <EditorPanel label="Scene hierarchy">
@@ -362,6 +434,16 @@ function SceneTreeLabel({ kind, children, dot = false }: { kind: string; childre
 function groupTreeKind(entities: readonly EditorEntity[]): string {
   const kinds = new Set(entities.map(entityTreeKind));
   return kinds.size === 1 ? kinds.values().next().value ?? 'object' : 'object';
+}
+
+function collisionTreeText(entity: EditorEntity, targetGame: string): string {
+  const piece = entity.collision!;
+  const types = piece.types.length === 0
+    ? 'Barrier'
+    : piece.types.length === 1
+      ? formatCollisionType(piece.types[0].rawType, targetGame)
+      : `${piece.types.length} mixed raw types`;
+  return `#${piece.sourcePieceIndex} · ${piece.faceCount} face${piece.faceCount === 1 ? '' : 's'} · ${types}`;
 }
 
 export function PropertiesPanel() {

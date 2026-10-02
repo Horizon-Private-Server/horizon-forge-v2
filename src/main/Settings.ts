@@ -14,6 +14,13 @@ import type { KnownSettings, SettingEntry, SettingsSnapshot, SettingValue } from
 import type { ApplicationPaths, RawSettings, SettingDefinition } from '../types/Settings.js';
 import type { UpdateChannel } from '../types/Updates.js';
 import { isUiSize } from '../utils/UiSize.ts';
+import { DEFAULT_SELECTION_COLOR, SELECTION_COLOR_KEY } from '../utils/SelectionVisualization.ts';
+import {
+  DEFAULT_UYA_COLLISION_VISUALIZATION,
+  parseUyaCollisionVisualization,
+  serializeUyaCollisionVisualization,
+  UYA_COLLISION_VISUALIZATION_KEY,
+} from '../utils/UyaCollisionVisualization.ts';
 
 export class SettingsStore {
   readonly paths: ApplicationPaths;
@@ -183,6 +190,12 @@ function createDefinitions(paths: ApplicationPaths, defaultUpdateChannel: Update
       machineSpecific: false, editable: true,
       validate: (value): value is boolean => typeof value === 'boolean',
     },
+    {
+      key: SELECTION_COLOR_KEY, group: 'Customization', label: 'Selection color', type: 'text',
+      description: 'Color used to highlight selected objects in the viewport.',
+      defaultValue: DEFAULT_SELECTION_COLOR, restartRequired: false, machineSpecific: false, editable: true,
+      validate: isHexColor,
+    },
     ...SCENE_TREE_KINDS.map((kind): SettingDefinition => ({
       key: SCENE_TREE_COLOR_KEYS[kind], group: 'Customization',
       label: kind === 'occlusionOctant' ? 'Occlusion octant color' : `${SCENE_TREE_LABELS[kind]} tree color`,
@@ -192,6 +205,14 @@ function createDefinitions(paths: ApplicationPaths, defaultUpdateChannel: Update
       defaultValue: DEFAULT_SCENE_TREE_COLORS[kind], restartRequired: false, machineSpecific: false, editable: true,
       validate: isHexColor,
     })),
+    {
+      key: UYA_COLLISION_VISUALIZATION_KEY, group: 'Customization',
+      label: 'UYA collision visualization', type: 'text',
+      description: 'Preview-only collision type, sound accent, and player barrier colors.',
+      defaultValue: serializeUyaCollisionVisualization(DEFAULT_UYA_COLLISION_VISUALIZATION),
+      restartRequired: false, machineSpecific: true, editable: true,
+      validate: (value): value is string => parseUyaCollisionVisualization(value) !== undefined,
+    },
     {
       key: 'updates.automaticChecks', group: 'Updates', label: 'Automatically check for updates', type: 'boolean',
       description: 'Periodically check the installed release channel and ask before downloading.',

@@ -74,6 +74,7 @@ internal static class ForgeProjectValidation
             ValidateLighting(entity);
             ValidateEnvironmentInstance(entity);
             ValidateSkyShell(entity);
+            ValidateCollision(entity);
         }
         var skyOrders = content.Entities.Where(entity => entity.SkyShell is not null)
             .Select(entity => entity.SkyShell!.Order).Order().ToArray();
@@ -94,6 +95,25 @@ internal static class ForgeProjectValidation
             if (asset.Id == asset.ParentId)
                 throw new InvalidDataException($"Project asset {asset.Id} cannot derive from itself.");
         }
+    }
+
+    private static void ValidateCollision(ProjectEntity entity)
+    {
+        if (entity.Collision is not { } collision) return;
+        if (!Enum.IsDefined(collision.Kind) || collision.SourcePayloadIndex < 0 || collision.SourcePieceIndex < 0
+            || collision.FaceCount < 0 || collision.VertexCount < 0
+            || collision.Types is null || collision.Types.Any(value => value is null || value.Count <= 0)
+            || collision.Types.Select(value => value.RawType).Distinct().Count() != collision.Types.Count)
+            throw new InvalidDataException($"Entity {entity.EntityId} collision metadata is invalid.");
+        if (entity.Asset?.Kind != AssetKind.Collision || entity.Provenance is not { Game: "UYA" })
+            throw new InvalidDataException($"Entity {entity.EntityId} collision source is invalid.");
+        if (collision.Kind == ProjectCollisionPieceKind.Solid
+            && collision.Types.Sum(value => value.Count) != collision.FaceCount
+            || collision.Kind == ProjectCollisionPieceKind.PlayerBarrier && collision.Types.Count != 0)
+            throw new InvalidDataException($"Entity {entity.EntityId} collision type counts are invalid.");
+        if (entity.Transform.Rotation != ProjectTransform.Identity.Rotation
+            || entity.Transform.Scale != ProjectTransform.Identity.Scale)
+            throw new InvalidDataException($"Entity {entity.EntityId} collision supports translation only.");
     }
 
     public static void ValidateTransform(ProjectTransform transform)

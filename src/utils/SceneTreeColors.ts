@@ -3,8 +3,8 @@ import type { SceneTreeColors, SceneTreeKind } from '../types/SceneTree.js';
 
 export const SCENE_TREE_KINDS: readonly SceneTreeKind[] = [
   'tfrag', 'sky', 'tie', 'shrub', 'moby', 'cuboid', 'sphere', 'cylinder', 'pill',
-  'spline', 'grindPath', 'area', 'directionalLight', 'pointLight', 'environmentSample',
-  'environmentTransition', 'camera', 'ambientSound', 'occlusionOctant', 'object',
+  'spline', 'grindPath', 'area', 'collision', 'playerBarrier', 'directionalLight',
+  'pointLight', 'environmentSample', 'environmentTransition', 'camera', 'ambientSound', 'occlusionOctant', 'object',
 ];
 
 export const SCENE_TREE_LABELS: Record<SceneTreeKind, string> = {
@@ -20,6 +20,8 @@ export const SCENE_TREE_LABELS: Record<SceneTreeKind, string> = {
   spline: 'Spline',
   grindPath: 'Grind Path',
   area: 'Area',
+  collision: 'Collision',
+  playerBarrier: 'Barrier',
   directionalLight: 'Directional Light',
   pointLight: 'Point Light',
   environmentSample: 'Environment Sample',
@@ -43,6 +45,8 @@ export const DEFAULT_SCENE_TREE_COLORS: SceneTreeColors = {
   spline: '#2bff99',
   grindPath: '#743c85',
   area: '#aaf442',
+  collision: '#00b7eb',
+  playerBarrier: '#ff477e',
   directionalLight: '#ad57a9',
   pointLight: '#698c6f',
   environmentSample: '#469990',
@@ -66,6 +70,8 @@ export const SCENE_TREE_COLOR_KEYS: Record<SceneTreeKind, SettingKey> = {
   spline: 'ui.sceneTreeColors.spline',
   grindPath: 'ui.sceneTreeColors.grindPath',
   area: 'ui.sceneTreeColors.area',
+  collision: 'ui.sceneTreeColors.collision',
+  playerBarrier: 'ui.sceneTreeColors.playerBarrier',
   directionalLight: 'ui.sceneTreeColors.directionalLight',
   pointLight: 'ui.sceneTreeColors.pointLight',
   environmentSample: 'ui.sceneTreeColors.environmentSample',

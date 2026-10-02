@@ -338,6 +338,7 @@ public sealed class ForgeProjectWorkspace
                     Camera = imported.Camera,
                     AmbientSound = imported.AmbientSound,
                     SkyShell = imported.SkyShell,
+                    Collision = imported.Collision,
                 }
                 : entity;
         });

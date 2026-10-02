@@ -69,7 +69,8 @@ public sealed record ProjectEntity(
     ProjectTieLighting? TieLighting = null,
     ProjectCameraInstance? Camera = null,
     ProjectAmbientSoundInstance? AmbientSound = null,
-    ProjectSkyShell? SkyShell = null);
+    ProjectSkyShell? SkyShell = null,
+    ProjectCollisionPiece? Collision = null);
 
 public sealed record ProjectAttachedAsset(
     AssetId Id,

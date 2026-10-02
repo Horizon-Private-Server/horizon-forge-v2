@@ -6,6 +6,7 @@ import type { KeybindingMap } from '../../types/Keybindings.js';
 import type { AssetExplorerFamily } from '../../types/AssetExplorer.js';
 import type { EditorCommand, EditorSnapshot, ProjectVector4 } from '../../types/EditorRuntime.js';
 import type { SceneTreeColors } from '../../types/SceneTree.js';
+import type { CollisionVisualization } from '../../types/CollisionVisualization.js';
 import type {
   BuildPatchProgress,
   BuildPatchResult,
@@ -43,7 +44,9 @@ import { EditorStatusBar } from './EditorStatusBar.tsx';
 interface EditorWorkspaceProps {
   project: EditorSnapshot;
   keybindings: KeybindingMap;
+  selectionColor: string;
   sceneTreeColors: SceneTreeColors;
+  collisionVisualization: CollisionVisualization;
   hostStatus?: ForgeHostStatus;
   layoutAction?: { id: number; action: EditorLayoutAction };
   showViewportStats: boolean;
@@ -64,7 +67,9 @@ const components = {
 export function EditorWorkspace({
   project,
   keybindings,
+  selectionColor,
   sceneTreeColors,
+  collisionVisualization,
   hostStatus,
   layoutAction,
   showViewportStats,
@@ -84,17 +89,24 @@ export function EditorWorkspace({
   const [skyCompositionSelected, setSkyCompositionSelected] = useState(false);
   const splinePointClipboard = useRef<ProjectVector4[]>([]);
   const [showOcclusionOctants, setShowOcclusionOctants] = useState(false);
+  const [showTerrain, setShowTerrain] = useState(true);
+  const [showSolidCollision, setShowSolidCollision] = useState(true);
+  const [showPlayerBarriers, setShowPlayerBarriers] = useState(true);
   const [assetPreview, setAssetPreview] = useState<AssetExplorerFamily>();
+  const terrainProjectId = useRef<string | undefined>(undefined);
   const onReady = useCallback((event: DockviewReadyEvent) => setApi(event.api), []);
 
   useEffect(() => {
     let disposed = false;
-    setTerrain(undefined);
-    setCameraFocus(undefined);
-    setAssetPreview(undefined);
-    setSplinePointSelection([]);
-    setSkyCompositionSelected(false);
-    splinePointClipboard.current = [];
+    if (terrainProjectId.current !== project.projectId) {
+      terrainProjectId.current = project.projectId;
+      setTerrain(undefined);
+      setCameraFocus(undefined);
+      setAssetPreview(undefined);
+      setSplinePointSelection([]);
+      setSkyCompositionSelected(false);
+      splinePointClipboard.current = [];
+    }
     setSceneLoad({ status: 'loading', label: 'Preparing render package…', completed: 0, total: 1 });
     const stopProgress = window.forge.onEditorTerrainProgress((progress) => {
       if (!disposed) setSceneLoad({ status: 'loading', label: 'Preparing render package…', ...progress });
@@ -274,7 +286,9 @@ export function EditorWorkspace({
   const context = useMemo(() => ({
     project,
     keybindings,
+    selectionColor,
     sceneTreeColors,
+    collisionVisualization,
     terrain,
     sceneLoad,
     setSceneLoad,
@@ -287,6 +301,12 @@ export function EditorWorkspace({
     showViewportStats,
     showOcclusionOctants,
     setShowOcclusionOctants,
+    showTerrain,
+    setShowTerrain,
+    showSolidCollision,
+    setShowSolidCollision,
+    showPlayerBarriers,
+    setShowPlayerBarriers,
     assetPreview,
     inspectAsset,
     busy,
@@ -304,7 +324,9 @@ export function EditorWorkspace({
       finally { setBusy(false); }
     },
   }), [assetPreview, buildAndPatch, buildProgress, buildResult, busy, cameraFocus, execute, hostStatus, inspectAsset, keybindings,
-    project, sceneLoad, sceneTreeColors, showOcclusionOctants, showViewportStats, skyCompositionSelected,
+    collisionVisualization, project, sceneLoad, sceneTreeColors, showOcclusionOctants, showPlayerBarriers, showSolidCollision,
+    selectionColor, showTerrain,
+    showViewportStats, skyCompositionSelected,
     splinePointSelection,
     terrain]);
 

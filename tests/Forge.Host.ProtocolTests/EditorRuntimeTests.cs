@@ -26,6 +26,7 @@ internal static class EditorRuntimeTests
             await VerifyAssetPlacementHistoryAsync(root, target, baseLevel);
             await VerifySkyShellHistoryAsync(root, target, baseLevel);
             await VerifyUyaSkyShellCommandsAsync(root, target, baseLevel);
+            await VerifyCollisionHistoryAsync(root, target, baseLevel);
 
             var snapshot = await runtime.OpenAsync(firstPath, TimeSpan.FromMilliseconds(25));
             Equal(false, snapshot.IsDirty, "opened runtime clean state");
@@ -168,6 +169,50 @@ internal static class EditorRuntimeTests
         {
             Directory.Delete(root, recursive: true);
         }
+    }
+
+    private static async Task VerifyCollisionHistoryAsync(
+        string root,
+        ProjectTargetProfile target,
+        ProjectBaseLevel baseLevel)
+    {
+        var projectPath = Path.Combine(root, "collision");
+        var id = EntityId.New();
+        var entity = new ProjectEntity(
+            id,
+            "Solid #0",
+            "collision",
+            ProjectTransform.Identity,
+            new(AssetId.Parse(new string('c', AssetId.TextLength)), AssetKind.Collision),
+            new("UYA", baseLevel.Level, "collision/primary", 0),
+            Collision: new(ProjectCollisionPieceKind.Solid, 0, 0, 1, 3, [new(0x21, 1)]));
+        await ForgeProjectWorkspace.CreateAsync(projectPath, "Collision", target, baseLevel, [entity]);
+        await using var runtime = new EditorRuntime(
+            transformCapabilityResolver: UyaEditorCapabilities.ResolveTransformCapabilities);
+        var snapshot = await runtime.OpenAsync(projectPath, TimeSpan.Zero);
+        Equal(EditorTransformCapabilities.Translate, snapshot.Entities.Single().TransformCapabilities,
+            "collision exposes translation only");
+        Equal(ProjectCollisionPieceKind.Solid, snapshot.Entities.Single().Collision!.Kind,
+            "collision metadata reaches editor snapshot");
+
+        var requested = ProjectTransform.Identity with { Position = new(0.08f, 0.02f, -0.08f) };
+        snapshot = await runtime.ExecuteAsync(Command(EditorCommandKind.UpdateTransform, [id], requested));
+        Equal(new ProjectVector3(0.0625f, 0, -0.078125f), snapshot.Entities.Single().Transform.Position,
+            "solid collision translation is quantized before commit");
+        await ThrowsAsync<ArgumentException>(() => runtime.ExecuteAsync(Command(
+            EditorCommandKind.UpdateTransform,
+            [id],
+            requested with { Rotation = new(0, 0, 1, 0) })));
+        await ThrowsAsync<ArgumentException>(() => runtime.ExecuteAsync(Command(EditorCommandKind.CopyEntities, [id])));
+        await ThrowsAsync<ArgumentException>(() => runtime.ExecuteAsync(new(
+            Guid.NewGuid().ToString("D"), EditorCommandKind.SetEntityLayer, [id], Text: "world")));
+        snapshot = await runtime.ExecuteAsync(new(
+            Guid.NewGuid().ToString("D"), EditorCommandKind.SetEntityState, [id], State: new(Disabled: true)));
+        Equal(true, snapshot.Entities.Single().State.Disabled, "collision can be disabled");
+        snapshot = await runtime.ExecuteAsync(Command(EditorCommandKind.DeleteEntities, [id]));
+        Equal(0, snapshot.Entities.Count, "collision can be deleted");
+        snapshot = await runtime.ExecuteAsync(Command(EditorCommandKind.Undo, []));
+        Equal(id, snapshot.Entities.Single().EntityId, "collision delete is undoable");
     }
 
     private static async Task VerifyAssetPlacementHistoryAsync(

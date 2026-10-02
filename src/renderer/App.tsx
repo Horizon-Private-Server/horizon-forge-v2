@@ -10,6 +10,11 @@ import {
   sceneTreeColorVariables,
 } from '../utils/SceneTreeColors.ts';
 import type { SceneTreeColors } from '../types/SceneTree.js';
+import type { CollisionVisualization } from '../types/CollisionVisualization.js';
+import {
+  DEFAULT_UYA_COLLISION_VISUALIZATION,
+  readUyaCollisionVisualization,
+} from '../utils/UyaCollisionVisualization.ts';
 import { EditorWorkspace } from './editor/EditorWorkspace.tsx';
 import { useForgeActions } from './hooks/UseForgeActions.ts';
 import { useKeyboardContext } from './hooks/UseKeyboardContext.ts';
@@ -22,6 +27,7 @@ import { NotificationMenu } from './shell/NotificationMenu.tsx';
 import { createForgeTheme } from './theme.ts';
 import { UpdateCheckModal } from './updates/UpdateCheckModal.tsx';
 import { isUiSize } from '../utils/UiSize.ts';
+import { DEFAULT_SELECTION_COLOR, readSelectionColor } from '../utils/SelectionVisualization.ts';
 
 export function App() {
   const [uiSize, setUiSize] = useState<UiSize>('xs');
@@ -35,7 +41,11 @@ function ForgeApp({ uiSize, onUiSizeChange }: { uiSize: UiSize; onUiSizeChange(v
   const [hostStatus, setHostStatus] = useState<ForgeHostStatus>();
   const [settingsOpened, setSettingsOpened] = useState(false);
   const [showViewportStats, setShowViewportStats] = useState(true);
+  const [selectionColor, setSelectionColor] = useState(DEFAULT_SELECTION_COLOR);
   const [sceneTreeColors, setSceneTreeColors] = useState<SceneTreeColors>(DEFAULT_SCENE_TREE_COLORS);
+  const [collisionVisualization, setCollisionVisualization] = useState<CollisionVisualization>(
+    DEFAULT_UYA_COLLISION_VISUALIZATION,
+  );
   const [keybindings, setKeybindings] = useState<KeybindingMap>(() => resolveKeybindings({}));
   const [setupOpened, setSetupOpened] = useState(false);
   const [updateCheckOpened, setUpdateCheckOpened] = useState(false);
@@ -70,7 +80,9 @@ function ForgeApp({ uiSize, onUiSizeChange }: { uiSize: UiSize; onUiSizeChange(v
   useEffect(() => {
     void window.forge.getSettings().then((snapshot) => {
       setShowViewportStats(snapshot.entries.find((entry) => entry.key === 'ui.showViewportStats')?.value === true);
+      setSelectionColor(readSelectionColor(snapshot.entries));
       setSceneTreeColors(readSceneTreeColors(snapshot.entries));
+      setCollisionVisualization(readUyaCollisionVisualization(snapshot.entries));
       setKeybindings(resolveKeybindings(parseKeybindingOverrides(
         snapshot.entries.find((entry) => entry.key === 'keybindings.overrides')?.value,
       )));
@@ -119,6 +131,8 @@ function ForgeApp({ uiSize, onUiSizeChange }: { uiSize: UiSize; onUiSizeChange(v
             project={activeProject}
             keybindings={keybindings}
             sceneTreeColors={sceneTreeColors}
+            selectionColor={selectionColor}
+            collisionVisualization={collisionVisualization}
             hostStatus={hostStatus}
             layoutAction={layoutAction}
             showViewportStats={showViewportStats}
@@ -138,6 +152,10 @@ function ForgeApp({ uiSize, onUiSizeChange }: { uiSize: UiSize; onUiSizeChange(v
         onKeybindingsChange={setKeybindings}
         sceneTreeColors={sceneTreeColors}
         onSceneTreeColorsChange={setSceneTreeColors}
+        selectionColor={selectionColor}
+        onSelectionColorChange={setSelectionColor}
+        collisionVisualization={collisionVisualization}
+        onCollisionVisualizationChange={setCollisionVisualization}
         onViewportStatsChange={setShowViewportStats}
         uiSize={uiSize}
         onUiSizeChange={onUiSizeChange}

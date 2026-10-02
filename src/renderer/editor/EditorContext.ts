@@ -4,6 +4,7 @@ import type { KeybindingMap } from '../../types/Keybindings.js';
 import type { EditorCommand, EditorSnapshot } from '../../types/EditorRuntime.js';
 import type { AssetExplorerFamily } from '../../types/AssetExplorer.js';
 import type { SceneTreeColors } from '../../types/SceneTree.js';
+import type { CollisionVisualization } from '../../types/CollisionVisualization.js';
 import type {
   BuildLayerId,
   BuildPatchProgress,
@@ -15,7 +16,9 @@ import type {
 export interface EditorContextValue {
   project: EditorSnapshot;
   keybindings: KeybindingMap;
+  selectionColor: string;
   sceneTreeColors: SceneTreeColors;
+  collisionVisualization: CollisionVisualization;
   terrain?: EditorTerrainSource;
   sceneLoad?: EditorLoadProgress;
   setSceneLoad(progress?: EditorLoadProgress): void;
@@ -28,6 +31,12 @@ export interface EditorContextValue {
   showViewportStats: boolean;
   showOcclusionOctants: boolean;
   setShowOcclusionOctants(value: boolean): void;
+  showTerrain: boolean;
+  setShowTerrain(value: boolean): void;
+  showSolidCollision: boolean;
+  setShowSolidCollision(value: boolean): void;
+  showPlayerBarriers: boolean;
+  setShowPlayerBarriers(value: boolean): void;
   assetPreview?: AssetExplorerFamily;
   inspectAsset(family: AssetExplorerFamily, activate?: boolean): void;
   busy: boolean;

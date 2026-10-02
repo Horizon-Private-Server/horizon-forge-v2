@@ -4,6 +4,7 @@ using RatchetPs2.Core.Games;
 using RatchetPs2.Core.Skyboxes;
 using RatchetPs2.Core.Tfrags;
 using RatchetPs2.Games.UYA.Gameplay;
+using RatchetPs2.Sdk;
 
 namespace Forge.Host.Games.UYA;
 
@@ -207,6 +208,22 @@ public static class UyaBaseLayerStore
                             value.SkyShell.AngularVelocityRadiansPerSecond,
                         }).ToArray(),
                     }),
+                    BakeLayerId.Collision => ForgeProjectPersistence.Serialize(new
+                    {
+                        CompositionVersion = 1,
+                        Pieces = workspace.Content.Entities.Where(value => value.Collision is not null)
+                            .OrderBy(value => value.Asset!.Id.ToString(), StringComparer.Ordinal)
+                            .ThenBy(value => value.Collision!.Kind)
+                            .ThenBy(value => value.Collision!.SourcePieceIndex)
+                            .Select(value => new
+                            {
+                                AssetId = value.Asset!.Id,
+                                value.Collision!.Kind,
+                                value.Collision.SourcePieceIndex,
+                                Enabled = value.State?.Disabled != true,
+                                value.Transform.Position,
+                            }).ToArray(),
+                    }),
                     BakeLayerId.Lighting => ForgeProjectPersistence.Serialize(new
                     {
                         TieAmbient = UyaStaticLayerStore.OrderedEntities(workspace, BakeLayerId.Ties)
@@ -252,6 +269,9 @@ public static class UyaBaseLayerStore
             ? await UyaSkyShellEditorService.ComposeAsync(
                 workspace, catalog, workspace.Content.Entities, inspection, cancellationToken)
             : null;
+        var collisionCompositions = plan.Layer == BakeLayerId.Collision
+            ? await ComposeCollisionAsync(workspace, catalog, record, cancellationToken)
+            : null;
         return await staging.CommitAsync(plan, async (output, token) =>
         {
             await ForgeProjectPersistence.WriteFileSafelyAsync(
@@ -271,6 +291,11 @@ public static class UyaBaseLayerStore
                 {
                     await ForgeProjectPersistence.WriteFileSafelyAsync(
                         Path.Combine(output, asset.Name), skyComposition!.Bytes, token);
+                }
+                else if (plan.Layer == BakeLayerId.Collision)
+                {
+                    await ForgeProjectPersistence.WriteFileSafelyAsync(
+                        Path.Combine(output, asset.Name), collisionCompositions![asset.Name], token);
                 }
                 else if (plan.Layer == BakeLayerId.Lighting && asset.Name == PointLightsAssetName)
                 {
@@ -318,6 +343,11 @@ public static class UyaBaseLayerStore
                     if (!bytes.SequenceEqual(skyComposition!.Bytes))
                         throw new InvalidDataException("Sky staged composition changed during write.");
                 }
+                else if (plan.Layer == BakeLayerId.Collision)
+                {
+                    if (!bytes.SequenceEqual(collisionCompositions![asset.Name]))
+                        throw new InvalidDataException($"Collision staged composition {asset.Name} changed during write.");
+                }
                 else if (plan.Layer == BakeLayerId.Lighting && asset.Name == PointLightsAssetName)
                 {
                     var source = workspace.ResolveAssetPath(asset.Asset.Id, catalog)
@@ -346,6 +376,48 @@ public static class UyaBaseLayerStore
                     throw new InvalidDataException($"{plan.Layer} staged asset {asset.Name} failed identity validation.");
             }
         }, cancellationToken);
+    }
+
+    private static async Task<IReadOnlyDictionary<string, byte[]>> ComposeCollisionAsync(
+        ForgeProjectWorkspace workspace,
+        AssetCatalogStore catalog,
+        UyaBaseLayerRecord record,
+        CancellationToken cancellationToken)
+    {
+        var result = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+        foreach (var asset in record.Assets)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var path = workspace.ResolveAssetPath(asset.Asset.Id, catalog)
+                ?? throw new FileNotFoundException($"Collision source {asset.Asset.Id} is missing.");
+            var source = await File.ReadAllBytesAsync(path, cancellationToken);
+            var pieces = CollisionConverter.Inspect(source, GameId.UYA).Pieces;
+            var sourceKeys = pieces.Select(value =>
+                (UyaCollisionAdapter.ToProjectKind(value.Kind), value.SourcePieceIndex)).ToHashSet();
+            var entities = workspace.Content.Entities
+                .Where(value => value.Asset?.Id == asset.Asset.Id && value.Collision is not null)
+                .ToDictionary(value => (value.Collision!.Kind, value.Collision.SourcePieceIndex));
+            var edits = pieces.Select(piece =>
+            {
+                var kind = UyaCollisionAdapter.ToProjectKind(piece.Kind);
+                if (!entities.TryGetValue((kind, piece.SourcePieceIndex), out var entity)
+                    || entity.State?.Disabled == true)
+                    return new CollisionPieceEdit(piece.Kind, piece.SourcePieceIndex, 0, 0, 0, Remove: true);
+                return new CollisionPieceEdit(
+                    piece.Kind,
+                    piece.SourcePieceIndex,
+                    entity.Transform.Position.X,
+                    entity.Transform.Position.Y,
+                    entity.Transform.Position.Z);
+            }).ToArray();
+            if (entities.Keys.Any(key => !sourceKeys.Contains(key)))
+                throw new InvalidDataException($"Collision asset {asset.Name} contains an unknown project piece.");
+            var composition = await Task.Run(
+                () => CollisionConverter.Compose(source, GameId.UYA, edits), cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            result.Add(asset.Name, composition.Bytes);
+        }
+        return result;
     }
 
     private static byte[] WriteLevelSettings(byte[] source, ProjectLevelSettings settings) =>
@@ -509,8 +581,9 @@ public static class UyaBaseLayerStore
             case BakeLayerId.Tfrags:
                 TfragTerrainReader.Read(bytes);
                 break;
-            case BakeLayerId.Collision when bytes.Length == 0:
-                throw new InvalidDataException("UYA collision payload is empty.");
+            case BakeLayerId.Collision:
+                _ = CollisionConverter.Inspect(bytes, GameId.UYA);
+                break;
             case BakeLayerId.Lighting when bytes.Length == 0:
                 throw new InvalidDataException($"UYA lighting payload {name} is empty.");
         }

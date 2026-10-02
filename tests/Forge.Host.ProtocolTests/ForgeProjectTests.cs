@@ -41,6 +41,30 @@ internal static class ForgeProjectTests
             Equal(false, project.IsDirty, "new project is clean after creation");
             Equal(false, project.MigrationPending, "new project needs no migration");
 
+            var migrationPath = Path.Combine(root, "collision-migration");
+            var migrating = await ForgeProjectWorkspace.CreateAsync(
+                migrationPath,
+                "Collision migration",
+                target,
+                baseLevel with { EntityVersion = ProjectSchema.CurrentBaseEntityVersion - 1 },
+                []);
+            var collisionAsset = new ProjectAssetReference(
+                AssetId.Parse(new string('c', AssetId.TextLength)), AssetKind.Collision);
+            var migratedPieces = new[]
+            {
+                new ProjectEntity(EntityId.New(), "Solid #0", "collision", ProjectTransform.Identity, collisionAsset,
+                    new("UYA", 3, "collision/primary/solid", 0),
+                    Collision: new(ProjectCollisionPieceKind.Solid, 0, 0, 1, 3, [new(0x21, 1)])),
+                new ProjectEntity(EntityId.New(), "Solid #1", "collision", ProjectTransform.Identity, collisionAsset,
+                    new("UYA", 3, "collision/primary/solid", 1),
+                    Collision: new(ProjectCollisionPieceKind.Solid, 0, 1, 1, 3, [new(0x22, 1)])),
+            };
+            migrating.CompleteBaseEntityImport(migratedPieces, 0);
+            Equal(2, migrating.Content.Entities.Count, "migration imports every collision piece from one payload");
+            migrating.RemoveEntity(migratedPieces[0].EntityId);
+            migrating.CompleteBaseEntityImport(migratedPieces, 0);
+            Equal(1, migrating.Content.Entities.Count, "completed migration does not resurrect deleted collision");
+
             project.UpdateTransform(firstId, ProjectTransform.Identity with { Position = new(1, 2, 3) });
             Equal(true, project.IsDirty, "transform marks project dirty");
             Equal(0, project.Content.Assets.Count, "transform does not copy assets");

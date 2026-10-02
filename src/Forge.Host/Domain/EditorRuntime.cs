@@ -131,12 +131,15 @@ public sealed class EditorRuntime : IAsyncDisposable
                     ScheduleAutosave();
                     break;
                 case EditorCommandKind.UpdateTransform:
-                    workspace.UpdateTransform(command.EntityIds[0], command.Transform!);
+                    workspace.UpdateTransform(command.EntityIds[0], EffectiveTransform(
+                        workspace.GetEntities(command.EntityIds)[0], command.Transform!));
                     AddEvent(EditorEventKind.ProjectChanged, command.Id, command.EntityIds, "Transform updated");
                     ScheduleAutosave();
                     break;
                 case EditorCommandKind.UpdateTransforms:
-                    workspace.UpdateTransforms(command.Transforms!);
+                    var byId = workspace.GetEntities(command.EntityIds).ToDictionary(entity => entity.EntityId);
+                    workspace.UpdateTransforms(command.Transforms!.Select(update => new EditorTransformUpdate(
+                        update.EntityId, EffectiveTransform(byId[update.EntityId], update.Transform))).ToArray());
                     AddEvent(EditorEventKind.ProjectChanged, command.Id, command.EntityIds, "Transforms updated");
                     ScheduleAutosave();
                     break;
@@ -435,7 +438,8 @@ public sealed class EditorRuntime : IAsyncDisposable
                         IsReadOnlySource(entity),
                         HasInvalidGeometryLinks(entity),
                         entity.Asset is not null && _missingAssets.Contains(entity.Asset.Id)),
-                    entity.SkyShell);
+                    entity.SkyShell,
+                    entity.Collision);
             }).ToArray(),
             _selection.ToArray(),
             workspace.IsDirty,
@@ -491,7 +495,7 @@ public sealed class EditorRuntime : IAsyncDisposable
 
     private static bool IsDecodedSource(ProjectEntity entity) => entity.Geometry is not null
         || entity.Lighting is not null || entity.Camera is not null || entity.AmbientSound is not null
-        || entity.SkyShell is not null;
+        || entity.SkyShell is not null || entity.Collision is not null;
 
     private EditorTransformCapabilities TransformCapabilities(ProjectEntity entity)
     {
@@ -552,10 +556,16 @@ public sealed class EditorRuntime : IAsyncDisposable
             && !readOnlyStateChange)
             throw new ArgumentException("Decoded source data is read-only until its native writer is available.", nameof(command));
         if (command.EntityIds.Any(transformOnly.Contains)
+            && workspace.GetEntities(command.EntityIds).Any(entity => entity.Collision is null)
             && (command.Kind is EditorCommandKind.DeleteEntities or EditorCommandKind.DuplicateEntities
                 or EditorCommandKind.CopyEntities
                 || command.Kind == EditorCommandKind.SetEntityState && command.State?.Disabled is not null))
             throw new ArgumentException("This decoded source type supports transform edits but not structural changes.", nameof(command));
+        if (command.EntityIds.Count > 0
+            && workspace.GetEntities(command.EntityIds).Any(entity => entity.Collision is not null)
+            && command.Kind is EditorCommandKind.DuplicateEntities or EditorCommandKind.CopyEntities
+                or EditorCommandKind.SetEntityLayer)
+            throw new ArgumentException("Collision pieces cannot be duplicated, copied, or moved to another layer.", nameof(command));
         if (command.EntityIds.Any(locked.Contains)
             && command.Kind is EditorCommandKind.UpdateTransform or EditorCommandKind.UpdateTransforms
                 or EditorCommandKind.RenameEntity
@@ -668,6 +678,21 @@ public sealed class EditorRuntime : IAsyncDisposable
                 throw new ArgumentException("Transform command changes an unsupported component.", nameof(command));
         }
     }
+
+    private static ProjectTransform EffectiveTransform(ProjectEntity entity, ProjectTransform transform)
+    {
+        if (entity.Collision is not { } collision) return transform;
+        var horizontalPrecision = collision.Kind == ProjectCollisionPieceKind.Solid ? 16 : 64;
+        return transform with
+        {
+            Position = new(
+                Quantize(transform.Position.X, horizontalPrecision),
+                Quantize(transform.Position.Y, horizontalPrecision),
+                Quantize(transform.Position.Z, 64)),
+        };
+    }
+
+    private static float Quantize(float value, int precision) => MathF.Round(value * precision) / precision;
 
     private void ApplyHistory(ForgeProjectWorkspace workspace, string commandId, bool undo)
     {

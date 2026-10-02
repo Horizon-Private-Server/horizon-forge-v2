@@ -237,8 +237,9 @@ internal static class Program
 
         var renderRequest = new UyaRenderPackageRequestPayload(
             "source.iso", "render-cache", UyaIsoService.SupportedMd5, 3, "project", "catalog");
-        Equal(renderRequest, BridgePayloadCodec.DecodeUyaRenderPackageRequest(
-            BridgePayloadCodec.EncodeUyaRenderPackageRequest(renderRequest)), "render-package request payload");
+        var decodedRenderRequest = BridgePayloadCodec.DecodeUyaRenderPackageRequest(
+            BridgePayloadCodec.EncodeUyaRenderPackageRequest(renderRequest));
+        Equal(renderRequest, decodedRenderRequest, "render-package request payload");
         var renderResult = new UyaRenderPackageResultPayload(
             "render-cache/key", "key", ["tfrag/tfrag.gltf", "tfrag/chunks/chunk1/tfrag.gltf"],
             "assets/skybox/skybox.gltf",

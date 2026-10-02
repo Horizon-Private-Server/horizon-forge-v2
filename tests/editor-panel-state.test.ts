@@ -24,6 +24,7 @@ import {
 import type { AssetExplorerItem } from '../src/types/AssetExplorer.js';
 import type { EditorEntity } from '../src/types/EditorRuntime.js';
 import { createAssetPlacementCommand, createSkyShellAddCommand } from '../src/utils/AssetPlacement.ts';
+import { formatCollisionType } from '../src/utils/CollisionFormat.ts';
 import { parseSplinePointId, removeSplinePoints, splinePointId } from '../src/utils/SplinePoints.ts';
 import { applyTextureChannel } from '../src/utils/TexturePreview.ts';
 
@@ -278,4 +279,9 @@ test('spline point tree IDs round-trip without constraining entity IDs', () => {
     { x: 1, y: 1, z: 1, w: 1 },
     { x: 2, y: 2, z: 2, w: 2 },
   ], new Set([0, 2])), [{ x: 1, y: 1, z: 1, w: 1 }]);
+});
+
+test('collision type formatting keeps game-specific nibble semantics behind target dispatch', () => {
+  assert.equal(formatCollisionType(0xa7, 'UYA'), 'Sound 0xA · Type 0x7 · Raw 0xA7');
+  assert.equal(formatCollisionType(0xa7, 'GC'), 'Raw 0xA7');
 });

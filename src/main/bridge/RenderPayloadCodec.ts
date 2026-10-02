@@ -161,7 +161,8 @@ export function decodeUyaRenderPackageResult(payload: Uint8Array): UyaRenderPack
   const assets = Array.from({ length: assetCount }, () => {
     const assetId = reader.readString();
     const kind = reader.readString();
-    if (kind !== 'moby' && kind !== 'tie' && kind !== 'shrub') malformed('Render asset kind is invalid');
+    if (kind !== 'moby' && kind !== 'tie' && kind !== 'shrub' && kind !== 'collision')
+      malformed('Render asset kind is invalid');
     const asset: UyaRenderPackageResult['assets'][number] = { assetId, kind };
     if (reader.readBoolean()) asset.path = reader.readString();
     if (reader.readBoolean()) asset.error = reader.readString();

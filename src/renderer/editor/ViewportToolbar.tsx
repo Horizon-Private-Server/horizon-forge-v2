@@ -12,6 +12,8 @@ interface ViewportToolbarProps {
   translationSnap: number;
   rotationSnap: number;
   scaleSnap: number;
+  showSolidCollision: boolean;
+  showPlayerBarriers: boolean;
   onModeChange(value: EditorTransformMode): void;
   onSpaceChange(value: EditorTransformSpace): void;
   onSnapSourceChange(value: EditorSnapSource): void;
@@ -20,6 +22,8 @@ interface ViewportToolbarProps {
   onTranslationSnapChange(value: number): void;
   onRotationSnapChange(value: number): void;
   onScaleSnapChange(value: number): void;
+  onSolidCollisionVisibilityChange(value: boolean): void;
+  onPlayerBarrierVisibilityChange(value: boolean): void;
 }
 
 export function ViewportToolbar({
@@ -31,6 +35,8 @@ export function ViewportToolbar({
   translationSnap,
   rotationSnap,
   scaleSnap,
+  showSolidCollision,
+  showPlayerBarriers,
   onModeChange,
   onSpaceChange,
   onSnapSourceChange,
@@ -39,6 +45,8 @@ export function ViewportToolbar({
   onTranslationSnapChange,
   onRotationSnapChange,
   onScaleSnapChange,
+  onSolidCollisionVisibilityChange,
+  onPlayerBarrierVisibilityChange,
 }: ViewportToolbarProps) {
   return <Group aria-label="Viewport tools" className="scene-toolbar" gap="xs" role="group">
     <SegmentedControl
@@ -77,6 +85,20 @@ export function ViewportToolbar({
           <NumberInput label="Scale increment" min={0.001} step={0.05} value={scaleSnap}
             onChange={(value) => onScaleSnapChange(positiveNumber(value, scaleSnap))} />
           <Text c="dimmed" size="xs">Hold Ctrl to temporarily invert snapping.</Text>
+        </Stack>
+      </Popover.Dropdown>
+    </Popover>
+    <Popover position="bottom-end" width={210} withArrow>
+      <Popover.Target>
+        <Button size="compact-xs" variant="default">Visibility</Button>
+      </Popover.Target>
+      <Popover.Dropdown>
+        <Stack gap="xs">
+          <Switch checked={showSolidCollision} label="Solid collision"
+            onChange={(event) => onSolidCollisionVisibilityChange(event.currentTarget.checked)} />
+          <Switch checked={showPlayerBarriers} label="Player barriers"
+            onChange={(event) => onPlayerBarrierVisibilityChange(event.currentTarget.checked)} />
+          <Text c="dimmed" size="xs">Viewport-only; does not change the project or build.</Text>
         </Stack>
       </Popover.Dropdown>
     </Popover>

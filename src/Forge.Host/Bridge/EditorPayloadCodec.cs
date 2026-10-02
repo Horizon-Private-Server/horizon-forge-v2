@@ -206,6 +206,21 @@ internal static class EditorPayloadCodec
             WriteVector(writer, value.SkyShell.InitialRotationRadians);
             WriteVector(writer, value.SkyShell.AngularVelocityRadiansPerSecond);
         }
+        writer.WriteBoolean(value.Collision is not null);
+        if (value.Collision is not null)
+        {
+            writer.WriteUInt32((uint)value.Collision.Kind);
+            writer.WriteUInt32(checked((uint)value.Collision.SourcePayloadIndex));
+            writer.WriteUInt32(checked((uint)value.Collision.SourcePieceIndex));
+            writer.WriteUInt32(checked((uint)value.Collision.FaceCount));
+            writer.WriteUInt32(checked((uint)value.Collision.VertexCount));
+            writer.WriteUInt32(checked((uint)value.Collision.Types.Count));
+            foreach (var type in value.Collision.Types)
+            {
+                writer.WriteUInt32(type.RawType);
+                writer.WriteUInt32(checked((uint)type.Count));
+            }
+        }
         writer.WriteUInt32((uint)value.TransformCapabilities);
         writer.WriteBoolean(value.State.Dirty);
         writer.WriteBoolean(value.State.Hidden);

@@ -94,6 +94,21 @@ internal static class UyaRenderPackageTests
             new byte[] { 255, 0, 0, 64, 0, 255, 0, 128 }.CopyTo(palette, 0);
             var pif = PifWriter.Write(PifWriter.CreateIndexed8(2, 2, palette, [0, 1, 1, 0]));
             var catalog = await AssetCatalogStore.OpenAsync(catalogPath);
+            var collisionBytes = BuildCollisionFixture();
+            var collisionPath = Path.Combine(root, "collision.bin");
+            await File.WriteAllBytesAsync(collisionPath, collisionBytes);
+            var collisionId = AssetId.Compute(AssetKind.Collision, 0, collisionBytes);
+            var collisionPackage = await UyaRenderPackageService.BuildAssetPackageAsync(
+                collisionId, AssetKind.Collision, 0, collisionBytes.Length, collisionPath, default);
+            Equal(true, collisionPackage.Entries.Any(value => value.Path == "model.gltf")
+                && collisionPackage.Entries.Any(value => value.Path == "model.buffer.bin"),
+                "collision render asset package");
+            using (var collisionGltf = JsonDocument.Parse(collisionPackage.PackedBytes.AsMemory(
+                collisionPackage.Entries.Single(value => value.Path == "model.gltf").Offset,
+                collisionPackage.Entries.Single(value => value.Path == "model.gltf").Length)))
+                Equal(true, collisionGltf.RootElement.GetProperty("nodes").EnumerateArray()
+                    .Any(value => value.GetProperty("name").GetString() == "player_barrier_0000"),
+                    "collision render package preserves selectable piece nodes");
             var texture = await catalog.PutAsync(
                 AssetKind.Texture,
                 UyaAssetImportService.TextureCanonicalFormatVersion,
@@ -212,6 +227,85 @@ internal static class UyaRenderPackageTests
             if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
         }
     }
+
+    internal static byte[] BuildCollisionFixture()
+    {
+        var bytes = new byte[0x100];
+        BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(0x00), 0x40);
+        BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(0x04), 0xc0);
+
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(0x42), 1);
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(0x44), 2);
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(0x4a), 1);
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(0x4c), 0x10);
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(0x52), 2);
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(0x54), 0x2003);
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(0x58), 0x5002);
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(0x60), 2);
+        bytes[0x62] = 7;
+        bytes[0x63] = 1;
+        var solidVertices = new[]
+        {
+            (-64, -64, 0), (0, -64, 0), (0, 0, 0), (-64, 0, 0),
+            (96, -64, -64), (160, -64, -64), (128, 0, -64),
+        };
+        for (var index = 0; index < solidVertices.Length; index++)
+        {
+            var (x, y, z) = solidVertices[index];
+            BinaryPrimitives.WriteUInt32LittleEndian(
+                bytes.AsSpan(0x64 + index * 4), PackCollisionVertex(x, y, z));
+        }
+        bytes[0x80] = 0;
+        bytes[0x81] = 1;
+        bytes[0x82] = 2;
+        bytes[0x83] = 0x21;
+        bytes[0x84] = 4;
+        bytes[0x85] = 5;
+        bytes[0x86] = 6;
+        bytes[0x87] = 0xab;
+        bytes[0x88] = 3;
+
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(0x90), 1);
+        bytes[0x92] = 3;
+        var secondVertices = new[] { (-160, -64, -64), (-96, -64, -64), (-128, 0, -64) };
+        for (var index = 0; index < secondVertices.Length; index++)
+        {
+            var (x, y, z) = secondVertices[index];
+            BinaryPrimitives.WriteUInt32LittleEndian(
+                bytes.AsSpan(0x94 + index * 4), PackCollisionVertex(x, y, z));
+        }
+        bytes[0xa0] = 0;
+        bytes[0xa1] = 1;
+        bytes[0xa2] = 2;
+        bytes[0xa3] = 0xab;
+
+        BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(0xc0), 1);
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(0xd0), 64);
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(0xd2), 64);
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(0xd4), 64);
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(0xd6), 128);
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(0xd8), 1);
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(0xda), 3);
+        BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(0xdc), 0x20);
+        foreach (var (offset, x, y, z) in new[]
+        {
+            (0xe0, (ushort)64, (ushort)64, (ushort)64),
+            (0xe8, (ushort)128, (ushort)64, (ushort)64),
+            (0xf0, (ushort)64, (ushort)128, (ushort)64),
+        })
+        {
+            BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(offset), x);
+            BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(offset + 2), y);
+            BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(offset + 4), z);
+        }
+        bytes[0xf8] = 0;
+        bytes[0xf9] = 1;
+        bytes[0xfa] = 2;
+        return bytes;
+    }
+
+    private static uint PackCollisionVertex(int x64, int y64, int z64) =>
+        (uint)(((x64 / 4) & 0x3ff) | (((y64 / 4) & 0x3ff) << 10) | ((z64 & 0xfff) << 20));
 
     private static byte[] BuildUyaSkyboxFixture(int shellCount)
     {

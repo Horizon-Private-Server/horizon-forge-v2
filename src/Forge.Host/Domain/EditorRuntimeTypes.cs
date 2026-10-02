@@ -139,7 +139,8 @@ public sealed record EditorEntitySnapshot(
     EditorEntityGeometry? Geometry,
     EditorTransformCapabilities TransformCapabilities,
     EditorEntityStatus State,
-    ProjectSkyShell? SkyShell);
+    ProjectSkyShell? SkyShell,
+    ProjectCollisionPiece? Collision);
 
 public sealed record EditorEvent(
     long Sequence,

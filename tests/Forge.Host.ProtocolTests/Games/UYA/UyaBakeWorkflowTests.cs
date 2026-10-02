@@ -14,6 +14,7 @@ using RatchetPs2.Core.Wad;
 using RatchetPs2.Core.Wad.Models;
 using RatchetPs2.Games.UYA.Gameplay;
 using RatchetPs2.Games.UYA.Level;
+using RatchetPs2.Sdk;
 
 namespace Forge.Host.ProtocolTests.Games.UYA;
 
@@ -216,7 +217,7 @@ internal static class UyaBakeWorkflowTests
             var packedSource = await UyaLevelPackService.PackAsync(project, catalog, sourceLevelWad, context);
             Equal(true, packedSource.Succeeded, "validated staging packs: "
                 + string.Join(" | ", packedSource.Diagnostics.Select(value => value.Cause)));
-            Equal("50a8e57f4db37f4dab8e670cd2eea775f87d8b7a0afd2a7cf6114c70ae87c0d5",
+            Equal("8e344e0d181cf1fa7d0249e582dbbf457a2fcc294fae6932c9749b60adaa2381",
                 packedSource.OutputSha256, "unchanged staged project golden WAD");
             _ = UyaLevelWadInventoryReader.Read(packedSource.OutputBytes!);
             var packedFiles = UyaLevelWadUnpacker.Unpack(packedSource.OutputBytes!).Files;
@@ -237,6 +238,8 @@ internal static class UyaBakeWorkflowTests
             Equal(true, installed.Header is
                 { MobyTextureCount: 0, TieTextureCount: 0, ShrubTextureCount: 0 },
                 "unchanged source asset payload is retained without recompilation");
+
+            await VerifyCollisionBakeWorkflowAsync(root, catalog, iso, sourceLevelWad, context);
 
             var compositionSourceSky = await catalog.PutAsync(
                 AssetKind.Sky,
@@ -796,6 +799,152 @@ internal static class UyaBakeWorkflowTests
         {
             if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
         }
+    }
+
+    private static async Task VerifyCollisionBakeWorkflowAsync(
+        string root,
+        AssetCatalogStore catalog,
+        byte[] iso,
+        byte[] sourceLevelWad,
+        BakeFingerprintContext context)
+    {
+        var project = Path.Combine(root, "collision-bake");
+        await UyaProjectService.CreateValidatedAsync(
+            new MemoryStream(iso, writable: false),
+            catalog,
+            new("synthetic.iso", catalog.RootPath, project, "Collision bake",
+                new string('a', 32), "1.00", 3, true));
+        Equal(true, (await UyaBakeService.BakeAsync(project, catalog, context)).Succeeded,
+            "collision qualification project initially bakes");
+
+        var source = UyaRenderPackageTests.BuildCollisionFixture();
+        var entry = await catalog.PutAsync(
+            AssetKind.Collision,
+            UyaBaseLayerSchema.CanonicalFormatVersion,
+            source,
+            new(
+                "test-collision",
+                new("UYA", "NTSC-U", "1.00", "level03", "level_wad/assets/asset_wad.bin", 0,
+                    new string('a', 32)),
+                ["base:collision:collision"],
+                ["vanilla", "game:UYA", "level:03", "base-layer"]));
+        var baseLayerPath = Path.Combine(project, UyaBaseLayerStore.RelativeManifestPath);
+        var baseLayers = ForgeProjectPersistence.Deserialize<UyaBaseLayerManifest>(
+            await File.ReadAllBytesAsync(baseLayerPath), "test base layers");
+        var collisionLayer = baseLayers.Layers.Single(value => value.Layer == BakeLayerId.Collision) with
+        {
+            Assets =
+            [
+                new("collision.bin", new(entry.Id, AssetKind.Collision), UyaBaseLayerSchema.CanonicalFormatVersion),
+            ],
+        };
+        await File.WriteAllBytesAsync(baseLayerPath, ForgeProjectPersistence.Serialize(baseLayers with
+        {
+            Layers = baseLayers.Layers.Select(value => value.Layer == BakeLayerId.Collision
+                ? collisionLayer
+                : value).ToArray(),
+        }));
+
+        var inspection = CollisionConverter.Inspect(source, GameId.UYA);
+        var workspace = await ForgeProjectWorkspace.OpenAsync(project);
+        var entities = inspection.Pieces.Select(piece => new ProjectEntity(
+            EntityId.New(),
+            $"{(piece.Kind == CollisionPieceKind.Solid ? "Solid" : "Player barrier")} #{piece.SourcePieceIndex}",
+            "collision",
+            ProjectTransform.Identity,
+            new(entry.Id, AssetKind.Collision),
+            new("UYA", 3, "collision/primary", piece.SourcePieceIndex),
+            Collision: new(
+                piece.Kind == CollisionPieceKind.Solid
+                    ? ProjectCollisionPieceKind.Solid
+                    : ProjectCollisionPieceKind.PlayerBarrier,
+                0,
+                piece.SourcePieceIndex,
+                piece.FaceCount,
+                piece.VertexCount,
+                piece.Types.Select(value => new ProjectCollisionTypeCount(value.RawType, value.Count)).ToArray())))
+            .ToArray();
+        foreach (var entity in entities) workspace.AddEntity(entity);
+        var solid = entities.First(value => value.Collision!.Kind == ProjectCollisionPieceKind.Solid);
+        var barrier = entities.Single(value => value.Collision!.Kind == ProjectCollisionPieceKind.PlayerBarrier);
+        workspace.UpdateTransform(solid.EntityId, solid.Transform with { Position = new(1, 0, 0) });
+        workspace.UpdateTransform(barrier.EntityId, barrier.Transform with { Position = new(0, 1, 0) });
+        await workspace.SaveAsync();
+
+        var movedBake = await UyaBakeService.BakeAsync(project, catalog, context);
+        Equal(true, movedBake.WrittenLayers.Select(value => value.Layer).SequenceEqual([BakeLayerId.Collision]),
+            "collision transforms rebuild only collision");
+        var movedPack = await UyaLevelPackService.PackAsync(project, catalog, sourceLevelWad, context);
+        Equal(true, movedPack.Succeeded, "edited collision staging packs: "
+            + string.Join(" | ", movedPack.Diagnostics.Select(value => value.Cause)));
+        var moved = UyaBaseLayerService.Extract(UyaLevelWadUnpacker.Unpack(movedPack.OutputBytes!))
+            .Single(value => value.Layer == BakeLayerId.Collision && value.Name == "collision.bin").Bytes;
+        var expected = CollisionConverter.Compose(source, GameId.UYA,
+        [
+            new(CollisionPieceKind.Solid, 0, 1, 0, 0),
+            new(CollisionPieceKind.PlayerBarrier, 0, 0, 1, 0),
+        ]).Bytes;
+        Equal(true, moved.SequenceEqual(expected),
+            "packed WAD preserves solid and player-barrier translations");
+
+        workspace = await ForgeProjectWorkspace.OpenAsync(project);
+        workspace.UpdateTransform(solid.EntityId, solid.Transform with { Position = new(2, 0, 0) });
+        await workspace.SaveAsync();
+        var beforeCancellation = ManifestBytes(movedBake.Manifest);
+        using (var cancellation = new CancellationTokenSource())
+        {
+            await ThrowsAsync<OperationCanceledException>(() => UyaBakeService.BakeAsync(
+                project,
+                catalog,
+                context,
+                progress: value =>
+                {
+                    if (value is { Phase: UyaBakePhase.Staging, Layer: BakeLayerId.Collision, CompletedLayers: > 0 })
+                        cancellation.Cancel();
+                    return ValueTask.CompletedTask;
+                },
+                cancellationToken: cancellation.Token));
+        }
+        var cancelledManifest = (await BakeStagingStore.OpenAsync(project)).Manifest;
+        Equal(true, beforeCancellation.SequenceEqual(ManifestBytes(cancelledManifest)),
+            "cancelled collision bake preserves the last good manifest");
+        var cancellationRetry = await UyaBakeService.BakeAsync(project, catalog, context);
+        Equal(true, cancellationRetry.WrittenLayers.Select(value => value.Layer)
+            .SequenceEqual([BakeLayerId.Collision]), "cancelled collision bake retries cleanly");
+
+        workspace = await ForgeProjectWorkspace.OpenAsync(project);
+        workspace.UpdateTransform(solid.EntityId, solid.Transform with { Position = new(3, 0, 0) });
+        await workspace.SaveAsync();
+        var staging = await BakeStagingStore.OpenAsync(project);
+        var beforeFailure = ManifestBytes(staging.Manifest);
+        var collisionPlan = (await UyaBakeValidationService.PreflightAsync(project, catalog, context))
+            .Plan.Layers.Single(value => value.Layer == BakeLayerId.Collision);
+        await ThrowsAsync<InvalidDataException>(() => UyaBaseLayerStore.StageAsync(
+            project,
+            catalog,
+            staging,
+            collisionPlan,
+            output => File.WriteAllBytes(Path.Combine(output, "collision.bin"), [0]),
+            CancellationToken.None));
+        var failedManifest = (await BakeStagingStore.OpenAsync(project)).Manifest;
+        Equal(true, beforeFailure.SequenceEqual(ManifestBytes(failedManifest)),
+            "invalid collision output preserves the last good manifest");
+
+        workspace = await ForgeProjectWorkspace.OpenAsync(project);
+        foreach (var entity in workspace.Content.Entities
+                     .Where(value => value.Collision?.Kind == ProjectCollisionPieceKind.Solid).ToArray())
+            workspace.RemoveEntity(entity.EntityId);
+        workspace.SetEntityState([barrier.EntityId], null, true, null);
+        await workspace.SaveAsync();
+        var deletedBake = await UyaBakeService.BakeAsync(project, catalog, context);
+        Equal(true, deletedBake.WrittenLayers.Select(value => value.Layer).SequenceEqual([BakeLayerId.Collision]),
+            "collision deletion rebuilds only collision");
+        var deletedPack = await UyaLevelPackService.PackAsync(project, catalog, sourceLevelWad, context);
+        Equal(true, deletedPack.Succeeded, "deleted collision staging packs");
+        var deleted = UyaBaseLayerService.Extract(UyaLevelWadUnpacker.Unpack(deletedPack.OutputBytes!))
+            .Single(value => value.Layer == BakeLayerId.Collision && value.Name == "collision.bin").Bytes;
+        Equal(0, CollisionConverter.Inspect(deleted, GameId.UYA).Pieces.Count,
+            "packed WAD removes deleted and disabled collision pieces");
     }
 
     private static async Task<AssetCatalogEntry> PutAsync(

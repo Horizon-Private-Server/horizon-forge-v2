@@ -35,6 +35,7 @@ export interface KnownSettings {
   'targets.uya.developmentIso': string;
   'ui.editorLayout': string;
   'ui.componentSize': UiSize;
+  'ui.selectionColor': string;
   'ui.sceneTreeColors.moby': string;
   'ui.sceneTreeColors.cuboid': string;
   'ui.sceneTreeColors.sphere': string;
@@ -43,6 +44,8 @@ export interface KnownSettings {
   'ui.sceneTreeColors.spline': string;
   'ui.sceneTreeColors.grindPath': string;
   'ui.sceneTreeColors.area': string;
+  'ui.sceneTreeColors.collision': string;
+  'ui.sceneTreeColors.playerBarrier': string;
   'ui.sceneTreeColors.directionalLight': string;
   'ui.sceneTreeColors.pointLight': string;
   'ui.sceneTreeColors.environmentSample': string;
@@ -58,6 +61,7 @@ export interface KnownSettings {
   'ui.showViewportStats': boolean;
   'updates.automaticChecks': boolean;
   'updates.channel': 'stable' | 'nightly';
+  'visualization.uya.collisionPalette': string;
 }
 
 export type SettingKey = keyof KnownSettings;
@@ -265,7 +269,7 @@ export interface EditorTerrainSource {
   skyUrl?: string;
   environment?: EditorSceneEnvironment;
   occlusionOctants: { x: number; y: number; z: number; maskIndex: number }[];
-  assets: { assetId: string; kind: 'moby' | 'tie' | 'shrub'; url?: string; error?: string }[];
+  assets: { assetId: string; kind: 'moby' | 'tie' | 'shrub' | 'collision'; url?: string; error?: string }[];
   cacheHit: boolean;
 }
 

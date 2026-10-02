@@ -403,6 +403,7 @@ test('operation payloads round trip and reject trailing data', () => {
     assets: [
       { assetId: 'a'.repeat(64), kind: 'moby' as const, path: 'entities/a/model.gltf' },
       { assetId: 'b'.repeat(64), kind: 'tie' as const, error: 'missing asset' },
+      { assetId: 'c'.repeat(64), kind: 'collision' as const, path: 'entities/c/model.gltf' },
     ],
     occlusionOctants: [{ x: 1, y: 2, z: 3, maskIndex: 4 }],
     cacheHit: true,

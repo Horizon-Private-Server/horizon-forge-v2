@@ -107,7 +107,7 @@ internal static class UyaProjectTests
                 [BakeLayerId.World] = "235a7f4dd8af8a77a032c72b99f4537ecb4c1e30067f1ef4c5308689279cb137",
                 [BakeLayerId.Sky] = "66687aadf862bd776c8fc18b8e9f8e20089714856ee233b3902a591d0d5f2925",
                 [BakeLayerId.Tfrags] = "f315f3f6d33215f8777a7d5a4b809f433729d13a86fe6adf3da5c11137e18273",
-                [BakeLayerId.Collision] = "c2f480d4dda9f4522b9f6d590011636d904accfe59f12f9d66a0221c2558e3a2",
+                [BakeLayerId.Collision] = "067dc6a810183e9069f63c2020b692c122c8d58263ed7f5c0e531504dc3b6e06",
             };
             foreach (var layer in UyaBaseLayerSchema.Layers)
             {
@@ -489,7 +489,7 @@ internal static class UyaProjectTests
 
         var assets = levelData[0x300..0x3c0];
         WriteInt32(assets, 0x40, 0x40);
-        assets[0xa0..0xc0].Fill(0xcc);
+        WriteInt32(assets, 0xa0, 8);
 
         var gameplay = wad[(2 * UyaLevelConstants.SectorSize)..];
         WriteInt32(gameplay, 0x00, 0x11a0);
