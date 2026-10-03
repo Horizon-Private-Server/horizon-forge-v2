@@ -484,6 +484,29 @@ test('scene projection merges matching parts, instances assets, and resolves ins
   disposeObject(template);
 });
 
+test('scene projection hides only the source instance during collision preview', () => {
+  const template = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+  const projection = new SceneProjection();
+  projection.setAssetTemplates(new Map([['asset', template]]));
+  projection.sync([entity('source'), entity('neighbor', 10)]);
+
+  let mesh: THREE.InstancedMesh | undefined;
+  projection.root.traverse((object) => { if (object instanceof THREE.InstancedMesh) mesh = object; });
+  assert.equal(mesh?.count, 2);
+
+  projection.setPreviewHiddenEntity('source');
+  projection.sync([entity('source'), entity('neighbor', 10)]);
+  assert.equal(mesh?.count, 1);
+  assert.deepEqual(mesh?.userData.forgeInstanceIds, ['neighbor']);
+
+  projection.setPreviewHiddenEntity();
+  projection.sync([entity('source'), entity('neighbor', 10)]);
+  assert.equal(mesh?.count, 2);
+
+  projection.dispose();
+  disposeObject(template);
+});
+
 test('scene projection batches unique collision pieces and resolves batch picks', () => {
   const material = new THREE.MeshBasicMaterial();
   const templates = new Map<string, THREE.Object3D>();

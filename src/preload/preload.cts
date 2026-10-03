@@ -5,6 +5,7 @@ import type {
   AssetExplorerQuery,
   AssetPreviewKind,
   EditorCommand,
+  EditorTieCollisionGenerationSettings,
   ForgeAction,
   ForgeApi,
   ForgeWindowAction,
@@ -58,6 +59,15 @@ const forgeApi = Object.freeze({
   closeEditorProject: () => ipcRenderer.invoke('forge:editor-close'),
   getEditorSnapshot: () => ipcRenderer.invoke('forge:editor-query'),
   executeEditorCommand: (command: EditorCommand) => ipcRenderer.invoke('forge:editor-execute', command),
+  inspectTieCollisionSource: (entityId: string) =>
+    ipcRenderer.invoke('forge:editor-tie-collision-inspect', entityId),
+  previewTieCollision: (entityId: string, settings?: EditorTieCollisionGenerationSettings) =>
+    ipcRenderer.invoke('forge:editor-tie-collision-preview', entityId, settings),
+  cancelTieCollisionPreview: () => ipcRenderer.invoke('forge:editor-tie-collision-cancel'),
+  applyTieCollisionPreview: (commandId: string, token: string) =>
+    ipcRenderer.invoke('forge:editor-tie-collision-apply', commandId, token),
+  getTieCollisionPreviewModel: (token: string, requestToken: string) =>
+    ipcRenderer.invoke('forge:editor-tie-collision-model', token, requestToken),
   saveEditorProject: () => ipcRenderer.invoke('forge:editor-save'),
   getBuildPlan: () => ipcRenderer.invoke('forge:editor-build-plan'),
   buildAndPatchProject: (includedLayers: BuildLayerId[]) =>

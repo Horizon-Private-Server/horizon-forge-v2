@@ -81,7 +81,7 @@ public sealed class ForgeProjectWorkspace
         var workspace = new ForgeProjectWorkspace(
             root,
             new(ProjectSchema.CurrentVersion, ProjectSchema.ManifestDocumentType, EntityId.New(), name, target, baseLevel, DefaultContentPath),
-            new(ProjectSchema.CurrentVersion, ProjectSchema.ContentDocumentType, entities.ToArray(), [], levelSettings));
+            new(ProjectSchema.CurrentVersion, ProjectSchema.ContentDocumentType, entities.ToArray(), [], [], levelSettings));
         workspace.Validate();
         await workspace.SaveAsync(cancellationToken);
         return workspace;
@@ -460,6 +460,7 @@ public sealed class ForgeProjectWorkspace
         var existing = Content.Assets.SingleOrDefault(asset => asset.Id == derivedId);
         if (existing is not null && (existing.Kind != attached.Kind
             || existing.CanonicalFormatVersion != attached.CanonicalFormatVersion
+            || existing.ParentId != attached.ParentId
             || existing.Size != attached.Size))
             throw new InvalidDataException($"Project asset {derivedId} has inconsistent metadata.");
         await EnsureAssetBlobAsync(attached, canonicalBytes, cancellationToken);
@@ -480,6 +481,90 @@ public sealed class ForgeProjectWorkspace
         return new(derivedId, changes);
     }
 
+    public async Task<ProjectTieCollisionBinding> ApplyTieCollisionProxyAsync(
+        AssetId tieAssetId,
+        ReadOnlyMemory<byte> canonicalBytes,
+        uint canonicalFormatVersion,
+        ProjectTieCollisionRecipe recipe,
+        CancellationToken cancellationToken = default)
+    {
+        if (tieAssetId.ToString().Length != AssetId.TextLength)
+            throw new ArgumentException("TIE Asset ID is invalid.", nameof(tieAssetId));
+        if (canonicalBytes.IsEmpty)
+            throw new ArgumentException("Collision proxy bytes cannot be empty.", nameof(canonicalBytes));
+        ForgeProjectValidation.ValidateTieCollisionRecipe(recipe);
+        if (!Content.Entities.Any(entity => entity.Asset is { Kind: AssetKind.Tie } asset
+            && asset.Id == tieAssetId))
+            throw new InvalidOperationException($"Project has no TIE entity for asset {tieAssetId}.");
+
+        var proxyAssetId = AssetId.Compute(AssetKind.Collision, canonicalFormatVersion, canonicalBytes.Span);
+        var attached = new ProjectAttachedAsset(
+            proxyAssetId,
+            AssetKind.Collision,
+            canonicalFormatVersion,
+            tieAssetId,
+            canonicalBytes.Length);
+        var existing = Content.Assets.SingleOrDefault(asset => asset.Id == proxyAssetId);
+        if (existing is not null && (existing.Kind != attached.Kind
+            || existing.CanonicalFormatVersion != attached.CanonicalFormatVersion
+            || existing.ParentId != attached.ParentId
+            || existing.Size != attached.Size))
+            throw new InvalidDataException($"Project asset {proxyAssetId} has inconsistent metadata.");
+
+        await EnsureAssetBlobAsync(attached, canonicalBytes, cancellationToken);
+        var binding = new ProjectTieCollisionBinding(tieAssetId, proxyAssetId, recipe);
+        var content = Content with
+        {
+            Assets = existing is null ? Content.Assets.Append(attached).ToArray() : Content.Assets,
+            TieCollisionBindings = Content.TieCollisionBindings
+                .Where(value => value.TieAssetId != tieAssetId)
+                .Append(binding)
+                .OrderBy(value => value.TieAssetId.ToString(), StringComparer.Ordinal)
+                .ToArray(),
+        };
+        ForgeProjectValidation.Validate(RootPath, Manifest, content);
+        Content = content;
+        return binding;
+    }
+
+    public ProjectTieCollisionBinding RemoveTieCollisionProxy(AssetId tieAssetId)
+    {
+        var binding = Content.TieCollisionBindings.SingleOrDefault(value => value.TieAssetId == tieAssetId)
+            ?? throw new KeyNotFoundException($"TIE asset {tieAssetId} has no collision proxy binding.");
+        var content = Content with
+        {
+            TieCollisionBindings = Content.TieCollisionBindings.Where(value => value != binding).ToArray(),
+        };
+        ForgeProjectValidation.Validate(RootPath, Manifest, content);
+        Content = content;
+        return binding;
+    }
+
+    public void SetTieCollisionEnabled(EntityId entityId, bool enabled)
+        => SetTieCollisionEnabled([entityId], enabled);
+
+    public void SetTieCollisionEnabled(IReadOnlyList<EntityId> entityIds, bool enabled)
+    {
+        var entities = GetEntities(entityIds);
+        if (entities.Any(entity => entity.Asset?.Kind != AssetKind.Tie))
+            throw new InvalidOperationException("Only TIE entities can override generated collision.");
+        UpdateEntities(entityIds, value => value with { TieCollisionEnabled = enabled ? null : false });
+    }
+
+    public void SetTieCollisionRawType(AssetId tieAssetId, byte rawType)
+    {
+        var binding = Content.TieCollisionBindings.SingleOrDefault(value => value.TieAssetId == tieAssetId)
+            ?? throw new KeyNotFoundException($"TIE asset {tieAssetId} has no collision proxy binding.");
+        var replacement = binding with { Recipe = binding.Recipe with { RawType = rawType } };
+        var content = Content with
+        {
+            TieCollisionBindings = Content.TieCollisionBindings.Select(value =>
+                value == binding ? replacement : value).ToArray(),
+        };
+        ForgeProjectValidation.Validate(RootPath, Manifest, content);
+        Content = content;
+    }
+
     public void UndoAssetEdit(ProjectAssetEdit edit)
     {
         ArgumentNullException.ThrowIfNull(edit);
@@ -498,17 +583,68 @@ public sealed class ForgeProjectWorkspace
         };
     }
 
-    public bool IsAssetReferenced(AssetId id) => Content.Entities.Any(entity => entity.Asset?.Id == id);
+    public bool IsAssetReferenced(AssetId id) => Content.Entities.Any(entity => entity.Asset?.Id == id)
+        || Content.TieCollisionBindings.Any(binding => binding.ProxyAssetId == id);
+
+    public async Task<IReadOnlyList<AssetId>> CollectUnreferencedAssetsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        if (IsDirty) throw new InvalidOperationException("Save the project before collecting attached assets.");
+
+        var contents = new List<ForgeProjectContent> { Content };
+        foreach (var recovery in await ListRecoveriesAsync(cancellationToken))
+        {
+            var loaded = await ForgeProjectPersistence.LoadRecoveryAsync(RootPath, recovery.Id, cancellationToken);
+            if (loaded.Manifest.ProjectId != Manifest.ProjectId)
+                throw new InvalidDataException("A recovery snapshot belongs to a different project.");
+            contents.Add(loaded.Content);
+        }
+
+        var referenced = contents
+            .SelectMany(content => content.Entities)
+            .Where(entity => entity.Asset is not null)
+            .Select(entity => entity.Asset!.Id)
+            .Concat(contents.SelectMany(content => content.TieCollisionBindings)
+                .Select(binding => binding.ProxyAssetId))
+            .ToHashSet();
+        var assets = contents.SelectMany(content => content.Assets).ToArray();
+        while (assets.Where(asset => referenced.Contains(asset.Id))
+            .Select(asset => asset.ParentId)
+            .Any(referenced.Add)) { }
+
+        var candidates = Content.Assets.Where(asset => !referenced.Contains(asset.Id)).ToArray();
+        if (candidates.Length == 0) return [];
+
+        cancellationToken.ThrowIfCancellationRequested();
+        foreach (var candidate in candidates) File.Delete(AssetBlobPath(candidate.Id));
+        var previousContent = Content;
+        try
+        {
+            Content = Content with
+            {
+                Assets = Content.Assets.Where(asset => referenced.Contains(asset.Id)).ToArray(),
+            };
+            await SaveAsync(cancellationToken);
+        }
+        catch
+        {
+            Content = previousContent;
+            throw;
+        }
+        return candidates.Select(asset => asset.Id).ToArray();
+    }
+
+    internal string? ResolveAttachedAssetPath(AssetId id)
+    {
+        if (!Content.Assets.Any(asset => asset.Id == id)) return null;
+        var path = AssetBlobPath(id);
+        return File.Exists(path) ? path : null;
+    }
 
     public string? ResolveAssetPath(AssetId id, AssetCatalogStore globalCatalog)
     {
         ArgumentNullException.ThrowIfNull(globalCatalog);
-        if (Content.Assets.Any(asset => asset.Id == id))
-        {
-            var projectPath = AssetBlobPath(id);
-            if (File.Exists(projectPath)) return projectPath;
-        }
-        return globalCatalog.ResolveBlobPath(id);
+        return ResolveAttachedAssetPath(id) ?? globalCatalog.ResolveBlobPath(id);
     }
 
     private uint ResolveAssetDetails(

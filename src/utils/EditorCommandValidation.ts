@@ -7,6 +7,7 @@ const commandKinds = new Set([
   'updateLevelSettings', 'updateSplinePoints',
   'createEntityFromAsset',
   'addSkyShellFromAsset', 'updateSkyShell', 'reorderSkyShell',
+  'removeTieCollisionProxy', 'setTieCollisionEnabled', 'setTieCollisionRawType',
 ]);
 
 export function isEditorCommand(value: unknown): value is EditorCommand {
@@ -30,6 +31,12 @@ export function isEditorCommand(value: unknown): value is EditorCommand {
   if (command.kind === 'reorderSkyShell')
     return command.entityIds.length === 1 && Number.isInteger(command.destinationOrder)
       && Number(command.destinationOrder) >= 0 && Number(command.destinationOrder) <= 100_000;
+  if (command.kind === 'removeTieCollisionProxy') return command.entityIds.length === 1;
+  if (command.kind === 'setTieCollisionEnabled')
+    return command.entityIds.length > 0 && typeof command.enabled === 'boolean';
+  if (command.kind === 'setTieCollisionRawType')
+    return command.entityIds.length === 1 && Number.isInteger(command.rawType)
+      && Number(command.rawType) >= 0 && Number(command.rawType) <= 0xff;
   return true;
 }
 

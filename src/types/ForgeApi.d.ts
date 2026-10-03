@@ -1,9 +1,15 @@
-import type { EditorCommand, EditorEvent, EditorSnapshot } from './EditorRuntime.js';
+import type {
+  EditorCommand, EditorEvent, EditorSnapshot, EditorTieCollisionGenerationSettings, EditorTieCollisionPreview,
+  EditorTieCollisionSourceInfo,
+} from './EditorRuntime.js';
 import type { AssetExplorerPage, AssetExplorerQuery, AssetModelKind, AssetPreviewKind, AssetPreviewSource } from './AssetExplorer.js';
 import type { ForgeNotification } from './Notifications.js';
 import type { UpdateCheckResult } from './Updates.js';
 
-export type { EditorCommand, EditorEvent, EditorSnapshot } from './EditorRuntime.js';
+export type {
+  EditorCommand, EditorEvent, EditorSnapshot, EditorTieCollisionGenerationSettings, EditorTieCollisionPreview,
+  EditorTieCollisionSourceInfo,
+} from './EditorRuntime.js';
 export type { AssetExplorerPage, AssetExplorerQuery, AssetModelKind, AssetPreviewKind, AssetPreviewSource } from './AssetExplorer.js';
 export type { ForgeNotification } from './Notifications.js';
 
@@ -340,6 +346,14 @@ export interface ForgeApi {
   closeEditorProject(): Promise<void>;
   getEditorSnapshot(): Promise<EditorSnapshot>;
   executeEditorCommand(command: EditorCommand): Promise<EditorSnapshot>;
+  inspectTieCollisionSource(entityId: string): Promise<EditorTieCollisionSourceInfo>;
+  previewTieCollision(
+    entityId: string,
+    settings?: EditorTieCollisionGenerationSettings,
+  ): Promise<EditorTieCollisionPreview>;
+  cancelTieCollisionPreview(): Promise<void>;
+  applyTieCollisionPreview(commandId: string, token: string): Promise<EditorSnapshot>;
+  getTieCollisionPreviewModel(token: string, requestToken: string): Promise<AssetPreviewSource>;
   saveEditorProject(): Promise<EditorSnapshot>;
   getBuildPlan(): Promise<BuildPlan>;
   buildAndPatchProject(includedLayers: BuildLayerId[]): Promise<BuildPatchResult>;

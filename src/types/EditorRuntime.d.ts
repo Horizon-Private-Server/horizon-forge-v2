@@ -46,6 +46,75 @@ export interface EditorCollisionPiece {
   types: Array<{ rawType: number; count: number }>;
 }
 
+export interface EditorTieCollisionRecipe {
+  kind: 'surface' | 'wrap' | 'hull';
+  generatorVersion: number;
+  recipeVersion: number;
+  lodIndex: number;
+  rawType: number;
+  detailSize: number;
+  sealOpeningSize: number;
+  surfaceOffset: number;
+  openBase: boolean;
+  profileSections: number;
+}
+
+export interface EditorTieCollisionGenerationSettings {
+  rawType: number;
+  profileSections: number;
+  surfaceLodIndex: number;
+  useHull: boolean;
+}
+
+export interface EditorCollisionOctantCost {
+  x: number;
+  y: number;
+  z: number;
+  faceCount: number;
+  vertexCount: number;
+  quadCount: number;
+  encodedByteCount: number;
+  violations: string[];
+  additionIds?: string[];
+}
+
+export interface EditorTieCollisionCombinedAnalysis {
+  instanceCount: number;
+  logicalFaceCount: number;
+  occupiedOctantCount: number;
+  duplicateFaceCount: number;
+  hardViolationCount: number;
+  octants: EditorCollisionOctantCost[];
+  error?: string;
+}
+
+export interface EditorTieCollisionCandidate {
+  token: string;
+  preset: 'surface' | 'solidHull';
+  label: string;
+  recipe: EditorTieCollisionRecipe;
+  encodedByteCount: number;
+  vertexCount: number;
+  faceCount: number;
+  occupiedOctantCount: number;
+  duplicateFaceCount: number;
+  hardViolationCount: number;
+  maximumDeviation: number;
+  deviationSampleCount: number;
+  octants: EditorCollisionOctantCost[];
+  combinedAnalysis?: EditorTieCollisionCombinedAnalysis;
+}
+
+export interface EditorTieCollisionPreview {
+  tieAssetId: string;
+  candidates: EditorTieCollisionCandidate[];
+}
+
+export interface EditorTieCollisionSourceInfo {
+  tieAssetId: string;
+  surfaceLodIndices: number[];
+}
+
 export interface EditorLevelSettings {
   backgroundColor: [number, number, number];
   fogColor: [number, number, number];
@@ -71,6 +140,8 @@ export interface EditorEntity {
   };
   skyShell?: EditorSkyShell;
   collision?: EditorCollisionPiece;
+  tieCollision?: { proxyAssetId: string; recipe: EditorTieCollisionRecipe };
+  tieCollisionEnabled?: boolean;
   transformModes: Array<'translate' | 'rotate' | 'scale'>;
   state: {
     dirty: boolean;
@@ -108,7 +179,10 @@ export type EditorCommand =
     entityIds: [string];
     update: { initialRotationRadians?: ProjectVector3; angularVelocityRadiansPerSecond?: ProjectVector3 };
   }
-  | { id: string; kind: 'reorderSkyShell'; entityIds: [string]; destinationOrder: number };
+  | { id: string; kind: 'reorderSkyShell'; entityIds: [string]; destinationOrder: number }
+  | { id: string; kind: 'removeTieCollisionProxy'; entityIds: [string] }
+  | { id: string; kind: 'setTieCollisionEnabled'; entityIds: string[]; enabled: boolean }
+  | { id: string; kind: 'setTieCollisionRawType'; entityIds: [string]; rawType: number };
 
 export interface EditorEvent {
   sequence: number;

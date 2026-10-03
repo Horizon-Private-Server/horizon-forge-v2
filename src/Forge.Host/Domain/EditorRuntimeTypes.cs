@@ -21,6 +21,9 @@ public enum EditorCommandKind : byte
     AddSkyShellFromAsset = 17,
     UpdateSkyShell = 18,
     ReorderSkyShell = 19,
+    RemoveTieCollisionProxy = 20,
+    SetTieCollisionEnabled = 21,
+    SetTieCollisionRawType = 22,
 }
 
 public enum EditorEventKind : byte
@@ -54,7 +57,9 @@ public sealed record EditorCommand(
     EditorAssetPlacement? Placement = null,
     EditorSkyShellSource? SkyShellSource = null,
     EditorSkyShellUpdate? SkyShellUpdate = null,
-    int? DestinationOrder = null);
+    int? DestinationOrder = null,
+    bool? TieCollisionEnabled = null,
+    byte? TieCollisionRawType = null);
 
 public sealed record EditorAssetPlacement(
     AssetId AssetId,
@@ -79,6 +84,94 @@ public delegate Task<IReadOnlyList<EntityId>> EditorSkyShellCommandExecutor(
     string catalogRootPath,
     EditorCommand command,
     CancellationToken cancellationToken);
+
+public enum EditorTieCollisionPreset : byte
+{
+    Surface = 1,
+    SolidHull = 3,
+}
+
+public sealed record EditorTieCollisionGenerationSettings(
+    byte RawType = 0x0f,
+    int ProfileSections = 6,
+    int SurfaceLodIndex = -1,
+    bool UseHull = false);
+
+public sealed record EditorCollisionOctantCost(
+    int X,
+    int Y,
+    int Z,
+    int FaceCount,
+    int VertexCount,
+    int QuadCount,
+    int EncodedByteCount,
+    IReadOnlyList<string> Violations,
+    IReadOnlyList<string>? AdditionIds = null);
+
+public sealed record EditorTieCollisionCombinedAnalysis(
+    int InstanceCount,
+    int LogicalFaceCount,
+    int OccupiedOctantCount,
+    int DuplicateFaceCount,
+    int HardViolationCount,
+    IReadOnlyList<EditorCollisionOctantCost> Octants,
+    string? Error = null);
+
+public sealed record EditorTieCollisionCandidate(
+    EditorTieCollisionPreset Preset,
+    string Label,
+    ProjectTieCollisionRecipe Recipe,
+    byte[] CanonicalBytes,
+    int VertexCount,
+    int FaceCount,
+    int OccupiedOctantCount,
+    int DuplicateFaceCount,
+    int HardViolationCount,
+    float MaximumDeviation,
+    int DeviationSampleCount,
+    IReadOnlyList<EditorCollisionOctantCost> Octants,
+    EditorTieCollisionCombinedAnalysis? CombinedAnalysis = null);
+
+public delegate Task<IReadOnlyList<EditorTieCollisionCandidate>> EditorTieCollisionPreviewExecutor(
+    ForgeProjectWorkspace workspace,
+    string catalogRootPath,
+    AssetId tieAssetId,
+    EditorTieCollisionGenerationSettings? settings,
+    CancellationToken cancellationToken);
+
+public sealed record EditorTieCollisionSourceInfo(
+    AssetId TieAssetId,
+    IReadOnlyList<int> SurfaceLodIndices);
+
+public delegate Task<EditorTieCollisionSourceInfo> EditorTieCollisionSourceInspector(
+    ForgeProjectWorkspace workspace,
+    string catalogRootPath,
+    AssetId tieAssetId,
+    CancellationToken cancellationToken);
+
+public sealed record EditorTieCollisionCandidateSnapshot(
+    string Token,
+    EditorTieCollisionPreset Preset,
+    string Label,
+    ProjectTieCollisionRecipe Recipe,
+    int EncodedByteCount,
+    int VertexCount,
+    int FaceCount,
+    int OccupiedOctantCount,
+    int DuplicateFaceCount,
+    int HardViolationCount,
+    float MaximumDeviation,
+    int DeviationSampleCount,
+    IReadOnlyList<EditorCollisionOctantCost> Octants,
+    EditorTieCollisionCombinedAnalysis? CombinedAnalysis = null);
+
+public sealed record EditorTieCollisionPreview(
+    AssetId TieAssetId,
+    IReadOnlyList<EditorTieCollisionCandidateSnapshot> Candidates);
+
+public sealed record EditorTieCollisionBindingSnapshot(
+    AssetId ProxyAssetId,
+    ProjectTieCollisionRecipe Recipe);
 
 public sealed record EditorTransformUpdate(EntityId EntityId, ProjectTransform Transform);
 
@@ -140,7 +233,9 @@ public sealed record EditorEntitySnapshot(
     EditorTransformCapabilities TransformCapabilities,
     EditorEntityStatus State,
     ProjectSkyShell? SkyShell,
-    ProjectCollisionPiece? Collision);
+    ProjectCollisionPiece? Collision,
+    EditorTieCollisionBindingSnapshot? TieCollision,
+    bool? TieCollisionEnabled);
 
 public sealed record EditorEvent(
     long Sequence,

@@ -133,6 +133,8 @@ internal static class UyaBakeWorkflowTests
                 new("synthetic.iso", catalog.RootPath, insertBeforeBakeProject, "Insert before bake",
                     new string('a', 32), "1.00", 3, true));
             var insertBeforeBakeWorkspace = await ForgeProjectWorkspace.OpenAsync(insertBeforeBakeProject);
+            insertBeforeBakeWorkspace.RemoveEntity(insertBeforeBakeWorkspace.Content.Entities
+                .Single(value => value.Layer == "shrubs").EntityId);
             var insertedRecord = UyaAssetPlacementService.CreateTieRecord(insertBeforeBakeWorkspace, 200);
             Equal(4_000, BinaryPrimitives.ReadInt32LittleEndian(insertedRecord.AsSpan(4)),
                 "placed tie uses the retail integer draw distance encoding");
@@ -147,12 +149,28 @@ internal static class UyaBakeWorkflowTests
                 TieLighting: new(0, UyaAssetPlacementService.CreateNeutralTieAmbient(4)));
             insertBeforeBakeWorkspace.AddEntity(insertedTie);
             await insertBeforeBakeWorkspace.SaveAsync();
-            Equal(true, (await UyaBakeService.BakeAsync(insertBeforeBakeProject, catalog, context)).Succeeded,
+            var insertBeforeBake = await UyaBakeService.BakeAsync(insertBeforeBakeProject, catalog, context);
+            Equal(true, insertBeforeBake.Succeeded,
                 "tie insertion before initial build bakes");
+            Equal(2, insertBeforeBake.PaletteReport!.InputTextureCount,
+                "bake palette report contains only selected static classes");
+            var insertedStaging = await BakeStagingStore.OpenAsync(insertBeforeBakeProject);
+            var insertedStaleReport = insertBeforeBake.PaletteReport with
+            {
+                InputPaletteCount = 1,
+                InputPaletteBytes = 1_024,
+                EstimatedPaletteVramSavingsBytes = 1_024 - insertBeforeBake.PaletteReport.OutputPaletteBytes,
+            };
+            await insertedStaging.RestoreManifestAsync(
+                insertBeforeBake.Manifest with { PaletteReport = insertedStaleReport });
             var insertBeforeBakePack = await UyaLevelPackService.PackAsync(
                 insertBeforeBakeProject, catalog, sourceLevelWad, context);
             Equal(true, insertBeforeBakePack.Succeeded, "tie insertion before initial build packs: "
                 + string.Join(" | ", insertBeforeBakePack.Diagnostics.Select(value => value.Cause)));
+            Equal(true, PaletteBakeReportService.Equivalent(
+                    insertBeforeBake.PaletteReport,
+                    (await BakeStagingStore.OpenAsync(insertBeforeBakeProject)).Manifest.PaletteReport!),
+                "visibility-bit composition refreshes its staged palette report");
             var insertedTieFiles = UyaLevelWadUnpacker.Unpack(insertBeforeBakePack.OutputBytes!).Files;
             var packedInsertedTie = UyaTieInstancesReader.Read(insertedTieFiles
                 .Single(value => value.Path == "gameplay/core/tie_instances.bin").Bytes).Instances
@@ -894,9 +912,316 @@ internal static class UyaBakeWorkflowTests
             "packed WAD preserves solid and player-barrier translations");
 
         workspace = await ForgeProjectWorkspace.OpenAsync(project);
+        var proxyTieAssetId = workspace.Content.Entities
+            .Where(value => value.Asset?.Kind == AssetKind.Tie)
+            .GroupBy(value => value.Asset!.Id)
+            .OrderBy(value => value.Count())
+            .ThenBy(value => value.Key.ToString(), StringComparer.Ordinal)
+            .First().Key;
+        var proxyInstances = workspace.Content.Entities
+            .Where(value => value.Asset?.Id == proxyTieAssetId && value.State?.Disabled != true)
+            .OrderBy(value => value.EntityId.ToString(), StringComparer.Ordinal)
+            .ToArray();
+        var proxyBytes = CollisionWork.EncodeStandalone(GameId.UYA,
+        [
+            new("test-proxy",
+            [
+                new(0,
+                    new(10, 10, 10),
+                    new(11, 10, 10),
+                    new(10, 11, 10),
+                    default,
+                    IsQuad: false),
+            ]),
+        ]).Bytes;
+        var proxyBinding = await workspace.ApplyTieCollisionProxyAsync(
+            proxyTieAssetId,
+            proxyBytes,
+            UyaBaseLayerSchema.CanonicalFormatVersion,
+            new(ProjectTieCollisionRecipeKind.Surface, 1, 1, 0, 0x3d));
+        await workspace.SaveAsync();
+        var boundCollisionInput = (await UyaBaseLayerStore.CreateBakeInputsAsync(project, catalog))
+            .Single(value => value.Id == BakeLayerId.Collision);
+        Equal(true, boundCollisionInput.AssetIds.Contains(proxyBinding.ProxyAssetId),
+            "collision bake input tracks the bound proxy asset");
+        Equal(true, boundCollisionInput.AssetIds.Contains(proxyTieAssetId),
+            "collision bake input tracks the exact parent TIE asset");
+        workspace.UpdateTransform(proxyInstances[0].EntityId, proxyInstances[0].Transform with
+        {
+            Position = proxyInstances[0].Transform.Position with
+            {
+                X = proxyInstances[0].Transform.Position.X + 1,
+            },
+        });
+        await workspace.SaveAsync();
+        var movedBoundCollisionInput = (await UyaBaseLayerStore.CreateBakeInputsAsync(project, catalog))
+            .Single(value => value.Id == BakeLayerId.Collision);
+        Equal(false, boundCollisionInput.RelevantSettings.Span.SequenceEqual(
+            movedBoundCollisionInput.RelevantSettings.Span),
+            "a bound TIE transform invalidates collision");
+        workspace.UpdateTransform(proxyInstances[0].EntityId, proxyInstances[0].Transform);
+        await workspace.SaveAsync();
+
+        var proxyBake = await UyaBakeService.BakeAsync(project, catalog, context);
+        Equal(true, proxyBake.WrittenLayers.Select(value => value.Layer)
+            .SequenceEqual([BakeLayerId.Collision]),
+            "adding a TIE collision proxy rebuilds only collision: "
+                + string.Join(", ", proxyBake.WrittenLayers.Select(value => value.Layer)));
+        var proxyPack = await UyaLevelPackService.PackAsync(project, catalog, sourceLevelWad, context);
+        Equal(true, proxyPack.Succeeded, "instanced TIE collision staging packs");
+        var proxied = UyaBaseLayerService.Extract(UyaLevelWadUnpacker.Unpack(proxyPack.OutputBytes!))
+            .Single(value => value.Layer == BakeLayerId.Collision && value.Name == "collision.bin").Bytes;
+        Equal(
+            CollisionConverter.Inspect(expected, GameId.UYA).Pieces.Sum(value => value.FaceCount)
+                + proxyInstances.Length,
+            CollisionConverter.Inspect(proxied, GameId.UYA).Pieces.Sum(value => value.FaceCount),
+            "bake expands one proxy face for every enabled matching TIE instance");
+
+        workspace = await ForgeProjectWorkspace.OpenAsync(project);
+        var qualifiedTransform = ProjectTransform.Identity with
+        {
+            Position = new(1, 2, 3),
+            Rotation = new(0, 0, MathF.Sin(MathF.PI / 4), MathF.Cos(MathF.PI / 4)),
+            Scale = new(-2, 1, 1),
+        };
+        workspace.UpdateTransform(proxyInstances[0].EntityId, qualifiedTransform);
+        await workspace.SaveAsync();
+        var transformedProxyBake = await UyaBakeService.BakeAsync(project, catalog, context);
+        Equal(true, transformedProxyBake.WrittenLayers.Select(value => value.Layer)
+            .SequenceEqual([BakeLayerId.Collision, BakeLayerId.Ties, BakeLayerId.Lighting]),
+            "transforming a bound TIE rebuilds collision and its visible TIE layers");
+        var transformedProxyPack = await UyaLevelPackService.PackAsync(
+            project, catalog, sourceLevelWad, context);
+        proxied = UyaBaseLayerService.Extract(UyaLevelWadUnpacker.Unpack(transformedProxyPack.OutputBytes!))
+            .Single(value => value.Layer == BakeLayerId.Collision && value.Name == "collision.bin").Bytes;
+        var expectedQualifiedFace = CollisionWork.TransformAddition(
+            CollisionWork.DecodeSolidAddition(proxyBytes, GameId.UYA, "proxy"),
+            GameId.UYA,
+            "qualified",
+            new(
+                new(qualifiedTransform.Position.X, qualifiedTransform.Position.Y, qualifiedTransform.Position.Z),
+                new(qualifiedTransform.Rotation.X, qualifiedTransform.Rotation.Y,
+                    qualifiedTransform.Rotation.Z, qualifiedTransform.Rotation.W),
+                new(qualifiedTransform.Scale.X, qualifiedTransform.Scale.Y, qualifiedTransform.Scale.Z)))
+            .Faces.Single();
+        var packedQualifiedFaces = CollisionWork.DecodeSolidAddition(proxied, GameId.UYA, "packed")
+            .Faces.Where(value => value.RawType == 0x3d).ToArray();
+        Equal(true, packedQualifiedFaces.Any(value => value.IsQuad == expectedQualifiedFace.IsQuad
+                && ((value.A == expectedQualifiedFace.A && value.B == expectedQualifiedFace.B
+                        && value.C == expectedQualifiedFace.C)
+                    || (value.A == expectedQualifiedFace.B && value.B == expectedQualifiedFace.C
+                        && value.C == expectedQualifiedFace.A)
+                    || (value.A == expectedQualifiedFace.C && value.B == expectedQualifiedFace.A
+                        && value.C == expectedQualifiedFace.B))),
+            "packed collision applies translation, rotation, scale, and mirrored winding");
+        var repeatedProxyBake = await UyaBakeService.BakeAsync(project, catalog, context);
+        Equal(0, repeatedProxyBake.WrittenLayers.Count,
+            "an unchanged proxy bake writes no layers");
+        var repeatedProxyPack = await UyaLevelPackService.PackAsync(project, catalog, sourceLevelWad, context);
+        Equal(true, transformedProxyPack.OutputBytes!.SequenceEqual(repeatedProxyPack.OutputBytes!),
+            "equal proxy inputs pack byte-identically");
+
+        workspace = await ForgeProjectWorkspace.OpenAsync(project);
+        workspace.SetTieCollisionEnabled(proxyInstances[0].EntityId, false);
+        await workspace.SaveAsync();
+        var disabledProxyBake = await UyaBakeService.BakeAsync(project, catalog, context);
+        Equal(true, disabledProxyBake.WrittenLayers.Select(value => value.Layer)
+            .SequenceEqual([BakeLayerId.Collision]),
+            "per-instance proxy opt-out rebuilds only collision");
+        var disabledProxyPack = await UyaLevelPackService.PackAsync(project, catalog, sourceLevelWad, context);
+        var disabledProxy = UyaBaseLayerService.Extract(
+                UyaLevelWadUnpacker.Unpack(disabledProxyPack.OutputBytes!))
+            .Single(value => value.Layer == BakeLayerId.Collision && value.Name == "collision.bin").Bytes;
+        Equal(
+            CollisionConverter.Inspect(proxied, GameId.UYA).Pieces.Sum(value => value.FaceCount) - 1,
+            CollisionConverter.Inspect(disabledProxy, GameId.UYA).Pieces.Sum(value => value.FaceCount),
+            "per-instance proxy opt-out removes exactly that instance's collision");
+
+        workspace = await ForgeProjectWorkspace.OpenAsync(project);
+        workspace.SetTieCollisionEnabled(proxyInstances[0].EntityId, true);
+        await workspace.SaveAsync();
+        var restoredOptOutBake = await UyaBakeService.BakeAsync(project, catalog, context);
+        Equal(true, restoredOptOutBake.WrittenLayers.Select(value => value.Layer)
+            .SequenceEqual([BakeLayerId.Collision]),
+            "re-enabling an opted-out proxy instance rebuilds collision");
+
+        workspace = await ForgeProjectWorkspace.OpenAsync(project);
+        workspace.SetEntityState([proxyInstances[0].EntityId], hidden: null, disabled: true, locked: null);
+        await workspace.SaveAsync();
+        var disabledEntityBake = await UyaBakeService.BakeAsync(project, catalog, context);
+        Equal(true, disabledEntityBake.WrittenLayers.Any(value => value.Layer == BakeLayerId.Collision),
+            "disabling a bound TIE invalidates collision");
+        var disabledEntityPack = await UyaLevelPackService.PackAsync(project, catalog, sourceLevelWad, context);
+        var disabledEntityCollision = UyaBaseLayerService.Extract(
+                UyaLevelWadUnpacker.Unpack(disabledEntityPack.OutputBytes!))
+            .Single(value => value.Layer == BakeLayerId.Collision && value.Name == "collision.bin").Bytes;
+        Equal(
+            CollisionConverter.Inspect(proxied, GameId.UYA).Pieces.Sum(value => value.FaceCount) - 1,
+            CollisionConverter.Inspect(disabledEntityCollision, GameId.UYA).Pieces.Sum(value => value.FaceCount),
+            "disabled TIE removes exactly that instance's collision");
+
+        workspace = await ForgeProjectWorkspace.OpenAsync(project);
+        workspace.SetEntityState([proxyInstances[0].EntityId], hidden: null, disabled: false, locked: null);
+        await workspace.SaveAsync();
+        var restoredDisabledBake = await UyaBakeService.BakeAsync(project, catalog, context);
+        Equal(true, restoredDisabledBake.WrittenLayers.Any(value => value.Layer == BakeLayerId.Collision),
+            "re-enabling a disabled TIE restores its collision");
+
+        workspace = await ForgeProjectWorkspace.OpenAsync(project);
+        var removedProxyEntity = workspace.RemoveEntity(proxyInstances[0].EntityId);
+        await workspace.SaveAsync();
+        var deletedEntityBake = await UyaBakeService.BakeAsync(project, catalog, context);
+        Equal(true, deletedEntityBake.WrittenLayers.Any(value => value.Layer == BakeLayerId.Collision),
+            "deleting a bound TIE invalidates collision");
+        var deletedEntityPack = await UyaLevelPackService.PackAsync(project, catalog, sourceLevelWad, context);
+        var deletedEntityCollision = UyaBaseLayerService.Extract(
+                UyaLevelWadUnpacker.Unpack(deletedEntityPack.OutputBytes!))
+            .Single(value => value.Layer == BakeLayerId.Collision && value.Name == "collision.bin").Bytes;
+        Equal(
+            CollisionConverter.Inspect(proxied, GameId.UYA).Pieces.Sum(value => value.FaceCount) - 1,
+            CollisionConverter.Inspect(deletedEntityCollision, GameId.UYA).Pieces.Sum(value => value.FaceCount),
+            "deleted TIE removes exactly that instance's collision");
+
+        workspace = await ForgeProjectWorkspace.OpenAsync(project);
+        workspace.AddEntity(removedProxyEntity);
+        await workspace.SaveAsync();
+        var restoredDeletedBake = await UyaBakeService.BakeAsync(project, catalog, context);
+        Equal(true, restoredDeletedBake.WrittenLayers.Any(value => value.Layer == BakeLayerId.Collision),
+            "restoring a deleted TIE restores its collision");
+
+        workspace = await ForgeProjectWorkspace.OpenAsync(project);
+        workspace.RemoveTieCollisionProxy(proxyTieAssetId);
+        await workspace.SaveAsync();
+        var unboundCollisionInput = (await UyaBaseLayerStore.CreateBakeInputsAsync(project, catalog))
+            .Single(value => value.Id == BakeLayerId.Collision);
+        workspace.UpdateTransform(proxyInstances[0].EntityId, qualifiedTransform with
+        {
+            Position = qualifiedTransform.Position with
+            {
+                X = qualifiedTransform.Position.X + 1,
+            },
+        });
+        await workspace.SaveAsync();
+        var movedUnboundCollisionInput = (await UyaBaseLayerStore.CreateBakeInputsAsync(project, catalog))
+            .Single(value => value.Id == BakeLayerId.Collision);
+        Equal(true, unboundCollisionInput.RelevantSettings.Span.SequenceEqual(
+            movedUnboundCollisionInput.RelevantSettings.Span),
+            "an unbound TIE transform does not invalidate collision");
+        workspace.UpdateTransform(proxyInstances[0].EntityId, qualifiedTransform);
+        await workspace.SaveAsync();
+        var removedProxyBake = await UyaBakeService.BakeAsync(project, catalog, context);
+        Equal(true, removedProxyBake.WrittenLayers.Select(value => value.Layer)
+            .SequenceEqual([BakeLayerId.Collision]),
+            "removing a proxy binding rebuilds only collision");
+        var removedProxyPack = await UyaLevelPackService.PackAsync(project, catalog, sourceLevelWad, context);
+        var withoutProxy = UyaBaseLayerService.Extract(
+                UyaLevelWadUnpacker.Unpack(removedProxyPack.OutputBytes!))
+            .Single(value => value.Layer == BakeLayerId.Collision && value.Name == "collision.bin").Bytes;
+        Equal(true, withoutProxy.SequenceEqual(expected),
+            "collision bake remains byte-identical when no proxies are bound");
+
+        workspace = await ForgeProjectWorkspace.OpenAsync(project);
+        var overlapSource = workspace.Content.Entities.Single(
+            value => value.EntityId == proxyInstances[0].EntityId);
+        workspace.UpdateTransform(overlapSource.EntityId, ProjectTransform.Identity);
+        var overlapEntity = overlapSource with
+        {
+            EntityId = EntityId.New(),
+            Name = "Overlap fixture",
+            Transform = ProjectTransform.Identity with { Position = new(0.25f, 0, 0) },
+        };
+        workspace.AddEntity(overlapEntity);
+        var denseFaces = Enumerable.Range(0, 43).Select(index =>
+        {
+            var x = 0.125f + index % 7 * 0.5f;
+            var y = 0.125f + index / 7 * 0.5f;
+            return new CollisionSolidFace(
+                0,
+                new(x, y, 0.125f),
+                new(x + 0.125f, y, 0.125f),
+                new(x, y + 0.125f, 0.125f),
+                default,
+                IsQuad: false);
+        }).ToArray();
+        var denseProxyBytes = CollisionWork.EncodeStandalone(GameId.UYA,
+            [new("dense-overlap", denseFaces)]).Bytes;
+        await workspace.ApplyTieCollisionProxyAsync(
+            proxyTieAssetId,
+            denseProxyBytes,
+            UyaBaseLayerSchema.CanonicalFormatVersion,
+            new(ProjectTieCollisionRecipeKind.Surface, 1, 1, 0, 0));
+        await workspace.SaveAsync();
+        var unsafeStaging = await BakeStagingStore.OpenAsync(project);
+        var safeManifest = ManifestBytes(unsafeStaging.Manifest);
+        var safeCollisionLayer = unsafeStaging.Manifest.Layers
+            .Single(value => value.Layer == BakeLayerId.Collision);
+        var safeCollisionBytes = await File.ReadAllBytesAsync(Path.Combine(
+            project,
+            BakeStagingStore.StagingDirectoryName,
+            safeCollisionLayer.RelativePath,
+            "collision.bin"));
+        var unsafeCollisionPlan = (await UyaBakeValidationService.PreflightAsync(project, catalog, context))
+            .Plan.Layers.Single(value => value.Layer == BakeLayerId.Collision);
+        await ThrowsAsync<InvalidDataException>(() => UyaBaseLayerStore.StageAsync(
+            project, catalog, unsafeStaging, unsafeCollisionPlan));
+        var preservedStaging = await BakeStagingStore.OpenAsync(project);
+        Equal(true, safeManifest.SequenceEqual(ManifestBytes(preservedStaging.Manifest)),
+            "combined proxy pressure failure preserves the last good manifest");
+        var preservedCollisionBytes = await File.ReadAllBytesAsync(Path.Combine(
+            project,
+            BakeStagingStore.StagingDirectoryName,
+            safeCollisionLayer.RelativePath,
+            "collision.bin"));
+        Equal(true, safeCollisionBytes.SequenceEqual(preservedCollisionBytes),
+            "combined proxy pressure failure preserves the last good collision bytes");
+        workspace.RemoveTieCollisionProxy(proxyTieAssetId);
+        workspace.RemoveEntity(overlapEntity.EntityId);
+        workspace.UpdateTransform(overlapSource.EntityId, overlapSource.Transform);
+        await workspace.SaveAsync();
+
+        var corruptionBinding = await workspace.ApplyTieCollisionProxyAsync(
+            proxyTieAssetId,
+            proxyBytes,
+            UyaBaseLayerSchema.CanonicalFormatVersion,
+            new(ProjectTieCollisionRecipeKind.Surface, 1, 1, 0, 0));
+        await workspace.SaveAsync();
+        var corruptionPlan = (await UyaBakeValidationService.PreflightAsync(project, catalog, context))
+            .Plan.Layers.Single(value => value.Layer == BakeLayerId.Collision);
+        var corruptionStaging = await BakeStagingStore.OpenAsync(project);
+        var corruptionSafeManifest = ManifestBytes(corruptionStaging.Manifest);
+        var proxyPath = workspace.ResolveAssetPath(corruptionBinding.ProxyAssetId, catalog)
+            ?? throw new InvalidOperationException("Collision proxy fixture disappeared.");
+        await File.WriteAllBytesAsync(proxyPath, [0]);
+        await ThrowsAsync<InvalidDataException>(() => UyaBaseLayerStore.StageAsync(
+            project, catalog, corruptionStaging, corruptionPlan));
+        var corruptProxyManifest = ManifestBytes((await BakeStagingStore.OpenAsync(project)).Manifest);
+        Equal(true, corruptionSafeManifest.SequenceEqual(corruptProxyManifest),
+            "corrupt proxy data preserves the last good stage");
+        await File.WriteAllBytesAsync(proxyPath, proxyBytes);
+        File.Delete(proxyPath);
+        await ThrowsAsync<FileNotFoundException>(() => UyaBaseLayerStore.StageAsync(
+            project, catalog, corruptionStaging, corruptionPlan));
+        var missingProxyManifest = ManifestBytes((await BakeStagingStore.OpenAsync(project)).Manifest);
+        Equal(true, corruptionSafeManifest.SequenceEqual(missingProxyManifest),
+            "missing proxy data preserves the last good stage");
+        await File.WriteAllBytesAsync(proxyPath, proxyBytes);
+        var tiePath = workspace.ResolveAssetPath(proxyTieAssetId, catalog)
+            ?? throw new InvalidOperationException("Parent TIE fixture disappeared.");
+        var tieBytes = await File.ReadAllBytesAsync(tiePath);
+        File.Delete(tiePath);
+        await ThrowsAsync<FileNotFoundException>(() => UyaBaseLayerStore.StageAsync(
+            project, catalog, corruptionStaging, corruptionPlan));
+        var missingTieManifest = ManifestBytes((await BakeStagingStore.OpenAsync(project)).Manifest);
+        Equal(true, corruptionSafeManifest.SequenceEqual(missingTieManifest),
+            "missing parent TIE data preserves the last good stage");
+        await File.WriteAllBytesAsync(tiePath, tieBytes);
+        workspace.RemoveTieCollisionProxy(proxyTieAssetId);
+        await workspace.SaveAsync();
+
+        workspace = await ForgeProjectWorkspace.OpenAsync(project);
         workspace.UpdateTransform(solid.EntityId, solid.Transform with { Position = new(2, 0, 0) });
         await workspace.SaveAsync();
-        var beforeCancellation = ManifestBytes(movedBake.Manifest);
+        var beforeCancellation = ManifestBytes((await BakeStagingStore.OpenAsync(project)).Manifest);
         using (var cancellation = new CancellationTokenSource())
         {
             await ThrowsAsync<OperationCanceledException>(() => UyaBakeService.BakeAsync(

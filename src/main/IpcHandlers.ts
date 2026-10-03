@@ -3,10 +3,9 @@ import type { BrowserWindow } from 'electron';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 
-import type { AssetExplorerQuery, EditorCommand, EditorSnapshot, ProjectHubState } from '../types/ForgeApi.js';
+import type { AssetExplorerQuery, ProjectHubState } from '../types/ForgeApi.js';
 import { safeProjectDirectoryName } from '../utils/ApplicationPaths.js';
 import { showOpenDialog, showSaveDialog } from '../utils/ElectronDialogs.js';
-import { isEditorCommand } from '../utils/EditorCommandValidation.js';
 import { errorMessage } from '../utils/Errors.js';
 import { availableBytes, fileExists, writeJsonSafely } from '../utils/FileSystem.js';
 import { isTrustedSender } from '../utils/Security.js';
@@ -14,7 +13,7 @@ import type { RecentProjects } from './RecentProjects.js';
 import type { NotificationCenter } from './NotificationCenter.js';
 import { registerNotificationIpcHandlers } from './NotificationIpcHandlers.js';
 import { registerBuildIpcHandlers } from './BuildIpcHandlers.js';
-import { setEditorMenuState, setEditorTextInputActive } from './ApplicationMenu.js';
+import { registerEditorIpcHandlers } from './EditorIpcHandlers.js';
 import type { RenderAssetProtocol } from './RenderAssetProtocol.js';
 import { registerRenderIpcHandlers } from './RenderIpcHandlers.js';
 import { clearRenderCache, type SettingsStore } from './Settings.js';
@@ -39,16 +38,9 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
   const { host, notifications, recentProjects, settings, updates, renderAssets, getMainWindow } = options;
   let activeSetupRequestId: number | undefined;
   let activeAssetExplorerRequestId: number | undefined;
-  let activeEditorSnapshot: EditorSnapshot | undefined;
 
   function assertSender(senderId: number): void {
     if (!isTrustedSender(senderId, getMainWindow()?.webContents.id)) throw new Error('Untrusted IPC sender');
-  }
-
-  function editorSnapshot(value: EditorSnapshot): EditorSnapshot {
-    activeEditorSnapshot = value;
-    setEditorMenuState(value);
-    return value;
   }
 
   function assertAssetExplorerQuery(value: unknown): asserts value is AssetExplorerQuery {
@@ -70,11 +62,21 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
       || Number(query.limit) > 128)) throw new TypeError('Asset explorer batch size is invalid');
   }
 
+  const getActiveEditorSnapshot = registerEditorIpcHandlers({
+    host,
+    settings,
+    assertSender,
+    getSettingValues,
+    resolveProjectPath: assertRecentProject,
+    cancelAssetExplorer: async () => {
+      if (activeAssetExplorerRequestId !== undefined) await host.cancel(activeAssetExplorerRequestId);
+    },
+  });
   registerRenderIpcHandlers({
     host,
     settings,
     renderAssets,
-    getEditorTargetGame: () => activeEditorSnapshot?.target.game,
+    getEditorTargetGame: () => getActiveEditorSnapshot()?.target.game,
     assertSender,
   });
   registerBuildIpcHandlers({ host, settings, getMainWindow, assertSender });
@@ -176,10 +178,6 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
       String(values['paths.projects'] ?? ''),
       ...await recentProjects.list(),
     ].filter(Boolean).map((value) => path.resolve(value)))];
-  }
-
-  function assertEditorCommand(value: unknown): asserts value is EditorCommand {
-    if (!isEditorCommand(value)) throw new TypeError('Editor command is invalid');
   }
 
   ipcMain.handle('forge:host-status', async (event) => {
@@ -496,6 +494,7 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
   ipcMain.handle('forge:asset-explorer-query', async (event, query: unknown) => {
     assertSender(event.sender.id);
     assertAssetExplorerQuery(query);
+    const activeEditorSnapshot = getActiveEditorSnapshot();
     if (!activeEditorSnapshot) throw new Error('Open a project before browsing the asset catalog.');
     if (activeAssetExplorerRequestId !== undefined) await host.cancel(activeAssetExplorerRequestId);
     const request = await host.queryAssetExplorer({
@@ -533,45 +532,5 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
     await mkdir(settings.paths.logs, { recursive: true });
     const message = await shell.openPath(settings.paths.logs);
     if (message) throw new Error(message);
-  });
-  ipcMain.on('forge:editor-text-input', (event, active: unknown) => {
-    assertSender(event.sender.id);
-    if (typeof active !== 'boolean') throw new TypeError('Editor input context is invalid');
-    setEditorTextInputActive(active);
-  });
-  ipcMain.handle('forge:editor-open', async (event, projectPath: unknown) => {
-    assertSender(event.sender.id);
-    const values = await getSettingValues();
-    const autosaveSeconds = Number(values['editor.autosaveSeconds']);
-    return editorSnapshot(await (await host.openEditorProject(
-      await assertRecentProject(projectPath), settings.paths.assets, autosaveSeconds)).result);
-  });
-  ipcMain.handle('forge:editor-close', async (event) => {
-    assertSender(event.sender.id);
-    if (activeAssetExplorerRequestId !== undefined) await host.cancel(activeAssetExplorerRequestId);
-    await (await host.closeEditorProject()).result;
-    activeEditorSnapshot = undefined;
-    setEditorMenuState();
-  });
-  ipcMain.handle('forge:editor-query', async (event) => {
-    assertSender(event.sender.id);
-    return editorSnapshot(await (await host.getEditorSnapshot()).result);
-  });
-  ipcMain.handle('forge:editor-execute', async (event, command: unknown) => {
-    assertSender(event.sender.id);
-    assertEditorCommand(command);
-    return editorSnapshot(await (await host.executeEditorCommand(command)).result);
-  });
-  ipcMain.handle('forge:editor-save', async (event) => {
-    assertSender(event.sender.id);
-    return editorSnapshot(await (await host.saveEditorProject()).result);
-  });
-  ipcMain.handle('forge:editor-events', async (event, afterSequence: unknown, limit: unknown) => {
-    assertSender(event.sender.id);
-    if (!Number.isSafeInteger(afterSequence) || Number(afterSequence) < 0
-      || !Number.isInteger(limit) || Number(limit) < 1 || Number(limit) > 1_024) {
-      throw new TypeError('Editor event range is invalid');
-    }
-    return (await host.readEditorEvents(Number(afterSequence), Number(limit))).result;
   });
 }

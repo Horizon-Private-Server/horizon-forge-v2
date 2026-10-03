@@ -1,6 +1,6 @@
 namespace Forge.Host.Domain;
 
-public sealed class EditorRuntime : IAsyncDisposable
+public sealed partial class EditorRuntime : IAsyncDisposable
 {
     private const int MaxEvents = 1_024;
     private const int MaxDiagnostics = 100;
@@ -11,6 +11,8 @@ public sealed class EditorRuntime : IAsyncDisposable
         "editor.entity.duplicate", "editor.level-settings.update", "editor.clipboard", "editor.history",
         "editor.save", "editor.recovery",
         "editor.asset.create", "editor.sky-shell.add", "editor.sky-shell.update", "editor.sky-shell.reorder",
+        "editor.tie-collision.inspect", "editor.tie-collision.preview", "editor.tie-collision.apply", "editor.tie-collision.remove",
+        "editor.tie-collision.toggle", "editor.tie-collision.raw-type",
     ];
     private static readonly EditorTool[] RuntimeTools =
     [
@@ -35,17 +37,22 @@ public sealed class EditorRuntime : IAsyncDisposable
     private TimeSpan _autosaveDelay;
     private CancellationTokenSource? _autosaveCancellation;
     private long _eventSequence;
+    private long _projectVersion;
     private bool _disposed;
     private string? _catalogRootPath;
 
     public EditorRuntime(
         EditorAssetPlacementResolver? placementResolver = null,
         EditorTransformCapabilityResolver? transformCapabilityResolver = null,
-        EditorSkyShellCommandExecutor? skyShellCommandExecutor = null)
+        EditorSkyShellCommandExecutor? skyShellCommandExecutor = null,
+        EditorTieCollisionPreviewExecutor? tieCollisionPreviewExecutor = null,
+        EditorTieCollisionSourceInspector? tieCollisionSourceInspector = null)
     {
         _placementResolver = placementResolver;
         _transformCapabilityResolver = transformCapabilityResolver;
         _skyShellCommandExecutor = skyShellCommandExecutor;
+        _tieCollisionPreviewExecutor = tieCollisionPreviewExecutor;
+        _tieCollisionSourceInspector = tieCollisionSourceInspector;
     }
 
     public bool HasCapability(string capability) => RuntimeCapabilities.Contains(capability, StringComparer.Ordinal);
@@ -68,19 +75,27 @@ public sealed class EditorRuntime : IAsyncDisposable
         {
             ThrowIfDisposed();
             var workspace = await ForgeProjectWorkspace.OpenAsync(projectPath, cancellationToken);
-            var missingAssets = catalogRootPath is null
-                ? []
-                : FindMissingAssets(workspace, await AssetCatalogStore.OpenAsync(catalogRootPath, cancellationToken));
+            var catalog = catalogRootPath is null
+                ? null
+                : await AssetCatalogStore.OpenAsync(catalogRootPath, cancellationToken);
+            var missingAssets = catalog is null ? [] : FindMissingAssets(workspace, catalog);
+            var tieCollisionDiagnostics = await InspectTieCollisionProxiesAsync(
+                workspace, catalog, cancellationToken);
             await CloseCoreAsync(cancellationToken);
             _workspace = workspace;
             _catalogRootPath = catalogRootPath;
             _savedEntities = workspace.Content.Entities.ToDictionary(entity => entity.EntityId);
+            _savedTieCollisionBindings = workspace.Content.TieCollisionBindings
+                .ToDictionary(binding => binding.TieAssetId);
             _missingAssets = missingAssets;
             _autosaveDelay = autosaveDelay;
             _selection = [];
             _clipboard = [];
+            _tieCollisionCandidates = [];
+            _projectVersion = 0;
             _history.Clear();
             _diagnostics.Clear();
+            _diagnostics.AddRange(tieCollisionDiagnostics);
             AddEvent(EditorEventKind.ProjectOpened, null, [], _workspace.RootPath);
             return Snapshot();
         }
@@ -243,12 +258,64 @@ public sealed class EditorRuntime : IAsyncDisposable
                         });
                     ScheduleAutosave();
                     break;
+                case EditorCommandKind.RemoveTieCollisionProxy:
+                    var tieAssetId = workspace.GetEntities(command.EntityIds)[0].Asset!.Id;
+                    historyEntityIds = workspace.Content.Entities
+                        .Where(entity => entity.Asset is { Kind: AssetKind.Tie } asset && asset.Id == tieAssetId)
+                        .Select(entity => entity.EntityId)
+                        .ToArray();
+                    workspace.RemoveTieCollisionProxy(tieAssetId);
+                    AddEvent(EditorEventKind.ProjectChanged, command.Id, historyEntityIds, "TIE collision proxy removed");
+                    ScheduleAutosave();
+                    break;
+                case EditorCommandKind.SetTieCollisionEnabled:
+                    workspace.SetTieCollisionEnabled(command.EntityIds, command.TieCollisionEnabled!.Value);
+                    AddEvent(EditorEventKind.ProjectChanged, command.Id, command.EntityIds,
+                        command.TieCollisionEnabled.Value ? "TIE collision enabled" : "TIE collision disabled");
+                    ScheduleAutosave();
+                    break;
+                case EditorCommandKind.SetTieCollisionRawType:
+                    var rawTypeTieAssetId = workspace.GetEntities(command.EntityIds)[0].Asset!.Id;
+                    historyEntityIds = workspace.Content.Entities
+                        .Where(entity => entity.Asset is { Kind: AssetKind.Tie } asset
+                            && asset.Id == rawTypeTieAssetId)
+                        .Select(entity => entity.EntityId)
+                        .ToArray();
+                    workspace.SetTieCollisionRawType(rawTypeTieAssetId, command.TieCollisionRawType!.Value);
+                    AddEvent(EditorEventKind.ProjectChanged, command.Id, historyEntityIds,
+                        "TIE collision IDs updated");
+                    ScheduleAutosave();
+                    break;
                 default:
                     throw new ArgumentOutOfRangeException(nameof(command), command.Kind, "Unknown editor command");
             }
+            var projectChanged = workspace.CurrentFingerprint != fingerprintBefore;
+            if (projectChanged)
+            {
+                _projectVersion++;
+                if (command.Kind == EditorCommandKind.SetTieCollisionRawType)
+                {
+                    var tieAssetId = workspace.GetEntities(command.EntityIds)[0].Asset!.Id;
+                    _tieCollisionCandidates = _tieCollisionCandidates
+                        .Where(value => value.Value.TieAssetId == tieAssetId)
+                        .ToDictionary(
+                            value => value.Key,
+                            value => value.Value with
+                            {
+                                ProjectVersion = _projectVersion,
+                                Candidate = value.Value.Candidate with
+                                {
+                                    Recipe = value.Value.Candidate.Recipe with
+                                    {
+                                        RawType = command.TieCollisionRawType!.Value,
+                                    },
+                                },
+                            },
+                            StringComparer.Ordinal);
+                }
+            }
             if (command.Kind is not (EditorCommandKind.SetSelection or EditorCommandKind.CopyEntities
-                    or EditorCommandKind.Undo or EditorCommandKind.Redo)
-                && workspace.CurrentFingerprint != fingerprintBefore)
+                    or EditorCommandKind.Undo or EditorCommandKind.Redo) && projectChanged)
                 _history.Push(stateBefore, workspace.CaptureState(), selectionBefore, _selection,
                     historyEntityIds, EstimateHistoryBytes(command, stateBefore));
             return Snapshot();
@@ -258,6 +325,7 @@ public sealed class EditorRuntime : IAsyncDisposable
             _gate.Release();
         }
     }
+
 
     public async Task<EditorSnapshot> SaveAsync(CancellationToken cancellationToken = default)
     {
@@ -269,6 +337,8 @@ public sealed class EditorRuntime : IAsyncDisposable
             var workspace = RequireWorkspace();
             await workspace.SaveAsync(cancellationToken);
             _savedEntities = workspace.Content.Entities.ToDictionary(entity => entity.EntityId);
+            _savedTieCollisionBindings = workspace.Content.TieCollisionBindings
+                .ToDictionary(binding => binding.TieAssetId);
             AddEvent(EditorEventKind.ProjectSaved, null, [], null);
             return Snapshot();
         }
@@ -342,9 +412,12 @@ public sealed class EditorRuntime : IAsyncDisposable
         _workspace = null;
         _missingAssets = [];
         _savedEntities = [];
+        _savedTieCollisionBindings = [];
         _selection = [];
         _clipboard = [];
         _catalogRootPath = null;
+        _tieCollisionCandidates = [];
+        _projectVersion = 0;
     }
 
     private async Task WriteRecoveryCoreAsync(CancellationToken cancellationToken)
@@ -413,6 +486,7 @@ public sealed class EditorRuntime : IAsyncDisposable
     private EditorSnapshot Snapshot()
     {
         var workspace = RequireWorkspace();
+        var bindings = workspace.Content.TieCollisionBindings.ToDictionary(binding => binding.TieAssetId);
         return new(
             workspace.RootPath,
             workspace.Manifest.ProjectId,
@@ -423,6 +497,10 @@ public sealed class EditorRuntime : IAsyncDisposable
             workspace.Content.Entities.Select(entity =>
             {
                 var state = entity.State ?? new();
+                var bindingDirty = entity.Asset is { Kind: AssetKind.Tie } asset
+                    && !Equals(
+                        _savedTieCollisionBindings.GetValueOrDefault(asset.Id),
+                        bindings.GetValueOrDefault(asset.Id));
                 return new EditorEntitySnapshot(
                     entity.EntityId,
                     entity.Name,
@@ -433,13 +511,20 @@ public sealed class EditorRuntime : IAsyncDisposable
                     entity.Source?.ClassId,
                     Visualization(entity),
                     TransformCapabilities(entity),
-                    new(!_savedEntities.TryGetValue(entity.EntityId, out var saved) || saved != entity,
+                    new(!_savedEntities.TryGetValue(entity.EntityId, out var saved) || saved != entity || bindingDirty,
                         state.Hidden, state.Disabled, state.Locked,
                         IsReadOnlySource(entity),
                         HasInvalidGeometryLinks(entity),
                         entity.Asset is not null && _missingAssets.Contains(entity.Asset.Id)),
                     entity.SkyShell,
-                    entity.Collision);
+                    entity.Collision,
+                    entity.Asset is { Kind: AssetKind.Tie } tieAsset
+                        && bindings.TryGetValue(tieAsset.Id, out var tieBinding)
+                            ? new(tieBinding.ProxyAssetId, tieBinding.Recipe)
+                            : null,
+                    entity.Asset is { Kind: AssetKind.Tie } enabledAsset && bindings.ContainsKey(enabledAsset.Id)
+                        ? entity.TieCollisionEnabled != false
+                        : null);
             }).ToArray(),
             _selection.ToArray(),
             workspace.IsDirty,
@@ -514,9 +599,7 @@ public sealed class EditorRuntime : IAsyncDisposable
 
     private void ValidateCommand(EditorCommand command, ForgeProjectWorkspace workspace)
     {
-        if (!Guid.TryParseExact(command.Id, "D", out var commandId) || commandId == Guid.Empty
-            || commandId.ToString("D") != command.Id)
-            throw new ArgumentException("Command ID must be a lowercase canonical UUID.", nameof(command));
+        ValidateCommandId(command.Id);
         if (!Enum.IsDefined(command.Kind)) throw new ArgumentOutOfRangeException(nameof(command), "Unknown editor command kind.");
         ArgumentNullException.ThrowIfNull(command.EntityIds);
         if (command.EntityIds.Count != command.EntityIds.Distinct().Count())
@@ -536,6 +619,10 @@ public sealed class EditorRuntime : IAsyncDisposable
             throw new ArgumentException("Only sky shell update commands can contain rotation values.", nameof(command));
         if (command.Kind != EditorCommandKind.ReorderSkyShell && command.DestinationOrder is not null)
             throw new ArgumentException("Only sky shell reorder commands can contain an order.", nameof(command));
+        if (command.Kind != EditorCommandKind.SetTieCollisionEnabled && command.TieCollisionEnabled is not null)
+            throw new ArgumentException("Only TIE collision toggle commands can contain an enabled value.", nameof(command));
+        if (command.Kind != EditorCommandKind.SetTieCollisionRawType && command.TieCollisionRawType is not null)
+            throw new ArgumentException("Only TIE collision ID commands can contain a raw type.", nameof(command));
         var locked = workspace.Content.Entities
             .Where(entity => entity.State?.Locked == true)
             .Select(entity => entity.EntityId)
@@ -574,7 +661,10 @@ public sealed class EditorRuntime : IAsyncDisposable
                 or EditorCommandKind.DuplicateEntities
                 or EditorCommandKind.UpdateSplinePoints
                 or EditorCommandKind.UpdateSkyShell
-                or EditorCommandKind.ReorderSkyShell)
+                or EditorCommandKind.ReorderSkyShell
+                or EditorCommandKind.RemoveTieCollisionProxy
+                or EditorCommandKind.SetTieCollisionEnabled
+                or EditorCommandKind.SetTieCollisionRawType)
             throw new ArgumentException("Locked entities cannot be modified.", nameof(command));
         if (command.EntityIds.Any(locked.Contains)
             && command.Kind == EditorCommandKind.SetEntityState
@@ -651,9 +741,34 @@ public sealed class EditorRuntime : IAsyncDisposable
                 || command.Placement is not null || command.DestinationOrder is null or < 0
                 || workspace.Content.Entities.Single(entity => entity.EntityId == command.EntityIds[0]).SkyShell is null:
                 throw new ArgumentException("Sky shell reorder commands require one sky shell and a destination order.", nameof(command));
+            case EditorCommandKind.RemoveTieCollisionProxy when command.EntityIds.Count != 1
+                || command.Transform is not null || command.Text is not null || command.State is not null
+                || command.Transforms?.Count > 0
+                || workspace.Content.Entities.Single(entity => entity.EntityId == command.EntityIds[0]).Asset?.Kind
+                    != AssetKind.Tie:
+                throw new ArgumentException("TIE collision remove commands require one TIE entity.", nameof(command));
+            case EditorCommandKind.SetTieCollisionEnabled when command.EntityIds.Count == 0
+                || command.Transform is not null || command.Text is not null || command.State is not null
+                || command.Transforms?.Count > 0 || command.TieCollisionEnabled is null
+                || workspace.GetEntities(command.EntityIds).Any(entity => entity.Asset?.Kind != AssetKind.Tie):
+                throw new ArgumentException("TIE collision toggle commands require TIE entities and an enabled value.", nameof(command));
+            case EditorCommandKind.SetTieCollisionRawType when command.EntityIds.Count != 1
+                || command.Transform is not null || command.Text is not null || command.State is not null
+                || command.Transforms?.Count > 0 || command.TieCollisionRawType is null
+                || workspace.GetEntities(command.EntityIds)[0].Asset?.Kind != AssetKind.Tie
+                || !workspace.Content.TieCollisionBindings.Any(binding =>
+                    binding.TieAssetId == workspace.GetEntities(command.EntityIds)[0].Asset!.Id):
+                throw new ArgumentException("TIE collision ID commands require one TIE with a collision proxy.", nameof(command));
         }
         if (command.Kind is EditorCommandKind.UpdateTransform or EditorCommandKind.UpdateTransforms)
             ValidateTransformCapabilities(command, workspace);
+    }
+
+    private static void ValidateCommandId(string commandId)
+    {
+        if (!Guid.TryParseExact(commandId, "D", out var parsed) || parsed == Guid.Empty
+            || parsed.ToString("D") != commandId)
+            throw new ArgumentException("Command ID must be a lowercase canonical UUID.", nameof(commandId));
     }
 
     private static bool IsEditablePath(ProjectEntity entity) =>
@@ -745,6 +860,7 @@ public sealed class EditorRuntime : IAsyncDisposable
             .Where(group => workspace.ResolveAssetPath(group.Key, catalog) is null)
             .Select(group => group.Key)
             .ToHashSet();
+
 
     private void AddEvent(
         EditorEventKind kind,

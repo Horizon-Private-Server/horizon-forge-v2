@@ -15,6 +15,7 @@ public static class UyaBaseLayerStore
     private const string PointLightsAssetName = "point-lights.bin";
     private const string TieAmbientAssetName = "tie-ambient-rgbas.bin";
     private const int SkyCompositionVersion = 2;
+    private const int CollisionCompositionVersion = 2;
 
     internal static async Task WriteAsync(
         string projectRoot,
@@ -189,6 +190,9 @@ public static class UyaBaseLayerStore
             if (layer == BakeLayerId.Sky)
                 assetIds = assetIds.Concat(EnabledSkyShells(workspace)
                     .Where(value => value.Asset is not null).Select(value => value.Asset!.Id));
+            if (layer == BakeLayerId.Collision)
+                assetIds = assetIds.Concat(workspace.Content.TieCollisionBindings
+                    .SelectMany(value => new[] { value.TieAssetId, value.ProxyAssetId }));
             return new BakeLayerInput(
                 layer,
                 content,
@@ -210,7 +214,7 @@ public static class UyaBaseLayerStore
                     }),
                     BakeLayerId.Collision => ForgeProjectPersistence.Serialize(new
                     {
-                        CompositionVersion = 1,
+                        CompositionVersion = CollisionCompositionVersion,
                         Pieces = workspace.Content.Entities.Where(value => value.Collision is not null)
                             .OrderBy(value => value.Asset!.Id.ToString(), StringComparer.Ordinal)
                             .ThenBy(value => value.Collision!.Kind)
@@ -222,6 +226,26 @@ public static class UyaBaseLayerStore
                                 value.Collision.SourcePieceIndex,
                                 Enabled = value.State?.Disabled != true,
                                 value.Transform.Position,
+                            }).ToArray(),
+                        Bindings = workspace.Content.TieCollisionBindings
+                            .OrderBy(value => value.TieAssetId.ToString(), StringComparer.Ordinal)
+                            .Select(value => new
+                            {
+                                value.TieAssetId,
+                                value.ProxyAssetId,
+                                value.Recipe,
+                            }).ToArray(),
+                        Instances = workspace.Content.Entities.Where(value =>
+                                value.Asset is { Kind: AssetKind.Tie }
+                                && workspace.Content.TieCollisionBindings.Any(
+                                    binding => binding.TieAssetId == value.Asset.Id))
+                            .OrderBy(value => value.EntityId.ToString(), StringComparer.Ordinal)
+                            .Select(value => new
+                            {
+                                value.EntityId,
+                                TieAssetId = value.Asset!.Id,
+                                Enabled = value.State?.Disabled != true && value.TieCollisionEnabled != false,
+                                value.Transform,
                             }).ToArray(),
                     }),
                     BakeLayerId.Lighting => ForgeProjectPersistence.Serialize(new
@@ -385,35 +409,29 @@ public static class UyaBaseLayerStore
         CancellationToken cancellationToken)
     {
         var result = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+        IReadOnlyList<CollisionSolidAddition> additions = record.Assets.Any(asset => asset.Name == "collision.bin")
+            ? await UyaTieCollisionCompositionService.BuildAdditionsAsync(
+                workspace,
+                catalog,
+                replacementTieAssetId: null,
+                replacementProxyBytes: null,
+                decodedProxies: new Dictionary<AssetId, CollisionSolidAddition>(),
+                cancellationToken: cancellationToken)
+            : [];
         foreach (var asset in record.Assets)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var path = workspace.ResolveAssetPath(asset.Asset.Id, catalog)
                 ?? throw new FileNotFoundException($"Collision source {asset.Asset.Id} is missing.");
             var source = await File.ReadAllBytesAsync(path, cancellationToken);
-            var pieces = CollisionConverter.Inspect(source, GameId.UYA).Pieces;
-            var sourceKeys = pieces.Select(value =>
-                (UyaCollisionAdapter.ToProjectKind(value.Kind), value.SourcePieceIndex)).ToHashSet();
-            var entities = workspace.Content.Entities
-                .Where(value => value.Asset?.Id == asset.Asset.Id && value.Collision is not null)
-                .ToDictionary(value => (value.Collision!.Kind, value.Collision.SourcePieceIndex));
-            var edits = pieces.Select(piece =>
-            {
-                var kind = UyaCollisionAdapter.ToProjectKind(piece.Kind);
-                if (!entities.TryGetValue((kind, piece.SourcePieceIndex), out var entity)
-                    || entity.State?.Disabled == true)
-                    return new CollisionPieceEdit(piece.Kind, piece.SourcePieceIndex, 0, 0, 0, Remove: true);
-                return new CollisionPieceEdit(
-                    piece.Kind,
-                    piece.SourcePieceIndex,
-                    entity.Transform.Position.X,
-                    entity.Transform.Position.Y,
-                    entity.Transform.Position.Z);
-            }).ToArray();
-            if (entities.Keys.Any(key => !sourceKeys.Contains(key)))
-                throw new InvalidDataException($"Collision asset {asset.Name} contains an unknown project piece.");
+            var edits = UyaTieCollisionCompositionService.CreateEdits(
+                workspace, asset.Asset.Id, source);
+            IReadOnlyList<CollisionSolidAddition> assetAdditions =
+                asset.Name == "collision.bin" ? additions : [];
             var composition = await Task.Run(
-                () => CollisionConverter.Compose(source, GameId.UYA, edits), cancellationToken);
+                () => CollisionWork.Compose(
+                    source, GameId.UYA, edits, assetAdditions, cancellationToken),
+                cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
             result.Add(asset.Name, composition.Bytes);
         }

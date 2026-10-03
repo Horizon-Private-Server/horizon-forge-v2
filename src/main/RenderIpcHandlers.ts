@@ -107,6 +107,22 @@ export function registerRenderIpcHandlers(options: RenderIpcHandlersOptions): vo
     if (requestId !== undefined) await host.cancel(requestId);
   });
 
+  ipcMain.handle('forge:editor-tie-collision-model', async (
+    event, token: unknown, requestToken: unknown,
+  ) => {
+    assertSender(event.sender.id);
+    assertRequestToken(token);
+    assertRequestToken(requestToken);
+    if (activePreviewRequests.has(requestToken)) throw new Error('Preview request token is already active');
+    const request = await host.prepareTieCollisionPreview(
+      settings.paths.renderCache, settings.paths.assets, token);
+    activePreviewRequests.set(requestToken, request.requestId);
+    try { return await renderAssets.addPreview(await request.result); }
+    finally {
+      if (activePreviewRequests.get(requestToken) === request.requestId) activePreviewRequests.delete(requestToken);
+    }
+  });
+
   ipcMain.handle('forge:asset-thumbnail', async (
     event, targetGame: unknown, assetId: unknown, kind: unknown, shellIndex: unknown,
   ) => {

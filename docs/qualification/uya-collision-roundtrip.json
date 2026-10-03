@@ -1,7 +1,7 @@
 {
-  "SchemaVersion": 1,
+  "SchemaVersion": 2,
   "SdkVersion": "1.0.0.0",
-  "GeneratedAtUtc": "2026-10-01T03:18:26.5394596+00:00",
+  "GeneratedAtUtc": "2026-10-02T04:20:58.9166185+00:00",
   "Runtime": ".NET 10.0.12",
   "OperatingSystem": "Bazzite",
   "Architecture": "X64",
@@ -26,6 +26,18 @@
           "Matched": true
         }
       ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 21607,
+          "DuplicateFaceCount": 192580,
+          "MaximumFaceCount": 215,
+          "MaximumVertexCount": 267,
+          "MaximumQuadCount": 190,
+          "MaximumEncodedByteCount": 2048,
+          "HardViolationCount": 9
+        }
+      ],
       "Diagnostics": []
     },
     {
@@ -45,6 +57,18 @@
           "Matched": true
         }
       ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 24436,
+          "DuplicateFaceCount": 209544,
+          "MaximumFaceCount": 132,
+          "MaximumVertexCount": 177,
+          "MaximumQuadCount": 104,
+          "MaximumEncodedByteCount": 1344,
+          "HardViolationCount": 0
+        }
+      ],
       "Diagnostics": []
     },
     {
@@ -62,6 +86,18 @@
           "SourceSha256": "1ad3eabd1b8c5dc4292b2b3dcbbec9abd672483bd8d3cedd531627b50af7efdf",
           "OutputSha256": "1ad3eabd1b8c5dc4292b2b3dcbbec9abd672483bd8d3cedd531627b50af7efdf",
           "Matched": true
+        }
+      ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 15140,
+          "DuplicateFaceCount": 114186,
+          "MaximumFaceCount": 210,
+          "MaximumVertexCount": 263,
+          "MaximumQuadCount": 162,
+          "MaximumEncodedByteCount": 2064,
+          "HardViolationCount": 1
         }
       ],
       "Diagnostics": []
@@ -97,6 +133,38 @@
           "Matched": true
         }
       ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 20900,
+          "DuplicateFaceCount": 125187,
+          "MaximumFaceCount": 213,
+          "MaximumVertexCount": 240,
+          "MaximumQuadCount": 154,
+          "MaximumEncodedByteCount": 1920,
+          "HardViolationCount": 0
+        },
+        {
+          "Payload": "chunk-1",
+          "OccupiedOctantCount": 2437,
+          "DuplicateFaceCount": 39146,
+          "MaximumFaceCount": 171,
+          "MaximumVertexCount": 249,
+          "MaximumQuadCount": 153,
+          "MaximumEncodedByteCount": 1840,
+          "HardViolationCount": 0
+        },
+        {
+          "Payload": "chunk-2",
+          "OccupiedOctantCount": 2785,
+          "DuplicateFaceCount": 17624,
+          "MaximumFaceCount": 107,
+          "MaximumVertexCount": 145,
+          "MaximumQuadCount": 78,
+          "MaximumEncodedByteCount": 1104,
+          "HardViolationCount": 0
+        }
+      ],
       "Diagnostics": []
     },
     {
@@ -116,6 +184,18 @@
           "Matched": true
         }
       ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 21823,
+          "DuplicateFaceCount": 169344,
+          "MaximumFaceCount": 158,
+          "MaximumVertexCount": 212,
+          "MaximumQuadCount": 137,
+          "MaximumEncodedByteCount": 1632,
+          "HardViolationCount": 0
+        }
+      ],
       "Diagnostics": []
     },
     {
@@ -133,6 +213,18 @@
           "SourceSha256": "47b81a976efa406270a093f226801fde19dc0122d110989d005b0020df3cf56a",
           "OutputSha256": "47b81a976efa406270a093f226801fde19dc0122d110989d005b0020df3cf56a",
           "Matched": true
+        }
+      ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 14796,
+          "DuplicateFaceCount": 109757,
+          "MaximumFaceCount": 180,
+          "MaximumVertexCount": 206,
+          "MaximumQuadCount": 152,
+          "MaximumEncodedByteCount": 1696,
+          "HardViolationCount": 0
         }
       ],
       "Diagnostics": []
@@ -159,6 +251,28 @@
           "SourceSha256": "7f81e94bbfa492db4f1e3ce1ffc79ef4a9d131cd6e11581502899468a186016b",
           "OutputSha256": "7f81e94bbfa492db4f1e3ce1ffc79ef4a9d131cd6e11581502899468a186016b",
           "Matched": true
+        }
+      ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 26201,
+          "DuplicateFaceCount": 202392,
+          "MaximumFaceCount": 208,
+          "MaximumVertexCount": 263,
+          "MaximumQuadCount": 197,
+          "MaximumEncodedByteCount": 2080,
+          "HardViolationCount": 3
+        },
+        {
+          "Payload": "chunk-1",
+          "OccupiedOctantCount": 3976,
+          "DuplicateFaceCount": 44434,
+          "MaximumFaceCount": 165,
+          "MaximumVertexCount": 217,
+          "MaximumQuadCount": 139,
+          "MaximumEncodedByteCount": 1648,
+          "HardViolationCount": 0
         }
       ],
       "Diagnostics": []
@@ -194,6 +308,38 @@
           "Matched": true
         }
       ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 9768,
+          "DuplicateFaceCount": 90287,
+          "MaximumFaceCount": 142,
+          "MaximumVertexCount": 197,
+          "MaximumQuadCount": 115,
+          "MaximumEncodedByteCount": 1488,
+          "HardViolationCount": 0
+        },
+        {
+          "Payload": "chunk-1",
+          "OccupiedOctantCount": 0,
+          "DuplicateFaceCount": 0,
+          "MaximumFaceCount": 0,
+          "MaximumVertexCount": 0,
+          "MaximumQuadCount": 0,
+          "MaximumEncodedByteCount": 0,
+          "HardViolationCount": 0
+        },
+        {
+          "Payload": "chunk-2",
+          "OccupiedOctantCount": 0,
+          "DuplicateFaceCount": 0,
+          "MaximumFaceCount": 0,
+          "MaximumVertexCount": 0,
+          "MaximumQuadCount": 0,
+          "MaximumEncodedByteCount": 0,
+          "HardViolationCount": 0
+        }
+      ],
       "Diagnostics": []
     },
     {
@@ -225,6 +371,38 @@
           "SourceSha256": "b8fde2463ce53aa214a4c8a9de70ffe9582831e6529c4018933c9548114c819e",
           "OutputSha256": "b8fde2463ce53aa214a4c8a9de70ffe9582831e6529c4018933c9548114c819e",
           "Matched": true
+        }
+      ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 5119,
+          "DuplicateFaceCount": 54055,
+          "MaximumFaceCount": 199,
+          "MaximumVertexCount": 235,
+          "MaximumQuadCount": 154,
+          "MaximumEncodedByteCount": 1872,
+          "HardViolationCount": 0
+        },
+        {
+          "Payload": "chunk-1",
+          "OccupiedOctantCount": 4842,
+          "DuplicateFaceCount": 37381,
+          "MaximumFaceCount": 112,
+          "MaximumVertexCount": 133,
+          "MaximumQuadCount": 89,
+          "MaximumEncodedByteCount": 1088,
+          "HardViolationCount": 0
+        },
+        {
+          "Payload": "chunk-2",
+          "OccupiedOctantCount": 26561,
+          "DuplicateFaceCount": 185146,
+          "MaximumFaceCount": 147,
+          "MaximumVertexCount": 181,
+          "MaximumQuadCount": 127,
+          "MaximumEncodedByteCount": 1456,
+          "HardViolationCount": 0
         }
       ],
       "Diagnostics": []
@@ -260,6 +438,38 @@
           "Matched": true
         }
       ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 5848,
+          "DuplicateFaceCount": 68050,
+          "MaximumFaceCount": 121,
+          "MaximumVertexCount": 142,
+          "MaximumQuadCount": 68,
+          "MaximumEncodedByteCount": 1104,
+          "HardViolationCount": 0
+        },
+        {
+          "Payload": "chunk-1",
+          "OccupiedOctantCount": 3242,
+          "DuplicateFaceCount": 42894,
+          "MaximumFaceCount": 211,
+          "MaximumVertexCount": 268,
+          "MaximumQuadCount": 175,
+          "MaximumEncodedByteCount": 2096,
+          "HardViolationCount": 1
+        },
+        {
+          "Payload": "chunk-2",
+          "OccupiedOctantCount": 0,
+          "DuplicateFaceCount": 0,
+          "MaximumFaceCount": 0,
+          "MaximumVertexCount": 0,
+          "MaximumQuadCount": 0,
+          "MaximumEncodedByteCount": 0,
+          "HardViolationCount": 0
+        }
+      ],
       "Diagnostics": []
     },
     {
@@ -277,6 +487,18 @@
           "SourceSha256": "612c50f642f15c95d4b4691ceb255d9201d4a66ceabdc5aea56acbd0d230eeec",
           "OutputSha256": "612c50f642f15c95d4b4691ceb255d9201d4a66ceabdc5aea56acbd0d230eeec",
           "Matched": true
+        }
+      ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 40508,
+          "DuplicateFaceCount": 354921,
+          "MaximumFaceCount": 132,
+          "MaximumVertexCount": 159,
+          "MaximumQuadCount": 107,
+          "MaximumEncodedByteCount": 1248,
+          "HardViolationCount": 0
         }
       ],
       "Diagnostics": []
@@ -298,6 +520,18 @@
           "Matched": true
         }
       ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 20244,
+          "DuplicateFaceCount": 189793,
+          "MaximumFaceCount": 178,
+          "MaximumVertexCount": 242,
+          "MaximumQuadCount": 150,
+          "MaximumEncodedByteCount": 1808,
+          "HardViolationCount": 0
+        }
+      ],
       "Diagnostics": []
     },
     {
@@ -315,6 +549,18 @@
           "SourceSha256": "3b2ff3a604d710660ed988d094a24c93ea42797b644226217d317e2477141c94",
           "OutputSha256": "3b2ff3a604d710660ed988d094a24c93ea42797b644226217d317e2477141c94",
           "Matched": true
+        }
+      ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 18353,
+          "DuplicateFaceCount": 205356,
+          "MaximumFaceCount": 163,
+          "MaximumVertexCount": 222,
+          "MaximumQuadCount": 137,
+          "MaximumEncodedByteCount": 1616,
+          "HardViolationCount": 0
         }
       ],
       "Diagnostics": []
@@ -336,6 +582,18 @@
           "Matched": true
         }
       ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 22552,
+          "DuplicateFaceCount": 208013,
+          "MaximumFaceCount": 165,
+          "MaximumVertexCount": 240,
+          "MaximumQuadCount": 125,
+          "MaximumEncodedByteCount": 1760,
+          "HardViolationCount": 0
+        }
+      ],
       "Diagnostics": []
     },
     {
@@ -353,6 +611,18 @@
           "SourceSha256": "901500086a735be3a456a02e2e55149bb75d95ea57a572792bc93096f76a18cc",
           "OutputSha256": "901500086a735be3a456a02e2e55149bb75d95ea57a572792bc93096f76a18cc",
           "Matched": true
+        }
+      ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 32420,
+          "DuplicateFaceCount": 177523,
+          "MaximumFaceCount": 128,
+          "MaximumVertexCount": 188,
+          "MaximumQuadCount": 101,
+          "MaximumEncodedByteCount": 1360,
+          "HardViolationCount": 0
         }
       ],
       "Diagnostics": []
@@ -374,6 +644,18 @@
           "Matched": true
         }
       ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 78675,
+          "DuplicateFaceCount": 496094,
+          "MaximumFaceCount": 287,
+          "MaximumVertexCount": 263,
+          "MaximumQuadCount": 206,
+          "MaximumEncodedByteCount": 2176,
+          "HardViolationCount": 2
+        }
+      ],
       "Diagnostics": []
     },
     {
@@ -391,6 +673,18 @@
           "SourceSha256": "6dd1bd5be000c19983f9d2c88f3b242980ff2d3f2d0ab4e21cb9cd57348a37c2",
           "OutputSha256": "6dd1bd5be000c19983f9d2c88f3b242980ff2d3f2d0ab4e21cb9cd57348a37c2",
           "Matched": true
+        }
+      ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 27256,
+          "DuplicateFaceCount": 215406,
+          "MaximumFaceCount": 123,
+          "MaximumVertexCount": 198,
+          "MaximumQuadCount": 113,
+          "MaximumEncodedByteCount": 1408,
+          "HardViolationCount": 0
         }
       ],
       "Diagnostics": []
@@ -419,6 +713,28 @@
           "Matched": true
         }
       ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 29080,
+          "DuplicateFaceCount": 268479,
+          "MaximumFaceCount": 213,
+          "MaximumVertexCount": 261,
+          "MaximumQuadCount": 189,
+          "MaximumEncodedByteCount": 2032,
+          "HardViolationCount": 1
+        },
+        {
+          "Payload": "chunk-1",
+          "OccupiedOctantCount": 1543,
+          "DuplicateFaceCount": 28933,
+          "MaximumFaceCount": 203,
+          "MaximumVertexCount": 264,
+          "MaximumQuadCount": 156,
+          "MaximumEncodedByteCount": 1952,
+          "HardViolationCount": 2
+        }
+      ],
       "Diagnostics": []
     },
     {
@@ -436,6 +752,18 @@
           "SourceSha256": "bb72cc350c168231d72cef982b0022ef789ef5f2449a45157e157c7848af9775",
           "OutputSha256": "bb72cc350c168231d72cef982b0022ef789ef5f2449a45157e157c7848af9775",
           "Matched": true
+        }
+      ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 35831,
+          "DuplicateFaceCount": 296059,
+          "MaximumFaceCount": 271,
+          "MaximumVertexCount": 276,
+          "MaximumQuadCount": 189,
+          "MaximumEncodedByteCount": 2320,
+          "HardViolationCount": 6
         }
       ],
       "Diagnostics": []
@@ -457,6 +785,18 @@
           "Matched": true
         }
       ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 4753,
+          "DuplicateFaceCount": 51892,
+          "MaximumFaceCount": 196,
+          "MaximumVertexCount": 181,
+          "MaximumQuadCount": 100,
+          "MaximumEncodedByteCount": 1584,
+          "HardViolationCount": 0
+        }
+      ],
       "Diagnostics": []
     },
     {
@@ -476,6 +816,18 @@
           "Matched": true
         }
       ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 18834,
+          "DuplicateFaceCount": 136273,
+          "MaximumFaceCount": 203,
+          "MaximumVertexCount": 229,
+          "MaximumQuadCount": 189,
+          "MaximumEncodedByteCount": 1936,
+          "HardViolationCount": 0
+        }
+      ],
       "Diagnostics": []
     },
     {
@@ -493,6 +845,18 @@
           "SourceSha256": "c3d2c07fa99b9d937178c53689f21695a580ee7d3e978ce0cab61d3692bd3eb2",
           "OutputSha256": "c3d2c07fa99b9d937178c53689f21695a580ee7d3e978ce0cab61d3692bd3eb2",
           "Matched": true
+        }
+      ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 8899,
+          "DuplicateFaceCount": 62089,
+          "MaximumFaceCount": 161,
+          "MaximumVertexCount": 229,
+          "MaximumQuadCount": 148,
+          "MaximumEncodedByteCount": 1712,
+          "HardViolationCount": 0
         }
       ],
       "Diagnostics": []
@@ -521,6 +885,28 @@
           "Matched": true
         }
       ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 26496,
+          "DuplicateFaceCount": 165773,
+          "MaximumFaceCount": 81,
+          "MaximumVertexCount": 107,
+          "MaximumQuadCount": 63,
+          "MaximumEncodedByteCount": 816,
+          "HardViolationCount": 0
+        },
+        {
+          "Payload": "chunk-1",
+          "OccupiedOctantCount": 44418,
+          "DuplicateFaceCount": 238037,
+          "MaximumFaceCount": 76,
+          "MaximumVertexCount": 105,
+          "MaximumQuadCount": 60,
+          "MaximumEncodedByteCount": 800,
+          "HardViolationCount": 0
+        }
+      ],
       "Diagnostics": []
     },
     {
@@ -538,6 +924,18 @@
           "SourceSha256": "f9aee4ffc45cf224457836836bbbcacdb91c1634c6e502749f96739a959e98c6",
           "OutputSha256": "f9aee4ffc45cf224457836836bbbcacdb91c1634c6e502749f96739a959e98c6",
           "Matched": true
+        }
+      ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 18628,
+          "DuplicateFaceCount": 136420,
+          "MaximumFaceCount": 96,
+          "MaximumVertexCount": 137,
+          "MaximumQuadCount": 72,
+          "MaximumEncodedByteCount": 992,
+          "HardViolationCount": 0
         }
       ],
       "Diagnostics": []
@@ -559,6 +957,18 @@
           "Matched": true
         }
       ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 3062,
+          "DuplicateFaceCount": 34336,
+          "MaximumFaceCount": 109,
+          "MaximumVertexCount": 149,
+          "MaximumQuadCount": 92,
+          "MaximumEncodedByteCount": 1120,
+          "HardViolationCount": 0
+        }
+      ],
       "Diagnostics": []
     },
     {
@@ -576,6 +986,18 @@
           "SourceSha256": "6cb1fbbc7f37073d455c9350b6d3cd5cff2a71797e206863f62e370acabe19cc",
           "OutputSha256": "6cb1fbbc7f37073d455c9350b6d3cd5cff2a71797e206863f62e370acabe19cc",
           "Matched": true
+        }
+      ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 26474,
+          "DuplicateFaceCount": 268345,
+          "MaximumFaceCount": 147,
+          "MaximumVertexCount": 185,
+          "MaximumQuadCount": 117,
+          "MaximumEncodedByteCount": 1456,
+          "HardViolationCount": 0
         }
       ],
       "Diagnostics": []
@@ -597,6 +1019,18 @@
           "Matched": true
         }
       ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 51222,
+          "DuplicateFaceCount": 290411,
+          "MaximumFaceCount": 161,
+          "MaximumVertexCount": 207,
+          "MaximumQuadCount": 86,
+          "MaximumEncodedByteCount": 1488,
+          "HardViolationCount": 0
+        }
+      ],
       "Diagnostics": []
     },
     {
@@ -614,6 +1048,18 @@
           "SourceSha256": "b8882813cee1b02540c54f7db15ff747f6034bbf02e5f6fc4473136f93560c2f",
           "OutputSha256": "b8882813cee1b02540c54f7db15ff747f6034bbf02e5f6fc4473136f93560c2f",
           "Matched": true
+        }
+      ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 2236,
+          "DuplicateFaceCount": 35493,
+          "MaximumFaceCount": 68,
+          "MaximumVertexCount": 40,
+          "MaximumQuadCount": 41,
+          "MaximumEncodedByteCount": 480,
+          "HardViolationCount": 0
         }
       ],
       "Diagnostics": []
@@ -635,6 +1081,18 @@
           "Matched": true
         }
       ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 1552,
+          "DuplicateFaceCount": 23552,
+          "MaximumFaceCount": 65,
+          "MaximumVertexCount": 44,
+          "MaximumQuadCount": 50,
+          "MaximumEncodedByteCount": 480,
+          "HardViolationCount": 0
+        }
+      ],
       "Diagnostics": []
     },
     {
@@ -652,6 +1110,18 @@
           "SourceSha256": "6a805aa8217405774d38ab78a7f1ce9f6288f9cc65011e4004153c9b9f57e9e3",
           "OutputSha256": "6a805aa8217405774d38ab78a7f1ce9f6288f9cc65011e4004153c9b9f57e9e3",
           "Matched": true
+        }
+      ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 931,
+          "DuplicateFaceCount": 5698,
+          "MaximumFaceCount": 72,
+          "MaximumVertexCount": 73,
+          "MaximumQuadCount": 64,
+          "MaximumEncodedByteCount": 656,
+          "HardViolationCount": 0
         }
       ],
       "Diagnostics": []
@@ -673,6 +1143,18 @@
           "Matched": true
         }
       ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 1280,
+          "DuplicateFaceCount": 7451,
+          "MaximumFaceCount": 34,
+          "MaximumVertexCount": 44,
+          "MaximumQuadCount": 28,
+          "MaximumEncodedByteCount": 352,
+          "HardViolationCount": 0
+        }
+      ],
       "Diagnostics": []
     },
     {
@@ -690,6 +1172,18 @@
           "SourceSha256": "9092d4408e669808cb5da854664d73b2c5b7843cc1de3d3978df0baa4b66a9b0",
           "OutputSha256": "9092d4408e669808cb5da854664d73b2c5b7843cc1de3d3978df0baa4b66a9b0",
           "Matched": true
+        }
+      ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 1260,
+          "DuplicateFaceCount": 6274,
+          "MaximumFaceCount": 103,
+          "MaximumVertexCount": 121,
+          "MaximumQuadCount": 100,
+          "MaximumEncodedByteCount": 1008,
+          "HardViolationCount": 0
         }
       ],
       "Diagnostics": []
@@ -711,6 +1205,18 @@
           "Matched": true
         }
       ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 1717,
+          "DuplicateFaceCount": 8958,
+          "MaximumFaceCount": 28,
+          "MaximumVertexCount": 35,
+          "MaximumQuadCount": 24,
+          "MaximumEncodedByteCount": 288,
+          "HardViolationCount": 0
+        }
+      ],
       "Diagnostics": []
     },
     {
@@ -728,6 +1234,18 @@
           "SourceSha256": "0e22baea6ac8f26989d21a41853a9c4e1efbd38a05d21c06f0a0dc6cfad363ea",
           "OutputSha256": "0e22baea6ac8f26989d21a41853a9c4e1efbd38a05d21c06f0a0dc6cfad363ea",
           "Matched": true
+        }
+      ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 2666,
+          "DuplicateFaceCount": 37286,
+          "MaximumFaceCount": 60,
+          "MaximumVertexCount": 45,
+          "MaximumQuadCount": 50,
+          "MaximumEncodedByteCount": 464,
+          "HardViolationCount": 0
         }
       ],
       "Diagnostics": []
@@ -749,6 +1267,18 @@
           "Matched": true
         }
       ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 4,
+          "DuplicateFaceCount": 3,
+          "MaximumFaceCount": 1,
+          "MaximumVertexCount": 4,
+          "MaximumQuadCount": 1,
+          "MaximumEncodedByteCount": 32,
+          "HardViolationCount": 0
+        }
+      ],
       "Diagnostics": []
     },
     {
@@ -766,6 +1296,18 @@
           "SourceSha256": "7bc895487234ce837c0c34374216ffff28be6494a7d5c1bedfb5524452c7a973",
           "OutputSha256": "7bc895487234ce837c0c34374216ffff28be6494a7d5c1bedfb5524452c7a973",
           "Matched": true
+        }
+      ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 34345,
+          "DuplicateFaceCount": 221648,
+          "MaximumFaceCount": 132,
+          "MaximumVertexCount": 198,
+          "MaximumQuadCount": 118,
+          "MaximumEncodedByteCount": 1456,
+          "HardViolationCount": 0
         }
       ],
       "Diagnostics": []
@@ -787,6 +1329,18 @@
           "Matched": true
         }
       ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 15197,
+          "DuplicateFaceCount": 151703,
+          "MaximumFaceCount": 150,
+          "MaximumVertexCount": 225,
+          "MaximumQuadCount": 137,
+          "MaximumEncodedByteCount": 1648,
+          "HardViolationCount": 0
+        }
+      ],
       "Diagnostics": []
     },
     {
@@ -804,6 +1358,18 @@
           "SourceSha256": "86dbb5a423e646f79a2f3ba296f3a7238633301670d89638936c16a2afef524f",
           "OutputSha256": "86dbb5a423e646f79a2f3ba296f3a7238633301670d89638936c16a2afef524f",
           "Matched": true
+        }
+      ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 27837,
+          "DuplicateFaceCount": 219581,
+          "MaximumFaceCount": 127,
+          "MaximumVertexCount": 198,
+          "MaximumQuadCount": 113,
+          "MaximumEncodedByteCount": 1408,
+          "HardViolationCount": 0
         }
       ],
       "Diagnostics": []
@@ -825,6 +1391,18 @@
           "Matched": true
         }
       ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 50052,
+          "DuplicateFaceCount": 319881,
+          "MaximumFaceCount": 191,
+          "MaximumVertexCount": 221,
+          "MaximumQuadCount": 139,
+          "MaximumEncodedByteCount": 1728,
+          "HardViolationCount": 0
+        }
+      ],
       "Diagnostics": []
     },
     {
@@ -842,6 +1420,18 @@
           "SourceSha256": "32e98fe5113011706f187fbf2efe439c1e50f8f74d1b9dd9dca0a4fe22da6e2c",
           "OutputSha256": "32e98fe5113011706f187fbf2efe439c1e50f8f74d1b9dd9dca0a4fe22da6e2c",
           "Matched": true
+        }
+      ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 13025,
+          "DuplicateFaceCount": 112766,
+          "MaximumFaceCount": 129,
+          "MaximumVertexCount": 201,
+          "MaximumQuadCount": 119,
+          "MaximumEncodedByteCount": 1456,
+          "HardViolationCount": 0
         }
       ],
       "Diagnostics": []
@@ -863,6 +1453,18 @@
           "Matched": true
         }
       ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 30358,
+          "DuplicateFaceCount": 246600,
+          "MaximumFaceCount": 221,
+          "MaximumVertexCount": 241,
+          "MaximumQuadCount": 186,
+          "MaximumEncodedByteCount": 1776,
+          "HardViolationCount": 0
+        }
+      ],
       "Diagnostics": []
     },
     {
@@ -880,6 +1482,18 @@
           "SourceSha256": "592eb605ed3dc73577814db7da7e164b4b3ace07031d71dae7430d375030c1fc",
           "OutputSha256": "592eb605ed3dc73577814db7da7e164b4b3ace07031d71dae7430d375030c1fc",
           "Matched": true
+        }
+      ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 477,
+          "DuplicateFaceCount": 5851,
+          "MaximumFaceCount": 102,
+          "MaximumVertexCount": 117,
+          "MaximumQuadCount": 78,
+          "MaximumEncodedByteCount": 928,
+          "HardViolationCount": 0
         }
       ],
       "Diagnostics": []
@@ -901,6 +1515,18 @@
           "Matched": true
         }
       ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 16200,
+          "DuplicateFaceCount": 120523,
+          "MaximumFaceCount": 220,
+          "MaximumVertexCount": 246,
+          "MaximumQuadCount": 199,
+          "MaximumEncodedByteCount": 2080,
+          "HardViolationCount": 0
+        }
+      ],
       "Diagnostics": []
     },
     {
@@ -918,6 +1544,18 @@
           "SourceSha256": "59cadbb79c668f2ec0bc679800e5cc27c1adb9d57b2785de7ee88ee158c9ae3f",
           "OutputSha256": "59cadbb79c668f2ec0bc679800e5cc27c1adb9d57b2785de7ee88ee158c9ae3f",
           "Matched": true
+        }
+      ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 10288,
+          "DuplicateFaceCount": 38057,
+          "MaximumFaceCount": 38,
+          "MaximumVertexCount": 43,
+          "MaximumQuadCount": 27,
+          "MaximumEncodedByteCount": 368,
+          "HardViolationCount": 0
         }
       ],
       "Diagnostics": []
@@ -939,6 +1577,18 @@
           "Matched": true
         }
       ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 3940,
+          "DuplicateFaceCount": 38463,
+          "MaximumFaceCount": 161,
+          "MaximumVertexCount": 177,
+          "MaximumQuadCount": 132,
+          "MaximumEncodedByteCount": 1488,
+          "HardViolationCount": 0
+        }
+      ],
       "Diagnostics": []
     },
     {
@@ -956,6 +1606,18 @@
           "SourceSha256": "7bc895487234ce837c0c34374216ffff28be6494a7d5c1bedfb5524452c7a973",
           "OutputSha256": "7bc895487234ce837c0c34374216ffff28be6494a7d5c1bedfb5524452c7a973",
           "Matched": true
+        }
+      ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 34345,
+          "DuplicateFaceCount": 221648,
+          "MaximumFaceCount": 132,
+          "MaximumVertexCount": 198,
+          "MaximumQuadCount": 118,
+          "MaximumEncodedByteCount": 1456,
+          "HardViolationCount": 0
         }
       ],
       "Diagnostics": []
@@ -977,6 +1639,18 @@
           "Matched": true
         }
       ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 15197,
+          "DuplicateFaceCount": 151703,
+          "MaximumFaceCount": 150,
+          "MaximumVertexCount": 225,
+          "MaximumQuadCount": 137,
+          "MaximumEncodedByteCount": 1648,
+          "HardViolationCount": 0
+        }
+      ],
       "Diagnostics": []
     },
     {
@@ -994,6 +1668,18 @@
           "SourceSha256": "86dbb5a423e646f79a2f3ba296f3a7238633301670d89638936c16a2afef524f",
           "OutputSha256": "86dbb5a423e646f79a2f3ba296f3a7238633301670d89638936c16a2afef524f",
           "Matched": true
+        }
+      ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 27837,
+          "DuplicateFaceCount": 219581,
+          "MaximumFaceCount": 127,
+          "MaximumVertexCount": 198,
+          "MaximumQuadCount": 113,
+          "MaximumEncodedByteCount": 1408,
+          "HardViolationCount": 0
         }
       ],
       "Diagnostics": []
@@ -1015,6 +1701,18 @@
           "Matched": true
         }
       ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 50052,
+          "DuplicateFaceCount": 319881,
+          "MaximumFaceCount": 191,
+          "MaximumVertexCount": 221,
+          "MaximumQuadCount": 139,
+          "MaximumEncodedByteCount": 1728,
+          "HardViolationCount": 0
+        }
+      ],
       "Diagnostics": []
     },
     {
@@ -1034,6 +1732,18 @@
           "Matched": true
         }
       ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 13025,
+          "DuplicateFaceCount": 112766,
+          "MaximumFaceCount": 129,
+          "MaximumVertexCount": 201,
+          "MaximumQuadCount": 119,
+          "MaximumEncodedByteCount": 1456,
+          "HardViolationCount": 0
+        }
+      ],
       "Diagnostics": []
     },
     {
@@ -1051,6 +1761,18 @@
           "SourceSha256": "a77c833fb7a07a41111ca579baef839f402f2fe356d879d6ec6b21e079f8d444",
           "OutputSha256": "a77c833fb7a07a41111ca579baef839f402f2fe356d879d6ec6b21e079f8d444",
           "Matched": true
+        }
+      ],
+      "OctantSummaries": [
+        {
+          "Payload": "primary",
+          "OccupiedOctantCount": 30358,
+          "DuplicateFaceCount": 246600,
+          "MaximumFaceCount": 221,
+          "MaximumVertexCount": 241,
+          "MaximumQuadCount": 186,
+          "MaximumEncodedByteCount": 1776,
+          "HardViolationCount": 0
         }
       ],
       "Diagnostics": []

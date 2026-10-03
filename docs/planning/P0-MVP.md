@@ -16,6 +16,8 @@ the entire authoring loop with vanilla NTSC-U Up Your Arsenal content.
   ground placement, keybindings, and bounded undo/redo.
 - Vanilla tie, shrub, moby, sky, tfrag, gameplay, collision, and lighting support
   to the extent explicitly enabled by host capabilities.
+- Reusable generated collision proxies for placed compatible vanilla TIEs, expanded
+  and validated against combined native octant budgets during bake.
 - Byte-exact pass-through for unsupported data including code overlays.
 - Incremental deterministic bake to staging, verified in-memory SDK WAD build,
   recoverable development ISO patch, and manual reload in externally managed PCSX2.

@@ -15,8 +15,40 @@ internal static class EditorBridgeHandlers
         BridgeOpcode.ExecuteEditorCommand => await ExecuteAsync(frame.Payload, runtime, cancellationToken),
         BridgeOpcode.SaveEditorProject => await SaveAsync(frame.Payload, runtime, cancellationToken),
         BridgeOpcode.ReadEditorEvents => await ReadEventsAsync(frame.Payload, runtime, cancellationToken),
+        BridgeOpcode.PreviewTieCollision => await PreviewTieCollisionAsync(frame.Payload, runtime, cancellationToken),
+        BridgeOpcode.ApplyTieCollisionPreview => await ApplyTieCollisionAsync(frame.Payload, runtime, cancellationToken),
+        BridgeOpcode.InspectTieCollisionSource => await InspectTieCollisionSourceAsync(
+            frame.Payload, runtime, cancellationToken),
         _ => throw new BridgeProtocolException(BridgeErrorCode.UnknownOpcode, $"Unsupported editor opcode: {frame.Opcode}"),
     };
+
+    private static async Task<byte[]> InspectTieCollisionSourceAsync(
+        byte[] payload,
+        EditorRuntime runtime,
+        CancellationToken cancellationToken) => EditorPayloadCodec.EncodeTieCollisionSourceInfo(
+            await runtime.InspectTieCollisionSourceAsync(
+                EditorPayloadCodec.DecodeTieCollisionSourceRequest(payload), cancellationToken));
+
+    private static async Task<byte[]> PreviewTieCollisionAsync(
+        byte[] payload,
+        EditorRuntime runtime,
+        CancellationToken cancellationToken)
+    {
+        var request = EditorPayloadCodec.DecodeTieCollisionPreviewRequest(payload);
+        return EditorPayloadCodec.EncodeTieCollisionPreview(
+            await runtime.PreviewTieCollisionAsync(
+                request.EntityId, request.Settings, cancellationToken));
+    }
+
+    private static async Task<byte[]> ApplyTieCollisionAsync(
+        byte[] payload,
+        EditorRuntime runtime,
+        CancellationToken cancellationToken)
+    {
+        var request = EditorPayloadCodec.DecodeTieCollisionApplyRequest(payload);
+        return EditorPayloadCodec.EncodeSnapshot(await runtime.ApplyTieCollisionPreviewAsync(
+            request.CommandId, request.Token, cancellationToken));
+    }
 
     private static async Task<byte[]> OpenAsync(
         byte[] payload,

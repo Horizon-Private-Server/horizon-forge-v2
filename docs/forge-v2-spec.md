@@ -1,8 +1,8 @@
 # Horizon Forge v2 product and technical specification
 
-Status: Draft 0.7
+Status: Draft 0.8
 
-Last updated: 2026-09-19
+Last updated: 2026-10-01
 
 Primary target: Linux desktop
 
@@ -88,6 +88,7 @@ do not expand the P0 pipeline.
 | Asset | Immutable reusable content such as a texture, material, model, animation, or sound. |
 | Asset ID | A content-derived SHA-256 identity for an immutable canonical asset. |
 | Entity ID | A UUID identifying an editable instance in a project independently of its referenced asset. |
+| Collision proxy | Immutable local-space collision geometry bound to an exact reusable asset and expanded through owning instance transforms during bake. |
 | Layer | A category of project content such as sky, tfrags, ties, shrubs, mobys, gameplay, collision, or lighting. |
 | Bake | Convert editable project state into validated, game-specific loose output in staging. |
 | Build | Pack baked output into a WAD or other target archives. |
@@ -683,6 +684,61 @@ creation. Renderable assets use their actual meshes; intentional meshless mobys 
 a distinct editor-only marker, and missing or failed assets use an explicit
 placeholder plus a diagnostic. Failure in one content family MUST NOT prevent other
 valid families from rendering.
+
+#### FR-COLL-001: Reusable TIE collision proxies
+
+A compatible vanilla TIE MAY have one project-isolated, content-addressed
+local-space collision proxy bound to its exact source Asset ID. Every matching TIE
+instance reuses that immutable proxy by default, while an individual instance may
+opt out. The TIE remains transform and lifecycle owner; a proxy MUST NOT become an
+independently drifting scene entity or be duplicated in project data per instance.
+
+"Instanced" describes the Forge authoring model, not the UYA collision binary.
+Forge MUST expand enabled proxy instances into ordinary world-space solid collision
+during bake. Proxy geometry is stored once outside project JSON with a versioned
+recipe, generator version, parent Asset ID, and raw target collision type.
+
+#### FR-COLL-002: Candidate generation and preview
+
+The SDK MUST generate deterministic bounded candidates from validated canonical TIE
+geometry. V0 provides a cleaned authored lower-LOD **Decimated mesh** and a smooth
+sectioned outer hull. Hull detail controls 1–16 vertical convex profile sections so
+large-scale waists and insets can be retained without voxel stair steps.
+
+Users MUST be able to compare multiple candidates over the source mesh, inspect cost
+and deviation, cancel safely, and apply one candidate explicitly. Preview and
+regeneration do not mutate the project. Generation runs outside Electron and renderer
+loops with bounded allocations, progress, cancellation, and atomic cache publication.
+
+#### FR-COLL-003: Native octant budget
+
+The target SDK MUST analyze candidates using the same quantization, face/octant
+intersection, face duplication, vertex deduplication, and encoded-size calculations
+as the native collision writer. Results include per-octant face, vertex, quad, and
+byte costs; hard native violations; and pressure against a versioned runtime-safe
+profile backed by retained vanilla metrics and PCSX2 evidence.
+
+Asset-only analysis is advisory. Before Apply and bake, Forge MUST analyze retained
+source collision plus every transformed enabled proxy instance in the affected
+payload. Several individually safe instances occupying one octant cannot bypass the
+combined limit. Unverified runtime thresholds MUST be disclosed as unqualified, not
+presented as safe guesses.
+
+#### FR-COLL-004: Validated proxy bake
+
+The target SDK composer MUST accept bounded solid-mesh additions alongside source
+piece edits. Forge applies each owning TIE's finite supported transform, handles or
+rejects mirrored/degenerate scale explicitly, quantizes through the target adapter,
+and composes v0 proxies into primary collision. Automatic chunk assignment waits for
+verified streaming and spatial-ownership rules.
+
+Proxy Asset IDs, bindings, raw types, transforms, enabled state, generator/recipe
+versions, SDK revision, and budget profile participate in Collision fingerprints.
+Output MUST be deterministic, re-read semantically, and atomically staged. Invalid
+geometry, missing assets, unsafe combined octants, insufficient primary capacity,
+cancellation, or validation failure preserves the last known-good project, stage,
+and development ISO. Detailed behavior and tasks are defined by the
+[Instanced TIE Collision v0 feature specification](features/instanced-tie-collision-v0.md).
 
 #### FR-EDIT-001: Undo/redo
 
@@ -1425,8 +1481,11 @@ assets into the project.
 - Picking, camera, transforms, tools, and entity states.
 - Translate/rotate/scale modes, snapping controls, and Page Down ground snapping.
 - Commands, undo/redo, keybindings, delete/duplicate, and layer dirtiness.
+- Previewed reusable collision proxies for compatible vanilla TIEs with exact
+  combined-octant validation and target-native bake expansion.
 
-Exit: safely edit/recover a representative scene without raw-file changes.
+Exit: safely edit/recover a representative scene without raw-file changes, including
+placing a compatible vanilla TIE and baking its validated reusable collision proxy.
 
 ### M3: Incremental bake
 

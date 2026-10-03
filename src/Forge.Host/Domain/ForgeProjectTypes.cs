@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Forge.Host.Domain;
 
 public sealed record ProjectTargetProfile(
@@ -70,7 +72,8 @@ public sealed record ProjectEntity(
     ProjectCameraInstance? Camera = null,
     ProjectAmbientSoundInstance? AmbientSound = null,
     ProjectSkyShell? SkyShell = null,
-    ProjectCollisionPiece? Collision = null);
+    ProjectCollisionPiece? Collision = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? TieCollisionEnabled = null);
 
 public sealed record ProjectAttachedAsset(
     AssetId Id,
@@ -78,6 +81,30 @@ public sealed record ProjectAttachedAsset(
     uint CanonicalFormatVersion,
     AssetId ParentId,
     long Size);
+
+public enum ProjectTieCollisionRecipeKind
+{
+    Surface,
+    Wrap,
+    Hull,
+}
+
+public sealed record ProjectTieCollisionRecipe(
+    ProjectTieCollisionRecipeKind Kind,
+    int GeneratorVersion,
+    int RecipeVersion,
+    int LodIndex,
+    byte RawType,
+    float DetailSize = 0,
+    float SealOpeningSize = 0,
+    float SurfaceOffset = 0,
+    bool OpenBase = false,
+    int ProfileSections = 0);
+
+public sealed record ProjectTieCollisionBinding(
+    AssetId TieAssetId,
+    AssetId ProxyAssetId,
+    ProjectTieCollisionRecipe Recipe);
 
 public sealed record ForgeProjectManifest(
     int SchemaVersion,
@@ -93,6 +120,7 @@ public sealed record ForgeProjectContent(
     string DocumentType,
     IReadOnlyList<ProjectEntity> Entities,
     IReadOnlyList<ProjectAttachedAsset> Assets,
+    IReadOnlyList<ProjectTieCollisionBinding> TieCollisionBindings,
     ProjectLevelSettings? LevelSettings = null);
 
 public sealed record ProjectRecoverySnapshot(

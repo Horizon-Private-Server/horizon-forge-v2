@@ -46,7 +46,9 @@ public static class UyaLevelPackService
         {
             var sourcePackage = UyaLevelWadUnpacker.Unpack(sourceLevelWad.ToArray());
             var workspace = await ForgeProjectWorkspace.OpenAsync(projectRoot, cancellationToken);
-            var allowStalePaletteReport = deferredLayers?.Any(UyaStaticLayerSchema.Layers.Contains) ?? false;
+            var allowStalePaletteReport = deferredLayers?.Any(UyaStaticLayerSchema.Layers.Contains) == true
+                || File.Exists(Path.Combine(
+                    SnapshotRoot(staging, BakeLayerId.Ties), "visibility-bit.bin"));
             if (!allowStalePaletteReport)
             {
                 var expectedPaletteReport = PaletteBakeReportService.Create(

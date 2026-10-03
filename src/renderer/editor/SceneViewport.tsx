@@ -17,6 +17,7 @@ import type { SceneTreeColors } from '../../types/SceneTree.js';
 import type { CollisionVisualization } from '../../types/CollisionVisualization.js';
 import type { EditorLoadProgress, EditorSceneEnvironment, EditorTerrainSource } from '../../types/ForgeApi.js';
 import type { EditorSnapSource, EditorSnapTarget } from '../../types/EditorViewport.js';
+import type { TieCollisionOverlay } from './EditorContext.ts';
 import {
   disposeObject,
   applySceneEnvironment,
@@ -47,6 +48,7 @@ import { assetTemplateKey, SceneProjection } from './SceneProjection.ts';
 import { resolvePointerSnapTarget } from './SceneSnapping.ts';
 import { TransformTool } from './TransformTool.ts';
 import type { EditorTransformMode, EditorTransformSpace } from './TransformTool.ts';
+import { TieCollisionOverlayProjection } from './TieCollisionOverlayProjection.ts';
 import { ViewportToolbar } from './ViewportToolbar.tsx';
 
 interface SceneViewportProps {
@@ -65,6 +67,7 @@ interface SceneViewportProps {
   showTerrain: boolean;
   showSolidCollision: boolean;
   showPlayerBarriers: boolean;
+  tieCollisionOverlay?: TieCollisionOverlay;
   onFocusHandled(): void;
   onLoadProgress(progress?: EditorLoadProgress): void;
   onSolidCollisionVisibilityChange(value: boolean): void;
@@ -98,6 +101,7 @@ export function SceneViewport({
   showTerrain,
   showSolidCollision,
   showPlayerBarriers,
+  tieCollisionOverlay,
   onFocusHandled,
   onLoadProgress,
   onSolidCollisionVisibilityChange,
@@ -168,6 +172,7 @@ export function SceneViewport({
     skyShells: Map<string, SkyShellProjection>;
     previewRequests: Set<string>;
     collisionScenes: Set<THREE.Object3D>;
+    tieCollisionPreview: TieCollisionOverlayProjection;
   }>(null);
   const dropFrame = useRef<number | undefined>(undefined);
   const pendingDrop = useRef<{ x: number; y: number } | undefined>(undefined);
@@ -196,7 +201,12 @@ export function SceneViewport({
     sky.name = 'Sky';
     const currentProjection = new SceneProjection();
     currentProjection.setSelectionColor(selectionColor);
-    content.add(terrain, occlusion, currentProjection.root);
+    const collisionScenes = new Set<THREE.Object3D>();
+    const tieCollisionPreview = new TieCollisionOverlayProjection(
+      collisionScenes,
+      () => setNotice('Collision candidate overlay unavailable.'),
+    );
+    content.add(terrain, occlusion, currentProjection.root, tieCollisionPreview.root);
     skyScene.add(sky);
     scene.add(content);
 
@@ -315,7 +325,8 @@ export function SceneViewport({
       placedTemplates: new Map(),
       skyShells: new Map(),
       previewRequests: new Set(),
-      collisionScenes: new Set(),
+      collisionScenes,
+      tieCollisionPreview,
     };
 
     let noticeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -537,6 +548,7 @@ export function SceneViewport({
       terrain.removeFromParent();
       terrain.clear();
       currentProjection.dispose();
+      tieCollisionPreview.dispose();
       viewport.current?.previewRequests.forEach((token) => { void window.forge.cancelAssetPreview(token); });
       viewport.current?.placedTemplates.forEach(disposeObject);
       viewport.current?.skyShells.forEach((shell) => disposeObject(shell.root));
@@ -549,6 +561,45 @@ export function SceneViewport({
       renderer.domElement.remove();
     };
   }, []);
+
+  const tieCollisionEntity = tieCollisionOverlay
+    ? entities.find((entity) => entity.id === tieCollisionOverlay.entityId)
+    : undefined;
+  const tieCollisionTransform = tieCollisionEntity ? JSON.stringify(tieCollisionEntity.transform) : '';
+
+  useEffect(() => {
+    const current = viewport.current;
+    if (!current) return;
+    current.projection.setPreviewHiddenEntity(
+      tieCollisionOverlay && !tieCollisionOverlay.showSource ? tieCollisionOverlay.entityId : undefined);
+    current.projection.sync(
+      currentEntities.current,
+      currentSelection.current,
+      undefined,
+      true,
+      currentCollisionVisibility.current,
+    );
+    current.transformTool.sync(currentEntities.current, currentSelection.current, current.projection);
+  }, [tieCollisionOverlay?.entityId, tieCollisionOverlay?.showSource]);
+
+  useEffect(() => {
+    const current = viewport.current;
+    const overlay = tieCollisionOverlay;
+    if (!current || !overlay || !tieCollisionEntity) return;
+    current.tieCollisionPreview.show(
+      overlay,
+      tieCollisionEntity.transform,
+      currentCollisionVisualization.current,
+    );
+    return () => current.tieCollisionPreview.clear();
+  }, [tieCollisionOverlay?.candidate.token, tieCollisionOverlay?.url, tieCollisionTransform]);
+
+  useEffect(() => {
+    const projection = viewport.current?.tieCollisionPreview;
+    const overlay = tieCollisionOverlay;
+    if (!projection || !overlay) return;
+    projection.update(overlay);
+  }, [tieCollisionOverlay?.showOctants, tieCollisionOverlay?.showProxy, tieCollisionOverlay?.wireframe]);
 
   useEffect(() => {
     if (!terrainSource) return;

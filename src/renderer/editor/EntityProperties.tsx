@@ -2,15 +2,14 @@ import { Button, Code, Fieldset, Group, NumberInput, Stack, Text } from '@mantin
 import type { ReactNode } from 'react';
 import { useLayoutEffect, useState } from 'react';
 
-import type {
-  EditorEntity, ProjectQuaternion, ProjectTransform, ProjectVector3,
-} from '../../types/EditorRuntime.js';
+import type { EditorEntity, ProjectQuaternion, ProjectTransform, ProjectVector3 } from '../../types/EditorRuntime.js';
 import { formatCollisionType } from '../../utils/CollisionFormat.ts';
 import { useEditor } from './EditorContext.ts';
 import { EditorProperty, EditorPropertyGrid } from './EditorPrimitives.tsx';
 import { EntityStateControls, EntityTextEditor } from './EntityPropertyControls.tsx';
 import { SkyShellProperties } from './SkyShellProperties.tsx';
 import { SplineProperties } from './SplineProperties.tsx';
+import { TieCollisionProperties } from './TieCollisionProperties.tsx';
 
 export function EntityProperties({ entity }: { entity: EditorEntity }) {
   const { busy } = useEditor();
@@ -18,6 +17,7 @@ export function EntityProperties({ entity }: { entity: EditorEntity }) {
   const disabled = busy || entity.state.locked || entity.state.readOnly;
   return <BaseEntityProperties entity={entity} disabled={disabled}>
     {entity.collision && <CollisionProperties entity={entity} />}
+    {entity.asset?.kind === 'Tie' && <TieCollisionProperties entity={entity} disabled={disabled} />}
     {(entity.geometry?.kind === 'spline' || entity.geometry?.kind === 'grindPath')
       && <SplineProperties entity={entity} disabled={disabled} />}
   </BaseEntityProperties>;

@@ -109,6 +109,30 @@ internal static class UyaRenderPackageTests
                 Equal(true, collisionGltf.RootElement.GetProperty("nodes").EnumerateArray()
                     .Any(value => value.GetProperty("name").GetString() == "player_barrier_0000"),
                     "collision render package preserves selectable piece nodes");
+            var collisionCandidate = new EditorTieCollisionCandidate(
+                EditorTieCollisionPreset.Surface,
+                "Surface",
+                new(ProjectTieCollisionRecipeKind.Surface, 1, 1, 0, 0),
+                collisionBytes,
+                3, 1, 1, 0, 0, 0, 3,
+                []);
+            var collisionPreview = await UyaTieCollisionPreviewService.PrepareRenderAsync(
+                cache, catalogPath, sdkRevision, collisionCandidate, default);
+            Equal(false, collisionPreview.CacheHit, "first collision candidate preview cache write");
+            Equal(true, File.Exists(Path.Combine(collisionPreview.RootPath, collisionPreview.ModelPath)),
+                "collision candidate preview model");
+            Equal(true, (await UyaTieCollisionPreviewService.PrepareRenderAsync(
+                cache, catalogPath, sdkRevision, collisionCandidate, default)).CacheHit,
+                "collision candidate preview cache hit");
+            for (var index = 0; index < 16; index++)
+            {
+                var repeatedCollisionPreview = await UyaTieCollisionPreviewService.PrepareRenderAsync(
+                    cache, catalogPath, sdkRevision, collisionCandidate, default);
+                Equal(true, repeatedCollisionPreview.CacheHit
+                    && repeatedCollisionPreview.RootPath == collisionPreview.RootPath
+                    && repeatedCollisionPreview.ModelPath == collisionPreview.ModelPath,
+                    "repeated collision candidate previews reuse one render cache entry");
+            }
             var texture = await catalog.PutAsync(
                 AssetKind.Texture,
                 UyaAssetImportService.TextureCanonicalFormatVersion,

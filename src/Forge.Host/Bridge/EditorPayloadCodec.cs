@@ -4,9 +4,35 @@ namespace Forge.Host.Bridge;
 
 internal readonly record struct EditorOpenRequest(string ProjectPath, string CatalogRootPath, uint AutosaveSeconds);
 internal readonly record struct EditorEventRequest(ulong AfterSequence, uint Limit);
+internal readonly record struct EditorTieCollisionPreviewRequest(
+    EntityId EntityId,
+    EditorTieCollisionGenerationSettings? Settings);
+internal readonly record struct EditorTieCollisionApplyRequest(string CommandId, string Token);
+internal readonly record struct EditorTieCollisionRenderRequest(
+    string CacheRootPath,
+    string CatalogRootPath,
+    string Token);
 
 internal static class EditorPayloadCodec
 {
+    public static EntityId DecodeTieCollisionSourceRequest(ReadOnlySpan<byte> payload)
+    {
+        var reader = new PayloadReader(payload);
+        var entityId = EntityId.Parse(reader.ReadString());
+        reader.Complete();
+        return entityId;
+    }
+
+    public static byte[] EncodeTieCollisionSourceInfo(EditorTieCollisionSourceInfo value)
+    {
+        var writer = new PayloadWriter();
+        writer.WriteString(value.TieAssetId.ToString());
+        writer.WriteUInt32(checked((uint)value.SurfaceLodIndices.Count));
+        foreach (var lodIndex in value.SurfaceLodIndices)
+            writer.WriteUInt32(checked((uint)lodIndex));
+        return writer.ToArray();
+    }
+
     private const uint MaxEntities = 100_000;
     private const uint MaxEvents = 1_024;
 
@@ -26,6 +52,84 @@ internal static class EditorPayloadCodec
         if (value.AfterSequence > long.MaxValue) PayloadFormat.Malformed("Invalid editor event sequence");
         if (value.Limit is 0 or > MaxEvents) PayloadFormat.Malformed("Invalid editor event limit");
         return value;
+    }
+
+    public static EditorTieCollisionPreviewRequest DecodeTieCollisionPreviewRequest(ReadOnlySpan<byte> payload)
+    {
+        var reader = new PayloadReader(payload);
+        var entityId = EntityId.Parse(reader.ReadString());
+        EditorTieCollisionGenerationSettings? settings = null;
+        if (reader.ReadBoolean())
+        {
+            var rawType = reader.ReadUInt32();
+            var profileSections = reader.ReadUInt32();
+            var encodedSurfaceLodIndex = reader.ReadUInt32();
+            var useHull = reader.ReadBoolean();
+            if (rawType > byte.MaxValue)
+                PayloadFormat.Malformed("Invalid TIE collision raw type");
+            if (profileSections is < 1 or > 16)
+                PayloadFormat.Malformed("Invalid TIE collision profile sections");
+            if (encodedSurfaceLodIndex > 3)
+                PayloadFormat.Malformed("Invalid TIE collision surface LOD");
+            settings = new(
+                (byte)rawType, checked((int)profileSections),
+                checked((int)encodedSurfaceLodIndex) - 1, useHull);
+        }
+        reader.Complete();
+        return new(entityId, settings);
+    }
+
+    public static EditorTieCollisionApplyRequest DecodeTieCollisionApplyRequest(ReadOnlySpan<byte> payload)
+    {
+        var reader = new PayloadReader(payload);
+        var value = new EditorTieCollisionApplyRequest(reader.ReadString(), reader.ReadString());
+        reader.Complete();
+        return value;
+    }
+
+    public static EditorTieCollisionRenderRequest DecodeTieCollisionRenderRequest(ReadOnlySpan<byte> payload)
+    {
+        var reader = new PayloadReader(payload);
+        var value = new EditorTieCollisionRenderRequest(
+            reader.ReadString(), reader.ReadString(), reader.ReadString());
+        reader.Complete();
+        return value;
+    }
+
+    public static byte[] EncodeTieCollisionPreview(EditorTieCollisionPreview value)
+    {
+        var writer = new PayloadWriter();
+        writer.WriteString(value.TieAssetId.ToString());
+        writer.WriteUInt32(checked((uint)value.Candidates.Count));
+        foreach (var candidate in value.Candidates)
+        {
+            writer.WriteString(candidate.Token);
+            writer.WriteUInt32((uint)candidate.Preset);
+            writer.WriteString(candidate.Label);
+            WriteTieCollisionRecipe(writer, candidate.Recipe);
+            writer.WriteUInt32(checked((uint)candidate.EncodedByteCount));
+            writer.WriteUInt32(checked((uint)candidate.VertexCount));
+            writer.WriteUInt32(checked((uint)candidate.FaceCount));
+            writer.WriteUInt32(checked((uint)candidate.OccupiedOctantCount));
+            writer.WriteUInt32(checked((uint)candidate.DuplicateFaceCount));
+            writer.WriteUInt32(checked((uint)candidate.HardViolationCount));
+            writer.WriteSingle(candidate.MaximumDeviation);
+            writer.WriteUInt32(checked((uint)candidate.DeviationSampleCount));
+            WriteCollisionOctants(writer, candidate.Octants);
+            writer.WriteBoolean(candidate.CombinedAnalysis is not null);
+            if (candidate.CombinedAnalysis is { } combined)
+            {
+                writer.WriteUInt32(checked((uint)combined.InstanceCount));
+                writer.WriteUInt32(checked((uint)combined.LogicalFaceCount));
+                writer.WriteUInt32(checked((uint)combined.OccupiedOctantCount));
+                writer.WriteUInt32(checked((uint)combined.DuplicateFaceCount));
+                writer.WriteUInt32(checked((uint)combined.HardViolationCount));
+                WriteCollisionOctants(writer, combined.Octants);
+                writer.WriteBoolean(combined.Error is not null);
+                if (combined.Error is not null) writer.WriteString(combined.Error);
+            }
+        }
+        return writer.ToArray();
     }
 
     public static EditorCommand DecodeCommand(ReadOnlySpan<byte> payload)
@@ -81,10 +185,18 @@ internal static class EditorPayloadCodec
             skyShellUpdate = new(initialRotation, angularVelocity);
         }
         int? destinationOrder = reader.ReadBoolean() ? checked((int)reader.ReadUInt32()) : null;
+        bool? tieCollisionEnabled = reader.ReadBoolean() ? reader.ReadBoolean() : null;
+        byte? tieCollisionRawType = null;
+        if (reader.ReadBoolean())
+        {
+            var value = reader.ReadUInt32();
+            if (value > byte.MaxValue) PayloadFormat.Malformed("Invalid TIE collision raw type");
+            tieCollisionRawType = (byte)value;
+        }
         reader.Complete();
         return new(
             id, kind, entities, transform, text, state, transforms, levelSettings, points, placement,
-            skyShellSource, skyShellUpdate, destinationOrder);
+            skyShellSource, skyShellUpdate, destinationOrder, tieCollisionEnabled, tieCollisionRawType);
     }
 
     public static byte[] EncodeSnapshot(EditorSnapshot value)
@@ -221,6 +333,14 @@ internal static class EditorPayloadCodec
                 writer.WriteUInt32(checked((uint)type.Count));
             }
         }
+        writer.WriteBoolean(value.TieCollision is not null);
+        if (value.TieCollision is not null)
+        {
+            writer.WriteString(value.TieCollision.ProxyAssetId.ToString());
+            WriteTieCollisionRecipe(writer, value.TieCollision.Recipe);
+        }
+        writer.WriteBoolean(value.TieCollisionEnabled is not null);
+        if (value.TieCollisionEnabled is not null) writer.WriteBoolean(value.TieCollisionEnabled.Value);
         writer.WriteUInt32((uint)value.TransformCapabilities);
         writer.WriteBoolean(value.State.Dirty);
         writer.WriteBoolean(value.State.Hidden);
@@ -229,6 +349,39 @@ internal static class EditorPayloadCodec
         writer.WriteBoolean(value.State.ReadOnly);
         writer.WriteBoolean(value.State.Invalid);
         writer.WriteBoolean(value.State.MissingAsset);
+    }
+
+    private static void WriteTieCollisionRecipe(PayloadWriter writer, ProjectTieCollisionRecipe value)
+    {
+        writer.WriteUInt32((uint)value.Kind);
+        writer.WriteUInt32(checked((uint)value.GeneratorVersion));
+        writer.WriteUInt32(checked((uint)value.RecipeVersion));
+        writer.WriteUInt32(checked((uint)value.LodIndex));
+        writer.WriteUInt32(value.RawType);
+        writer.WriteSingle(value.DetailSize);
+        writer.WriteSingle(value.SealOpeningSize);
+        writer.WriteSingle(value.SurfaceOffset);
+        writer.WriteBoolean(value.OpenBase);
+        writer.WriteUInt32(checked((uint)value.ProfileSections));
+    }
+
+    private static void WriteCollisionOctants(
+        PayloadWriter writer,
+        IReadOnlyList<EditorCollisionOctantCost> octants)
+    {
+        writer.WriteUInt32(checked((uint)octants.Count));
+        foreach (var octant in octants)
+        {
+            writer.WriteUInt32(unchecked((uint)octant.X));
+            writer.WriteUInt32(unchecked((uint)octant.Y));
+            writer.WriteUInt32(unchecked((uint)octant.Z));
+            writer.WriteUInt32(checked((uint)octant.FaceCount));
+            writer.WriteUInt32(checked((uint)octant.VertexCount));
+            writer.WriteUInt32(checked((uint)octant.QuadCount));
+            writer.WriteUInt32(checked((uint)octant.EncodedByteCount));
+            writer.WriteStrings(octant.Violations.ToArray());
+            writer.WriteStrings((octant.AdditionIds ?? []).Take(PayloadFormat.MaxListItems).ToArray());
+        }
     }
 
     private static EditorEntityStateChange ReadStateChange(ref PayloadReader reader) => new(

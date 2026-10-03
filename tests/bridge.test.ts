@@ -211,6 +211,38 @@ test('sky shell commands validate source, rotation, and order payloads', () => {
   }), false);
 });
 
+test('TIE collision binding commands validate instance scope and enabled state', () => {
+  assert.equal(isEditorCommand({
+    id: '30000000-0000-4000-8000-000000000013',
+    kind: 'removeTieCollisionProxy',
+    entityIds: ['tie'],
+  }), true);
+  assert.equal(isEditorCommand({
+    id: '30000000-0000-4000-8000-000000000014',
+    kind: 'setTieCollisionEnabled',
+    entityIds: ['tie'],
+    enabled: false,
+  }), true);
+  assert.equal(isEditorCommand({
+    id: '30000000-0000-4000-8000-000000000014',
+    kind: 'setTieCollisionEnabled',
+    entityIds: [],
+    enabled: false,
+  }), false);
+  assert.equal(isEditorCommand({
+    id: '30000000-0000-4000-8000-000000000015',
+    kind: 'setTieCollisionRawType',
+    entityIds: ['tie'],
+    rawType: 0xaf,
+  }), true);
+  assert.equal(isEditorCommand({
+    id: '30000000-0000-4000-8000-000000000015',
+    kind: 'setTieCollisionRawType',
+    entityIds: ['tie'],
+    rawType: 256,
+  }), false);
+});
+
 test('fragmented and coalesced reads retain frame boundaries', () => {
   const stream = Buffer.concat(vectors.map((vector) => Buffer.from(vector.frameHex, 'hex')));
 

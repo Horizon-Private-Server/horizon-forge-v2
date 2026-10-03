@@ -4,6 +4,10 @@ import type {
   EditorEvent,
   EditorLevelSettings,
   EditorSnapshot,
+  EditorTieCollisionGenerationSettings,
+  EditorTieCollisionPreview,
+  EditorTieCollisionSourceInfo,
+  EditorTieCollisionRecipe,
   ProjectTransform,
   ProjectVector3,
 } from '../../types/EditorRuntime.js';
@@ -11,6 +15,7 @@ import { PayloadReader, PayloadWriter, malformed } from './PayloadIO.js';
 
 const MAX_ENTITIES = 100_000;
 const MAX_EVENTS = 1_024;
+const MAX_OCTANTS = 1_000_000;
 const commandKinds = {
   setSelection: 1,
   renameProject: 2,
@@ -31,6 +36,9 @@ const commandKinds = {
   addSkyShellFromAsset: 17,
   updateSkyShell: 18,
   reorderSkyShell: 19,
+  removeTieCollisionProxy: 20,
+  setTieCollisionEnabled: 21,
+  setTieCollisionRawType: 22,
 } as const;
 const eventKinds: Record<number, EditorEvent['kind']> = {
   1: 'projectOpened', 2: 'projectChanged', 3: 'selectionChanged', 4: 'projectSaved',
@@ -109,6 +117,10 @@ export function encodeEditorCommand(value: EditorCommand): Buffer {
   }
   writer.writeBoolean(value.kind === 'reorderSkyShell');
   if (value.kind === 'reorderSkyShell') writer.writeUInt32(value.destinationOrder);
+  writer.writeBoolean(value.kind === 'setTieCollisionEnabled');
+  if (value.kind === 'setTieCollisionEnabled') writer.writeBoolean(value.enabled);
+  writer.writeBoolean(value.kind === 'setTieCollisionRawType');
+  if (value.kind === 'setTieCollisionRawType') writer.writeUInt32(value.rawType);
   return writer.toBuffer();
 }
 
@@ -117,6 +129,92 @@ export function encodeEditorEventRequest(afterSequence: number, limit: number): 
   writer.writeUInt64(afterSequence);
   writer.writeUInt32(limit);
   return writer.toBuffer();
+}
+
+export function encodeTieCollisionPreviewRequest(
+  entityId: string,
+  settings?: EditorTieCollisionGenerationSettings,
+): Buffer {
+  const writer = new PayloadWriter();
+  writer.writeString(entityId);
+  writer.writeBoolean(settings !== undefined);
+  if (settings) {
+    writer.writeUInt32(settings.rawType);
+    writer.writeUInt32(settings.profileSections);
+    writer.writeUInt32(settings.surfaceLodIndex + 1);
+    writer.writeBoolean(settings.useHull);
+  }
+  return writer.toBuffer();
+}
+
+export function encodeTieCollisionSourceRequest(entityId: string): Buffer {
+  const writer = new PayloadWriter();
+  writer.writeString(entityId);
+  return writer.toBuffer();
+}
+
+export function decodeTieCollisionSourceInfo(payload: Uint8Array): EditorTieCollisionSourceInfo {
+  const reader = new PayloadReader(payload);
+  const tieAssetId = reader.readString();
+  const surfaceLodIndices = readList(reader, 3, () => reader.readUInt32());
+  reader.complete();
+  if (surfaceLodIndices.some((value) => value > 2 || !Number.isInteger(value)))
+    malformed('Invalid TIE surface LOD index');
+  return { tieAssetId, surfaceLodIndices };
+}
+
+export function encodeTieCollisionApplyRequest(commandId: string, token: string): Buffer {
+  const writer = new PayloadWriter();
+  writer.writeString(commandId);
+  writer.writeString(token);
+  return writer.toBuffer();
+}
+
+export function encodeTieCollisionRenderRequest(
+  cacheRootPath: string,
+  catalogRootPath: string,
+  token: string,
+): Buffer {
+  const writer = new PayloadWriter();
+  writer.writeString(cacheRootPath);
+  writer.writeString(catalogRootPath);
+  writer.writeString(token);
+  return writer.toBuffer();
+}
+
+export function decodeTieCollisionPreview(payload: Uint8Array): EditorTieCollisionPreview {
+  const reader = new PayloadReader(payload);
+  const tieAssetId = reader.readString();
+  const candidates = readList(reader, 16, () => ({
+    token: reader.readString(),
+    preset: enumValue(
+      { 1: 'surface', 3: 'solidHull' },
+      reader.readUInt32(),
+      'TIE collision preset',
+    ),
+    label: reader.readString(),
+    recipe: readTieCollisionRecipe(reader),
+    encodedByteCount: reader.readUInt32(),
+    vertexCount: reader.readUInt32(),
+    faceCount: reader.readUInt32(),
+    occupiedOctantCount: reader.readUInt32(),
+    duplicateFaceCount: reader.readUInt32(),
+    hardViolationCount: reader.readUInt32(),
+    maximumDeviation: reader.readFloat32(),
+    deviationSampleCount: reader.readUInt32(),
+    octants: readCollisionOctants(reader),
+    combinedAnalysis: reader.readBoolean() ? {
+      instanceCount: reader.readUInt32(),
+      logicalFaceCount: reader.readUInt32(),
+      occupiedOctantCount: reader.readUInt32(),
+      duplicateFaceCount: reader.readUInt32(),
+      hardViolationCount: reader.readUInt32(),
+      octants: readCollisionOctants(reader),
+      error: reader.readBoolean() ? reader.readString() : undefined,
+    } : undefined,
+  }));
+  reader.complete();
+  return { tieAssetId, candidates };
 }
 
 export function decodeEditorSnapshot(payload: Uint8Array): EditorSnapshot {
@@ -204,6 +302,11 @@ function readEntity(reader: PayloadReader): EditorEntity {
     vertexCount: reader.readUInt32(),
     types: readList(reader, 256, () => ({ rawType: reader.readUInt32(), count: reader.readUInt32() })),
   };
+  if (reader.readBoolean()) value.tieCollision = {
+    proxyAssetId: reader.readString(),
+    recipe: readTieCollisionRecipe(reader),
+  };
+  if (reader.readBoolean()) value.tieCollisionEnabled = reader.readBoolean();
   const transformCapabilities = reader.readUInt32();
   value.transformModes = [
     transformCapabilities & 1 ? 'translate' : undefined,
@@ -220,6 +323,35 @@ function readEntity(reader: PayloadReader): EditorEntity {
     missingAsset: reader.readBoolean(),
   };
   return value;
+}
+
+function readTieCollisionRecipe(reader: PayloadReader): EditorTieCollisionRecipe {
+  return {
+    kind: enumValue({ 0: 'surface', 1: 'wrap', 2: 'hull' }, reader.readUInt32(), 'TIE collision recipe kind'),
+    generatorVersion: reader.readUInt32(),
+    recipeVersion: reader.readUInt32(),
+    lodIndex: reader.readUInt32(),
+    rawType: reader.readUInt32(),
+    detailSize: reader.readFloat32(),
+    sealOpeningSize: reader.readFloat32(),
+    surfaceOffset: reader.readFloat32(),
+    openBase: reader.readBoolean(),
+    profileSections: reader.readUInt32(),
+  };
+}
+
+function readCollisionOctants(reader: PayloadReader) {
+  return readList(reader, MAX_OCTANTS, () => ({
+    x: reader.readUInt32() | 0,
+    y: reader.readUInt32() | 0,
+    z: reader.readUInt32() | 0,
+    faceCount: reader.readUInt32(),
+    vertexCount: reader.readUInt32(),
+    quadCount: reader.readUInt32(),
+    encodedByteCount: reader.readUInt32(),
+    violations: reader.readStrings(),
+    additionIds: reader.readStrings(),
+  }));
 }
 
 function writeOptionalBoolean(writer: PayloadWriter, value: boolean | undefined): void {

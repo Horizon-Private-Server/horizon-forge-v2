@@ -22,11 +22,15 @@ import {
   nextViewportSelection,
 } from '../src/renderer/editor/EditorPanelState.ts';
 import type { AssetExplorerItem } from '../src/types/AssetExplorer.js';
-import type { EditorEntity } from '../src/types/EditorRuntime.js';
+import type { EditorEntity, EditorTieCollisionCandidate } from '../src/types/EditorRuntime.js';
 import { createAssetPlacementCommand, createSkyShellAddCommand } from '../src/utils/AssetPlacement.ts';
-import { formatCollisionType } from '../src/utils/CollisionFormat.ts';
+import {
+  collisionTypeId, collisionTypeIdOptions, defaultCollisionType, formatCollisionType,
+  formatUyaCollisionTypeId, packCollisionType, soundTypeId,
+} from '../src/utils/CollisionFormat.ts';
 import { parseSplinePointId, removeSplinePoints, splinePointId } from '../src/utils/SplinePoints.ts';
 import { applyTextureChannel } from '../src/utils/TexturePreview.ts';
+import { recommendTieCollisionCandidate } from '../src/utils/TieCollision.ts';
 
 function entity(index: number): EditorEntity {
   return {
@@ -70,6 +74,45 @@ test('texture preview channels expose opaque color and alpha values', () => {
   const alpha = new Uint8ClampedArray([10, 20, 30, 40]);
   applyTextureChannel(alpha, 'alpha');
   assert.deepEqual([...alpha], [40, 40, 40, 255]);
+});
+
+test('TIE collision recommendation respects hard failures and measured deviation', () => {
+  const candidate = (
+    token: string,
+    worstBytes: number,
+    maximumDeviation: number,
+    hardViolationCount = 0,
+  ): EditorTieCollisionCandidate => ({
+    token,
+    preset: 'surface',
+    label: token,
+    recipe: {
+      kind: 'surface', generatorVersion: 2, recipeVersion: 1, lodIndex: 0, rawType: 0,
+      detailSize: 0, sealOpeningSize: 0, surfaceOffset: 0, openBase: false, profileSections: 0,
+    },
+    encodedByteCount: worstBytes * 2,
+    vertexCount: 3,
+    faceCount: 1,
+    occupiedOctantCount: 1,
+    duplicateFaceCount: 0,
+    hardViolationCount,
+    maximumDeviation,
+    deviationSampleCount: 3,
+    octants: [{
+      x: 0, y: 0, z: 0, faceCount: 1, vertexCount: 3, quadCount: 0,
+      encodedByteCount: worstBytes, violations: [],
+    }],
+  });
+  const combinedUnsafe = candidate('combined-unsafe', 5, 1);
+  combinedUnsafe.combinedAnalysis = {
+    instanceCount: 2, logicalFaceCount: 2, occupiedOctantCount: 1,
+    duplicateFaceCount: 0, hardViolationCount: 1, octants: [],
+  };
+  const candidates = [
+    combinedUnsafe, candidate('unsafe', 10, 1, 1), candidate('too-far', 20, 5), candidate('best', 30, 2),
+  ];
+  assert.equal(recommendTieCollisionCandidate(candidates, 4)?.token, 'best');
+  assert.equal(recommendTieCollisionCandidate(candidates, 1), undefined);
 });
 
 test('asset thumbnails persist, reject corruption, and prune least-recently-used rasters', async () => {
@@ -282,6 +325,20 @@ test('spline point tree IDs round-trip without constraining entity IDs', () => {
 });
 
 test('collision type formatting keeps game-specific nibble semantics behind target dispatch', () => {
-  assert.equal(formatCollisionType(0xa7, 'UYA'), 'Sound 0xA · Type 0x7 · Raw 0xA7');
+  assert.equal(formatCollisionType(0xa7, 'UYA'), 'Sound 0xA · Type 0x7 · Grind rail · Raw 0xA7');
   assert.equal(formatCollisionType(0xa7, 'GC'), 'Raw 0xA7');
+  assert.deepEqual(
+    [2, 4, 5, 6, 7, 8, 9, 10, 12, 14, 15].map(formatUyaCollisionTypeId),
+    [
+      '0x2 · Magnetic', '0x4 · Grind rail', '0x5 · Normal', '0x6 · Normal',
+      '0x7 · Grind rail', '0x8 · Slide off', '0x9 · Normal (No ledge grab)',
+      '0xA · Magnetic', '0xC · Slide off (No ledge grab)',
+      '0xE · Normal (Water trail)', '0xF · Normal',
+    ],
+  );
+  assert.equal(soundTypeId(0xa7, 'UYA'), 0xa);
+  assert.equal(collisionTypeId(0xa7, 'UYA'), 0x7);
+  assert.equal(packCollisionType(0x7, 0xa, 'UYA'), 0xa7);
+  assert.equal(defaultCollisionType('UYA'), 0x0f);
+  assert.equal(collisionTypeIdOptions('UYA').length, 16);
 });

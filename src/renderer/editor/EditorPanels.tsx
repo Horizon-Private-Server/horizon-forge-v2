@@ -41,6 +41,7 @@ export function ViewportPanel() {
     execute, busy, showViewportStats, showOcclusionOctants, splinePointSelection, setSplinePointSelection,
     setSkyCompositionSelected, showSolidCollision, setShowSolidCollision,
     showPlayerBarriers, setShowPlayerBarriers, showTerrain,
+    tieCollisionOverlay,
   } = useEditor();
   const levelSettingsSignature = JSON.stringify(project.levelSettings);
   const environment = useMemo(() => project.levelSettings
@@ -60,6 +61,7 @@ export function ViewportPanel() {
     showTerrain={showTerrain}
     showSolidCollision={showSolidCollision}
     showPlayerBarriers={showPlayerBarriers}
+    tieCollisionOverlay={tieCollisionOverlay}
     terrain={terrain}
     environment={environment}
     onFocusHandled={() => setCameraFocus(undefined)}

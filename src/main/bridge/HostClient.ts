@@ -10,6 +10,9 @@ import type {
   EditorCommand,
   EditorEvent,
   EditorSnapshot,
+  EditorTieCollisionGenerationSettings,
+  EditorTieCollisionPreview,
+  EditorTieCollisionSourceInfo,
   ForgeHostStatus,
   ForgeProjectDescriptor,
   ForgeProjectSummary,
@@ -39,9 +42,15 @@ import {
 import {
   decodeEditorEvents,
   decodeEditorSnapshot,
+  decodeTieCollisionPreview,
+  decodeTieCollisionSourceInfo,
   encodeEditorCommand,
   encodeEditorEventRequest,
   encodeEditorOpenRequest,
+  encodeTieCollisionApplyRequest,
+  encodeTieCollisionPreviewRequest,
+  encodeTieCollisionSourceRequest,
+  encodeTieCollisionRenderRequest,
 } from './EditorPayloadCodec.js';
 import { decodeCatalogMaintenance, encodeCatalogCollectionRequest, encodeCatalogMaintenanceRequest,
   encodeProjectAssetRepairRequest } from './MaintenancePayloadCodec.js';
@@ -362,6 +371,38 @@ export class HostClient {
   async executeEditorCommand(command: EditorCommand): Promise<HostRequest<EditorSnapshot>> {
     const request = await this.#request(BridgeOpcode.ExecuteEditorCommand, encodeEditorCommand(command));
     return { requestId: request.requestId, result: request.result.then(decodeEditorSnapshot) };
+  }
+
+  async previewTieCollision(
+    entityId: string,
+    settings?: EditorTieCollisionGenerationSettings,
+  ): Promise<HostRequest<EditorTieCollisionPreview>> {
+    const request = await this.#request(
+      BridgeOpcode.PreviewTieCollision, encodeTieCollisionPreviewRequest(entityId, settings));
+    return { requestId: request.requestId, result: request.result.then(decodeTieCollisionPreview) };
+  }
+
+  async inspectTieCollisionSource(entityId: string): Promise<HostRequest<EditorTieCollisionSourceInfo>> {
+    const request = await this.#request(
+      BridgeOpcode.InspectTieCollisionSource, encodeTieCollisionSourceRequest(entityId));
+    return { requestId: request.requestId, result: request.result.then(decodeTieCollisionSourceInfo) };
+  }
+
+  async applyTieCollisionPreview(commandId: string, token: string): Promise<HostRequest<EditorSnapshot>> {
+    const request = await this.#request(
+      BridgeOpcode.ApplyTieCollisionPreview, encodeTieCollisionApplyRequest(commandId, token));
+    return { requestId: request.requestId, result: request.result.then(decodeEditorSnapshot) };
+  }
+
+  async prepareTieCollisionPreview(
+    cacheRootPath: string,
+    catalogRootPath: string,
+    token: string,
+  ): Promise<HostRequest<AssetPreviewResult>> {
+    const request = await this.#request(
+      BridgeOpcode.PrepareTieCollisionPreview,
+      encodeTieCollisionRenderRequest(cacheRootPath, catalogRootPath, token));
+    return { requestId: request.requestId, result: request.result.then(decodeAssetPreviewResult) };
   }
 
   async saveEditorProject(): Promise<HostRequest<EditorSnapshot>> {

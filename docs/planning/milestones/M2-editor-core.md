@@ -6,7 +6,8 @@ Task register: [M2 tasks](../tasks/M2-tasks.md)
 
 Feature tasks: [Asset Explorer v0](../../features/asset-explorer-v0.md#implementation-tasks),
 [Skybox Editor v0](../../features/skybox-editor-v0.md#implementation-tasks),
-[Collision Editor v0](../../features/collision-editor-v0.md#implementation-tasks)
+[Collision Editor v0](../../features/collision-editor-v0.md#implementation-tasks),
+[Instanced TIE Collision v0](../../features/instanced-tie-collision-v0.md#implementation-tasks)
 
 ## Outcome
 
@@ -33,6 +34,8 @@ bounded command history while viewing the real UYA level rather than editor prox
   initial rotation and angular velocity.
 - Selectable primary/chunk solid collision and player barriers with translation,
   deletion, target-native rebuild, and no-edit byte identity.
+- Reusable collision proxies for compatible vanilla TIEs with candidate preview,
+  combined-octant diagnostics, per-instance opt-out, and validated bake expansion.
 - Hidden/disabled/locked behavior.
 - Translate/rotate/scale, grid/center/vertex snapping, and Page Down placement.
 - Undo/redo, delete/duplicate, clipboard, keybindings, and accessibility basics.
@@ -44,5 +47,7 @@ actual assets and can be edited and recovered without direct Three.js or raw-fil
 mutation; compatible catalog assets can be found, previewed, and placed through the
 Asset Explorer; selection remains synchronized; every project mutation is undoable
 where specified; solid collision and player barriers can be rendered, translated,
-deleted, and repacked; every populated UYA gameplay slot is typed, derived, or
-explicitly opaque; and the packaged app passes the editor interaction checks.
+deleted, and repacked; placed vanilla TIEs can reuse previewed collision proxies
+without exceeding qualified combined-octant budgets; every populated UYA gameplay
+slot is typed, derived, or explicitly opaque; and the packaged app passes the editor
+interaction checks.

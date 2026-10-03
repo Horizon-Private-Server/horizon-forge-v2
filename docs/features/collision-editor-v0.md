@@ -305,7 +305,9 @@ after repeated load/unload.
 - No collision/sound type painting; unknown or unconfirmed meanings remain numeric.
 - No shared cross-game collision-ID meanings, palettes, or decorators.
 - No user-authored decorator editor; the first pass exposes color overrides only.
-- No automatic regeneration from moved tfrags, ties, shrubs, or mobys.
+- No automatic regeneration from moved tfrags, ties, shrubs, or mobys in this
+  source-collision editor. Reusable generated TIE proxies are specified separately
+  by [Instanced TIE Collision v0](instanced-tie-collision-v0.md).
 - No collision insertion, duplication, clipboard transfer, or cross-level reuse.
 - No glTF-to-native collision import path.
 - No renderer-authored project state or direct patching of native bytes in Forge.

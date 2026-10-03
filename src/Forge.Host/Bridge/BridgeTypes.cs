@@ -39,6 +39,10 @@ public enum BridgeOpcode : ushort
     QueryAssetExplorer = 24,
     PrepareAssetPreview = 25,
     InspectForgeProjectSummary = 26,
+    PreviewTieCollision = 27,
+    ApplyTieCollisionPreview = 28,
+    PrepareTieCollisionPreview = 29,
+    InspectTieCollisionSource = 30,
 }
 
 public enum BridgeErrorCode : ushort

@@ -209,6 +209,21 @@ internal static class ForgeProjectTests
                 ReadSchemaVersion(await File.ReadAllBytesAsync(Path.Combine(versionOnePath, ForgeProjectWorkspace.ManifestFileName))),
                 "explicit save migrates v1 manifest");
 
+            var versionFourPath = Path.Combine(root, "version-four-project");
+            Directory.CreateDirectory(Path.Combine(versionFourPath, "content"));
+            await WriteLegacyManifestAsync(
+                savedManifest,
+                Path.Combine(versionFourPath, ForgeProjectWorkspace.ManifestFileName),
+                4);
+            await WriteSchemaVersionAsync(
+                savedContentJson,
+                Path.Combine(versionFourPath, ForgeProjectWorkspace.LegacyContentPath),
+                4,
+                compress: true);
+            var versionFour = await ForgeProjectWorkspace.OpenAsync(versionFourPath);
+            Equal(true, versionFour.MigrationPending, "v4 project migration is pending");
+            Equal(0, versionFour.Content.TieCollisionBindings.Count, "v4 migration supplies an empty proxy binding list");
+
             var sharedEdit = await project.ApplyAssetEditAsync(firstId, "shared edit"u8.ToArray(), catalog);
             Equal(2, sharedEdit.Changes.Count, "default edit updates project references");
             Equal(true, project.Content.Entities.All(entity => entity.Asset!.Id == sharedEdit.DerivedAssetId), "shared references redirected");
@@ -226,11 +241,146 @@ internal static class ForgeProjectTests
             Equal(global.Id, project.Content.Entities.Single(entity => entity.EntityId == secondId).Asset!.Id, "sibling reference remains global");
             Equal(true, otherProject.Content.Entities.All(entity => entity.Asset!.Id == global.Id), "other project remains isolated");
             Equal(0, otherProject.Content.Assets.Count, "other project receives no attached assets");
+            var chainedEdit = await project.ApplyAssetEditAsync(
+                firstId, "chained unique edit"u8.ToArray(), catalog, makeUnique: true);
 
             await project.SaveAsync();
             var reopened = await ForgeProjectWorkspace.OpenAsync(movedPath);
-            Equal(uniqueEdit.DerivedAssetId, reopened.Content.Entities.Single(entity => entity.EntityId == firstId).Asset!.Id, "override survives save and reopen");
-            Equal(true, File.Exists(reopened.ResolveAssetPath(uniqueEdit.DerivedAssetId, catalog)), "reopened override resolves");
+            Equal(chainedEdit.DerivedAssetId, reopened.Content.Entities.Single(entity => entity.EntityId == firstId).Asset!.Id, "override survives save and reopen");
+            Equal(true, File.Exists(reopened.ResolveAssetPath(chainedEdit.DerivedAssetId, catalog)), "reopened override resolves");
+
+            var tie = await catalog.PutAsync(
+                AssetKind.Tie,
+                canonicalFormatVersion: 0,
+                "exact tie variant"u8.ToArray(),
+                new(
+                    "test-importer",
+                    new("UYA", "NTSC-U", "1.00", "level03", "level_wad/assets/tie.bin", 8, UyaIsoService.SupportedMd5)));
+            var firstTieId = EntityId.New();
+            var secondTieId = EntityId.New();
+            reopened.AddEntity(Entity(firstTieId, "First TIE", tie.Id, AssetKind.Tie));
+            reopened.AddEntity(Entity(secondTieId, "Second TIE", tie.Id, AssetKind.Tie));
+            var recipe = new ProjectTieCollisionRecipe(
+                ProjectTieCollisionRecipeKind.Wrap,
+                GeneratorVersion: 5,
+                RecipeVersion: 1,
+                LodIndex: 0,
+                RawType: 0x31,
+                DetailSize: 1,
+                SealOpeningSize: 2);
+            var assetCountBeforeProxy = reopened.Content.Assets.Count;
+            var binding = await reopened.ApplyTieCollisionProxyAsync(
+                tie.Id,
+                "proxy geometry"u8.ToArray(),
+                canonicalFormatVersion: 1,
+                recipe);
+            Equal(1, reopened.Content.TieCollisionBindings.Count, "matching TIEs share one proxy binding");
+            Equal(assetCountBeforeProxy + 1, reopened.Content.Assets.Count, "proxy geometry is attached once");
+            Equal(tie.Id,
+                reopened.Content.Assets.Single(asset => asset.Id == binding.ProxyAssetId).ParentId,
+                "proxy parent is the exact TIE Asset ID");
+            Equal(true, reopened.IsAssetReferenced(binding.ProxyAssetId), "bound proxy is protected from collection");
+            _ = await reopened.ApplyTieCollisionProxyAsync(
+                tie.Id,
+                "proxy geometry"u8.ToArray(),
+                canonicalFormatVersion: 1,
+                recipe);
+            Equal(assetCountBeforeProxy + 1, reopened.Content.Assets.Count, "reapplying equal geometry deduplicates its blob");
+            reopened.SetTieCollisionEnabled(secondTieId, false);
+            Equal(false,
+                reopened.Content.Entities.Single(entity => entity.EntityId == secondTieId).TieCollisionEnabled,
+                "one matching TIE can opt out without copying proxy geometry");
+            var futureTieId = EntityId.New();
+            reopened.AddEntity(Entity(futureTieId, "Future TIE", tie.Id, AssetKind.Tie));
+            Equal(1, reopened.Content.TieCollisionBindings.Count,
+                "future placement inherits the exact Asset-ID binding without another record");
+            var fingerprintBeforeInvalidRecipe = reopened.CurrentFingerprint;
+            await ThrowsAsync<InvalidDataException>(() => reopened.ApplyTieCollisionProxyAsync(
+                tie.Id,
+                "invalid proxy"u8.ToArray(),
+                canonicalFormatVersion: 1,
+                recipe with { DetailSize = 0 }));
+            Equal(fingerprintBeforeInvalidRecipe, reopened.CurrentFingerprint,
+                "invalid recipe preserves the last known-good project state");
+
+            await reopened.SaveAsync();
+            reopened = await ForgeProjectWorkspace.OpenAsync(movedPath);
+            Equal(binding, reopened.Content.TieCollisionBindings.Single(), "proxy binding survives save and reopen");
+            Equal(false,
+                reopened.Content.Entities.Single(entity => entity.EntityId == secondTieId).TieCollisionEnabled,
+                "per-instance proxy opt-out survives save and reopen");
+            Equal(true, File.Exists(reopened.ResolveAssetPath(binding.ProxyAssetId, catalog)),
+                "reopened proxy resolves from its portable project-relative blob");
+
+            var replacementBytes = "replacement proxy geometry"u8.ToArray();
+            var replacement = await reopened.ApplyTieCollisionProxyAsync(
+                tie.Id,
+                replacementBytes,
+                canonicalFormatVersion: 1,
+                recipe with { SealOpeningSize = 4 });
+            Equal(false, reopened.IsAssetReferenced(binding.ProxyAssetId),
+                "replaced proxy becomes eligible for safe collection");
+            Equal(true, reopened.IsAssetReferenced(replacement.ProxyAssetId),
+                "replacement proxy remains protected");
+            await ThrowsAsync<InvalidOperationException>(() => reopened.CollectUnreferencedAssetsAsync());
+            var proxyRecovery = await reopened.WriteRecoveryAsync()
+                ?? throw new InvalidOperationException("Expected proxy recovery snapshot");
+            await reopened.SaveAsync();
+            var originalProxyId = binding.ProxyAssetId.ToString();
+            var originalProxyPath = Path.Combine(
+                movedPath, "assets", originalProxyId[..2], $"{originalProxyId}.blob");
+            var collected = await reopened.CollectUnreferencedAssetsAsync();
+            Equal(true, collected.ToHashSet().SetEquals([sharedEdit.DerivedAssetId, binding.ProxyAssetId]),
+                "collection removes every unreferenced attached asset");
+            Equal(false, File.Exists(originalProxyPath), "collection deletes the replaced proxy blob");
+            Equal(false, reopened.Content.Assets.Any(asset => asset.Id == binding.ProxyAssetId),
+                "collection deletes the replaced proxy metadata");
+            Equal(true, reopened.Content.Assets.Any(asset => asset.Id == uniqueEdit.DerivedAssetId),
+                "collection protects a referenced asset's attached parent");
+            Equal(true, reopened.Content.Assets.Any(asset => asset.Id == replacement.ProxyAssetId),
+                "collection protects the active proxy metadata");
+            reopened.RemoveTieCollisionProxy(tie.Id);
+            Equal(false, reopened.IsAssetReferenced(replacement.ProxyAssetId),
+                "removed proxy becomes eligible for safe collection");
+            await reopened.SaveAsync();
+            Equal(0, (await reopened.CollectUnreferencedAssetsAsync()).Count,
+                "collection protects a proxy referenced by recovery");
+            Equal(true, File.Exists(reopened.ResolveAttachedAssetPath(replacement.ProxyAssetId)),
+                "recovery-protected proxy blob survives collection");
+            await reopened.LoadRecoveryAsync(proxyRecovery.Id);
+            Equal(replacement, reopened.Content.TieCollisionBindings.Single(),
+                "recovery restores the reusable proxy binding");
+            await reopened.SaveAsync();
+
+            var archivePath = Path.Combine(root, "portable-project.zip");
+            ZipFile.CreateFromDirectory(movedPath, archivePath, CompressionLevel.Fastest, false);
+            var transferredPath = Path.Combine(root, "transferred-project");
+            ZipFile.ExtractToDirectory(archivePath, transferredPath);
+            var transferred = await ForgeProjectWorkspace.OpenAsync(transferredPath);
+            Equal(replacement, transferred.Content.TieCollisionBindings.Single(),
+                "zip transfer preserves the exact proxy binding");
+            var transferredProxyPath = transferred.ResolveAttachedAssetPath(replacement.ProxyAssetId)
+                ?? throw new InvalidOperationException("Transferred proxy blob did not resolve");
+            var transferredProxyBytes = await File.ReadAllBytesAsync(transferredProxyPath);
+            Equal(true, replacementBytes.SequenceEqual(transferredProxyBytes),
+                "zip transfer preserves the project-relative proxy blob");
+
+            var repairedCatalog = await AssetCatalogStore.OpenAsync(Path.Combine(root, "repaired-catalog"));
+            Equal(null, transferred.ResolveAssetPath(tie.Id, repairedCatalog),
+                "transferred project initially reports its missing source TIE");
+            var repairedTie = await repairedCatalog.PutAsync(
+                AssetKind.Tie,
+                canonicalFormatVersion: 0,
+                "exact tie variant"u8.ToArray(),
+                new(
+                    "test-repair",
+                    new("UYA", "NTSC-U", "1.00", "level03", "level_wad/assets/tie.bin", 8,
+                        UyaIsoService.SupportedMd5)));
+            Equal(tie.Id, repairedTie.Id, "repair restores the same content-addressed TIE ID");
+            Equal(true, transferred.ResolveAssetPath(tie.Id, repairedCatalog) is not null,
+                "repaired source TIE resolves after transfer");
+            Equal(replacement, transferred.Content.TieCollisionBindings.Single(),
+                "source repair leaves the proxy binding unchanged");
         }
         finally
         {
@@ -238,12 +388,16 @@ internal static class ForgeProjectTests
         }
     }
 
-    private static ProjectEntity Entity(EntityId id, string name, AssetId assetId) => new(
+    private static ProjectEntity Entity(
+        EntityId id,
+        string name,
+        AssetId assetId,
+        AssetKind kind = AssetKind.Moby) => new(
         id,
         name,
-        "mobys",
+        kind == AssetKind.Tie ? "ties" : "mobys",
         ProjectTransform.Identity,
-        new(assetId, AssetKind.Moby));
+        new(assetId, kind));
 
     private static async Task WriteLegacyManifestAsync(byte[] currentBytes, string path, int version)
     {
@@ -255,13 +409,24 @@ internal static class ForgeProjectTests
         await File.WriteAllTextAsync(path, document.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n");
     }
 
-    private static async Task WriteSchemaVersionAsync(byte[] currentBytes, string path, int version, bool legacyV0 = false)
+    private static async Task WriteSchemaVersionAsync(
+        byte[] currentBytes,
+        string path,
+        int version,
+        bool legacyV0 = false,
+        bool compress = false)
     {
         var document = JsonNode.Parse(currentBytes)?.AsObject()
             ?? throw new InvalidOperationException("Current project document is invalid");
         document["schemaVersion"] = version;
-        if (legacyV0) document.Remove("documentType");
-        await File.WriteAllTextAsync(path, document.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n");
+        if (version < 5) document.Remove("tieCollisionBindings");
+        if (legacyV0)
+        {
+            document.Remove("documentType");
+        }
+        var bytes = System.Text.Encoding.UTF8.GetBytes(
+            document.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n");
+        await File.WriteAllBytesAsync(path, compress ? Compress(bytes) : bytes);
     }
 
     private static byte[] Compress(byte[] bytes)

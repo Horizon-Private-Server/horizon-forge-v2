@@ -5,6 +5,24 @@ namespace Forge.Host.Bridge;
 
 internal static class RenderBridgeHandlers
 {
+    public static async Task<byte[]> PrepareTieCollisionPreviewAsync(
+        byte[] payload,
+        string sdkRevision,
+        EditorRuntime runtime,
+        CancellationToken cancellationToken)
+    {
+        var request = EditorPayloadCodec.DecodeTieCollisionRenderRequest(payload);
+        var candidate = await runtime.GetTieCollisionPreviewCandidateAsync(request.Token, cancellationToken);
+        var result = await UyaTieCollisionPreviewService.PrepareRenderAsync(
+            request.CacheRootPath,
+            request.CatalogRootPath,
+            sdkRevision,
+            candidate,
+            cancellationToken);
+        return BridgePayloadCodec.EncodeAssetPreviewResult(new(
+            result.RootPath, result.CacheKey, result.ModelPath, result.CacheHit));
+    }
+
     public static async Task<byte[]> PrepareAssetPreviewAsync(
         byte[] payload,
         string sdkRevision,

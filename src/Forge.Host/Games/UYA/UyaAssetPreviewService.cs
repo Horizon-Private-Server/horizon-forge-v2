@@ -286,7 +286,8 @@ public static class UyaAssetPreviewService
         ArgumentException.ThrowIfNullOrWhiteSpace(request.ViewPreset);
         ArgumentException.ThrowIfNullOrWhiteSpace(sdkRevision);
         if (request.TargetGame != "UYA") throw new NotSupportedException("Asset preview target must be UYA.");
-        if (request.Kind is not (AssetKind.Moby or AssetKind.Tie or AssetKind.Shrub or AssetKind.Texture or AssetKind.Sky))
+        if (request.Kind is not (AssetKind.Moby or AssetKind.Tie or AssetKind.Shrub or AssetKind.Texture
+            or AssetKind.Sky or AssetKind.Collision))
             throw new NotSupportedException($"{request.Kind} previews are not supported.");
         if (request.AssetId.ToString().Length != AssetId.TextLength)
             throw new ArgumentException("Asset preview ID is invalid.", nameof(request));
@@ -298,6 +299,7 @@ public static class UyaAssetPreviewService
         {
             AssetKind.Texture => "texture-default",
             AssetKind.Sky => "sky-default",
+            AssetKind.Collision => "collision-default",
             _ => "model-default",
         };
         if (request.ViewPreset != preset)

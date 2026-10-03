@@ -41,7 +41,7 @@ internal static class ForgeProjectValidation
             throw new UnsupportedProjectSchemaException(content.SchemaVersion);
         if (content.DocumentType != ProjectSchema.ContentDocumentType)
             throw new InvalidDataException("Project content document type is invalid.");
-        if (content.Entities is null || content.Assets is null)
+        if (content.Entities is null || content.Assets is null || content.TieCollisionBindings is null)
             throw new InvalidDataException("Project content lists are required.");
         if (content.LevelSettings is not null) ValidateLevelSettings(content.LevelSettings);
         if (content.Entities.Any(entity => entity is null))
@@ -64,6 +64,8 @@ internal static class ForgeProjectValidation
                 if (!Enum.IsDefined(entity.Asset.Kind))
                     throw new InvalidDataException($"Entity {entity.EntityId} has an unknown asset kind.");
             }
+            if (entity.TieCollisionEnabled is not null && entity.Asset?.Kind != AssetKind.Tie)
+                throw new InvalidDataException($"Entity {entity.EntityId} cannot override TIE collision.");
             if (entity.Provenance is not null)
             {
                 ValidateText(entity.Provenance.Game, nameof(entity.Provenance.Game));
@@ -104,6 +106,41 @@ internal static class ForgeProjectValidation
             if (asset.Id == asset.ParentId)
                 throw new InvalidDataException($"Project asset {asset.Id} cannot derive from itself.");
         }
+        if (content.TieCollisionBindings.Any(binding => binding is null))
+            throw new InvalidDataException("Project TIE collision bindings cannot contain null entries.");
+        if (content.TieCollisionBindings.Select(binding => binding.TieAssetId).Distinct().Count()
+            != content.TieCollisionBindings.Count)
+            throw new InvalidDataException("Project contains duplicate TIE collision bindings.");
+        foreach (var binding in content.TieCollisionBindings)
+        {
+            if (binding.TieAssetId.ToString().Length != AssetId.TextLength
+                || binding.ProxyAssetId.ToString().Length != AssetId.TextLength
+                || binding.TieAssetId == binding.ProxyAssetId)
+                throw new InvalidDataException("Project TIE collision binding IDs are invalid.");
+            ValidateTieCollisionRecipe(binding.Recipe);
+            var proxy = content.Assets.SingleOrDefault(asset => asset.Id == binding.ProxyAssetId);
+            if (proxy is null || proxy.Kind != AssetKind.Collision || proxy.ParentId != binding.TieAssetId)
+                throw new InvalidDataException($"TIE collision proxy {binding.ProxyAssetId} has invalid attached metadata.");
+        }
+    }
+
+    internal static void ValidateTieCollisionRecipe(ProjectTieCollisionRecipe recipe)
+    {
+        ArgumentNullException.ThrowIfNull(recipe);
+        if (!Enum.IsDefined(recipe.Kind) || recipe.GeneratorVersion < 1 || recipe.RecipeVersion < 1
+            || recipe.LodIndex < 0 || !float.IsFinite(recipe.DetailSize)
+            || !float.IsFinite(recipe.SealOpeningSize) || !float.IsFinite(recipe.SurfaceOffset))
+            throw new InvalidDataException("TIE collision recipe is invalid.");
+        if (recipe.ProfileSections is < 0 or > 16
+            || recipe.Kind == ProjectTieCollisionRecipeKind.Surface
+            && (recipe.DetailSize != 0 || recipe.SealOpeningSize != 0
+                || recipe.SurfaceOffset != 0 || recipe.OpenBase || recipe.ProfileSections != 0)
+            || recipe.Kind == ProjectTieCollisionRecipeKind.Hull
+            && (recipe.DetailSize != 0 || recipe.SealOpeningSize != 0
+                || recipe.SurfaceOffset != 0 || recipe.OpenBase)
+            || recipe.Kind == ProjectTieCollisionRecipeKind.Wrap
+            && (recipe.DetailSize <= 0 || recipe.SealOpeningSize < 0 || recipe.ProfileSections != 0))
+            throw new InvalidDataException("TIE collision recipe parameters do not match its generator.");
     }
 
     private static void ValidateCollision(ProjectEntity entity)

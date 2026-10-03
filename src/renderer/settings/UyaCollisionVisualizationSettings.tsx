@@ -6,9 +6,9 @@ import {
   cloneUyaCollisionVisualization,
   DEFAULT_UYA_COLLISION_VISUALIZATION,
   serializeUyaCollisionVisualization,
-  UYA_COLLISION_TYPE_LABELS,
   UYA_COLLISION_VISUALIZATION_KEY,
 } from '../../utils/UyaCollisionVisualization.ts';
+import { formatUyaCollisionTypeId, formatUyaSoundTypeId } from '../../utils/CollisionFormat.ts';
 import { errorMessage } from '../../utils/Errors.ts';
 import { isHexColor } from '../../utils/SceneTreeColors.ts';
 import { ColorPickerInput } from '../ColorPickerInput.tsx';
@@ -64,7 +64,7 @@ export function UyaCollisionVisualizationSettings({
     <SimpleGrid cols={{ base: 1, sm: 2, md: 4 }}>
       {colors.collisionTypeColors.map((color, index) => <ColorPickerInput
         key={`collision-${index}`}
-        label={`0x${index.toString(16).toUpperCase()} · ${UYA_COLLISION_TYPE_LABELS[index]}`}
+        label={formatUyaCollisionTypeId(index)}
         value={color}
         format="hex"
         onChange={(next) => {
@@ -79,7 +79,7 @@ export function UyaCollisionVisualizationSettings({
     <SimpleGrid cols={{ base: 1, sm: 2, md: 4 }}>
       {colors.soundTypeColors.map((color, index) => <ColorPickerInput
         key={`sound-${index}`}
-        label={`Sound 0x${index.toString(16).toUpperCase()}`}
+        label={formatUyaSoundTypeId(index)}
         value={color}
         format="hex"
         onChange={(next) => {

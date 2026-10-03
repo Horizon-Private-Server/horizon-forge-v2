@@ -24,6 +24,8 @@ Run `npm test` on Linux and Windows. The synthetic contract suite verifies:
 
 Use a clean UYA ISO only as the configured source and point PCSX2 at Forge's separate
 development ISO. Retain `build-patch.log` for any failure. Do not attach either ISO.
+Feature-specific collision-proxy cases and evidence fields are in the
+[M2 instanced TIE collision qualification](M2-instanced-tie-collision.md).
 
 | Platform | Scenario | Procedure | Expected result | Status |
 | --- | --- | --- | --- | --- |

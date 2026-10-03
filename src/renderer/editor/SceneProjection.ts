@@ -120,6 +120,7 @@ export class SceneProjection {
   private readonly templates = new Map<string, THREE.Object3D>();
   private readonly failedAssets = new Set<string>();
   private readonly pickable = new Set<string>();
+  private readonly previewHidden = new Set<string>();
   private readonly sourceRotation = new THREE.Quaternion();
   private readonly projectedRotation = new THREE.Quaternion();
   private readonly position = new THREE.Vector3();
@@ -164,6 +165,11 @@ export class SceneProjection {
 
   setViewportSize(width: number, height: number): void {
     this.volumePickerMaterial.resolution.set(Math.max(width, 1), Math.max(height, 1));
+  }
+
+  setPreviewHiddenEntity(entityId?: string): void {
+    this.previewHidden.clear();
+    if (entityId) this.previewHidden.add(entityId);
   }
 
   setAssetTemplates(templates: ReadonlyMap<string, THREE.Object3D>, failedAssets: ReadonlySet<string> = new Set()): void {
@@ -736,6 +742,7 @@ export class SceneProjection {
     visibleCollisionKinds?: ReadonlySet<'solid' | 'playerBarrier'>,
   ): boolean {
     return !entity.state.hidden
+      && !this.previewHidden.has(entity.id)
       && !entity.state.disabled
       && (visibleLayers?.has(entity.layer) ?? true)
       && (!entity.collision || visibleCollisionKinds?.has(entity.collision.kind) !== false)

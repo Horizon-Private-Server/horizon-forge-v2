@@ -1,7 +1,11 @@
 import { createContext, useContext } from 'react';
 
 import type { KeybindingMap } from '../../types/Keybindings.js';
-import type { EditorCommand, EditorSnapshot } from '../../types/EditorRuntime.js';
+import type {
+  EditorCommand, EditorSnapshot, EditorTieCollisionCandidate, EditorTieCollisionGenerationSettings,
+  EditorTieCollisionPreview,
+  EditorTieCollisionSourceInfo,
+} from '../../types/EditorRuntime.js';
 import type { AssetExplorerFamily } from '../../types/AssetExplorer.js';
 import type { SceneTreeColors } from '../../types/SceneTree.js';
 import type { CollisionVisualization } from '../../types/CollisionVisualization.js';
@@ -46,7 +50,26 @@ export interface EditorContextValue {
   build(includedLayers: BuildLayerId[]): Promise<void>;
   cancelBuild(): Promise<void>;
   execute(command: EditorCommand): Promise<boolean>;
+  inspectTieCollisionSource(entityId: string): Promise<EditorTieCollisionSourceInfo>;
+  previewTieCollision(
+    entityId: string,
+    settings?: EditorTieCollisionGenerationSettings,
+  ): Promise<EditorTieCollisionPreview>;
+  cancelTieCollisionPreview(): Promise<void>;
+  applyTieCollisionPreview(token: string): Promise<boolean>;
+  tieCollisionOverlay?: TieCollisionOverlay;
+  setTieCollisionOverlay(value?: TieCollisionOverlay): void;
   save(): Promise<void>;
+}
+
+export interface TieCollisionOverlay {
+  entityId: string;
+  candidate: EditorTieCollisionCandidate;
+  url: string;
+  showSource: boolean;
+  showProxy: boolean;
+  wireframe: boolean;
+  showOctants: boolean;
 }
 
 export const EditorContext = createContext<EditorContextValue | undefined>(undefined);

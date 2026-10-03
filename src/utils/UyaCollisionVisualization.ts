@@ -21,10 +21,10 @@ export const DEFAULT_UYA_COLLISION_VISUALIZATION: CollisionVisualization = {
 };
 
 export const UYA_COLLISION_TYPE_LABELS = [
-  'Swimmable water', 'Acid', 'Magnet wall', 'Mud',
-  'Ring of fire', 'Electricity', 'Sliding magnet wall', 'Walkable',
-  'Sliding tile', 'Walkable (no ledge grab)', 'Walkable (unconfirmed)', 'Lethal water',
-  'Sliding tile', 'Lethal water (ice cube)', 'Walkable (water trail)', 'Walkable',
+  'Swimmable water', 'Acid', 'Magnetic', 'Mud',
+  'Grind rail', 'Normal', 'Normal', 'Grind rail',
+  'Slide off', 'Normal (No ledge grab)', 'Magnetic', 'Lethal water',
+  'Slide off (No ledge grab)', 'Lethal water (ice cube)', 'Normal (Water trail)', 'Normal',
 ] as const;
 
 export function serializeUyaCollisionVisualization(value: CollisionVisualization): string {

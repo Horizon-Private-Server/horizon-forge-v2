@@ -299,6 +299,27 @@ internal static class Program
         var buildProgress = new UyaBuildPatchProgressPayload("Pack", 2, 4, "Packing");
         Equal(buildProgress, BuildPayloadCodec.DecodeProgress(BuildPayloadCodec.EncodeProgress(buildProgress)),
             "build progress payload");
+        var tieEntityId = EntityId.New();
+        var tiePreviewWriter = new PayloadWriter();
+        tiePreviewWriter.WriteString(tieEntityId.ToString());
+        tiePreviewWriter.WriteBoolean(true);
+        tiePreviewWriter.WriteUInt32(0xa7);
+        tiePreviewWriter.WriteUInt32(9);
+        tiePreviewWriter.WriteUInt32(2);
+        tiePreviewWriter.WriteBoolean(true);
+        var tiePreviewRequest = EditorPayloadCodec.DecodeTieCollisionPreviewRequest(tiePreviewWriter.ToArray());
+        Equal(tieEntityId, tiePreviewRequest.EntityId, "TIE collision preview entity payload");
+        Equal(new EditorTieCollisionGenerationSettings(0xa7, 9, 1, true), tiePreviewRequest.Settings,
+            "TIE collision generation settings payload");
+        var invalidTiePreviewWriter = new PayloadWriter();
+        invalidTiePreviewWriter.WriteString(tieEntityId.ToString());
+        invalidTiePreviewWriter.WriteBoolean(true);
+        invalidTiePreviewWriter.WriteUInt32(256);
+        invalidTiePreviewWriter.WriteUInt32(6);
+        invalidTiePreviewWriter.WriteUInt32(0);
+        invalidTiePreviewWriter.WriteBoolean(false);
+        Expect(BridgeErrorCode.MalformedPayload, () =>
+            EditorPayloadCodec.DecodeTieCollisionPreviewRequest(invalidTiePreviewWriter.ToArray()));
         var buildResult = new UyaBuildPatchResultPayload(
             true, false, [], ["diagnostic"], "Patched", "Reload", "development.iso", "InPlace",
             new string('b', 64), 2, false);

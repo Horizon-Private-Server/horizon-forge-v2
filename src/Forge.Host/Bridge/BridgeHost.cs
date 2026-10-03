@@ -17,7 +17,9 @@ public static class BridgeHost
         await using var editor = new EditorRuntime(
             UyaAssetPlacementService.CreateAsync,
             UyaEditorCapabilities.ResolveTransformCapabilities,
-            UyaSkyShellEditorService.ExecuteAsync);
+            UyaSkyShellEditorService.ExecuteAsync,
+            UyaTieCollisionPreviewService.GenerateAsync,
+            UyaTieCollisionPreviewService.InspectAsync);
         var requests = new ConcurrentDictionary<uint, CancellationTokenSource>();
         var tasks = new ConcurrentDictionary<uint, Task>();
 
@@ -148,6 +150,9 @@ public static class BridgeHost
                 case BridgeOpcode.ExecuteEditorCommand:
                 case BridgeOpcode.SaveEditorProject:
                 case BridgeOpcode.ReadEditorEvents:
+                case BridgeOpcode.PreviewTieCollision:
+                case BridgeOpcode.ApplyTieCollisionPreview:
+                case BridgeOpcode.InspectTieCollisionSource:
                     await writer.WriteAsync(new(
                         BridgeMessageKind.Result, frame.Opcode, BridgeErrorCode.None, frame.RequestId,
                         await EditorBridgeHandlers.HandleAsync(frame, editor, requestCancellation.Token)), hostCancellation);
@@ -167,6 +172,15 @@ public static class BridgeHost
                         await RenderBridgeHandlers.PrepareAssetPreviewAsync(
                             frame.Payload,
                             handshake.SdkRevision,
+                            requestCancellation.Token)), hostCancellation);
+                    break;
+                case BridgeOpcode.PrepareTieCollisionPreview:
+                    await writer.WriteAsync(new(
+                        BridgeMessageKind.Result, frame.Opcode, BridgeErrorCode.None, frame.RequestId,
+                        await RenderBridgeHandlers.PrepareTieCollisionPreviewAsync(
+                            frame.Payload,
+                            handshake.SdkRevision,
+                            editor,
                             requestCancellation.Token)), hostCancellation);
                     break;
                 case BridgeOpcode.BuildAndPatchUyaProject:
