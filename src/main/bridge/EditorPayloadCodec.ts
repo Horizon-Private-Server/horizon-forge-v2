@@ -294,14 +294,20 @@ function readEntity(reader: PayloadReader): EditorEntity {
     initialRotationRadians: readVector(reader),
     angularVelocityRadiansPerSecond: readVector(reader),
   };
-  if (reader.readBoolean()) value.collision = {
-    kind: enumValue({ 1: 'solid', 2: 'playerBarrier' }, reader.readUInt32(), 'collision piece kind'),
-    sourcePayloadIndex: reader.readUInt32(),
-    sourcePieceIndex: reader.readUInt32(),
-    faceCount: reader.readUInt32(),
-    vertexCount: reader.readUInt32(),
-    types: readList(reader, 256, () => ({ rawType: reader.readUInt32(), count: reader.readUInt32() })),
-  };
+  if (reader.readBoolean()) {
+    value.collision = {
+      kind: enumValue({ 1: 'solid', 2: 'playerBarrier' }, reader.readUInt32(), 'collision piece kind'),
+      sourcePayloadIndex: reader.readUInt32(),
+      sourcePieceIndex: reader.readUInt32(),
+      faceCount: reader.readUInt32(),
+      vertexCount: reader.readUInt32(),
+      types: readList(reader, 256, () => ({ rawType: reader.readUInt32(), count: reader.readUInt32() })),
+    };
+    if (reader.readBoolean()) value.collision.attachment = {
+      tieEntityId: reader.readString(),
+      bindTransform: readTransform(reader),
+    };
+  }
   if (reader.readBoolean()) value.tieCollision = {
     proxyAssetId: reader.readString(),
     recipe: readTieCollisionRecipe(reader),

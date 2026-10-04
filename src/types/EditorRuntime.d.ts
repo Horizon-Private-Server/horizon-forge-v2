@@ -44,6 +44,7 @@ export interface EditorCollisionPiece {
   faceCount: number;
   vertexCount: number;
   types: Array<{ rawType: number; count: number }>;
+  attachment?: { tieEntityId: string; bindTransform: ProjectTransform };
 }
 
 export interface EditorTieCollisionRecipe {

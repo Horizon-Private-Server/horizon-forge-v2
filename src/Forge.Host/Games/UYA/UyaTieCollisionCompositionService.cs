@@ -6,7 +6,10 @@ namespace Forge.Host.Games.UYA;
 
 internal static class UyaTieCollisionCompositionService
 {
-    internal sealed record CollisionSource(byte[] Bytes, IReadOnlyList<CollisionPieceEdit> Edits);
+    internal sealed record CollisionSource(
+        byte[] Bytes,
+        IReadOnlyList<CollisionPieceEdit> Edits,
+        IReadOnlyList<CollisionSolidAddition> Additions);
 
     public static async Task<CollisionSource> ReadPrimaryAsync(
         ForgeProjectWorkspace workspace,
@@ -23,7 +26,10 @@ internal static class UyaTieCollisionCompositionService
                 $"Combined analysis requires one primary collision payload; found {assetIds.Length}.");
         var bytes = await ReadAssetAsync(
             workspace, catalog, assetIds[0], AssetKind.Collision, cancellationToken);
-        return new(bytes, CreateEdits(workspace, assetIds[0], bytes, sourcePayloadIndex: 0));
+        return new(
+            bytes,
+            CreateEdits(workspace, assetIds[0], bytes, sourcePayloadIndex: 0),
+            BuildLinkedAdditions(workspace, assetIds[0], bytes, sourcePayloadIndex: 0, cancellationToken));
     }
 
     public static IReadOnlyList<CollisionPieceEdit> CreateEdits(
@@ -46,7 +52,7 @@ internal static class UyaTieCollisionCompositionService
         {
             var kind = UyaCollisionAdapter.ToProjectKind(piece.Kind);
             if (!entities.TryGetValue((kind, piece.SourcePieceIndex), out var entity)
-                || entity.State?.Disabled == true)
+                || entity.State?.Disabled == true || entity.Collision!.Attachment is not null)
                 return new CollisionPieceEdit(piece.Kind, piece.SourcePieceIndex, 0, 0, 0, Remove: true);
             return new CollisionPieceEdit(
                 piece.Kind,
@@ -55,6 +61,45 @@ internal static class UyaTieCollisionCompositionService
                 entity.Transform.Position.Y,
                 entity.Transform.Position.Z);
         }).ToArray();
+    }
+
+    public static IReadOnlyList<CollisionSolidAddition> BuildLinkedAdditions(
+        ForgeProjectWorkspace workspace,
+        AssetId assetId,
+        byte[] source,
+        int? sourcePayloadIndex,
+        CancellationToken cancellationToken)
+    {
+        var linked = workspace.Content.Entities.Where(value =>
+                value.Asset?.Id == assetId
+                && value.Collision?.Attachment is not null
+                && (sourcePayloadIndex is null || value.Collision.SourcePayloadIndex == sourcePayloadIndex)
+                && value.State?.Disabled != true)
+            .OrderBy(value => value.EntityId.ToString(), StringComparer.Ordinal)
+            .ToArray();
+        if (linked.Length == 0) return [];
+        var entities = workspace.Content.Entities.ToDictionary(value => value.EntityId);
+        var pieces = CollisionWork.DecodeSolidPieces(source, GameId.UYA, cancellationToken)
+            .ToDictionary(value => value.SourcePieceIndex);
+        return linked.Select(value =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var attachment = value.Collision!.Attachment!;
+                var tie = entities[attachment.TieEntityId];
+                if (tie.State?.Disabled == true) return null;
+                var id = $"linked:{value.EntityId}";
+                var addition = new CollisionSolidAddition(id, pieces[value.Collision.SourcePieceIndex].Faces);
+                return CollisionWork.TransformAdditionRelative(
+                    addition,
+                    GameId.UYA,
+                    id,
+                    ToCollisionTransform(value.Transform),
+                    ToCollisionTransform(attachment.BindTransform),
+                    ToCollisionTransform(tie.Transform),
+                    cancellationToken);
+            })
+            .OfType<CollisionSolidAddition>()
+            .ToArray();
     }
 
     public static async Task<IReadOnlyList<CollisionSolidAddition>> BuildAdditionsAsync(
@@ -149,7 +194,7 @@ internal static class UyaTieCollisionCompositionService
             entry, path, UyaAssetLimits.MaxCanonicalBytes, cancellationToken);
     }
 
-    private static CollisionInstanceTransform ToCollisionTransform(ProjectTransform transform) => new(
+    internal static CollisionInstanceTransform ToCollisionTransform(ProjectTransform transform) => new(
         new(transform.Position.X, transform.Position.Y, transform.Position.Z),
         new(transform.Rotation.X, transform.Rotation.Y, transform.Rotation.Z, transform.Rotation.W),
         new(transform.Scale.X, transform.Scale.Y, transform.Scale.Z));

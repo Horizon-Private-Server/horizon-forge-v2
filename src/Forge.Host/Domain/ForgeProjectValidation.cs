@@ -85,7 +85,7 @@ internal static class ForgeProjectValidation
             ValidateLighting(entity);
             ValidateEnvironmentInstance(entity);
             ValidateSkyShell(entity);
-            ValidateCollision(entity);
+            ValidateCollision(entity, content.Entities);
         }
         var skyOrders = content.Entities.Where(entity => entity.SkyShell is not null)
             .Select(entity => entity.SkyShell!.Order).Order().ToArray();
@@ -143,7 +143,7 @@ internal static class ForgeProjectValidation
             throw new InvalidDataException("TIE collision recipe parameters do not match its generator.");
     }
 
-    private static void ValidateCollision(ProjectEntity entity)
+    private static void ValidateCollision(ProjectEntity entity, IReadOnlyList<ProjectEntity> entities)
     {
         if (entity.Collision is not { } collision) return;
         if (!Enum.IsDefined(collision.Kind) || collision.SourcePayloadIndex < 0 || collision.SourcePieceIndex < 0
@@ -160,6 +160,13 @@ internal static class ForgeProjectValidation
         if (entity.Transform.Rotation != ProjectTransform.Identity.Rotation
             || entity.Transform.Scale != ProjectTransform.Identity.Scale)
             throw new InvalidDataException($"Entity {entity.EntityId} collision supports translation only.");
+        if (collision.Attachment is not { } attachment) return;
+        if (collision.Kind != ProjectCollisionPieceKind.Solid)
+            throw new InvalidDataException($"Entity {entity.EntityId} player barrier cannot follow a TIE.");
+        ValidateTransform(attachment.BindTransform);
+        var tie = entities.SingleOrDefault(value => value.EntityId == attachment.TieEntityId);
+        if (tie?.Asset?.Kind != AssetKind.Tie)
+            throw new InvalidDataException($"Entity {entity.EntityId} collision attachment does not reference a TIE.");
     }
 
     public static void ValidateTransform(ProjectTransform transform)

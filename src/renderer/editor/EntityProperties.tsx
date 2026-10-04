@@ -94,11 +94,16 @@ export function MultiEntityProperties({ entities }: { entities: EditorEntity[] }
 function CollisionProperties({ entity }: { entity: EditorEntity }) {
   const { project } = useEditor();
   const collision = entity.collision!;
+  const attachedTie = collision.attachment
+    ? project.entities.find((candidate) => candidate.id === collision.attachment!.tieEntityId)
+    : undefined;
   return <Fieldset legend="Collision">
     <EditorPropertyGrid>
       <EditorProperty label="Layer">{collision.kind === 'solid' ? 'Solid collision' : 'Player barrier'}</EditorProperty>
       <EditorProperty label="Piece"><Code>#{collision.sourcePieceIndex}</Code></EditorProperty>
       <EditorProperty label="Geometry">{collision.faceCount} faces · {collision.vertexCount} vertices</EditorProperty>
+      {collision.attachment && <EditorProperty label="Follows TIE">{attachedTie?.name
+        ?? <Code>{collision.attachment.tieEntityId}</Code>}</EditorProperty>}
       <EditorProperty label="Types">{collision.types.length
         ? collision.types.map((value) =>
           `${formatCollisionType(value.rawType, project.target.game)} (${value.count})`).join(', ')

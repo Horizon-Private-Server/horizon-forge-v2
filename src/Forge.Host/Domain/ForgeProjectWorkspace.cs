@@ -186,23 +186,45 @@ public sealed class ForgeProjectWorkspace
     }
 
     public void UpdateTransform(EntityId entityId, ProjectTransform transform)
-    {
-        ForgeProjectValidation.ValidateTransform(transform);
-        var index = FindEntityIndex(entityId);
-        var entities = Content.Entities.ToArray();
-        entities[index] = entities[index] with { Transform = transform };
-        Content = Content with { Entities = entities };
-    }
+        => UpdateTransforms([new(entityId, transform)]);
 
     public void UpdateTransforms(IReadOnlyList<EditorTransformUpdate> updates)
     {
         ArgumentNullException.ThrowIfNull(updates);
+        var entities = Content.Entities.ToDictionary(entity => entity.EntityId);
         foreach (var update in updates)
         {
             ForgeProjectValidation.ValidateTransform(update.Transform);
-            FindEntityIndex(update.EntityId);
+            if (!entities.ContainsKey(update.EntityId))
+                throw new KeyNotFoundException($"Entity {update.EntityId} is not present in the project.");
         }
         var transforms = updates.ToDictionary(update => update.EntityId, update => update.Transform);
+        var parentDeltas = new Dictionary<EntityId, ProjectVector3>();
+        foreach (var update in updates)
+        {
+            var entity = entities[update.EntityId];
+            if (entity.Collision?.Attachment is not { } attachment) continue;
+            transforms.Remove(update.EntityId);
+            if (transforms.ContainsKey(attachment.TieEntityId)) continue;
+            var delta = new ProjectVector3(
+                update.Transform.Position.X - entity.Transform.Position.X,
+                update.Transform.Position.Y - entity.Transform.Position.Y,
+                update.Transform.Position.Z - entity.Transform.Position.Z);
+            if (parentDeltas.TryGetValue(attachment.TieEntityId, out var existing) && existing != delta)
+                throw new ArgumentException("Linked collision pieces require the same parent translation.", nameof(updates));
+            parentDeltas[attachment.TieEntityId] = delta;
+        }
+        foreach (var (parentId, delta) in parentDeltas)
+        {
+            var parent = entities[parentId].Transform;
+            transforms[parentId] = parent with
+            {
+                Position = new(
+                    parent.Position.X + delta.X,
+                    parent.Position.Y + delta.Y,
+                    parent.Position.Z + delta.Z),
+            };
+        }
         Content = Content with
         {
             Entities = Content.Entities.Select(entity => transforms.TryGetValue(entity.EntityId, out var transform)
@@ -277,6 +299,9 @@ public sealed class ForgeProjectWorkspace
     {
         var indexes = EntityIndexes(entityIds);
         var removed = entityIds.ToHashSet();
+        foreach (var collision in Content.Entities.Where(entity =>
+            entity.Collision?.Attachment is { } attachment && removed.Contains(attachment.TieEntityId)))
+            removed.Add(collision.EntityId);
         var entities = Content.Entities.Where(entity => !removed.Contains(entity.EntityId)).ToArray();
         Content = Content with { Entities = entities };
         NormalizeSkyShellOrders();
@@ -389,7 +414,7 @@ public sealed class ForgeProjectWorkspace
         });
         var merged = updated.Concat(entities.Where(entity => entity.Provenance is not null
             && existingSources.Add((entity.Provenance.Section, entity.Provenance.SourceIndex)))).ToArray();
-        Content = Content with { Entities = RemapGeometryLinks(merged) };
+        Content = Content with { Entities = RemapImportedLinks(merged, entities) };
         Manifest = Manifest with
         {
             BaseLevel = Manifest.BaseLevel with
@@ -398,6 +423,31 @@ public sealed class ForgeProjectWorkspace
                 EntityVersion = ProjectSchema.CurrentBaseEntityVersion,
             },
         };
+    }
+
+    private static ProjectEntity[] RemapImportedLinks(
+        ProjectEntity[] merged,
+        IReadOnlyList<ProjectEntity> imported)
+    {
+        var importedSources = imported.Where(entity => entity.Provenance is not null)
+            .ToDictionary(entity => entity.EntityId,
+                entity => (entity.Provenance!.Section, entity.Provenance.SourceIndex));
+        var mergedIds = merged.Where(entity => entity.Provenance is not null)
+            .ToDictionary(entity => (entity.Provenance!.Section, entity.Provenance.SourceIndex),
+                entity => entity.EntityId);
+        return RemapGeometryLinks(merged).Select(entity =>
+        {
+            var attachment = entity.Collision?.Attachment;
+            if (attachment is null || !importedSources.TryGetValue(attachment.TieEntityId, out var source)
+                || !mergedIds.TryGetValue(source, out var tieEntityId)) return entity;
+            return entity with
+            {
+                Collision = entity.Collision! with
+                {
+                    Attachment = attachment with { TieEntityId = tieEntityId },
+                },
+            };
+        }).ToArray();
     }
 
     private static ProjectEntity[] RemapGeometryLinks(ProjectEntity[] entities)

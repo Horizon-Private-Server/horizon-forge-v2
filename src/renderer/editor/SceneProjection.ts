@@ -49,12 +49,20 @@ interface CollisionBatchEntry {
   geometryId: number;
 }
 
+interface CollisionBatchState {
+  transform: EditorEntity['transform'];
+  bindTransform?: EditorEntity['transform'];
+  parentTransform?: EditorEntity['transform'];
+  visible: boolean;
+  selected: boolean;
+}
+
 interface CollisionBatch {
   root: THREE.Group;
   meshes: THREE.BatchedMesh[];
   entityIds: Set<string>;
   entries: Map<string, CollisionBatchEntry[]>;
-  states: Map<string, string>;
+  states: Map<string, CollisionBatchState>;
   templates: Map<string, THREE.Object3D>;
   matrices: Map<string, THREE.Matrix4>;
 }
@@ -126,8 +134,11 @@ export class SceneProjection {
   private readonly position = new THREE.Vector3();
   private readonly scale = new THREE.Vector3();
   private readonly entityMatrix = new THREE.Matrix4();
+  private readonly bindMatrix = new THREE.Matrix4();
+  private readonly parentMatrix = new THREE.Matrix4();
   private readonly instanceMatrix = new THREE.Matrix4();
   private readonly instanceBounds = new THREE.Box3();
+  private entitiesById = new Map<string, EditorEntity>();
   private disposed = false;
 
   constructor() {
@@ -211,6 +222,7 @@ export class SceneProjection {
   ) {
     if (this.disposed) throw new Error('Scene projection is disposed');
     entities = entities.filter((entity) => !entity.skyShell);
+    this.entitiesById = new Map(entities.map((entity) => [entity.id, entity]));
     const selected = new Set(selection);
     const selectedPoints = new Map<string, number[]>();
     selection.forEach((value) => {
@@ -675,9 +687,14 @@ export class SceneProjection {
     for (const entity of entities) {
       const visible = this.isVisible(entity, true, visibleLayers, true, visibleCollisionKinds);
       const isSelected = selected.has(entity.id);
-      const { position, rotation, scale } = entity.transform;
-      const state = `${position.x},${position.y},${position.z};${rotation.x},${rotation.y},${rotation.z},${rotation.w};${scale.x},${scale.y},${scale.z};${visible};${isSelected}`;
-      if (batch.states.get(entity.id) === state) continue;
+      const attachment = entity.collision?.attachment;
+      const parentTransform = attachment && this.entitiesById.get(attachment.tieEntityId)?.transform;
+      const previous = batch.states.get(entity.id);
+      if (previous?.transform === entity.transform
+        && previous.bindTransform === attachment?.bindTransform
+        && previous.parentTransform === parentTransform
+        && previous.visible === visible
+        && previous.selected === isSelected) continue;
       const matrix = this.projectedMatrix(entity);
       for (const entry of batch.entries.get(entity.id) ?? []) {
         entry.mesh.setMatrixAt(entry.instanceId, matrix);
@@ -685,7 +702,13 @@ export class SceneProjection {
         entry.mesh.setColorAt(entry.instanceId, isSelected ? this.selectionColor : NORMAL_COLOR);
       }
       batch.matrices.set(entity.id, matrix.clone());
-      batch.states.set(entity.id, state);
+      batch.states.set(entity.id, {
+        transform: entity.transform,
+        bindTransform: attachment?.bindTransform,
+        parentTransform,
+        visible,
+        selected: isSelected,
+      });
     }
   }
 
@@ -724,14 +747,27 @@ export class SceneProjection {
   }
 
   private projectedMatrix(entity: EditorEntity): THREE.Matrix4 {
-    const { position, rotation, scale } = entity.transform;
+    this.composeProjectedMatrix(entity.transform, this.entityMatrix);
+    const attachment = entity.collision?.attachment;
+    const parent = attachment && this.entitiesById.get(attachment.tieEntityId);
+    if (!attachment || !parent) return this.entityMatrix;
+    this.composeProjectedMatrix(attachment.bindTransform, this.bindMatrix).invert();
+    this.composeProjectedMatrix(parent.transform, this.parentMatrix);
+    return this.entityMatrix.premultiply(this.bindMatrix).premultiply(this.parentMatrix);
+  }
+
+  private composeProjectedMatrix(
+    transform: EditorEntity['transform'],
+    target: THREE.Matrix4,
+  ): THREE.Matrix4 {
+    const { position, rotation, scale } = transform;
     this.sourceRotation.set(rotation.x, rotation.y, rotation.z, rotation.w);
     this.projectedRotation.copy(PS2_TO_SCENE_ROTATION)
       .multiply(this.sourceRotation)
       .multiply(SCENE_TO_PS2_ROTATION);
     ps2PositionToScene(position, this.position);
     this.scale.set(scale.x, scale.z, scale.y);
-    return this.entityMatrix.compose(this.position, this.projectedRotation, this.scale);
+    return target.compose(this.position, this.projectedRotation, this.scale);
   }
 
   private isVisible(
@@ -744,6 +780,8 @@ export class SceneProjection {
     return !entity.state.hidden
       && !this.previewHidden.has(entity.id)
       && !entity.state.disabled
+      && !(entity.collision?.attachment
+        && this.entitiesById.get(entity.collision.attachment.tieEntityId)?.state.disabled)
       && (visibleLayers?.has(entity.layer) ?? true)
       && (!entity.collision || visibleCollisionKinds?.has(entity.collision.kind) !== false)
       && (hasTemplate || showMarkers);

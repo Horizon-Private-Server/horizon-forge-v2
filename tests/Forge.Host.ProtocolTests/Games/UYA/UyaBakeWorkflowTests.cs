@@ -911,6 +911,54 @@ internal static class UyaBakeWorkflowTests
         Equal(true, moved.SequenceEqual(expected),
             "packed WAD preserves solid and player-barrier translations");
 
+        var linkedTie = workspace.Content.Entities.First(value =>
+            value.Asset?.Kind == AssetKind.Tie && value.State?.Disabled != true);
+        var linkedPiece = workspace.Content.Entities.Single(value => value.EntityId == solid.EntityId);
+        workspace.RemoveEntity(linkedPiece.EntityId);
+        workspace.AddEntity(linkedPiece with
+        {
+            Collision = linkedPiece.Collision! with
+            {
+                Attachment = new(linkedTie.EntityId, linkedTie.Transform),
+            },
+        });
+        var movedLinkedTie = linkedTie.Transform with
+        {
+            Position = linkedTie.Transform.Position with { X = linkedTie.Transform.Position.X + 2 },
+        };
+        workspace.UpdateTransform(linkedTie.EntityId, movedLinkedTie);
+        await workspace.SaveAsync();
+        var linkedBake = await UyaBakeService.BakeAsync(project, catalog, context);
+        Equal(true, linkedBake.WrittenLayers.Any(value => value.Layer == BakeLayerId.Collision),
+            "moving a TIE with recovered collision rebuilds collision");
+        var linkedPack = await UyaLevelPackService.PackAsync(project, catalog, sourceLevelWad, context);
+        var linkedBytes = UyaBaseLayerService.Extract(UyaLevelWadUnpacker.Unpack(linkedPack.OutputBytes!))
+            .Single(value => value.Layer == BakeLayerId.Collision && value.Name == "collision.bin").Bytes;
+        var linkedAddition = CollisionWork.TransformAdditionRelative(
+            CollisionWork.DecodeSolidPieceAddition(source, GameId.UYA, 0, "linked:test"),
+            GameId.UYA,
+            "linked:test",
+            UyaTieCollisionCompositionService.ToCollisionTransform(linkedPiece.Transform),
+            UyaTieCollisionCompositionService.ToCollisionTransform(linkedTie.Transform),
+            UyaTieCollisionCompositionService.ToCollisionTransform(movedLinkedTie));
+        var expectedLinked = CollisionConverter.Compose(source, GameId.UYA,
+        [
+            new(CollisionPieceKind.Solid, 0, 0, 0, 0, Remove: true),
+            new(CollisionPieceKind.PlayerBarrier, 0, 0, 1, 0),
+        ], [linkedAddition]).Bytes;
+        Equal(true, linkedBytes.SequenceEqual(expectedLinked),
+            "recovered collision preserves authored faces under the TIE transform delta");
+
+        workspace.UpdateTransform(linkedTie.EntityId, linkedTie.Transform);
+        var attachedPiece = workspace.Content.Entities.Single(value => value.EntityId == solid.EntityId);
+        workspace.RemoveEntity(attachedPiece.EntityId);
+        workspace.AddEntity(attachedPiece with
+        {
+            Collision = attachedPiece.Collision! with { Attachment = null },
+        });
+        await workspace.SaveAsync();
+        _ = await UyaBakeService.BakeAsync(project, catalog, context);
+
         workspace = await ForgeProjectWorkspace.OpenAsync(project);
         var proxyTieAssetId = workspace.Content.Entities
             .Where(value => value.Asset?.Kind == AssetKind.Tie)

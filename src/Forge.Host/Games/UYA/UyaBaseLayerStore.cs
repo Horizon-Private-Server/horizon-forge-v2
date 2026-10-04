@@ -15,7 +15,7 @@ public static class UyaBaseLayerStore
     private const string PointLightsAssetName = "point-lights.bin";
     private const string TieAmbientAssetName = "tie-ambient-rgbas.bin";
     private const int SkyCompositionVersion = 2;
-    private const int CollisionCompositionVersion = 2;
+    private const int CollisionCompositionVersion = 3;
 
     internal static async Task WriteAsync(
         string projectRoot,
@@ -226,6 +226,15 @@ public static class UyaBaseLayerStore
                                 value.Collision.SourcePieceIndex,
                                 Enabled = value.State?.Disabled != true,
                                 value.Transform.Position,
+                                value.Collision.Attachment,
+                                Parent = value.Collision.Attachment is { } attachment
+                                    ? workspace.Content.Entities.Where(entity => entity.EntityId == attachment.TieEntityId)
+                                        .Select(entity => new
+                                        {
+                                            Enabled = entity.State?.Disabled != true,
+                                            entity.Transform,
+                                        }).Single()
+                                    : null,
                             }).ToArray(),
                         Bindings = workspace.Content.TieCollisionBindings
                             .OrderBy(value => value.TieAssetId.ToString(), StringComparer.Ordinal)
@@ -409,7 +418,7 @@ public static class UyaBaseLayerStore
         CancellationToken cancellationToken)
     {
         var result = new Dictionary<string, byte[]>(StringComparer.Ordinal);
-        IReadOnlyList<CollisionSolidAddition> additions = record.Assets.Any(asset => asset.Name == "collision.bin")
+        IReadOnlyList<CollisionSolidAddition> proxyAdditions = record.Assets.Any(asset => asset.Name == "collision.bin")
             ? await UyaTieCollisionCompositionService.BuildAdditionsAsync(
                 workspace,
                 catalog,
@@ -426,8 +435,10 @@ public static class UyaBaseLayerStore
             var source = await File.ReadAllBytesAsync(path, cancellationToken);
             var edits = UyaTieCollisionCompositionService.CreateEdits(
                 workspace, asset.Asset.Id, source);
-            IReadOnlyList<CollisionSolidAddition> assetAdditions =
-                asset.Name == "collision.bin" ? additions : [];
+            var assetAdditions = UyaTieCollisionCompositionService.BuildLinkedAdditions(
+                    workspace, asset.Asset.Id, source, sourcePayloadIndex: null, cancellationToken)
+                .Concat(asset.Name == "collision.bin" ? proxyAdditions : [])
+                .ToArray();
             var composition = await Task.Run(
                 () => CollisionWork.Compose(
                     source, GameId.UYA, edits, assetAdditions, cancellationToken),

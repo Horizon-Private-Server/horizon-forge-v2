@@ -69,6 +69,48 @@ internal static class ForgeProjectTests
             migrating.CompleteBaseEntityImport(migratedPieces, 0);
             Equal(1, migrating.Content.Entities.Count, "completed migration does not resurrect deleted collision");
 
+            var linkMigrationPath = Path.Combine(root, "collision-link-migration");
+            var existingTieId = EntityId.New();
+            var importedTieId = EntityId.New();
+            var tieAsset = new ProjectAssetReference(
+                AssetId.Parse(new string('d', AssetId.TextLength)), AssetKind.Tie);
+            var existingTie = new ProjectEntity(
+                existingTieId, "Existing TIE", "ties", ProjectTransform.Identity, tieAsset,
+                new("UYA", 3, "gameplay/core/tie_instances", 0));
+            var linkMigration = await ForgeProjectWorkspace.CreateAsync(
+                linkMigrationPath,
+                "Collision link migration",
+                target,
+                baseLevel with { EntityVersion = ProjectSchema.CurrentBaseEntityVersion - 1 },
+                [existingTie]);
+            var importedTie = existingTie with { EntityId = importedTieId, Name = "Imported TIE" };
+            var linkedCollision = new ProjectEntity(
+                EntityId.New(), "Linked solid", "collision", ProjectTransform.Identity, collisionAsset,
+                new("UYA", 3, "collision/primary/solid", 0),
+                Collision: new(
+                    ProjectCollisionPieceKind.Solid, 0, 0, 1, 3, [new(0x21, 1)],
+                    new(importedTieId, importedTie.Transform)));
+            linkMigration.CompleteBaseEntityImport([importedTie, linkedCollision], 0);
+            Equal(existingTieId,
+                linkMigration.Content.Entities.Single(value => value.Collision is not null)
+                    .Collision!.Attachment!.TieEntityId,
+                "base migration remaps recovered collision to the retained TIE entity");
+            var retainedCollision = linkMigration.Content.Entities.Single(value => value.Collision is not null);
+            linkMigration.UpdateTransform(retainedCollision.EntityId,
+                retainedCollision.Transform with { Position = new(2, 3, 4) });
+            Equal(new ProjectVector3(2, 3, 4),
+                linkMigration.Content.Entities.Single(value => value.EntityId == existingTieId).Transform.Position,
+                "moving recovered collision translates its attached TIE");
+            Equal(ProjectTransform.Identity.Position,
+                linkMigration.Content.Entities.Single(value => value.EntityId == retainedCollision.EntityId)
+                    .Transform.Position,
+                "reverse movement does not apply the translation twice to recovered collision");
+            await linkMigration.SaveAsync();
+            linkMigration = await ForgeProjectWorkspace.OpenAsync(linkMigrationPath);
+            _ = linkMigration.RemoveEntities([existingTieId]);
+            Equal(0, linkMigration.Content.Entities.Count,
+                "deleting a TIE also deletes its recovered collision pieces");
+
             project.UpdateTransform(firstId, ProjectTransform.Identity with { Position = new(1, 2, 3) });
             Equal(true, project.IsDirty, "transform marks project dirty");
             Equal(0, project.Content.Assets.Count, "transform does not copy assets");

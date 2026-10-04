@@ -236,7 +236,8 @@ public static class UyaTieCollisionPreviewService
                 cancellationToken);
             instanceCount = additions.Count;
             var analysis = CollisionWork.AnalyzeComposition(
-                primary.Bytes, GameId.UYA, primary.Edits, additions, cancellationToken);
+                primary.Bytes, GameId.UYA, primary.Edits,
+                primary.Additions.Concat(additions).ToArray(), cancellationToken);
             return new(
                 instanceCount,
                 analysis.LogicalFaceCount,

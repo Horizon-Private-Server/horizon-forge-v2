@@ -554,6 +554,41 @@ test('scene projection batches unique collision pieces and resolves batch picks'
   templates.forEach(disposeObject);
 });
 
+test('recovered collision follows its attached TIE instance', () => {
+  const tie = entity('tie', 10);
+  tie.asset = { id: 'tie-asset', kind: 'Tie' };
+  const collision = entity('collision');
+  collision.transform = {
+    position: { x: 0, y: 0, z: 0 },
+    rotation: { x: 0, y: 0, z: 0, w: 1 },
+    scale: { x: 1, y: 1, z: 1 },
+  };
+  collision.asset = { id: 'collision-asset', kind: 'collision' };
+  collision.collision = {
+    kind: 'solid', sourcePayloadIndex: 0, sourcePieceIndex: 0,
+    faceCount: 1, vertexCount: 3, types: [],
+    attachment: { tieEntityId: tie.id, bindTransform: structuredClone(tie.transform) },
+  };
+  collision.transformModes = ['translate'];
+  const template = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+  const projection = new SceneProjection();
+  projection.setAssetTemplates(new Map([['collision-asset:solid:0', template]]));
+  projection.sync([tie, collision]);
+  assert.ok(Math.abs(projection.getBounds(collision.id)!.getCenter(new THREE.Vector3()).x) < 1e-6);
+
+  tie.transform = { ...tie.transform, position: { ...tie.transform.position, x: 15 } };
+  projection.sync([tie, collision]);
+  assert.ok(Math.abs(projection.getBounds(collision.id)!.getCenter(new THREE.Vector3()).x - 5) < 1e-6);
+
+  tie.state = { ...tie.state, disabled: true };
+  projection.sync([tie, collision]);
+  const batch: THREE.BatchedMesh[] = [];
+  projection.root.traverse((object) => { if (object instanceof THREE.BatchedMesh) batch.push(object); });
+  assert.equal(batch[0].getVisibleAt(0), false);
+  projection.dispose();
+  disposeObject(template);
+});
+
 test('scene projection keeps a representative heavy collision level in one batch', () => {
   const pieceCount = 3_036;
   const geometry = new THREE.BufferGeometry().setAttribute(

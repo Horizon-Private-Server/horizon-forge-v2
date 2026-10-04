@@ -55,6 +55,7 @@ export class TransformTool {
   private snapSource: EditorSnapSource = 'center';
   private snapTarget: EditorSnapTarget = 'grid';
   private vertexIndex?: VertexSnapIndex;
+  private entitiesById = new Map<string, EditorEntity>();
   private cancelled = false;
   private pointerActive = false;
 
@@ -120,6 +121,7 @@ export class TransformTool {
 
   sync(entities: readonly EditorEntity[], selection: readonly string[], projection: SceneProjection): void {
     this.entities = entities;
+    this.entitiesById = new Map(entities.map((entity) => [entity.id, entity]));
     this.selection = selection;
     this.projection = projection;
     if (this.controls.dragging) return;
@@ -128,11 +130,10 @@ export class TransformTool {
   }
 
   private updateActiveSelection(): void {
-    const { entities, selection } = this;
-    const byId = new Map(entities.map((entity) => [entity.id, entity]));
+    const { selection } = this;
     const points = selection.map((id) => ({ id, point: parseSplinePointId(id) }))
       .filter((value) => value.point !== undefined);
-    const pointEntity = points.length ? byId.get(points.at(-1)!.point!.entityId) : undefined;
+    const pointEntity = points.length ? this.entitiesById.get(points.at(-1)!.point!.entityId) : undefined;
     this.activeSpline = (pointEntity?.geometry?.kind === 'spline' || pointEntity?.geometry?.kind === 'grindPath')
       && !pointEntity.state.locked && !pointEntity.state.readOnly
       && !pointEntity.state.hidden && !pointEntity.state.disabled
@@ -142,7 +143,7 @@ export class TransformTool {
         && value.point!.index < this.activeSpline!.geometry!.points.length).map((value) => value.id)
       : [];
     this.activeIds = this.activePointIds.length ? [] : selection.filter((id) => {
-      const entity = byId.get(id);
+      const entity = this.entitiesById.get(id);
       return entity && !entity.state.locked && !entity.state.readOnly && !entity.state.hidden && !entity.state.disabled
         && (this.mode === 'select' || entity.transformModes.includes(this.mode));
     });
@@ -175,7 +176,7 @@ export class TransformTool {
     this.sourceOffset.set(0, 0, 0);
     this.vertexIndex = undefined;
     if (this.snapSource === 'origin') {
-      const active = this.activeSpline ?? this.entities.find((entity) => entity.id === this.activeIds.at(-1));
+      const active = this.activeSpline ?? this.entitiesById.get(this.activeIds.at(-1)!);
       if (active) {
         projectTransformToSceneMatrix(active.transform, this.source)
           .decompose(this.pivotPosition, this.pivotRotation, this.pivotScale);
@@ -204,6 +205,24 @@ export class TransformTool {
     }
     const updates = this.buildUpdates();
     const transforms = new Map(updates.map((update) => [update.entityId, update.transform]));
+    const explicit = new Set(transforms.keys());
+    for (const update of updates) {
+      const entity = this.entitiesById.get(update.entityId);
+      const parentId = entity?.collision?.attachment?.tieEntityId;
+      if (!entity || !parentId) continue;
+      transforms.delete(entity.id);
+      if (explicit.has(parentId) || transforms.has(parentId)) continue;
+      const parent = this.entitiesById.get(parentId);
+      if (!parent) continue;
+      transforms.set(parentId, {
+        ...parent.transform,
+        position: {
+          x: parent.transform.position.x + update.transform.position.x - entity.transform.position.x,
+          y: parent.transform.position.y + update.transform.position.y - entity.transform.position.y,
+          z: parent.transform.position.z + update.transform.position.z - entity.transform.position.z,
+        },
+      });
+    }
     this.callbacks.preview(this.entities.map((entity) => {
       const transform = transforms.get(entity.id);
       return transform ? { ...entity, transform } : entity;

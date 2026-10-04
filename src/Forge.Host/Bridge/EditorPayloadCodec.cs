@@ -332,6 +332,12 @@ internal static class EditorPayloadCodec
                 writer.WriteUInt32(type.RawType);
                 writer.WriteUInt32(checked((uint)type.Count));
             }
+            writer.WriteBoolean(value.Collision.Attachment is not null);
+            if (value.Collision.Attachment is not null)
+            {
+                writer.WriteString(value.Collision.Attachment.TieEntityId.ToString());
+                WriteTransform(writer, value.Collision.Attachment.BindTransform);
+            }
         }
         writer.WriteBoolean(value.TieCollision is not null);
         if (value.TieCollision is not null)

@@ -8,10 +8,15 @@ public enum ProjectCollisionPieceKind : byte
 
 public sealed record ProjectCollisionTypeCount(byte RawType, int Count);
 
+public sealed record ProjectCollisionAttachment(
+    EntityId TieEntityId,
+    ProjectTransform BindTransform);
+
 public sealed record ProjectCollisionPiece(
     ProjectCollisionPieceKind Kind,
     int SourcePayloadIndex,
     int SourcePieceIndex,
     int FaceCount,
     int VertexCount,
-    IReadOnlyList<ProjectCollisionTypeCount> Types);
+    IReadOnlyList<ProjectCollisionTypeCount> Types,
+    ProjectCollisionAttachment? Attachment = null);

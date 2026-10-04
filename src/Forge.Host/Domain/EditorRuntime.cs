@@ -653,7 +653,11 @@ public sealed partial class EditorRuntime : IAsyncDisposable
             && command.Kind is EditorCommandKind.DuplicateEntities or EditorCommandKind.CopyEntities
                 or EditorCommandKind.SetEntityLayer)
             throw new ArgumentException("Collision pieces cannot be duplicated, copied, or moved to another layer.", nameof(command));
-        if (command.EntityIds.Any(locked.Contains)
+        var movesLockedCollisionParent = (command.Kind is EditorCommandKind.UpdateTransform
+                or EditorCommandKind.UpdateTransforms)
+            && workspace.GetEntities(command.EntityIds).Any(entity =>
+                entity.Collision?.Attachment is { } attachment && locked.Contains(attachment.TieEntityId));
+        if ((command.EntityIds.Any(locked.Contains) || movesLockedCollisionParent)
             && command.Kind is EditorCommandKind.UpdateTransform or EditorCommandKind.UpdateTransforms
                 or EditorCommandKind.RenameEntity
                 or EditorCommandKind.SetEntityLayer
