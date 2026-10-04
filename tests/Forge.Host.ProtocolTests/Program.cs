@@ -320,6 +320,32 @@ internal static class Program
         invalidTiePreviewWriter.WriteBoolean(false);
         Expect(BridgeErrorCode.MalformedPayload, () =>
             EditorPayloadCodec.DecodeTieCollisionPreviewRequest(invalidTiePreviewWriter.ToArray()));
+
+        var collisionFaceCommandId = Guid.NewGuid().ToString("D");
+        var collisionFaceProxyId = new string('d', AssetId.TextLength);
+        var collisionFaceCommandWriter = new PayloadWriter();
+        collisionFaceCommandWriter.WriteString(collisionFaceCommandId);
+        collisionFaceCommandWriter.WriteUInt32((uint)EditorCommandKind.SetTieCollisionFaceTypes);
+        collisionFaceCommandWriter.WriteUInt32(1);
+        collisionFaceCommandWriter.WriteString(tieEntityId.ToString());
+        collisionFaceCommandWriter.WriteBoolean(false);
+        collisionFaceCommandWriter.WriteUInt32(0);
+        for (var index = 0; index < 10; index++) collisionFaceCommandWriter.WriteBoolean(false);
+        collisionFaceCommandWriter.WriteBoolean(true);
+        collisionFaceCommandWriter.WriteString(collisionFaceProxyId);
+        collisionFaceCommandWriter.WriteUInt32(2);
+        collisionFaceCommandWriter.WriteUInt32(7);
+        collisionFaceCommandWriter.WriteUInt32(0xaf);
+        collisionFaceCommandWriter.WriteUInt32(2);
+        collisionFaceCommandWriter.WriteUInt32(0x31);
+        var collisionFaceCommand = EditorPayloadCodec.DecodeCommand(collisionFaceCommandWriter.ToArray());
+        Equal(collisionFaceCommandId, collisionFaceCommand.Id, "collision face command ID payload");
+        Equal(EditorCommandKind.SetTieCollisionFaceTypes, collisionFaceCommand.Kind,
+            "collision face command kind payload");
+        Equal(AssetId.Parse(collisionFaceProxyId), collisionFaceCommand.TieCollisionProxyAssetId,
+            "collision face command proxy payload");
+        Equal(true, collisionFaceCommand.TieCollisionFaceTypes!.SequenceEqual([new(7, 0xaf), new(2, 0x31)]),
+            "collision face command assignment payload");
         var buildResult = new UyaBuildPatchResultPayload(
             true, false, [], ["diagnostic"], "Patched", "Reload", "development.iso", "InPlace",
             new string('b', 64), 2, false);

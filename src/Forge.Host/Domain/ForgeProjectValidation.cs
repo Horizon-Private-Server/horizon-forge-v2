@@ -2,6 +2,8 @@ namespace Forge.Host.Domain;
 
 internal static class ForgeProjectValidation
 {
+    internal const int MaxTieCollisionFaceTypeOverrides = 100_000;
+
     public static void Validate(string rootPath, ForgeProjectManifest manifest, ForgeProjectContent content)
     {
         ValidateManifest(rootPath, manifest);
@@ -118,6 +120,17 @@ internal static class ForgeProjectValidation
                 || binding.TieAssetId == binding.ProxyAssetId)
                 throw new InvalidDataException("Project TIE collision binding IDs are invalid.");
             ValidateTieCollisionRecipe(binding.Recipe);
+            if (binding.FaceTypeOverrides is null
+                || binding.FaceTypeOverrides.Count > MaxTieCollisionFaceTypeOverrides
+                || binding.FaceTypeOverrides.Any(value => value is null || value.FaceIndex < 0)
+                || !binding.FaceTypeOverrides.Select(value => value.FaceIndex)
+                    .SequenceEqual(binding.FaceTypeOverrides.Select(value => value.FaceIndex).Order()))
+                throw new InvalidDataException($"TIE collision proxy {binding.ProxyAssetId} has invalid face-type overrides.");
+            if (binding.FaceTypeOverrides.Select(value => value.FaceIndex).Distinct().Count()
+                != binding.FaceTypeOverrides.Count)
+                throw new InvalidDataException($"TIE collision proxy {binding.ProxyAssetId} has duplicate face-type overrides.");
+            if (binding.FaceTypeOverrides.Any(value => value.RawType == binding.Recipe.RawType))
+                throw new InvalidDataException($"TIE collision proxy {binding.ProxyAssetId} stores a redundant face-type override.");
             var proxy = content.Assets.SingleOrDefault(asset => asset.Id == binding.ProxyAssetId);
             if (proxy is null || proxy.Kind != AssetKind.Collision || proxy.ParentId != binding.TieAssetId)
                 throw new InvalidDataException($"TIE collision proxy {binding.ProxyAssetId} has invalid attached metadata.");

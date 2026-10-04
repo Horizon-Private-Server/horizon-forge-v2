@@ -134,7 +134,8 @@ Every v0 proxy uses one target-game raw collision byte across all faces. The UI 
 the UYA-scoped collision nibble, sound nibble, combined raw value, and verified label
 where available. The target adapter may provide a verified default but must never
 infer a type from render material names or reuse another game's numeric meaning.
-Per-face type painting is a separate future mesh-editing feature.
+Per-face type painting is defined separately by the
+[Collision Type Painting v0 specification](collision-type-painting-v0.md).
 
 ## Native octant analysis and recommendation
 

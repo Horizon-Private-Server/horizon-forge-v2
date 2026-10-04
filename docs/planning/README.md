@@ -55,6 +55,7 @@ them in a milestone-wide task register would split one implementation plan:
 - [Skybox Editor v0](../features/skybox-editor-v0.md) — M2-027 through M2-030
 - [Collision Editor v0](../features/collision-editor-v0.md) — M2-031 through M2-035
 - [Instanced TIE Collision v0](../features/instanced-tie-collision-v0.md) — M2-036 through M2-040
+- [Collision Type Painting v0](../features/collision-type-painting-v0.md) — M2-041 through M2-044
 
 ## Task conventions
 

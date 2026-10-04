@@ -6,10 +6,18 @@ import test from 'node:test';
 
 import { RecentProjects } from '../src/main/RecentProjects.ts';
 import { safeProjectDirectoryName } from '../src/utils/ApplicationPaths.ts';
+import { formatUyaLevelLabel } from '../src/utils/UyaLevels.ts';
 
 test('project names produce safe directory names', () => {
   assert.equal(safeProjectDirectoryName('  Daxx / Test.  '), 'Daxx - Test');
   assert.equal(safeProjectDirectoryName('...'), 'New Project');
+});
+
+test('UYA level labels preserve filter values while displaying known names', () => {
+  assert.equal(formatUyaLevelLabel(3), '03 - Starship Phoenix');
+  assert.equal(formatUyaLevelLabel('level03'), '03 - Starship Phoenix');
+  assert.equal(formatUyaLevelLabel('level15'), '15 - Level 15');
+  assert.equal(formatUyaLevelLabel('global'), 'global');
 });
 
 test('recent projects are unique, ordered, bounded, and removable', async () => {

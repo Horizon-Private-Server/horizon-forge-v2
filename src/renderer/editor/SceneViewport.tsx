@@ -50,6 +50,9 @@ import { resolvePointerSnapTarget } from './SceneSnapping.ts';
 import { TransformTool } from './TransformTool.ts';
 import type { EditorTransformMode, EditorTransformSpace } from './TransformTool.ts';
 import { TieCollisionOverlayProjection } from './TieCollisionOverlayProjection.ts';
+import {
+  interpolatePointerSegment, shouldOrbitWhileCollisionPainting,
+} from './CollisionPainting.ts';
 import { ViewportToolbar } from './ViewportToolbar.tsx';
 
 interface SceneViewportProps {
@@ -131,6 +134,8 @@ export function SceneViewport({
   const currentKeybindings = useRef(keybindings);
   const currentEnvironment = useRef(environment);
   const currentCollisionVisualization = useRef(collisionVisualization);
+  const currentSelectionColor = useRef(selectionColor);
+  const currentTieCollisionOverlay = useRef(tieCollisionOverlay);
   const focusHandled = useRef(onFocusHandled);
   const loadProgressChanged = useRef(onLoadProgress);
   const selectionChanged = useRef(onSelectionChange);
@@ -143,6 +148,8 @@ export function SceneViewport({
   currentKeybindings.current = keybindings;
   currentEnvironment.current = environment;
   currentCollisionVisualization.current = collisionVisualization;
+  currentSelectionColor.current = selectionColor;
+  currentTieCollisionOverlay.current = tieCollisionOverlay;
   currentShowStats.current = showStats;
   focusHandled.current = onFocusHandled;
   loadProgressChanged.current = onLoadProgress;
@@ -248,6 +255,7 @@ export function SceneViewport({
     const velocity = new THREE.Vector3();
     const clock = new THREE.Clock();
     let cameraInputActive = false;
+    let cancelPaintStroke = () => false;
     camera.position.set(0, 150, 300);
     controls.update();
     const snapRaycaster = new THREE.Raycaster();
@@ -353,6 +361,10 @@ export function SceneViewport({
         event.preventDefault();
         return;
       }
+      if (event.code === 'Escape' && cancelPaintStroke()) {
+        event.preventDefault();
+        return;
+      }
       const command = viewportInputActive()
         ? findKeybindingCommand(currentKeybindings.current, event, 'viewport')
         : undefined;
@@ -425,6 +437,35 @@ export function SceneViewport({
     let pointerStart: { x: number; y: number } | undefined;
     let lookPointerId: number | undefined;
     let lookPosition: { x: number; y: number } | undefined;
+    let selectOnLookRelease = false;
+    let paintStroke: {
+      pointerId: number;
+      last: { x: number; y: number };
+      faceIds: Set<number>;
+      rawType: number;
+    } | undefined;
+    const paintAt = (clientX: number, clientY: number) => {
+      const overlay = currentTieCollisionOverlay.current;
+      if (!overlay?.paint) return undefined;
+      const bounds = renderer.domElement.getBoundingClientRect();
+      pointer.set(
+        (clientX - bounds.left) / bounds.width * 2 - 1,
+        -(clientY - bounds.top) / bounds.height * 2 + 1,
+      );
+      raycaster.setFromCamera(pointer, camera);
+      const hit = tieCollisionPreview.pick(raycaster);
+      tieCollisionPreview.setHoveredFace(hit?.faceId, currentSelectionColor.current);
+      overlay.paint.onHover(hit?.faceId, hit?.rawType);
+      return hit;
+    };
+    cancelPaintStroke = () => {
+      if (!paintStroke) return false;
+      if (renderer.domElement.hasPointerCapture(paintStroke.pointerId))
+        renderer.domElement.releasePointerCapture(paintStroke.pointerId);
+      paintStroke = undefined;
+      tieCollisionPreview.finishStroke(false);
+      return true;
+    };
     const updateSnapPointer = (event: PointerEvent) => {
       const bounds = renderer.domElement.getBoundingClientRect();
       snapPointer.set(
@@ -436,28 +477,86 @@ export function SceneViewport({
       renderer.domElement.focus({ preventScroll: true });
       if (transformTool.isInteracting) return;
       if (viewport.current) viewport.current.flight = undefined;
-      if (event.button === 0) {
+      const paint = currentTieCollisionOverlay.current?.paint;
+      if (event.button === 0 && paint && !event.altKey) {
+        const hit = paintAt(event.clientX, event.clientY);
+        if (!hit) return;
+        if (paint.interaction === 'eyedropper') {
+          paint.onEyedropper(hit.rawType);
+          return;
+        }
+        const rawType = paint.interaction === 'reset' ? paint.defaultRawType : paint.brushRawType;
+        paintStroke = {
+          pointerId: event.pointerId,
+          last: { x: event.clientX, y: event.clientY },
+          faceIds: new Set([hit.faceId]),
+          rawType,
+        };
+        tieCollisionPreview.previewFace(hit.faceId, rawType);
+        paint.onHover(hit.faceId, rawType);
+        renderer.domElement.setPointerCapture(event.pointerId);
+        event.preventDefault();
+        return;
+      }
+      if (paint
+        ? shouldOrbitWhileCollisionPainting(event.button, event.altKey)
+        : event.button === 0) {
         pointerStart = { x: event.clientX, y: event.clientY };
         lookPosition = pointerStart;
         lookPointerId = event.pointerId;
+        selectOnLookRelease = !paint && event.button === 0;
         renderer.domElement.setPointerCapture(event.pointerId);
+        if (event.button === 1) event.preventDefault();
       }
     };
     const pointerMove = (event: PointerEvent) => {
       if (transformTool.isInteracting) return;
+      if (paintStroke && event.pointerId === paintStroke.pointerId) {
+        for (const point of interpolatePointerSegment(
+          paintStroke.last,
+          { x: event.clientX, y: event.clientY },
+        )) {
+          const hit = paintAt(point.x, point.y);
+          if (hit && !paintStroke.faceIds.has(hit.faceId)) {
+            paintStroke.faceIds.add(hit.faceId);
+            tieCollisionPreview.previewFace(hit.faceId, paintStroke.rawType);
+            currentTieCollisionOverlay.current?.paint?.onHover(hit.faceId, paintStroke.rawType);
+          }
+        }
+        paintStroke.last = { x: event.clientX, y: event.clientY };
+        event.preventDefault();
+        return;
+      }
+      if (currentTieCollisionOverlay.current?.paint && lookPointerId === undefined && !event.altKey) {
+        paintAt(event.clientX, event.clientY);
+        return;
+      }
       if (event.pointerId !== lookPointerId || !lookPosition) return;
       rotateCamera(camera, controls.target, event.clientX - lookPosition.x, event.clientY - lookPosition.y);
       lookPosition = { x: event.clientX, y: event.clientY };
     };
     const pointerUp = (event: PointerEvent) => {
       if (transformTool.isInteracting) return;
-      if (event.button !== 0 || !pointerStart) return;
+      if (paintStroke && event.pointerId === paintStroke.pointerId) {
+        const stroke = paintStroke;
+        paintStroke = undefined;
+        if (renderer.domElement.hasPointerCapture(event.pointerId)) renderer.domElement.releasePointerCapture(event.pointerId);
+        const paint = currentTieCollisionOverlay.current?.paint;
+        if (!paint) tieCollisionPreview.finishStroke(false);
+        else void paint.onStroke([...stroke.faceIds], stroke.rawType)
+          .then((committed) => tieCollisionPreview.finishStroke(committed));
+        event.preventDefault();
+        return;
+      }
+      if (event.pointerId !== lookPointerId || !pointerStart) return;
       lookPointerId = undefined;
       lookPosition = undefined;
       if (renderer.domElement.hasPointerCapture(event.pointerId)) renderer.domElement.releasePointerCapture(event.pointerId);
       const distance = Math.hypot(event.clientX - pointerStart.x, event.clientY - pointerStart.y);
       pointerStart = undefined;
-      if (distance > 4) return;
+      const select = selectOnLookRelease;
+      selectOnLookRelease = false;
+      if (!select || distance > 4) return;
       const bounds = renderer.domElement.getBoundingClientRect();
       pointer.set(
         (event.clientX - bounds.left) / bounds.width * 2 - 1,
@@ -476,10 +575,15 @@ export function SceneViewport({
     };
     const pointerCancel = (event: PointerEvent) => {
       if (transformTool.isInteracting) return;
+      if (paintStroke?.pointerId === event.pointerId) {
+        cancelPaintStroke();
+        return;
+      }
       if (event.pointerId !== lookPointerId) return;
       pointerStart = undefined;
       lookPointerId = undefined;
       lookPosition = undefined;
+      selectOnLookRelease = false;
       if (renderer.domElement.hasPointerCapture(event.pointerId)) renderer.domElement.releasePointerCapture(event.pointerId);
     };
     renderer.domElement.addEventListener('pointerdown', updateSnapPointer, true);
@@ -489,6 +593,7 @@ export function SceneViewport({
     renderer.domElement.addEventListener('pointerup', pointerUp);
     renderer.domElement.addEventListener('pointercancel', pointerCancel);
     renderer.domElement.addEventListener('contextmenu', preventDefault);
+    renderer.domElement.addEventListener('auxclick', preventDefault);
 
     const resize = () => {
       const { clientWidth, clientHeight } = element;
@@ -549,6 +654,7 @@ export function SceneViewport({
       renderer.domElement.removeEventListener('pointerup', pointerUp);
       renderer.domElement.removeEventListener('pointercancel', pointerCancel);
       renderer.domElement.removeEventListener('contextmenu', preventDefault);
+      renderer.domElement.removeEventListener('auxclick', preventDefault);
       window.removeEventListener('keydown', keyDown, true);
       window.removeEventListener('keyup', keyUp, true);
       window.removeEventListener('blur', deactivateWindowInput);
@@ -611,14 +717,22 @@ export function SceneViewport({
       currentCollisionVisualization.current,
     );
     return () => current.tieCollisionPreview.clear();
-  }, [tieCollisionOverlay?.candidate.token, tieCollisionOverlay?.url, tieCollisionTransform]);
+  }, [tieCollisionOverlay?.candidate?.token, tieCollisionOverlay?.url, tieCollisionTransform]);
 
   useEffect(() => {
     const projection = viewport.current?.tieCollisionPreview;
     const overlay = tieCollisionOverlay;
     if (!projection || !overlay) return;
     projection.update(overlay);
-  }, [tieCollisionOverlay?.showOctants, tieCollisionOverlay?.showProxy, tieCollisionOverlay?.wireframe]);
+  }, [tieCollisionOverlay?.paint, tieCollisionOverlay?.showOctants,
+    tieCollisionOverlay?.showProxy, tieCollisionOverlay?.wireframe]);
+
+  useEffect(() => {
+    const current = viewport.current;
+    if (!current) return;
+    (tieCollisionOverlay?.paint ? current.toolScene : current.content)
+      .add(current.tieCollisionPreview.root);
+  }, [Boolean(tieCollisionOverlay?.paint)]);
 
   useEffect(() => {
     if (!terrainSource) return;
@@ -868,7 +982,12 @@ export function SceneViewport({
   useEffect(() => viewport.current?.transformTool.setSnapping(
     snapEnabled, translationSnap, rotationSnap, scaleSnap, snapSource, snapTarget,
   ), [rotationSnap, scaleSnap, snapEnabled, snapSource, snapTarget, translationSnap]);
-  useEffect(() => viewport.current?.transformTool.setEnabled(!disabled), [disabled]);
+  useEffect(() => viewport.current?.transformTool.setEnabled(!disabled && !tieCollisionOverlay?.paint),
+    [disabled, tieCollisionOverlay?.paint]);
+  useEffect(() => {
+    const canvas = container.current?.querySelector('canvas');
+    if (canvas) canvas.style.cursor = tieCollisionOverlay?.paint ? 'crosshair' : '';
+  }, [tieCollisionOverlay?.paint]);
 
   useEffect(() => {
     if (!focusEntityId) return;

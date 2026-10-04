@@ -8,6 +8,7 @@ const commandKinds = new Set([
   'createEntityFromAsset',
   'addSkyShellFromAsset', 'updateSkyShell', 'reorderSkyShell',
   'removeTieCollisionProxy', 'setTieCollisionEnabled', 'setTieCollisionRawType',
+  'setTieCollisionFaceTypes',
 ]);
 
 export function isEditorCommand(value: unknown): value is EditorCommand {
@@ -37,7 +38,24 @@ export function isEditorCommand(value: unknown): value is EditorCommand {
   if (command.kind === 'setTieCollisionRawType')
     return command.entityIds.length === 1 && Number.isInteger(command.rawType)
       && Number(command.rawType) >= 0 && Number(command.rawType) <= 0xff;
+  if (command.kind === 'setTieCollisionFaceTypes')
+    return command.entityIds.length === 1
+      && typeof command.expectedProxyAssetId === 'string'
+      && /^[0-9a-f]{64}$/.test(command.expectedProxyAssetId)
+      && Array.isArray(command.faceTypes) && command.faceTypes.length > 0
+      && command.faceTypes.length <= 100_000
+      && command.faceTypes.every(isCollisionFaceType)
+      && new Set(command.faceTypes.map((value) => value.faceIndex)).size === command.faceTypes.length;
   return true;
+}
+
+function isCollisionFaceType(value: unknown): value is { faceIndex: number; rawType: number } {
+  if (!value || typeof value !== 'object') return false;
+  const faceType = value as Record<string, unknown>;
+  return Number.isInteger(faceType.faceIndex) && Number(faceType.faceIndex) >= 0
+    && Number(faceType.faceIndex) <= 0x7fff_ffff
+    && Number.isInteger(faceType.rawType) && Number(faceType.rawType) >= 0
+    && Number(faceType.rawType) <= 0xff;
 }
 
 function isSkyShellSource(value: unknown): boolean {

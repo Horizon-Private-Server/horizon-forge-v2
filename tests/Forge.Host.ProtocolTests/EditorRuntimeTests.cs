@@ -23,6 +23,18 @@ internal static class EditorRuntimeTests
             var baseLevel = new ProjectBaseLevel(
                 "UYA", "NTSC-U", "1.00", 3, UyaIsoService.SupportedMd5,
                 EntityVersion: ProjectSchema.CurrentBaseEntityVersion);
+            var unsupportedPath = Path.Combine(root, "unsupported-tie-painting");
+            var unsupported = await ForgeProjectWorkspace.CreateAsync(
+                unsupportedPath,
+                "Unsupported TIE painting",
+                target with { Game = "GC" },
+                baseLevel with { Game = "GC" },
+                []);
+            await ThrowsAsync<NotSupportedException>(() => UyaTieCollisionPreviewService.CountProxyFacesAsync(
+                unsupported,
+                Path.Combine(root, "unsupported-catalog"),
+                AssetId.Parse(new string('f', AssetId.TextLength)),
+                CancellationToken.None));
             var firstPath = Path.Combine(root, "first");
             var secondPath = Path.Combine(root, "second");
             await ForgeProjectWorkspace.CreateAsync(firstPath, "First", target, baseLevel,
@@ -195,7 +207,8 @@ internal static class EditorRuntimeTests
         ]);
         var catalogPath = Path.Combine(root, "tie-collision-catalog");
         _ = await AssetCatalogStore.OpenAsync(catalogPath);
-        await using var runtime = new EditorRuntime();
+        await using var runtime = new EditorRuntime(
+            tieCollisionFaceCountResolver: (_, _, _, _) => Task.FromResult(3));
         await runtime.OpenAsync(projectPath, catalogPath, TimeSpan.Zero);
         var recipe = new ProjectTieCollisionRecipe(
             ProjectTieCollisionRecipeKind.Wrap,
@@ -208,6 +221,9 @@ internal static class EditorRuntimeTests
 
         var snapshot = await runtime.ApplyTieCollisionProxyAsync(
             Guid.NewGuid().ToString("D"), tieAssetId, "first proxy"u8.ToArray(), 1, recipe);
+        Equal(true, (await runtime.ReadAppliedTieCollisionProxyAsync(
+                snapshot.Entities[0].TieCollision!.ProxyAssetId)).SequenceEqual("first proxy"u8.ToArray()),
+            "applied proxy preview reads the verified currently bound blob");
         Equal(true, snapshot.Entities.All(entity => entity.State.Dirty),
             "binding marks every matching TIE dirty");
         Equal(true, snapshot.Entities.All(entity => entity.TieCollisionEnabled == true),
@@ -243,6 +259,61 @@ internal static class EditorRuntimeTests
         Equal(recipe.RawType, snapshot.Entities[0].TieCollision!.Recipe.RawType,
             "collision ID update is undoable");
 
+        var paintedProxyId = snapshot.Entities[0].TieCollision!.ProxyAssetId;
+        snapshot = await runtime.ExecuteAsync(new(
+            Guid.NewGuid().ToString("D"),
+            EditorCommandKind.SetTieCollisionFaceTypes,
+            [firstId],
+            TieCollisionProxyAssetId: paintedProxyId,
+            TieCollisionFaceTypes: [new(2, 0x11), new(0, 0x22)]));
+        Equal(true, snapshot.Entities.All(entity => entity.TieCollision!.FaceTypeOverrides
+                .SequenceEqual([new(0, 0x22), new(2, 0x11)])),
+            "one face stroke updates the shared binding in sorted order");
+        await ThrowsAsync<ArgumentException>(() => runtime.ExecuteAsync(new(
+            Guid.NewGuid().ToString("D"),
+            EditorCommandKind.SetTieCollisionFaceTypes,
+            [firstId],
+            TieCollisionProxyAssetId: AssetId.Parse(new string('f', AssetId.TextLength)),
+            TieCollisionFaceTypes: [new(0, 0x33)])));
+        await ThrowsAsync<ArgumentException>(() => runtime.ExecuteAsync(new(
+            Guid.NewGuid().ToString("D"),
+            EditorCommandKind.SetTieCollisionFaceTypes,
+            [firstId],
+            TieCollisionProxyAssetId: paintedProxyId,
+            TieCollisionFaceTypes: [new(3, 0x33)])));
+        snapshot = await runtime.ExecuteAsync(Command(EditorCommandKind.Undo, []));
+        Equal(0, snapshot.Entities[0].TieCollision!.FaceTypeOverrides.Count,
+            "face-type stroke is undoable as one command");
+        snapshot = await runtime.ExecuteAsync(Command(EditorCommandKind.Redo, []));
+        Equal(2, snapshot.Entities[0].TieCollision!.FaceTypeOverrides.Count,
+            "face-type stroke redo restores every assignment");
+        snapshot = await runtime.ExecuteAsync(new(
+            Guid.NewGuid().ToString("D"),
+            EditorCommandKind.SetTieCollisionFaceTypes,
+            [secondId],
+            TieCollisionProxyAssetId: paintedProxyId,
+            TieCollisionFaceTypes: [new(0, recipe.RawType)]));
+        Equal(true, snapshot.Entities[0].TieCollision!.FaceTypeOverrides.SequenceEqual([new(2, 0x11)]),
+            "painting the binding default removes the sparse override");
+        await ThrowsAsync<ArgumentException>(() => runtime.ExecuteAsync(new(
+            Guid.NewGuid().ToString("D"),
+            EditorCommandKind.SetTieCollisionFaceTypes,
+            [firstId],
+            TieCollisionProxyAssetId: paintedProxyId,
+            TieCollisionFaceTypes: [new(1, 0x33), new(1, 0x44)])));
+        snapshot = await runtime.ExecuteAsync(new(
+            Guid.NewGuid().ToString("D"), EditorCommandKind.SetEntityState, [firstId],
+            State: new(Locked: true)));
+        await ThrowsAsync<ArgumentException>(() => runtime.ExecuteAsync(new(
+            Guid.NewGuid().ToString("D"),
+            EditorCommandKind.SetTieCollisionFaceTypes,
+            [firstId],
+            TieCollisionProxyAssetId: paintedProxyId,
+            TieCollisionFaceTypes: [new(1, 0x33)])));
+        snapshot = await runtime.ExecuteAsync(new(
+            Guid.NewGuid().ToString("D"), EditorCommandKind.SetEntityState, [firstId],
+            State: new(Locked: false)));
+
         snapshot = await runtime.ExecuteAsync(new(
             Guid.NewGuid().ToString("D"),
             EditorCommandKind.SetTieCollisionEnabled,
@@ -261,6 +332,14 @@ internal static class EditorRuntimeTests
             Guid.NewGuid().ToString("D"), EditorCommandKind.RemoveTieCollisionProxy, [firstId]));
         Equal(true, snapshot.Entities.All(entity => entity.State.Dirty),
             "proxy removal marks every matching TIE dirty");
+        await ThrowsAsync<ArgumentException>(() => runtime.ExecuteAsync(new(
+            Guid.NewGuid().ToString("D"),
+            EditorCommandKind.SetTieCollisionFaceTypes,
+            [firstId],
+            TieCollisionProxyAssetId: paintedProxyId,
+            TieCollisionFaceTypes: [new(0, 0x33)])));
+        await ThrowsAsync<InvalidOperationException>(() =>
+            runtime.ReadAppliedTieCollisionProxyAsync(paintedProxyId));
         await runtime.SaveAsync();
         var workspace = await ForgeProjectWorkspace.OpenAsync(projectPath);
         Equal(0, workspace.Content.TieCollisionBindings.Count, "proxy removal persists");
@@ -277,12 +356,13 @@ internal static class EditorRuntimeTests
         var proxyId = binding.ProxyAssetId.ToString();
         var proxyPath = Path.Combine(projectPath, "assets", proxyId[..2], $"{proxyId}.blob");
         await File.WriteAllBytesAsync(proxyPath, "corrupt"u8.ToArray());
+        await ThrowsAsync<InvalidDataException>(() => runtime.ReadAppliedTieCollisionProxyAsync(binding.ProxyAssetId));
         snapshot = await runtime.OpenAsync(projectPath, catalogPath, TimeSpan.Zero);
         Equal(true, snapshot.Diagnostics.Any(diagnostic =>
                 diagnostic.Code == "tie-collision.proxy-corrupt"
                 && diagnostic.Message.Contains("regenerate", StringComparison.OrdinalIgnoreCase)),
             "corrupt proxy reports actionable diagnostic");
-        Equal(binding, (await ForgeProjectWorkspace.OpenAsync(projectPath)).Content.TieCollisionBindings.Single(),
+        EqualBinding(binding, (await ForgeProjectWorkspace.OpenAsync(projectPath)).Content.TieCollisionBindings.Single(),
             "corrupt proxy preserves binding");
 
         File.Delete(proxyPath);
@@ -291,7 +371,7 @@ internal static class EditorRuntimeTests
                 diagnostic.Code == "tie-collision.proxy-missing"
                 && diagnostic.Message.Contains("project assets folder", StringComparison.OrdinalIgnoreCase)),
             "missing proxy reports actionable diagnostic");
-        Equal(binding, (await ForgeProjectWorkspace.OpenAsync(projectPath)).Content.TieCollisionBindings.Single(),
+        EqualBinding(binding, (await ForgeProjectWorkspace.OpenAsync(projectPath)).Content.TieCollisionBindings.Single(),
             "missing proxy preserves binding");
         await File.WriteAllBytesAsync(proxyPath, replacementBytes);
 
@@ -736,4 +816,15 @@ internal static class EditorRuntimeTests
         if (!EqualityComparer<T>.Default.Equals(expected, actual))
             throw new InvalidOperationException($"{context}: expected {expected}, got {actual}");
     }
+
+    private static void EqualBinding(
+        ProjectTieCollisionBinding expected,
+        ProjectTieCollisionBinding actual,
+        string context) => Equal(
+            true,
+            expected.TieAssetId == actual.TieAssetId
+                && expected.ProxyAssetId == actual.ProxyAssetId
+                && expected.Recipe == actual.Recipe
+                && expected.FaceTypeOverrides.SequenceEqual(actual.FaceTypeOverrides),
+            context);
 }

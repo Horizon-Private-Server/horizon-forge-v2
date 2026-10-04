@@ -68,6 +68,8 @@ const forgeApi = Object.freeze({
     ipcRenderer.invoke('forge:editor-tie-collision-apply', commandId, token),
   getTieCollisionPreviewModel: (token: string, requestToken: string) =>
     ipcRenderer.invoke('forge:editor-tie-collision-model', token, requestToken),
+  getAppliedTieCollisionModel: (proxyAssetId: string, requestToken: string) =>
+    ipcRenderer.invoke('forge:editor-tie-collision-applied-model', proxyAssetId, requestToken),
   saveEditorProject: () => ipcRenderer.invoke('forge:editor-save'),
   getBuildPlan: () => ipcRenderer.invoke('forge:editor-build-plan'),
   buildAndPatchProject: (includedLayers: BuildLayerId[]) =>

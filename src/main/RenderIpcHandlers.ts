@@ -123,6 +123,22 @@ export function registerRenderIpcHandlers(options: RenderIpcHandlersOptions): vo
     }
   });
 
+  ipcMain.handle('forge:editor-tie-collision-applied-model', async (
+    event, proxyAssetId: unknown, requestToken: unknown,
+  ) => {
+    assertSender(event.sender.id);
+    assertPreview(proxyAssetId);
+    assertRequestToken(requestToken);
+    if (activePreviewRequests.has(requestToken)) throw new Error('Preview request token is already active');
+    const request = await host.prepareAppliedTieCollision(
+      settings.paths.renderCache, settings.paths.assets, proxyAssetId);
+    activePreviewRequests.set(requestToken, request.requestId);
+    try { return await renderAssets.addPreview(await request.result); }
+    finally {
+      if (activePreviewRequests.get(requestToken) === request.requestId) activePreviewRequests.delete(requestToken);
+    }
+  });
+
   ipcMain.handle('forge:asset-thumbnail', async (
     event, targetGame: unknown, assetId: unknown, kind: unknown, shellIndex: unknown,
   ) => {

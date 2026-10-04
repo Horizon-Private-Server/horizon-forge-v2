@@ -4,6 +4,7 @@ public sealed partial class EditorRuntime
 {
     private readonly EditorTieCollisionPreviewExecutor? _tieCollisionPreviewExecutor;
     private readonly EditorTieCollisionSourceInspector? _tieCollisionSourceInspector;
+    private readonly EditorTieCollisionFaceCountResolver? _tieCollisionFaceCountResolver;
     private Dictionary<AssetId, ProjectTieCollisionBinding> _savedTieCollisionBindings = [];
     private Dictionary<string, CachedTieCollisionCandidate> _tieCollisionCandidates = [];
 
@@ -215,6 +216,36 @@ public sealed partial class EditorRuntime
             _gate.Release();
         }
     }
+
+    public async Task<byte[]> ReadAppliedTieCollisionProxyAsync(
+        AssetId proxyAssetId,
+        CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            ThrowIfDisposed();
+            var workspace = RequireWorkspace();
+            if (!workspace.Content.TieCollisionBindings.Any(value => value.ProxyAssetId == proxyAssetId))
+                throw new InvalidOperationException("The applied TIE collision proxy is stale or no longer bound.");
+            var proxy = workspace.Content.Assets.Single(value => value.Id == proxyAssetId);
+            var path = workspace.ResolveAttachedAssetPath(proxyAssetId)
+                ?? throw new FileNotFoundException($"Applied TIE collision proxy {proxyAssetId} is missing.");
+            return await AssetCatalogBlobReader.ReadVerifiedAsync(
+                proxy.Id,
+                proxy.Kind,
+                proxy.CanonicalFormatVersion,
+                proxy.Size,
+                path,
+                ForgeProjectWorkspace.MaxRecoveryBytes,
+                cancellationToken);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     private static async Task<EditorDiagnostic[]> InspectTieCollisionProxiesAsync(
         ForgeProjectWorkspace workspace,
         AssetCatalogStore? catalog,

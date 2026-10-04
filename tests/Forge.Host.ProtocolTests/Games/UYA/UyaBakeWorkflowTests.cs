@@ -1025,6 +1025,60 @@ internal static class UyaBakeWorkflowTests
             CollisionConverter.Inspect(proxied, GameId.UYA).Pieces.Sum(value => value.FaceCount),
             "bake expands one proxy face for every enabled matching TIE instance");
 
+        var unpaintedFaces = CollisionWork.DecodeSolidAddition(proxied, GameId.UYA, "unpainted").Faces;
+        workspace = await ForgeProjectWorkspace.OpenAsync(project);
+        workspace.SetTieCollisionFaceTypes(
+            proxyTieAssetId,
+            proxyBinding.ProxyAssetId,
+            [new(0, 0xaf)],
+            faceCount: 1);
+        await workspace.SaveAsync();
+        var paintedCollisionInput = (await UyaBaseLayerStore.CreateBakeInputsAsync(project, catalog))
+            .Single(value => value.Id == BakeLayerId.Collision);
+        Equal(false, boundCollisionInput.RelevantSettings.Span.SequenceEqual(
+            paintedCollisionInput.RelevantSettings.Span),
+            "paint-only changes invalidate collision");
+        var paintedProxyBake = await UyaBakeService.BakeAsync(project, catalog, context);
+        Equal(true, paintedProxyBake.WrittenLayers.Select(value => value.Layer)
+            .SequenceEqual([BakeLayerId.Collision]),
+            "painting a proxy face rebuilds only collision");
+        var paintedProxyPack = await UyaLevelPackService.PackAsync(project, catalog, sourceLevelWad, context);
+        var paintedProxy = UyaBaseLayerService.Extract(
+                UyaLevelWadUnpacker.Unpack(paintedProxyPack.OutputBytes!))
+            .Single(value => value.Layer == BakeLayerId.Collision && value.Name == "collision.bin").Bytes;
+        var paintedFaces = CollisionWork.DecodeSolidAddition(paintedProxy, GameId.UYA, "painted").Faces;
+        Equal(unpaintedFaces.Count, paintedFaces.Count,
+            "painting preserves composed collision topology");
+        Equal(unpaintedFaces.Count(value => value.RawType == 0xaf) + proxyInstances.Length,
+            paintedFaces.Count(value => value.RawType == 0xaf),
+            "packed collision applies the painted raw type to every matching instance");
+        Equal(unpaintedFaces.Count(value => value.RawType == 0x3d) - proxyInstances.Length,
+            paintedFaces.Count(value => value.RawType == 0x3d),
+            "painted faces no longer use the binding default");
+
+        workspace = await ForgeProjectWorkspace.OpenAsync(project);
+        workspace.SetTieCollisionFaceTypes(
+            proxyTieAssetId,
+            proxyBinding.ProxyAssetId,
+            [new(0, 0x3d)],
+            faceCount: 1);
+        await workspace.SaveAsync();
+        var resetCollisionInput = (await UyaBaseLayerStore.CreateBakeInputsAsync(project, catalog))
+            .Single(value => value.Id == BakeLayerId.Collision);
+        Equal(true, boundCollisionInput.RelevantSettings.Span.SequenceEqual(
+            resetCollisionInput.RelevantSettings.Span),
+            "reset restores the uniform collision fingerprint");
+        var resetProxyBake = await UyaBakeService.BakeAsync(project, catalog, context);
+        Equal(true, resetProxyBake.WrittenLayers.Select(value => value.Layer)
+            .SequenceEqual([BakeLayerId.Collision]),
+            "resetting a painted face rebuilds only collision");
+        var resetProxyPack = await UyaLevelPackService.PackAsync(project, catalog, sourceLevelWad, context);
+        var resetProxy = UyaBaseLayerService.Extract(
+                UyaLevelWadUnpacker.Unpack(resetProxyPack.OutputBytes!))
+            .Single(value => value.Layer == BakeLayerId.Collision && value.Name == "collision.bin").Bytes;
+        Equal(true, proxied.SequenceEqual(resetProxy),
+            "reset restores byte-identical uniform collision");
+
         workspace = await ForgeProjectWorkspace.OpenAsync(project);
         var qualifiedTransform = ProjectTransform.Identity with
         {

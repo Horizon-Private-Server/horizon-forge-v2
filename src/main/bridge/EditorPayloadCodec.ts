@@ -39,6 +39,7 @@ const commandKinds = {
   removeTieCollisionProxy: 20,
   setTieCollisionEnabled: 21,
   setTieCollisionRawType: 22,
+  setTieCollisionFaceTypes: 23,
 } as const;
 const eventKinds: Record<number, EditorEvent['kind']> = {
   1: 'projectOpened', 2: 'projectChanged', 3: 'selectionChanged', 4: 'projectSaved',
@@ -121,6 +122,15 @@ export function encodeEditorCommand(value: EditorCommand): Buffer {
   if (value.kind === 'setTieCollisionEnabled') writer.writeBoolean(value.enabled);
   writer.writeBoolean(value.kind === 'setTieCollisionRawType');
   if (value.kind === 'setTieCollisionRawType') writer.writeUInt32(value.rawType);
+  writer.writeBoolean(value.kind === 'setTieCollisionFaceTypes');
+  if (value.kind === 'setTieCollisionFaceTypes') {
+    writer.writeString(value.expectedProxyAssetId);
+    writer.writeUInt32(value.faceTypes.length);
+    value.faceTypes.forEach((faceType) => {
+      writer.writeUInt32(faceType.faceIndex);
+      writer.writeUInt32(faceType.rawType);
+    });
+  }
   return writer.toBuffer();
 }
 
@@ -311,6 +321,9 @@ function readEntity(reader: PayloadReader): EditorEntity {
   if (reader.readBoolean()) value.tieCollision = {
     proxyAssetId: reader.readString(),
     recipe: readTieCollisionRecipe(reader),
+    faceTypeOverrides: readList(reader, MAX_ENTITIES, () => ({
+      faceIndex: reader.readUInt32(), rawType: reader.readUInt32(),
+    })),
   };
   if (reader.readBoolean()) value.tieCollisionEnabled = reader.readBoolean();
   const transformCapabilities = reader.readUInt32();

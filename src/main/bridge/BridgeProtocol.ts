@@ -39,6 +39,7 @@ export const BridgeOpcode = {
   ApplyTieCollisionPreview: 28,
   PrepareTieCollisionPreview: 29,
   InspectTieCollisionSource: 30,
+  PrepareAppliedTieCollision: 31,
 } as const;
 
 export const BridgeErrorCode = {

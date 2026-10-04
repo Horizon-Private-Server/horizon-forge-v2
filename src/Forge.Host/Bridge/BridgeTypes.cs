@@ -43,6 +43,7 @@ public enum BridgeOpcode : ushort
     ApplyTieCollisionPreview = 28,
     PrepareTieCollisionPreview = 29,
     InspectTieCollisionSource = 30,
+    PrepareAppliedTieCollision = 31,
 }
 
 public enum BridgeErrorCode : ushort

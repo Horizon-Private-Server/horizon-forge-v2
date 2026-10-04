@@ -562,7 +562,7 @@ public sealed class ForgeProjectWorkspace
             throw new InvalidDataException($"Project asset {proxyAssetId} has inconsistent metadata.");
 
         await EnsureAssetBlobAsync(attached, canonicalBytes, cancellationToken);
-        var binding = new ProjectTieCollisionBinding(tieAssetId, proxyAssetId, recipe);
+        var binding = new ProjectTieCollisionBinding(tieAssetId, proxyAssetId, recipe, []);
         var content = Content with
         {
             Assets = existing is null ? Content.Assets.Append(attached).ToArray() : Content.Assets,
@@ -605,7 +605,47 @@ public sealed class ForgeProjectWorkspace
     {
         var binding = Content.TieCollisionBindings.SingleOrDefault(value => value.TieAssetId == tieAssetId)
             ?? throw new KeyNotFoundException($"TIE asset {tieAssetId} has no collision proxy binding.");
-        var replacement = binding with { Recipe = binding.Recipe with { RawType = rawType } };
+        var replacement = binding with
+        {
+            Recipe = binding.Recipe with { RawType = rawType },
+            FaceTypeOverrides = binding.FaceTypeOverrides.Where(value => value.RawType != rawType).ToArray(),
+        };
+        var content = Content with
+        {
+            TieCollisionBindings = Content.TieCollisionBindings.Select(value =>
+                value == binding ? replacement : value).ToArray(),
+        };
+        ForgeProjectValidation.Validate(RootPath, Manifest, content);
+        Content = content;
+    }
+
+    public void SetTieCollisionFaceTypes(
+        AssetId tieAssetId,
+        AssetId expectedProxyAssetId,
+        IReadOnlyList<ProjectCollisionFaceTypeOverride> assignments,
+        int faceCount)
+    {
+        ArgumentNullException.ThrowIfNull(assignments);
+        if (faceCount < 1) throw new ArgumentOutOfRangeException(nameof(faceCount));
+        if (assignments.Count is 0 or > ForgeProjectValidation.MaxTieCollisionFaceTypeOverrides
+            || assignments.Any(value => value is null || value.FaceIndex < 0 || value.FaceIndex >= faceCount)
+            || assignments.Select(value => value.FaceIndex).Distinct().Count() != assignments.Count)
+            throw new ArgumentException("TIE collision face-type assignments are invalid.", nameof(assignments));
+        var binding = Content.TieCollisionBindings.SingleOrDefault(value => value.TieAssetId == tieAssetId)
+            ?? throw new KeyNotFoundException($"TIE asset {tieAssetId} has no collision proxy binding.");
+        if (binding.ProxyAssetId != expectedProxyAssetId)
+            throw new InvalidOperationException("The TIE collision proxy changed before face types were applied.");
+
+        var overrides = binding.FaceTypeOverrides.ToDictionary(value => value.FaceIndex);
+        foreach (var assignment in assignments)
+        {
+            if (assignment.RawType == binding.Recipe.RawType) overrides.Remove(assignment.FaceIndex);
+            else overrides[assignment.FaceIndex] = assignment;
+        }
+        var replacement = binding with
+        {
+            FaceTypeOverrides = overrides.Values.OrderBy(value => value.FaceIndex).ToArray(),
+        };
         var content = Content with
         {
             TieCollisionBindings = Content.TieCollisionBindings.Select(value =>

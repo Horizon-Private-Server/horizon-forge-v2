@@ -243,6 +243,7 @@ public static class UyaBaseLayerStore
                                 value.TieAssetId,
                                 value.ProxyAssetId,
                                 value.Recipe,
+                                value.FaceTypeOverrides,
                             }).ToArray(),
                         Instances = workspace.Content.Entities.Where(value =>
                                 value.Asset is { Kind: AssetKind.Tie }

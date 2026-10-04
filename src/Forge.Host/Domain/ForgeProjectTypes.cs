@@ -101,10 +101,13 @@ public sealed record ProjectTieCollisionRecipe(
     bool OpenBase = false,
     int ProfileSections = 0);
 
+public sealed record ProjectCollisionFaceTypeOverride(int FaceIndex, byte RawType);
+
 public sealed record ProjectTieCollisionBinding(
     AssetId TieAssetId,
     AssetId ProxyAssetId,
-    ProjectTieCollisionRecipe Recipe);
+    ProjectTieCollisionRecipe Recipe,
+    IReadOnlyList<ProjectCollisionFaceTypeOverride> FaceTypeOverrides);
 
 public sealed record ForgeProjectManifest(
     int SchemaVersion,

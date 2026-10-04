@@ -44,7 +44,7 @@ internal static class ForgeProjectPersistence
         var manifest = version switch
         {
             0 => Migrate(Deserialize<ManifestV0>(manifestBytes, "Project manifest")),
-            1 or 2 or 3 or 4 or 5 => Migrate(Deserialize<ForgeProjectManifest>(manifestBytes, "Project manifest")),
+            1 or 2 or 3 or 4 or 5 or 6 => Migrate(Deserialize<ForgeProjectManifest>(manifestBytes, "Project manifest")),
             ProjectSchema.CurrentVersion => Deserialize<ForgeProjectManifest>(manifestBytes, "Project manifest"),
             _ => throw new UnsupportedProjectSchemaException(version),
         };
@@ -210,7 +210,7 @@ internal static class ForgeProjectPersistence
         var content = contentVersion switch
         {
             0 => Migrate(Deserialize<ContentV0>(contentBytes, "Project content")),
-            1 or 2 or 3 or 4 or 5 => Migrate(Deserialize<ForgeProjectContent>(contentBytes, "Project content")),
+            1 or 2 or 3 or 4 or 5 or 6 => Migrate(Deserialize<ForgeProjectContent>(contentBytes, "Project content")),
             ProjectSchema.CurrentVersion => Deserialize<ForgeProjectContent>(contentBytes, "Project content"),
             _ => throw new UnsupportedProjectSchemaException(contentVersion),
         };
@@ -244,7 +244,14 @@ internal static class ForgeProjectPersistence
         value with { SchemaVersion = ProjectSchema.CurrentVersion };
 
     private static ForgeProjectContent Migrate(ForgeProjectContent value) =>
-        value with { SchemaVersion = ProjectSchema.CurrentVersion, TieCollisionBindings = value.TieCollisionBindings ?? [] };
+        value with
+        {
+            SchemaVersion = ProjectSchema.CurrentVersion,
+            TieCollisionBindings = (value.TieCollisionBindings ?? []).Select(binding => binding with
+            {
+                FaceTypeOverrides = binding.FaceTypeOverrides ?? [],
+            }).ToArray(),
+        };
 
     internal static T Deserialize<T>(byte[] bytes, string description) =>
         JsonSerializer.Deserialize<T>(bytes, JsonOptions)

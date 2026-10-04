@@ -128,6 +128,7 @@ internal static class UyaTieCollisionCompositionService
             .ToArray();
         var additions = new List<CollisionSolidAddition>(entities.Length);
         var verifiedTieAssets = new HashSet<AssetId>();
+        var effectiveProxies = new Dictionary<AssetId, CollisionSolidAddition>();
         foreach (var entity in entities)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -142,23 +143,32 @@ internal static class UyaTieCollisionCompositionService
             }
             else
             {
-                var binding = bindings[tieAssetId];
-                var proxyId = binding.ProxyAssetId;
-                if (!decodedProxies.TryGetValue(proxyId, out addition!))
+                if (!effectiveProxies.TryGetValue(tieAssetId, out addition!))
                 {
-                    var bytes = await ReadAssetAsync(
-                        workspace, catalog, proxyId, AssetKind.Collision, cancellationToken);
-                    addition = CollisionWork.DecodeSolidAddition(
-                        bytes, GameId.UYA, proxyId.ToString(), cancellationToken);
-                    decodedProxies.Add(proxyId, addition);
-                }
-                addition = addition with
-                {
-                    Faces = addition.Faces.Select(face => face with
+                    var binding = bindings[tieAssetId];
+                    var proxyId = binding.ProxyAssetId;
+                    if (!decodedProxies.TryGetValue(proxyId, out addition!))
                     {
-                        RawType = binding.Recipe.RawType,
-                    }).ToArray(),
-                };
+                        var bytes = await ReadAssetAsync(
+                            workspace, catalog, proxyId, AssetKind.Collision, cancellationToken);
+                        addition = CollisionWork.DecodeSolidAddition(
+                            bytes, GameId.UYA, proxyId.ToString(), cancellationToken);
+                        decodedProxies.Add(proxyId, addition);
+                    }
+                    if (binding.FaceTypeOverrides.Any(value => value.FaceIndex >= addition.Faces.Count))
+                        throw new InvalidDataException(
+                            $"TIE collision proxy {proxyId} contains a face-type override outside its decoded topology.");
+                    var faceTypes = binding.FaceTypeOverrides.ToDictionary(
+                        value => value.FaceIndex, value => value.RawType);
+                    addition = addition with
+                    {
+                        Faces = addition.Faces.Select((face, faceIndex) => face with
+                        {
+                            RawType = faceTypes.GetValueOrDefault(faceIndex, binding.Recipe.RawType),
+                        }).ToArray(),
+                    };
+                    effectiveProxies.Add(tieAssetId, addition);
+                }
             }
             additions.Add(CollisionWork.TransformAddition(
                 addition,

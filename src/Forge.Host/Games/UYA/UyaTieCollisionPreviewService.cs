@@ -8,6 +8,21 @@ namespace Forge.Host.Games.UYA;
 
 public static class UyaTieCollisionPreviewService
 {
+    public static async Task<int> CountProxyFacesAsync(
+        ForgeProjectWorkspace workspace,
+        string catalogRootPath,
+        AssetId proxyAssetId,
+        CancellationToken cancellationToken)
+    {
+        if (workspace.Manifest.Target is not { Game: "UYA", Region: "NTSC-U", Revision: "1.00" })
+            throw new NotSupportedException("TIE collision face painting currently supports UYA NTSC-U 1.00 only.");
+        var catalog = await AssetCatalogStore.OpenAsync(catalogRootPath, cancellationToken);
+        var bytes = await UyaTieCollisionCompositionService.ReadAssetAsync(
+            workspace, catalog, proxyAssetId, AssetKind.Collision, cancellationToken);
+        return CollisionWork.DecodeSolidAddition(
+            bytes, GameId.UYA, proxyAssetId.ToString(), cancellationToken).Faces.Count;
+    }
+
     public static async Task<IReadOnlyList<EditorTieCollisionCandidate>> GenerateAsync(
         ForgeProjectWorkspace workspace,
         string catalogRootPath,
@@ -111,11 +126,10 @@ public static class UyaTieCollisionPreviewService
         string cacheRootPath,
         string catalogRootPath,
         string sdkRevision,
-        EditorTieCollisionCandidate candidate,
+        AssetId assetId,
+        byte[] canonicalBytes,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(candidate);
-        var assetId = AssetId.Compute(AssetKind.Collision, 0, candidate.CanonicalBytes);
         var request = new UyaAssetPreviewRequest(
             cacheRootPath,
             catalogRootPath,
@@ -124,7 +138,7 @@ public static class UyaTieCollisionPreviewService
             "UYA",
             "collision-default");
         var export = await Task.Run(() => CollisionConverter.ExportGltf(
-            candidate.CanonicalBytes,
+            canonicalBytes,
             GameId.UYA,
             "model.gltf",
             "model.buffer.bin",

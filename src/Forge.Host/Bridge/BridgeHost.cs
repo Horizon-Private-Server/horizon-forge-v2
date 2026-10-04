@@ -19,7 +19,8 @@ public static class BridgeHost
             UyaEditorCapabilities.ResolveTransformCapabilities,
             UyaSkyShellEditorService.ExecuteAsync,
             UyaTieCollisionPreviewService.GenerateAsync,
-            UyaTieCollisionPreviewService.InspectAsync);
+            UyaTieCollisionPreviewService.InspectAsync,
+            UyaTieCollisionPreviewService.CountProxyFacesAsync);
         var requests = new ConcurrentDictionary<uint, CancellationTokenSource>();
         var tasks = new ConcurrentDictionary<uint, Task>();
 
@@ -178,6 +179,15 @@ public static class BridgeHost
                     await writer.WriteAsync(new(
                         BridgeMessageKind.Result, frame.Opcode, BridgeErrorCode.None, frame.RequestId,
                         await RenderBridgeHandlers.PrepareTieCollisionPreviewAsync(
+                            frame.Payload,
+                            handshake.SdkRevision,
+                            editor,
+                            requestCancellation.Token)), hostCancellation);
+                    break;
+                case BridgeOpcode.PrepareAppliedTieCollision:
+                    await writer.WriteAsync(new(
+                        BridgeMessageKind.Result, frame.Opcode, BridgeErrorCode.None, frame.RequestId,
+                        await RenderBridgeHandlers.PrepareAppliedTieCollisionAsync(
                             frame.Payload,
                             handshake.SdkRevision,
                             editor,

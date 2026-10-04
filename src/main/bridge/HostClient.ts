@@ -405,6 +405,17 @@ export class HostClient {
     return { requestId: request.requestId, result: request.result.then(decodeAssetPreviewResult) };
   }
 
+  async prepareAppliedTieCollision(
+    cacheRootPath: string,
+    catalogRootPath: string,
+    proxyAssetId: string,
+  ): Promise<HostRequest<AssetPreviewResult>> {
+    const request = await this.#request(
+      BridgeOpcode.PrepareAppliedTieCollision,
+      encodeTieCollisionRenderRequest(cacheRootPath, catalogRootPath, proxyAssetId));
+    return { requestId: request.requestId, result: request.result.then(decodeAssetPreviewResult) };
+  }
+
   async saveEditorProject(): Promise<HostRequest<EditorSnapshot>> {
     const request = await this.#request(BridgeOpcode.SaveEditorProject, Buffer.alloc(0));
     return { requestId: request.requestId, result: request.result.then(decodeEditorSnapshot) };

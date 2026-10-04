@@ -16,6 +16,13 @@ import type { EditorEntity } from '../src/types/EditorRuntime.js';
 import { DEFAULT_SCENE_TREE_COLORS } from '../src/utils/SceneTreeColors.ts';
 import { DEFAULT_UYA_COLLISION_VISUALIZATION } from '../src/utils/UyaCollisionVisualization.ts';
 import {
+  applyCollisionFaceTypes,
+  collisionFaceIdFromIntersection,
+  collisionRawTypeFromIntersection,
+  interpolatePointerSegment,
+  shouldOrbitWhileCollisionPainting,
+} from '../src/renderer/editor/CollisionPainting.ts';
+import {
   applySceneEnvironment,
   disposeObject,
   frameCameraOnObject,
@@ -839,6 +846,58 @@ test('solid collision materials combine live nibble palettes with a size-indepen
   assert.ok(shader.uniforms.forgeCollisionColors.value[11].equals(new THREE.Color('#010203')));
   assert.ok(shader.uniforms.forgeSoundColors.value[10].equals(new THREE.Color('#040506')));
   disposeObject(root);
+});
+
+test('collision painting resolves one native face ID across triangulated faces', () => {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute([
+    0, 0, 0,
+    1, 0, 0,
+    1, 1, 0,
+    0, 1, 0,
+  ], 3));
+  geometry.setAttribute('_collision_face_id', new THREE.Uint32BufferAttribute([7, 7, 7, 7], 1));
+  geometry.setAttribute('_collision_type', new THREE.Uint8BufferAttribute([1, 1, 1, 1], 1));
+  geometry.setAttribute('_sound_type', new THREE.Uint8BufferAttribute([2, 2, 2, 2], 1));
+  geometry.setIndex([3, 2, 1, 3, 1, 0]);
+  const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial());
+  const first = {
+    distance: 0, point: new THREE.Vector3(), object: mesh,
+    face: { a: 3, b: 2, c: 1, normal: new THREE.Vector3(), materialIndex: 0 },
+  } satisfies THREE.Intersection;
+  const second = {
+    distance: 0, point: new THREE.Vector3(), object: mesh,
+    face: { a: 3, b: 1, c: 0, normal: new THREE.Vector3(), materialIndex: 0 },
+  } satisfies THREE.Intersection;
+
+  assert.equal(collisionFaceIdFromIntersection(first), 7);
+  assert.equal(collisionFaceIdFromIntersection(second), 7);
+  assert.equal(collisionRawTypeFromIntersection(first), 0x21);
+  applyCollisionFaceTypes(mesh, 0x31, [{ faceIndex: 7, rawType: 0xaf }]);
+  assert.equal(collisionRawTypeFromIntersection(second), 0xaf);
+  applyCollisionFaceTypes(mesh, 0x31, []);
+  assert.equal(collisionRawTypeFromIntersection(first), 0x31);
+  geometry.setAttribute('_collision_face_id', new THREE.Uint32BufferAttribute([7, 8, 7, 7], 1));
+  assert.equal(collisionFaceIdFromIntersection(second), undefined);
+
+  geometry.dispose();
+  mesh.material.dispose();
+});
+
+test('collision painting interpolates fast pointer movement at bounded spacing', () => {
+  const samples = interpolatePointerSegment({ x: 0, y: 0 }, { x: 10, y: 0 }, 4);
+  assert.equal(samples.length, 3);
+  assert.ok(Math.abs(samples[0]!.x - 10 / 3) < 1e-9);
+  assert.ok(Math.abs(samples[1]!.x - 20 / 3) < 1e-9);
+  assert.deepEqual(samples[2], { x: 10, y: 0 });
+  assert.deepEqual(interpolatePointerSegment({ x: 2, y: 3 }, { x: 2, y: 3 }), [{ x: 2, y: 3 }]);
+});
+
+test('collision painting reserves middle drag for camera orbit', () => {
+  assert.equal(shouldOrbitWhileCollisionPainting(1, false), true);
+  assert.equal(shouldOrbitWhileCollisionPainting(0, true), true);
+  assert.equal(shouldOrbitWhileCollisionPainting(0, false), false);
+  assert.equal(shouldOrbitWhileCollisionPainting(2, false), false);
 });
 
 test('PS2 blend materials normalize byte 127 to full opacity', () => {

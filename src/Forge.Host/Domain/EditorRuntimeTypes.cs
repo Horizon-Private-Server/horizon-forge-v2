@@ -24,6 +24,7 @@ public enum EditorCommandKind : byte
     RemoveTieCollisionProxy = 20,
     SetTieCollisionEnabled = 21,
     SetTieCollisionRawType = 22,
+    SetTieCollisionFaceTypes = 23,
 }
 
 public enum EditorEventKind : byte
@@ -59,7 +60,9 @@ public sealed record EditorCommand(
     EditorSkyShellUpdate? SkyShellUpdate = null,
     int? DestinationOrder = null,
     bool? TieCollisionEnabled = null,
-    byte? TieCollisionRawType = null);
+    byte? TieCollisionRawType = null,
+    AssetId? TieCollisionProxyAssetId = null,
+    IReadOnlyList<ProjectCollisionFaceTypeOverride>? TieCollisionFaceTypes = null);
 
 public sealed record EditorAssetPlacement(
     AssetId AssetId,
@@ -149,6 +152,12 @@ public delegate Task<EditorTieCollisionSourceInfo> EditorTieCollisionSourceInspe
     AssetId tieAssetId,
     CancellationToken cancellationToken);
 
+public delegate Task<int> EditorTieCollisionFaceCountResolver(
+    ForgeProjectWorkspace workspace,
+    string catalogRootPath,
+    AssetId proxyAssetId,
+    CancellationToken cancellationToken);
+
 public sealed record EditorTieCollisionCandidateSnapshot(
     string Token,
     EditorTieCollisionPreset Preset,
@@ -171,7 +180,8 @@ public sealed record EditorTieCollisionPreview(
 
 public sealed record EditorTieCollisionBindingSnapshot(
     AssetId ProxyAssetId,
-    ProjectTieCollisionRecipe Recipe);
+    ProjectTieCollisionRecipe Recipe,
+    IReadOnlyList<ProjectCollisionFaceTypeOverride> FaceTypeOverrides);
 
 public sealed record EditorTransformUpdate(EntityId EntityId, ProjectTransform Transform);
 

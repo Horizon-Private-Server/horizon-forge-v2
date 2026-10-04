@@ -193,10 +193,30 @@ internal static class EditorPayloadCodec
             if (value > byte.MaxValue) PayloadFormat.Malformed("Invalid TIE collision raw type");
             tieCollisionRawType = (byte)value;
         }
+        AssetId? tieCollisionProxyAssetId = null;
+        IReadOnlyList<ProjectCollisionFaceTypeOverride>? tieCollisionFaceTypes = null;
+        if (reader.ReadBoolean())
+        {
+            tieCollisionProxyAssetId = AssetId.Parse(reader.ReadString());
+            var count = reader.ReadUInt32();
+            if (count > ForgeProjectValidation.MaxTieCollisionFaceTypeOverrides)
+                PayloadFormat.Malformed("TIE collision face-type list exceeds item limit");
+            var values = new ProjectCollisionFaceTypeOverride[count];
+            for (var index = 0; index < values.Length; index++)
+            {
+                var faceIndex = reader.ReadUInt32();
+                var rawType = reader.ReadUInt32();
+                if (faceIndex > int.MaxValue || rawType > byte.MaxValue)
+                    PayloadFormat.Malformed("Invalid TIE collision face-type assignment");
+                values[index] = new((int)faceIndex, (byte)rawType);
+            }
+            tieCollisionFaceTypes = values;
+        }
         reader.Complete();
         return new(
             id, kind, entities, transform, text, state, transforms, levelSettings, points, placement,
-            skyShellSource, skyShellUpdate, destinationOrder, tieCollisionEnabled, tieCollisionRawType);
+            skyShellSource, skyShellUpdate, destinationOrder, tieCollisionEnabled, tieCollisionRawType,
+            tieCollisionProxyAssetId, tieCollisionFaceTypes);
     }
 
     public static byte[] EncodeSnapshot(EditorSnapshot value)
@@ -344,6 +364,12 @@ internal static class EditorPayloadCodec
         {
             writer.WriteString(value.TieCollision.ProxyAssetId.ToString());
             WriteTieCollisionRecipe(writer, value.TieCollision.Recipe);
+            writer.WriteUInt32(checked((uint)value.TieCollision.FaceTypeOverrides.Count));
+            foreach (var faceType in value.TieCollision.FaceTypeOverrides)
+            {
+                writer.WriteUInt32(checked((uint)faceType.FaceIndex));
+                writer.WriteUInt32(faceType.RawType);
+            }
         }
         writer.WriteBoolean(value.TieCollisionEnabled is not null);
         if (value.TieCollisionEnabled is not null) writer.WriteBoolean(value.TieCollisionEnabled.Value);

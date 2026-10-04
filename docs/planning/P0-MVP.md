@@ -18,6 +18,7 @@ the entire authoring loop with vanilla NTSC-U Up Your Arsenal content.
   to the extent explicitly enabled by host capabilities.
 - Reusable generated collision proxies for placed compatible vanilla TIEs, expanded
   and validated against combined native octant budgets during bake.
+- Per-face collision and sound type painting on those shared TIE collision proxies.
 - Byte-exact pass-through for unsupported data including code overlays.
 - Incremental deterministic bake to staging, verified in-memory SDK WAD build,
   recoverable development ISO patch, and manual reload in externally managed PCSX2.

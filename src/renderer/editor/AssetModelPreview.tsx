@@ -44,7 +44,7 @@ export function AssetModelPreview({ assetId, kind, label, shellIndex }: AssetMod
     renderer.domElement.tabIndex = 0;
     renderer.domElement.setAttribute(
       'aria-label',
-      `${label} interactive model preview. Use arrow keys to orbit, plus and minus to zoom, and Home to reset.`,
+      `${label} interactive model preview. Right-drag to pan, use arrow keys to orbit, plus and minus to zoom, and Home to reset.`,
     );
     element.append(renderer.domElement);
 
@@ -54,7 +54,6 @@ export function AssetModelPreview({ assetId, kind, label, shellIndex }: AssetMod
     const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 10_000);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
-    controls.enablePan = false;
     controls.zoomSpeed = 0.5;
     const resize = () => {
       const width = Math.max(1, element.clientWidth);

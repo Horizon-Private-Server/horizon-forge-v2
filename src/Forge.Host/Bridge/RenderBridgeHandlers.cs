@@ -17,7 +17,28 @@ internal static class RenderBridgeHandlers
             request.CacheRootPath,
             request.CatalogRootPath,
             sdkRevision,
-            candidate,
+            AssetId.Compute(AssetKind.Collision, 0, candidate.CanonicalBytes),
+            candidate.CanonicalBytes,
+            cancellationToken);
+        return BridgePayloadCodec.EncodeAssetPreviewResult(new(
+            result.RootPath, result.CacheKey, result.ModelPath, result.CacheHit));
+    }
+
+    public static async Task<byte[]> PrepareAppliedTieCollisionAsync(
+        byte[] payload,
+        string sdkRevision,
+        EditorRuntime runtime,
+        CancellationToken cancellationToken)
+    {
+        var request = EditorPayloadCodec.DecodeTieCollisionRenderRequest(payload);
+        var proxyAssetId = AssetId.Parse(request.Token);
+        var bytes = await runtime.ReadAppliedTieCollisionProxyAsync(proxyAssetId, cancellationToken);
+        var result = await UyaTieCollisionPreviewService.PrepareRenderAsync(
+            request.CacheRootPath,
+            request.CatalogRootPath,
+            sdkRevision,
+            proxyAssetId,
+            bytes,
             cancellationToken);
         return BridgePayloadCodec.EncodeAssetPreviewResult(new(
             result.RootPath, result.CacheKey, result.ModelPath, result.CacheHit));

@@ -740,6 +740,22 @@ cancellation, or validation failure preserves the last known-good project, stage
 and development ISO. Detailed behavior and tasks are defined by the
 [Instanced TIE Collision v0 feature specification](features/instanced-tie-collision-v0.md).
 
+#### FR-COLL-005: Per-face proxy collision type painting
+
+Users MUST be able to paint the complete target-game raw collision type onto stable
+native faces of an applied reusable TIE collision proxy without changing its
+geometry. Face identity is scoped to the exact immutable proxy Asset ID. Sparse
+overrides belong to the exact-asset binding, apply to every enabled matching
+instance, and are validated against decoded proxy topology before project mutation.
+
+Pointer interaction previews renderer-local face attributes and commits at most one
+bounded editor command per completed stroke. Painting MUST remain undoable, survive
+save and recovery, participate in Collision fingerprints, apply before instance
+transforms, and pass the ordinary deterministic writer and semantic re-read gate.
+Forge MUST NOT infer authoritative types from render materials or silently subdivide
+collision geometry. Detailed behavior and tasks are defined by the
+[Collision Type Painting v0 feature specification](features/collision-type-painting-v0.md).
+
 #### FR-EDIT-001: Undo/redo
 
 - Every project mutation uses an editor command except documented UI-only state.

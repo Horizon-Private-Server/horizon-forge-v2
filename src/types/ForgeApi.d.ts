@@ -354,6 +354,7 @@ export interface ForgeApi {
   cancelTieCollisionPreview(): Promise<void>;
   applyTieCollisionPreview(commandId: string, token: string): Promise<EditorSnapshot>;
   getTieCollisionPreviewModel(token: string, requestToken: string): Promise<AssetPreviewSource>;
+  getAppliedTieCollisionModel(proxyAssetId: string, requestToken: string): Promise<AssetPreviewSource>;
   saveEditorProject(): Promise<EditorSnapshot>;
   getBuildPlan(): Promise<BuildPlan>;
   buildAndPatchProject(includedLayers: BuildLayerId[]): Promise<BuildPatchResult>;

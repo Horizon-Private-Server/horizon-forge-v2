@@ -1,4 +1,4 @@
-export const uyaLevelNames: Readonly<Record<number, string>> = {
+const UYA_LEVEL_NAMES: Readonly<Record<number, string>> = {
   1: 'Veldin',
   2: 'Florana',
   3: 'Starship Phoenix',
@@ -51,3 +51,10 @@ export const uyaLevelNames: Readonly<Record<number, string>> = {
   54: 'MP: Metropolis (Split-screen)',
   55: 'MP: Blackwater City (Split-screen)',
 };
+
+export function formatUyaLevelLabel(level: number | string): string {
+  const match = /^(?:level)?0*(\d+)$/i.exec(String(level));
+  if (!match) return String(level);
+  const index = Number(match[1]);
+  return `${String(index).padStart(2, '0')} - ${UYA_LEVEL_NAMES[index] ?? `Level ${index}`}`;
+}

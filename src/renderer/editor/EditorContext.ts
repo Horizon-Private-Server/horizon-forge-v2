@@ -2,7 +2,7 @@ import { createContext, useContext } from 'react';
 
 import type { KeybindingMap } from '../../types/Keybindings.js';
 import type {
-  EditorCommand, EditorSnapshot, EditorTieCollisionCandidate, EditorTieCollisionGenerationSettings,
+  EditorCollisionFaceType, EditorCommand, EditorSnapshot, EditorTieCollisionCandidate, EditorTieCollisionGenerationSettings,
   EditorTieCollisionPreview,
   EditorTieCollisionSourceInfo,
 } from '../../types/EditorRuntime.js';
@@ -64,12 +64,22 @@ export interface EditorContextValue {
 
 export interface TieCollisionOverlay {
   entityId: string;
-  candidate: EditorTieCollisionCandidate;
+  candidate?: EditorTieCollisionCandidate;
   url: string;
   showSource: boolean;
   showProxy: boolean;
   wireframe: boolean;
   showOctants: boolean;
+  paint?: {
+    proxyAssetId: string;
+    defaultRawType: number;
+    faceTypes: EditorCollisionFaceType[];
+    brushRawType: number;
+    interaction: 'paint' | 'reset' | 'eyedropper';
+    onHover(faceId?: number, rawType?: number): void;
+    onStroke(faceIds: number[], rawType: number): Promise<boolean>;
+    onEyedropper(rawType: number): void;
+  };
 }
 
 export const EditorContext = createContext<EditorContextValue | undefined>(undefined);

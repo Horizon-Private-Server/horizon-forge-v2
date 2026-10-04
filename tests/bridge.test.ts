@@ -241,6 +241,20 @@ test('TIE collision binding commands validate instance scope and enabled state',
     entityIds: ['tie'],
     rawType: 256,
   }), false);
+  const paintCommand = {
+    id: '30000000-0000-4000-8000-000000000016',
+    kind: 'setTieCollisionFaceTypes',
+    entityIds: ['tie'],
+    expectedProxyAssetId: 'c'.repeat(64),
+    faceTypes: [{ faceIndex: 7, rawType: 0xaf }, { faceIndex: 2, rawType: 0x31 }],
+  };
+  assert.equal(isEditorCommand(paintCommand), true);
+  assert.equal(isEditorCommand({ ...paintCommand, expectedProxyAssetId: '../proxy' }), false);
+  assert.equal(isEditorCommand({ ...paintCommand, faceTypes: [] }), false);
+  assert.equal(isEditorCommand({ ...paintCommand, faceTypes: [
+    { faceIndex: 2, rawType: 0x31 }, { faceIndex: 2, rawType: 0xaf },
+  ] }), false);
+  assert.equal(isEditorCommand({ ...paintCommand, faceTypes: [{ faceIndex: 3, rawType: 256 }] }), false);
 });
 
 test('fragmented and coalesced reads retain frame boundaries', () => {

@@ -345,14 +345,50 @@ internal static class ForgeProjectTests
             Equal(fingerprintBeforeInvalidRecipe, reopened.CurrentFingerprint,
                 "invalid recipe preserves the last known-good project state");
 
+            reopened.SetTieCollisionFaceTypes(
+                tie.Id,
+                binding.ProxyAssetId,
+                [new(2, 0x11), new(0, 0x22)],
+                faceCount: 3);
+            binding = reopened.Content.TieCollisionBindings.Single();
+            Equal(true, binding.FaceTypeOverrides.SequenceEqual([new(0, 0x22), new(2, 0x11)]),
+                "proxy face types are stored sparsely in face order");
+
             await reopened.SaveAsync();
             reopened = await ForgeProjectWorkspace.OpenAsync(movedPath);
-            Equal(binding, reopened.Content.TieCollisionBindings.Single(), "proxy binding survives save and reopen");
+            EqualBinding(binding, reopened.Content.TieCollisionBindings.Single(), "proxy binding survives save and reopen");
+            reopened.SetTieCollisionFaceTypes(
+                tie.Id,
+                binding.ProxyAssetId,
+                [new(0, recipe.RawType), new(2, recipe.RawType)],
+                faceCount: 3);
+            binding = reopened.Content.TieCollisionBindings.Single();
+            Equal(0, binding.FaceTypeOverrides.Count, "painting the default removes persisted overrides");
             Equal(false,
                 reopened.Content.Entities.Single(entity => entity.EntityId == secondTieId).TieCollisionEnabled,
                 "per-instance proxy opt-out survives save and reopen");
             Equal(true, File.Exists(reopened.ResolveAssetPath(binding.ProxyAssetId, catalog)),
                 "reopened proxy resolves from its portable project-relative blob");
+
+            var versionSixPath = Path.Combine(root, "version-six-project");
+            Directory.CreateDirectory(Path.Combine(versionSixPath, "content"));
+            var currentManifest = await File.ReadAllBytesAsync(
+                Path.Combine(movedPath, ForgeProjectWorkspace.ManifestFileName));
+            var currentContent = Decompress(await File.ReadAllBytesAsync(
+                Path.Combine(movedPath, ForgeProjectWorkspace.DefaultContentPath)));
+            await WriteLegacyManifestAsync(
+                currentManifest,
+                Path.Combine(versionSixPath, ForgeProjectWorkspace.ManifestFileName),
+                6);
+            await WriteSchemaVersionAsync(
+                currentContent,
+                Path.Combine(versionSixPath, ForgeProjectWorkspace.LegacyContentPath),
+                6,
+                compress: true);
+            var versionSix = await ForgeProjectWorkspace.OpenAsync(versionSixPath);
+            Equal(true, versionSix.MigrationPending, "v6 proxy project migration is pending");
+            Equal(0, versionSix.Content.TieCollisionBindings.Single().FaceTypeOverrides.Count,
+                "v6 migration supplies an empty face-type override list");
 
             var replacementBytes = "replacement proxy geometry"u8.ToArray();
             var replacement = await reopened.ApplyTieCollisionProxyAsync(
@@ -360,6 +396,8 @@ internal static class ForgeProjectTests
                 replacementBytes,
                 canonicalFormatVersion: 1,
                 recipe with { SealOpeningSize = 4 });
+            Equal(0, replacement.FaceTypeOverrides.Count,
+                "replacing a proxy discards overrides from the old face-ID domain");
             Equal(false, reopened.IsAssetReferenced(binding.ProxyAssetId),
                 "replaced proxy becomes eligible for safe collection");
             Equal(true, reopened.IsAssetReferenced(replacement.ProxyAssetId),
@@ -390,7 +428,7 @@ internal static class ForgeProjectTests
             Equal(true, File.Exists(reopened.ResolveAttachedAssetPath(replacement.ProxyAssetId)),
                 "recovery-protected proxy blob survives collection");
             await reopened.LoadRecoveryAsync(proxyRecovery.Id);
-            Equal(replacement, reopened.Content.TieCollisionBindings.Single(),
+            EqualBinding(replacement, reopened.Content.TieCollisionBindings.Single(),
                 "recovery restores the reusable proxy binding");
             await reopened.SaveAsync();
 
@@ -399,7 +437,7 @@ internal static class ForgeProjectTests
             var transferredPath = Path.Combine(root, "transferred-project");
             ZipFile.ExtractToDirectory(archivePath, transferredPath);
             var transferred = await ForgeProjectWorkspace.OpenAsync(transferredPath);
-            Equal(replacement, transferred.Content.TieCollisionBindings.Single(),
+            EqualBinding(replacement, transferred.Content.TieCollisionBindings.Single(),
                 "zip transfer preserves the exact proxy binding");
             var transferredProxyPath = transferred.ResolveAttachedAssetPath(replacement.ProxyAssetId)
                 ?? throw new InvalidOperationException("Transferred proxy blob did not resolve");
@@ -421,7 +459,7 @@ internal static class ForgeProjectTests
             Equal(tie.Id, repairedTie.Id, "repair restores the same content-addressed TIE ID");
             Equal(true, transferred.ResolveAssetPath(tie.Id, repairedCatalog) is not null,
                 "repaired source TIE resolves after transfer");
-            Equal(replacement, transferred.Content.TieCollisionBindings.Single(),
+            EqualBinding(replacement, transferred.Content.TieCollisionBindings.Single(),
                 "source repair leaves the proxy binding unchanged");
         }
         finally
@@ -462,6 +500,8 @@ internal static class ForgeProjectTests
             ?? throw new InvalidOperationException("Current project document is invalid");
         document["schemaVersion"] = version;
         if (version < 5) document.Remove("tieCollisionBindings");
+        if (version < 7 && document["tieCollisionBindings"] is JsonArray bindings)
+            foreach (var binding in bindings.OfType<JsonObject>()) binding.Remove("faceTypeOverrides");
         if (legacyV0)
         {
             document.Remove("documentType");
@@ -496,6 +536,17 @@ internal static class ForgeProjectTests
         if (!EqualityComparer<T>.Default.Equals(expected, actual))
             throw new InvalidOperationException($"{context}: expected {expected}, got {actual}");
     }
+
+    private static void EqualBinding(
+        ProjectTieCollisionBinding expected,
+        ProjectTieCollisionBinding actual,
+        string context) => Equal(
+            true,
+            expected.TieAssetId == actual.TieAssetId
+                && expected.ProxyAssetId == actual.ProxyAssetId
+                && expected.Recipe == actual.Recipe
+                && expected.FaceTypeOverrides.SequenceEqual(actual.FaceTypeOverrides),
+            context);
 
     private static async Task ThrowsAsync<T>(Func<Task> action) where T : Exception
     {

@@ -60,6 +60,11 @@ export interface EditorTieCollisionRecipe {
   profileSections: number;
 }
 
+export interface EditorCollisionFaceType {
+  faceIndex: number;
+  rawType: number;
+}
+
 export interface EditorTieCollisionGenerationSettings {
   rawType: number;
   profileSections: number;
@@ -141,7 +146,11 @@ export interface EditorEntity {
   };
   skyShell?: EditorSkyShell;
   collision?: EditorCollisionPiece;
-  tieCollision?: { proxyAssetId: string; recipe: EditorTieCollisionRecipe };
+  tieCollision?: {
+    proxyAssetId: string;
+    recipe: EditorTieCollisionRecipe;
+    faceTypeOverrides: EditorCollisionFaceType[];
+  };
   tieCollisionEnabled?: boolean;
   transformModes: Array<'translate' | 'rotate' | 'scale'>;
   state: {
@@ -183,7 +192,14 @@ export type EditorCommand =
   | { id: string; kind: 'reorderSkyShell'; entityIds: [string]; destinationOrder: number }
   | { id: string; kind: 'removeTieCollisionProxy'; entityIds: [string] }
   | { id: string; kind: 'setTieCollisionEnabled'; entityIds: string[]; enabled: boolean }
-  | { id: string; kind: 'setTieCollisionRawType'; entityIds: [string]; rawType: number };
+  | { id: string; kind: 'setTieCollisionRawType'; entityIds: [string]; rawType: number }
+  | {
+    id: string;
+    kind: 'setTieCollisionFaceTypes';
+    entityIds: [string];
+    expectedProxyAssetId: string;
+    faceTypes: EditorCollisionFaceType[];
+  };
 
 export interface EditorEvent {
   sequence: number;

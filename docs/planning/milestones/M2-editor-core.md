@@ -7,7 +7,8 @@ Task register: [M2 tasks](../tasks/M2-tasks.md)
 Feature tasks: [Asset Explorer v0](../../features/asset-explorer-v0.md#implementation-tasks),
 [Skybox Editor v0](../../features/skybox-editor-v0.md#implementation-tasks),
 [Collision Editor v0](../../features/collision-editor-v0.md#implementation-tasks),
-[Instanced TIE Collision v0](../../features/instanced-tie-collision-v0.md#implementation-tasks)
+[Instanced TIE Collision v0](../../features/instanced-tie-collision-v0.md#implementation-tasks),
+[Collision Type Painting v0](../../features/collision-type-painting-v0.md#implementation-tasks)
 
 ## Outcome
 
@@ -36,6 +37,7 @@ bounded command history while viewing the real UYA level rather than editor prox
   deletion, target-native rebuild, and no-edit byte identity.
 - Reusable collision proxies for compatible vanilla TIEs with candidate preview,
   combined-octant diagnostics, per-instance opt-out, and validated bake expansion.
+- Per-face collision and sound type painting on reusable TIE collision proxies.
 - Hidden/disabled/locked behavior.
 - Translate/rotate/scale, grid/center/vertex snapping, and Page Down placement.
 - Undo/redo, delete/duplicate, clipboard, keybindings, and accessibility basics.

@@ -13,6 +13,7 @@ import type {
 import type { SceneTreeColors, SceneTreeKind } from '../../types/SceneTree.js';
 import { errorMessage } from '../../utils/Errors.ts';
 import { ASSET_PLACEMENT_MIME, SKY_SHELL_PLACEMENT_MIME } from '../../utils/AssetPlacement.ts';
+import { formatUyaLevelLabel } from '../../utils/UyaLevels.ts';
 import { AssetPreviewMeshMissingError, AssetThumbnailRuntime } from './AssetThumbnailRuntime.ts';
 import {
   assetExplorerFilterCount,
@@ -211,7 +212,10 @@ export function AssetExplorerPanel() {
         <div className="asset-explorer-filter-grid">
           <Select aria-label="Filter assets by game" clearable data={facets.games} label="Game"
             value={filters.game ?? null} onChange={(game) => setFilters((value) => ({ ...value, game: game || undefined }))} />
-          <Select aria-label="Filter assets by level" clearable data={facets.levels} label="Level"
+          <Select aria-label="Filter assets by level" clearable data={facets.levels.map((level) => ({
+            value: level,
+            label: (filters.game ?? project.target.game) === 'UYA' ? formatUyaLevelLabel(level) : level,
+          }))} label="Level"
             value={filters.level ?? null} onChange={(level) => setFilters((value) => ({ ...value, level: level || undefined }))} />
           <Select aria-label="Filter assets by region" clearable data={facets.regions} label="Region"
             value={filters.region ?? null} onChange={(region) => setFilters((value) => ({ ...value, region: region || undefined }))} />

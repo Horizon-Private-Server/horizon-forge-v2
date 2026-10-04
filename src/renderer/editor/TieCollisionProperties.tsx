@@ -13,6 +13,7 @@ import {
 } from '../../utils/TieCollision.ts';
 import { useEditor } from './EditorContext.ts';
 import { EditorProperty, EditorPropertyGrid } from './EditorPrimitives.tsx';
+import { TieCollisionPainter } from './TieCollisionPainter.tsx';
 
 const TIE_COLLISION_METHOD_OPTIONS = [
   { value: 'surface-auto', label: 'Decimate (Automatic LOD)' },
@@ -48,6 +49,7 @@ export function TieCollisionProperties({ entity, disabled }: { entity: EditorEnt
   const sourceInspection = useRef(0);
   const regenerationTimer = useRef<number | undefined>(undefined);
   const [wireframe, setWireframe] = useState(false);
+  const [painting, setPainting] = useState(false);
   const [debugInfo, setDebugInfo] = useState(false);
   const [surfaceLodIndices, setSurfaceLodIndices] = useState<number[]>();
   const [inspectingLods, setInspectingLods] = useState(false);
@@ -65,6 +67,7 @@ export function TieCollisionProperties({ entity, disabled }: { entity: EditorEnt
     setMethod(tieCollisionMethod(entity));
     setSurfaceLodIndices(entity.asset ? tieSurfaceLodCache.get(entity.asset.id) : undefined);
     setInspectingLods(false);
+    setPainting(false);
     return () => {
       window.clearTimeout(regenerationTimer.current);
       sourceInspection.current += 1;
@@ -79,6 +82,9 @@ export function TieCollisionProperties({ entity, disabled }: { entity: EditorEnt
     if (entity.tieCollision.recipe.kind === 'hull' && entity.tieCollision.recipe.profileSections > 0)
       setProfileSections(entity.tieCollision.recipe.profileSections);
   }, [entity.tieCollision?.recipe]);
+  useEffect(() => {
+    if (!entity.tieCollision) setPainting(false);
+  }, [entity.tieCollision?.proxyAssetId]);
 
   const generate = async (
     requestedMethod = method,
@@ -189,6 +195,7 @@ export function TieCollisionProperties({ entity, disabled }: { entity: EditorEnt
     }
   };
   useEffect(() => {
+    if (painting) return;
     if (!selected) {
       setModelStatus(undefined);
       setTieCollisionOverlay(undefined);
@@ -217,7 +224,8 @@ export function TieCollisionProperties({ entity, disabled }: { entity: EditorEnt
       void window.forge.cancelAssetPreview(requestToken);
       setTieCollisionOverlay(undefined);
     };
-  }, [entity.id, selected?.token, setTieCollisionOverlay]);
+  }, [entity.id, painting, selected?.token, setTieCollisionOverlay]);
+
   const pressure = debugInfo && selected ? [...selected.octants]
     .sort((left, right) => right.encodedByteCount - left.encodedByteCount)
     .slice(0, 3) : [];
@@ -239,6 +247,15 @@ export function TieCollisionProperties({ entity, disabled }: { entity: EditorEnt
       {entity.tieCollision && <Text size="xs" c="dimmed">
         Used by {sharedCollisionInstanceCount.toLocaleString()} of {matchingTieInstances.length.toLocaleString()} matching TIE {matchingTieInstances.length === 1 ? 'instance' : 'instances'}.
       </Text>}
+
+      <TieCollisionPainter
+        entity={entity}
+        disabled={disabled}
+        instanceCount={matchingTieInstances.length}
+        active={painting}
+        onActiveChange={setPainting}
+        wireframe={wireframe}
+        onWireframeChange={setWireframeView} />
 
       <Accordion value={settingsOpen} onChange={(value) => {
         setSettingsOpen(value);
@@ -351,7 +368,7 @@ export function TieCollisionProperties({ entity, disabled }: { entity: EditorEnt
           {pressure.length > 0 && <OctantPressureDetails title="Highest candidate pressure" octants={pressure} />}
           {combinedPressure.length > 0
             && <OctantPressureDetails title="Highest combined pressure" octants={combinedPressure} />}
-          {tieCollisionOverlay?.candidate.token === selected.token && <Group>
+          {tieCollisionOverlay?.candidate?.token === selected.token && <Group>
             <Checkbox label="Source" checked={tieCollisionOverlay.showSource}
               onChange={(event) => setTieCollisionOverlay({
                 ...tieCollisionOverlay, showSource: event.currentTarget.checked,
