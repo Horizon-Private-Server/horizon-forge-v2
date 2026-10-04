@@ -6,8 +6,11 @@ import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 
 import { SceneProjection } from '../src/renderer/editor/SceneProjection.ts';
+import { verticalDragScale } from '../src/renderer/editor/TransformTool.ts';
 import { AssetPreviewScheduler, collectSkyShellObjects } from '../src/renderer/editor/AssetThumbnailRuntime.ts';
-import { buildGroundPlacement } from '../src/renderer/editor/ScenePlacement.ts';
+import {
+  buildGroundPlacement, createGroundSurfaceRaycast,
+} from '../src/renderer/editor/ScenePlacement.ts';
 import { resolvePointerSnapTarget, VertexSnapIndex } from '../src/renderer/editor/SceneSnapping.ts';
 import type { EditorEntity } from '../src/types/EditorRuntime.js';
 import { DEFAULT_SCENE_TREE_COLORS } from '../src/utils/SceneTreeColors.ts';
@@ -56,6 +59,12 @@ function entity(id: string, x = 0, asset = true, state: Partial<EditorEntity['st
     },
   };
 }
+
+test('vertical gizmo drags provide stable scale control', () => {
+  assert.equal(verticalDragScale(1, 200, null), 2);
+  assert.equal(verticalDragScale(1, -200, null), 0.5);
+  assert.equal(verticalDragScale(1, 30, 0.1), 1.1);
+});
 
 test('asset preview scheduler caps work at four and cancels queued jobs', async () => {
   const scheduler = new AssetPreviewScheduler();
@@ -480,6 +489,23 @@ test('scene projection merges matching parts, instances assets, and resolves ins
   assert.equal(mesh.count, 0);
   assert.equal(projection.resolvePick([{ object: mesh, instanceId: 0 }] as unknown as THREE.Intersection[]), undefined);
 
+  projection.dispose();
+  disposeObject(template);
+});
+
+test('asset template bounds use the visible rendered geometry', () => {
+  const template = new THREE.Group();
+  const tall = new THREE.Mesh(new THREE.BoxGeometry(2, 20, 2), new THREE.MeshBasicMaterial());
+  tall.position.y = 5;
+  const hidden = new THREE.Mesh(new THREE.BoxGeometry(2, 200, 2), new THREE.MeshBasicMaterial());
+  hidden.position.y = -100;
+  hidden.visible = false;
+  template.add(tall, hidden);
+  const projection = new SceneProjection();
+  projection.setAssetTemplates(new Map([['tall', template]]));
+  const bounds = projection.getAssetTemplateBounds('tall')!;
+  assert.equal(bounds.min.y, -5);
+  assert.equal(bounds.max.y, 15);
   projection.dispose();
   disposeObject(template);
 });
@@ -948,6 +974,61 @@ test('Page Down placement preserves group offsets and ignores selected meshes', 
     result.updates[1].transform.position.z - result.updates[0].transform.position.z,
     upper.transform.position.z - lower.transform.position.z,
   );
+  projection.dispose();
+  disposeObject(template);
+  disposeObject(ground);
+});
+
+test('Page Down lands only on tfrags and unselected TIEs', () => {
+  const projection = new SceneProjection();
+  const template = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), new THREE.MeshBasicMaterial());
+  projection.setAssetTemplates(new Map([['asset', template]]));
+  const selected = entity('selected');
+  selected.transform.position.z = 10;
+  const moby = entity('moby');
+  moby.transform.position.z = 7;
+  const shrub = entity('shrub');
+  shrub.asset!.kind = 'Shrub';
+  shrub.transform.position.z = 5;
+  const collision = entity('collision');
+  collision.asset!.kind = 'Collision';
+  collision.transform.position.z = 9;
+  collision.collision = {
+    kind: 'solid', sourcePayloadIndex: 0, sourcePieceIndex: 0,
+    faceCount: 1, vertexCount: 3, types: [],
+  };
+  const spline = entity('spline', 0, false);
+  spline.geometry = {
+    kind: 'spline',
+    points: [{ x: 0, y: 0, z: 8, w: 0 }, { x: 1, y: 0, z: 8, w: 0 }],
+  };
+  const tie = entity('tie');
+  tie.asset!.kind = 'Tie';
+  tie.transform.position.z = 3;
+  const roof = entity('roof');
+  roof.asset!.kind = 'Tie';
+  roof.transform.position.z = 12;
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), new THREE.MeshBasicMaterial());
+  ground.rotateX(-Math.PI / 2);
+
+  projection.sync([selected, moby, shrub, collision, spline]);
+  const groundResult = buildGroundPlacement(
+    [selected, moby, shrub, collision, spline], [selected.id], projection, [ground, projection.root],
+  );
+  assert.equal(groundResult.updates[0].transform.position.z, 1);
+
+  projection.sync([selected, moby, shrub, collision, spline, tie, roof]);
+  const findGround = createGroundSurfaceRaycast(
+    [selected, moby, shrub, collision, spline, tie, roof], projection, [ground, projection.root],
+  );
+  assert.equal(findGround(0, -2, 20)?.y, 13);
+  assert.equal(findGround(0, -2, 6)?.y, 4);
+  const tieResult = buildGroundPlacement(
+    [selected, moby, shrub, collision, spline, tie, roof],
+    [selected.id], projection, [ground, projection.root],
+  );
+  assert.equal(tieResult.updates[0].transform.position.z, 5);
+
   projection.dispose();
   disposeObject(template);
   disposeObject(ground);

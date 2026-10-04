@@ -13,8 +13,31 @@ const DOWN = new THREE.Vector3(0, -1, 0);
 const bounds = new THREE.Box3();
 const entityBounds = new THREE.Box3();
 const center = new THREE.Vector3();
-const origin = new THREE.Vector3();
-const raycaster = new THREE.Raycaster();
+
+export function createGroundSurfaceRaycast(
+  entities: readonly EditorEntity[],
+  projection: SceneProjection,
+  targets: readonly THREE.Object3D[],
+  excludedIds: ReadonlySet<string> = new Set(),
+): (x: number, z: number, startY: number) => THREE.Vector3 | undefined {
+  const entitiesById = new Map(entities.map((entity) => [entity.id, entity]));
+  const raycaster = new THREE.Raycaster();
+  const origin = new THREE.Vector3();
+  targets.forEach((target) => target.updateMatrixWorld(true));
+  const surfaces = collectSurfaceMeshes(targets);
+  return (x, z, startY) => {
+    raycaster.set(origin.set(x, startY, z), DOWN);
+    return raycaster.intersectObjects(surfaces, false).find((intersection) => {
+      if (isDescendantOf(intersection.object, targets[0])) return true;
+      const entityId = projection.resolveIntersectionEntityId(intersection);
+      if (!entityId || excludedIds.has(entityId)) return false;
+      const entity = entitiesById.get(entityId);
+      if (!entity || entity.state.hidden || entity.state.disabled) return false;
+      const kind = entity.asset?.kind.toLowerCase();
+      return kind === 'tie' || kind === 'tfrag';
+    })?.point;
+  };
+}
 
 export function buildGroundPlacement(
   entities: readonly EditorEntity[],
@@ -34,7 +57,7 @@ export function buildGroundPlacement(
   }
   if (bounds.isEmpty()) return { message: 'The selection has no placeable bounds.', updates: [] };
 
-  targets.forEach((target) => target.updateMatrixWorld(true));
+  const findGround = createGroundSurfaceRaycast(entities, projection, targets, selectedIds);
   bounds.getCenter(center);
   let ground = -Infinity;
   const samples = [
@@ -45,12 +68,8 @@ export function buildGroundPlacement(
     [bounds.max.x, bounds.max.z],
   ];
   for (const [x, z] of samples) {
-    raycaster.set(origin.set(x, bounds.min.y + 0.01, z), DOWN);
-    const hit = raycaster.intersectObjects(targets, true).find((intersection) => {
-      const entityId = projection.resolveIntersectionEntityId(intersection);
-      return !entityId || !selectedIds.has(entityId);
-    });
-    if (hit) ground = Math.max(ground, hit.point.y);
+    const point = findGround(x, z, bounds.min.y + 0.01);
+    if (point) ground = Math.max(ground, point.y);
   }
   if (!Number.isFinite(ground)) return { message: 'No surface found below the selection.', updates: [] };
 
@@ -64,4 +83,20 @@ export function buildGroundPlacement(
       return { entityId: entity.id, transform };
     }),
   };
+}
+
+function collectSurfaceMeshes(targets: readonly THREE.Object3D[]): THREE.Mesh[] {
+  const surfaces: THREE.Mesh[] = [];
+  for (const target of targets) target.traverse((object) => {
+    if (object instanceof THREE.Mesh
+      && !(object as THREE.Mesh & { isLineSegments2?: boolean }).isLineSegments2)
+      surfaces.push(object);
+  });
+  return surfaces;
+}
+
+function isDescendantOf(object: THREE.Object3D, ancestor?: THREE.Object3D): boolean {
+  for (let current: THREE.Object3D | null = object; current; current = current.parent)
+    if (current === ancestor) return true;
+  return false;
 }

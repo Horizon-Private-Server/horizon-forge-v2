@@ -198,6 +198,20 @@ export class SceneProjection {
     return this.templates.has(assetId);
   }
 
+  getAssetTemplateBounds(assetId: string, target = new THREE.Box3()): THREE.Box3 | undefined {
+    const template = this.templates.get(assetId);
+    if (!template) return undefined;
+    target.makeEmpty();
+    template.updateMatrixWorld(true);
+    template.traverseVisible((object) => {
+      if (!isRenderableAssetMesh(object)) return;
+      if (!object.geometry.boundingBox) object.geometry.computeBoundingBox();
+      if (object.geometry.boundingBox)
+        target.union(this.instanceBounds.copy(object.geometry.boundingBox).applyMatrix4(object.matrixWorld));
+    });
+    return target.isEmpty() ? undefined : target;
+  }
+
   addAssetTemplate(assetId: string, template: THREE.Object3D): void {
     template.updateMatrixWorld(true);
     this.templates.set(assetId, template);
@@ -980,8 +994,7 @@ function createInstancedAsset(
   const materials = new Set<THREE.Material>();
   const buckets = new Map<THREE.Material | THREE.Material[], Map<string, THREE.BufferGeometry[]>>();
   template.traverseVisible((object) => {
-    // Moby metal overlays intentionally stay disabled until the map chrome texture is extracted and applied.
-    if (!(object instanceof THREE.Mesh) || object.name === 'shrub_billboard' || isMobyMetalObject(object)) return;
+    if (!isRenderableAssetMesh(object)) return;
     const geometry = object.geometry.clone();
     geometry.deleteAttribute('skinIndex');
     geometry.deleteAttribute('skinWeight');
@@ -1010,6 +1023,11 @@ function createInstancedAsset(
     }
   }
   return { root, meshes, geometries, materials, capacity, hasNormal, hasMirrored };
+}
+
+function isRenderableAssetMesh(object: THREE.Object3D): object is THREE.Mesh {
+  // Moby metal overlays intentionally stay disabled until the map chrome texture is extracted and applied.
+  return object instanceof THREE.Mesh && object.name !== 'shrub_billboard' && !isMobyMetalObject(object);
 }
 
 function isMobyMetalObject(object: THREE.Object3D): boolean {

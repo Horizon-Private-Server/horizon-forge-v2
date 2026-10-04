@@ -31,6 +31,9 @@ test('keybindings resolve, capture, match contexts, and reject conflicts', () =>
   assert.equal(findKeybindingCommand(bindings, {
     code: 'KeyG', ctrlKey: false, metaKey: false, altKey: false, shiftKey: false,
   }, 'global'), undefined);
+  assert.equal(findKeybindingCommand(bindings, {
+    code: 'PageDown', ctrlKey: false, metaKey: false, altKey: false, shiftKey: false,
+  }, 'viewport'), 'scene.snapToGround');
   assert.equal(findKeybindingConflict(bindings, 'scene.select', 'KeyG')?.id, 'scene.translate');
   assert.equal(forgeActionForKeybinding('edit.copy'), 'copyEntities');
   assert.equal(transformModeForKeybinding('scene.translate'), 'translate');

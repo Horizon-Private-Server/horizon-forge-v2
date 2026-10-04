@@ -38,12 +38,13 @@ import {
   configurePs2MaterialFog,
 } from '../../utils/Ps2Materials.ts';
 import { isTextInput } from '../../utils/Dom.ts';
+import { errorMessage } from '../../utils/Errors.ts';
 import { findKeybindingCommand, transformModeForKeybinding } from '../../utils/Keybindings.ts';
 import {
   ASSET_PLACEMENT_MIME, readAssetPlacementDrag, SKY_SHELL_PLACEMENT_MIME,
 } from '../../utils/AssetPlacement.ts';
 import { nextViewportSelection } from './EditorPanelState.ts';
-import { buildGroundPlacement } from './ScenePlacement.ts';
+import { buildGroundPlacement, createGroundSurfaceRaycast } from './ScenePlacement.ts';
 import { assetTemplateKey, SceneProjection } from './SceneProjection.ts';
 import { resolvePointerSnapTarget } from './SceneSnapping.ts';
 import { TransformTool } from './TransformTool.ts';
@@ -335,11 +336,14 @@ export function SceneViewport({
       if (noticeTimer) clearTimeout(noticeTimer);
       noticeTimer = setTimeout(() => setNotice(undefined), 2_000);
     };
+    const viewportInputActive = () => cameraInputActive
+      || document.activeElement === renderer.domElement
+      || transformTool.isInteracting;
 
     const keyDown = (event: KeyboardEvent) => {
       if (isTextInput(event.target)) return;
       if (SNAP_MODIFIER_KEYS.has(event.code)) {
-        if (cameraInputActive) {
+        if (viewportInputActive()) {
           snapModifiers.add(event.code);
           transformTool.setSnapInverted(true);
         }
@@ -349,7 +353,7 @@ export function SceneViewport({
         event.preventDefault();
         return;
       }
-      const command = cameraInputActive
+      const command = viewportInputActive()
         ? findKeybindingCommand(currentKeybindings.current, event, 'viewport')
         : undefined;
       const nextMode = transformModeForKeybinding(command);
@@ -361,19 +365,25 @@ export function SceneViewport({
       if (command === 'scene.snapToGround' && !transformTool.isInteracting) {
         event.preventDefault();
         if (event.repeat || !transformTool.controls.enabled) return;
-        const result = buildGroundPlacement(
-          currentEntities.current,
-          currentSelection.current,
-          currentProjection,
-          [terrain, currentProjection.root],
-        );
+        let result;
+        try {
+          result = buildGroundPlacement(
+            currentEntities.current,
+            currentSelection.current,
+            currentProjection,
+            [terrain, currentProjection.root],
+          );
+        } catch (cause) {
+          showNotice(`Could not place selection: ${errorMessage(cause)}`);
+          return;
+        }
         if (!result.updates.length) showNotice(result.message);
         else void transformsCommitted.current(result.updates).then((committed) => {
           if (committed) showNotice(result.message);
         });
         return;
       }
-      if (!cameraInputActive || !MOVEMENT_KEYS.has(event.code)) return;
+      if (!viewportInputActive() || !MOVEMENT_KEYS.has(event.code)) return;
       if (transformTool.isInteracting) return;
       if (viewport.current) viewport.current.flight = undefined;
       movement.add(event.code);
@@ -385,16 +395,24 @@ export function SceneViewport({
       snapModifiers.delete(event.code);
       transformTool.setSnapInverted(snapModifiers.size > 0);
     };
-    const deactivateCameraInput = () => {
-      cameraInputActive = false;
-      movement.clear();
+    const clearSnapModifiers = () => {
       snapModifiers.clear();
       transformTool.setSnapInverted(false);
     };
+    const deactivateCameraInput = () => {
+      cameraInputActive = false;
+      movement.clear();
+      if (!transformTool.isInteracting && document.activeElement !== renderer.domElement) clearSnapModifiers();
+    };
+    const deactivateWindowInput = () => {
+      cameraInputActive = false;
+      movement.clear();
+      clearSnapModifiers();
+    };
     const activateCameraInput = () => { cameraInputActive = true; };
-    window.addEventListener('keydown', keyDown);
-    window.addEventListener('keyup', keyUp);
-    window.addEventListener('blur', deactivateCameraInput);
+    window.addEventListener('keydown', keyDown, true);
+    window.addEventListener('keyup', keyUp, true);
+    window.addEventListener('blur', deactivateWindowInput);
     renderer.domElement.addEventListener('pointerenter', activateCameraInput);
     renderer.domElement.addEventListener('pointerleave', deactivateCameraInput);
     renderer.domElement.addEventListener('focus', activateCameraInput);
@@ -415,9 +433,9 @@ export function SceneViewport({
       );
     };
     const pointerDown = (event: PointerEvent) => {
+      renderer.domElement.focus({ preventScroll: true });
       if (transformTool.isInteracting) return;
       if (viewport.current) viewport.current.flight = undefined;
-      renderer.domElement.focus({ preventScroll: true });
       if (event.button === 0) {
         pointerStart = { x: event.clientX, y: event.clientY };
         lookPosition = pointerStart;
@@ -496,6 +514,7 @@ export function SceneViewport({
       viewport.current?.updateSky(delta);
       sky.position.copy(camera.position).sub(viewport.current?.skyEye ?? ZERO_VECTOR);
       controls.update();
+      transformTool.update();
       renderer.info.reset();
       outlinePass.selectedObjects = currentProjection.getSelectionOutlineObjects();
       composer.render(delta);
@@ -530,9 +549,9 @@ export function SceneViewport({
       renderer.domElement.removeEventListener('pointerup', pointerUp);
       renderer.domElement.removeEventListener('pointercancel', pointerCancel);
       renderer.domElement.removeEventListener('contextmenu', preventDefault);
-      window.removeEventListener('keydown', keyDown);
-      window.removeEventListener('keyup', keyUp);
-      window.removeEventListener('blur', deactivateCameraInput);
+      window.removeEventListener('keydown', keyDown, true);
+      window.removeEventListener('keyup', keyUp, true);
+      window.removeEventListener('blur', deactivateWindowInput);
       renderer.domElement.removeEventListener('pointerenter', activateCameraInput);
       renderer.domElement.removeEventListener('pointerleave', deactivateCameraInput);
       renderer.domElement.removeEventListener('focus', activateCameraInput);
@@ -882,10 +901,14 @@ export function SceneViewport({
       -(clientY - bounds.top) / bounds.height * 2 + 1,
     );
     DROP_RAYCASTER.setFromCamera(DROP_POINTER, current.camera);
-    const point = DROP_RAYCASTER.intersectObjects([current.terrain, current.projection.root], true)
+    const targets = [current.terrain, current.projection.root];
+    const cursorPoint = DROP_RAYCASTER.intersectObjects(targets, true)
       .find((intersection) => current.projection.isPlacementSurface(intersection))?.point
       ?? DROP_RAYCASTER.ray.intersectPlane(DROP_PLANE, DROP_POINT);
-    current.dropGhost.visible = point !== null;
+    const point = cursorPoint && createGroundSurfaceRaycast(
+      currentEntities.current, current.projection, targets,
+    )(cursorPoint.x, cursorPoint.z, cursorPoint.y + 0.01);
+    current.dropGhost.visible = Boolean(point);
     if (point) current.dropGhost.position.copy(point);
   };
 
@@ -912,29 +935,33 @@ export function SceneViewport({
     });
   };
 
-  const loadPlacedAsset = async (asset: AssetModelPlacementDragData) => {
+  const preparePlacedAsset = async (asset: AssetModelPlacementDragData): Promise<number | undefined> => {
     const current = viewport.current;
-    if (!current || current.projection.hasAssetTemplate(asset.assetId)) return;
+    if (!current) return undefined;
+    const groundOffset = () => {
+      const minY = current.projection.getAssetTemplateBounds(asset.assetId)?.min.y;
+      return minY !== undefined && Number.isFinite(minY) ? -minY : 0;
+    };
+    if (current.projection.hasAssetTemplate(asset.assetId)) return groundOffset();
     const requestToken = crypto.randomUUID();
     current.previewRequests.add(requestToken);
     let root: THREE.Object3D | undefined;
     try {
       const source = await window.forge.getAssetPreview(asset.assetId, asset.kind, requestToken);
       root = (await new GLTFLoader().loadAsync(source.url)).scene;
-      if (viewport.current !== current) return;
+      if (viewport.current !== current) return undefined;
       if (!configurePs2AssetVisibility(root, asset.kind)) throw new Error('Asset has no renderable mesh data.');
       configurePs2MaterialAlpha(root, asset.kind);
       configurePs2MaterialFog(root, currentEnvironment.current);
-      if (current.projection.hasAssetTemplate(asset.assetId)) return;
-      current.placedTemplates.set(asset.assetId, root);
-      current.projection.addAssetTemplate(asset.assetId, root);
-      root = undefined;
-      current.projection.sync(
-        currentEntities.current, currentSelection.current, undefined, true, currentCollisionVisibility.current,
-      );
-      current.transformTool.sync(currentEntities.current, currentSelection.current, current.projection);
+      if (!current.projection.hasAssetTemplate(asset.assetId)) {
+        current.placedTemplates.set(asset.assetId, root);
+        current.projection.addAssetTemplate(asset.assetId, root);
+        root = undefined;
+      }
+      return groundOffset();
     } catch {
-      if (viewport.current === current) setNotice('Asset placed; mesh preview unavailable.');
+      if (viewport.current === current) setNotice('Asset preview unavailable; placing from its origin.');
+      return viewport.current === current ? 0 : undefined;
     } finally {
       current.previewRequests.delete(requestToken);
       if (root) disposeObject(root);
@@ -959,11 +986,12 @@ export function SceneViewport({
     }
     positionAssetDrop(event.clientX, event.clientY);
     if (!current.dropGhost.visible) return;
-    const point = current.dropGhost.position;
+    const point = current.dropGhost.position.clone();
     current.dropGhost.visible = false;
-    void assetDropped.current(asset, { x: point.x, y: -point.z, z: point.y }).then((placed) => {
-      if (placed) void loadPlacedAsset(asset);
-      else setNotice('Asset placement failed.');
+    void preparePlacedAsset(asset).then(async (offset) => {
+      if (offset === undefined) return;
+      const placed = await assetDropped.current(asset, { x: point.x, y: -point.z, z: point.y + offset });
+      if (!placed) setNotice('Asset placement failed.');
     });
   };
 

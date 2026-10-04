@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
+import type { TransformControlsGizmo } from 'three/addons/controls/TransformControls.js';
 
 import type { EditorEntity, EditorTransformUpdate, ProjectTransform, ProjectVector4 } from '../../types/EditorRuntime.js';
 import type { EditorSnapSource, EditorSnapTarget } from '../../types/EditorViewport.js';
@@ -10,6 +11,10 @@ import type { SceneProjection } from './SceneProjection.ts';
 
 export type EditorTransformMode = 'select' | 'translate' | 'rotate' | 'scale';
 export type EditorTransformSpace = 'world' | 'local';
+
+const SCALE_PIXELS_PER_DOUBLING = 200;
+const PLANE_HANDLE_OFFSET = 0.15;
+const AXIS_PICKER_THICKNESS = 0.5;
 
 interface TransformToolCallbacks {
   preview(entities?: readonly EditorEntity[]): void;
@@ -23,6 +28,7 @@ export class TransformTool {
   readonly controls: TransformControls;
 
   private readonly proxy = new THREE.Object3D();
+  private readonly gizmo: TransformControlsGizmo;
   private readonly bounds = new THREE.Box3();
   private readonly entityBounds = new THREE.Box3();
   private readonly startPivot = new THREE.Matrix4();
@@ -37,6 +43,14 @@ export class TransformTool {
   private readonly sourceOffset = new THREE.Vector3();
   private readonly snapQuery = new THREE.Vector3();
   private readonly translationDelta = new THREE.Vector3();
+  private readonly cameraOffset = new THREE.Vector3();
+  private readonly proxyWorldPosition = new THREE.Vector3();
+  private readonly inverseProxyRotation = new THREE.Quaternion();
+  private readonly planeSigns = new THREE.Vector3(1, 1, 1);
+  private readonly scaleDragStart = new THREE.Vector3();
+  private readonly camera: THREE.Camera;
+  private readonly domElement: HTMLElement;
+  private readonly callbacks: TransformToolCallbacks;
   private entities: readonly EditorEntity[] = [];
   private selection: readonly string[] = [];
   private activeIds: string[] = [];
@@ -58,18 +72,33 @@ export class TransformTool {
   private entitiesById = new Map<string, EditorEntity>();
   private cancelled = false;
   private pointerActive = false;
+  private scaleDragStartY?: number;
+  private pointerY = 0;
 
   constructor(
     camera: THREE.Camera,
     domElement: HTMLElement,
     overlay: THREE.Scene,
-    private readonly callbacks: TransformToolCallbacks,
+    callbacks: TransformToolCallbacks,
   ) {
+    this.camera = camera;
+    this.domElement = domElement;
+    this.callbacks = callbacks;
     this.controls = new TransformControls(camera, domElement);
     this.controls.setSize(0.8);
+    const gizmo = this.controls.getHelper().children.find((child) =>
+      (child as TransformControlsGizmo).isTransformControlsGizmo);
+    if (!gizmo) throw new Error('Transform controls gizmo is unavailable.');
+    this.gizmo = gizmo as TransformControlsGizmo;
+    this.tightenAxisPickers();
     this.proxy.name = 'Transform pivot';
     overlay.add(this.proxy, this.controls.getHelper());
+    domElement.addEventListener('pointerdown', this.handlePointerDownCapture, true);
+    domElement.addEventListener('pointermove', this.handlePointerMoveCapture, true);
+    domElement.addEventListener('pointerup', this.handlePointerEndCapture, true);
+    domElement.addEventListener('pointercancel', this.handlePointerEndCapture, true);
     this.controls.addEventListener('mouseDown', this.handleMouseDown);
+    this.controls.addEventListener('objectChange', this.applyScreenSpaceScale);
     this.controls.addEventListener('objectChange', this.handleObjectChange);
     this.controls.addEventListener('mouseUp', this.handleMouseUp);
   }
@@ -80,6 +109,10 @@ export class TransformTool {
 
   setEnabled(enabled: boolean): void {
     this.controls.enabled = enabled;
+  }
+
+  update(): void {
+    this.updatePlaneHandleQuadrants();
   }
 
   setMode(mode: EditorTransformMode): void {
@@ -158,7 +191,12 @@ export class TransformTool {
   }
 
   dispose(): void {
+    this.domElement.removeEventListener('pointerdown', this.handlePointerDownCapture, true);
+    this.domElement.removeEventListener('pointermove', this.handlePointerMoveCapture, true);
+    this.domElement.removeEventListener('pointerup', this.handlePointerEndCapture, true);
+    this.domElement.removeEventListener('pointercancel', this.handlePointerEndCapture, true);
     this.controls.removeEventListener('mouseDown', this.handleMouseDown);
+    this.controls.removeEventListener('objectChange', this.applyScreenSpaceScale);
     this.controls.removeEventListener('objectChange', this.handleObjectChange);
     this.controls.removeEventListener('mouseUp', this.handleMouseUp);
     this.controls.detach();
@@ -166,6 +204,39 @@ export class TransformTool {
     this.proxy.removeFromParent();
     this.controls.dispose();
   }
+
+  private readonly handlePointerDownCapture = (event: PointerEvent) => {
+    this.updatePlaneHandleQuadrants();
+    if (event.button !== 0 || this.mode !== 'scale') return;
+    this.scaleDragStartY = event.clientY;
+    this.pointerY = event.clientY;
+    this.scaleDragStart.copy(this.proxy.scale);
+  };
+
+  private readonly handlePointerMoveCapture = (event: PointerEvent) => {
+    this.pointerY = event.clientY;
+    if (this.controls.dragging) this.setSnapInverted(event.ctrlKey);
+    if (!this.controls.dragging) this.updatePlaneHandleQuadrants();
+  };
+
+  private readonly handlePointerEndCapture = () => {
+    this.scaleDragStartY = undefined;
+  };
+
+  private readonly applyScreenSpaceScale = () => {
+    if (this.mode !== 'scale' || this.scaleDragStartY === undefined || !this.controls.dragging) return;
+    const axis = this.controls.axis;
+    if (!axis) return;
+    const deltaPixels = this.scaleDragStartY - this.pointerY;
+    for (const key of ['x', 'y', 'z'] as const) {
+      if (!axis.includes(key.toUpperCase())) continue;
+      this.proxy.scale[key] = verticalDragScale(
+        this.scaleDragStart[key],
+        deltaPixels,
+        this.controls.scaleSnap,
+      );
+    }
+  };
 
   private readonly handleMouseDown = () => {
     this.pointerActive = true;
@@ -288,6 +359,51 @@ export class TransformTool {
     }
     this.proxy.updateMatrix();
     this.controls.attach(this.proxy);
+    this.updatePlaneHandleQuadrants();
+  }
+
+  private tightenAxisPickers(): void {
+    for (const mode of ['translate', 'scale'] as const) {
+      for (const handle of this.gizmo.picker[mode].children) {
+        if (!(handle instanceof THREE.Mesh) || !['X', 'Y', 'Z'].includes(handle.name)) continue;
+        handle.geometry.scale(
+          handle.name === 'X' ? 1 : AXIS_PICKER_THICKNESS,
+          handle.name === 'Y' ? 1 : AXIS_PICKER_THICKNESS,
+          handle.name === 'Z' ? 1 : AXIS_PICKER_THICKNESS,
+        );
+      }
+    }
+  }
+
+  private updatePlaneHandleQuadrants(): void {
+    if (!this.controls.object || this.controls.dragging) return;
+    this.camera.getWorldPosition(this.cameraOffset);
+    this.proxy.getWorldPosition(this.proxyWorldPosition);
+    this.cameraOffset.sub(this.proxyWorldPosition);
+    if (this.mode === 'scale' || this.space === 'local') {
+      this.proxy.getWorldQuaternion(this.inverseProxyRotation).invert();
+      this.cameraOffset.applyQuaternion(this.inverseProxyRotation);
+    }
+    const nextX = nonZeroSign(this.cameraOffset.x, this.planeSigns.x);
+    const nextY = nonZeroSign(this.cameraOffset.y, this.planeSigns.y);
+    const nextZ = nonZeroSign(this.cameraOffset.z, this.planeSigns.z);
+    const dx = PLANE_HANDLE_OFFSET * (nextX - this.planeSigns.x);
+    const dy = PLANE_HANDLE_OFFSET * (nextY - this.planeSigns.y);
+    const dz = PLANE_HANDLE_OFFSET * (nextZ - this.planeSigns.z);
+    if (dx === 0 && dy === 0 && dz === 0) return;
+    for (const mode of ['translate', 'scale'] as const) {
+      for (const group of [this.gizmo.gizmo[mode], this.gizmo.picker[mode]]) {
+        for (const handle of group.children) {
+          if (!(handle instanceof THREE.Mesh) || !['XY', 'YZ', 'XZ'].includes(handle.name)) continue;
+          handle.geometry.translate(
+            handle.name.includes('X') ? dx : 0,
+            handle.name.includes('Y') ? dy : 0,
+            handle.name.includes('Z') ? dz : 0,
+          );
+        }
+      }
+    }
+    this.planeSigns.set(nextX, nextY, nextZ);
   }
 
   private applySnapping(): void {
@@ -314,6 +430,15 @@ export class TransformTool {
     this.proxy.position.copy(target).sub(this.sourceOffset);
     this.proxy.updateMatrix();
   }
+}
+
+export function verticalDragScale(startScale: number, deltaPixels: number, snap: number | null): number {
+  const scale = startScale * 2 ** (deltaPixels / SCALE_PIXELS_PER_DOUBLING);
+  return snap ? Math.round(scale / snap) * snap || snap : scale;
+}
+
+function nonZeroSign(value: number, fallback: number): number {
+  return value === 0 ? fallback : Math.sign(value);
 }
 
 function clampScale(transform: ProjectTransform): void {
