@@ -438,14 +438,14 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
     await recentProjects.add(project.path);
     return project;
   });
-  ipcMain.handle('forge:projects-migrate', async (event, projectPath: unknown) => {
+  ipcMain.handle('forge:projects-repair', async (event, projectPath: unknown) => {
     assertSender(event.sender.id);
     const resolved = await assertRecentProject(projectPath);
     const values = await getSettingValues();
     const sourceIsoPath = String(values['sources.uya.iso'] ?? '');
     if (!sourceIsoPath || !await fileExists(sourceIsoPath))
       throw new Error('The clean UYA ISO is unavailable. Repair its path in Forge → Setup first.');
-    const request = await host.migrateForgeProject(resolved, settings.paths.assets, sourceIsoPath);
+    const request = await host.repairForgeProject(resolved, settings.paths.assets, sourceIsoPath);
     const project = await request.result;
     await recentProjects.add(project.path);
     return project;

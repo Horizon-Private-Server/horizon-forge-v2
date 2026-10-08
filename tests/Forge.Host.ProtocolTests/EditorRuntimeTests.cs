@@ -1,7 +1,5 @@
 using Forge.Host.Games.UYA;
-using System.IO.Compression;
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using Forge.Host.Domain;
 
 internal static class EditorRuntimeTests
@@ -16,13 +14,12 @@ internal static class EditorRuntimeTests
             var firstId = EntityId.New();
             var secondId = EntityId.New();
             var target = new ProjectTargetProfile("UYA", "NTSC-U", "1.00", "uya-ntsc-u");
-            Equal((byte)0x0f, new EditorTieCollisionGenerationSettings().RawType,
-                "TIE collision defaults to walkable collision ID");
-            Equal(-1, new EditorTieCollisionGenerationSettings().SurfaceLodIndex,
-                "TIE collision defaults to automatic surface LOD selection");
+            Equal((byte)0x0f, new EditorInstancedCollisionGenerationSettings().RawType,
+                "instanced collision defaults to walkable collision ID");
+            Equal(-1, new EditorInstancedCollisionGenerationSettings().SurfaceLodIndex,
+                "instanced collision defaults to automatic surface LOD selection");
             var baseLevel = new ProjectBaseLevel(
-                "UYA", "NTSC-U", "1.00", 3, UyaIsoService.SupportedMd5,
-                EntityVersion: ProjectSchema.CurrentBaseEntityVersion);
+                "UYA", "NTSC-U", "1.00", 3, UyaIsoService.SupportedMd5);
             var unsupportedPath = Path.Combine(root, "unsupported-tie-painting");
             var unsupported = await ForgeProjectWorkspace.CreateAsync(
                 unsupportedPath,
@@ -30,7 +27,7 @@ internal static class EditorRuntimeTests
                 target with { Game = "GC" },
                 baseLevel with { Game = "GC" },
                 []);
-            await ThrowsAsync<NotSupportedException>(() => UyaTieCollisionPreviewService.CountProxyFacesAsync(
+            await ThrowsAsync<NotSupportedException>(() => UyaInstancedCollisionPreviewService.CountProxyFacesAsync(
                 unsupported,
                 Path.Combine(root, "unsupported-catalog"),
                 AssetId.Parse(new string('f', AssetId.TextLength)),
@@ -45,8 +42,8 @@ internal static class EditorRuntimeTests
             await VerifySkyShellHistoryAsync(root, target, baseLevel);
             await VerifyUyaSkyShellCommandsAsync(root, target, baseLevel);
             await VerifyCollisionHistoryAsync(root, target, baseLevel);
-            await VerifyTieCollisionHistoryAsync(root, target, baseLevel);
-            await VerifyTieCollisionPreviewAsync(root, target, baseLevel);
+            await VerifyInstancedCollisionHistoryAsync(root, target, baseLevel);
+            await VerifyInstancedCollisionPreviewAsync(root, target, baseLevel);
 
             var snapshot = await runtime.OpenAsync(firstPath, TimeSpan.FromMilliseconds(25));
             Equal(false, snapshot.IsDirty, "opened runtime clean state");
@@ -191,27 +188,27 @@ internal static class EditorRuntimeTests
         }
     }
 
-    private static async Task VerifyTieCollisionHistoryAsync(
+    private static async Task VerifyInstancedCollisionHistoryAsync(
         string root,
         ProjectTargetProfile target,
         ProjectBaseLevel baseLevel)
     {
-        var projectPath = Path.Combine(root, "tie-collision");
-        var tieAssetId = AssetId.Parse(new string('a', AssetId.TextLength));
+        var projectPath = Path.Combine(root, "instanced-collision");
+        var sourceAssetId = AssetId.Parse(new string('a', AssetId.TextLength));
         var firstId = EntityId.New();
         var secondId = EntityId.New();
-        await ForgeProjectWorkspace.CreateAsync(projectPath, "TIE collision", target, baseLevel,
+        await ForgeProjectWorkspace.CreateAsync(projectPath, "instanced collision", target, baseLevel,
         [
-            new(firstId, "First TIE", "ties", ProjectTransform.Identity, new(tieAssetId, AssetKind.Tie)),
-            new(secondId, "Second TIE", "ties", ProjectTransform.Identity, new(tieAssetId, AssetKind.Tie)),
+            new(firstId, "First TIE", "ties", ProjectTransform.Identity, new(sourceAssetId, AssetKind.Tie)),
+            new(secondId, "Second TIE", "ties", ProjectTransform.Identity, new(sourceAssetId, AssetKind.Tie)),
         ]);
-        var catalogPath = Path.Combine(root, "tie-collision-catalog");
+        var catalogPath = Path.Combine(root, "instanced-collision-catalog");
         _ = await AssetCatalogStore.OpenAsync(catalogPath);
         await using var runtime = new EditorRuntime(
-            tieCollisionFaceCountResolver: (_, _, _, _) => Task.FromResult(3));
+            instancedCollisionFaceCountResolver: (_, _, _, _) => Task.FromResult(3));
         await runtime.OpenAsync(projectPath, catalogPath, TimeSpan.Zero);
-        var recipe = new ProjectTieCollisionRecipe(
-            ProjectTieCollisionRecipeKind.Wrap,
+        var recipe = new ProjectInstancedCollisionRecipe(
+            ProjectInstancedCollisionRecipeKind.Wrap,
             GeneratorVersion: 5,
             RecipeVersion: 1,
             LodIndex: 0,
@@ -219,16 +216,16 @@ internal static class EditorRuntimeTests
             DetailSize: 1,
             SealOpeningSize: 2);
 
-        var snapshot = await runtime.ApplyTieCollisionProxyAsync(
-            Guid.NewGuid().ToString("D"), tieAssetId, "first proxy"u8.ToArray(), 1, recipe);
-        Equal(true, (await runtime.ReadAppliedTieCollisionProxyAsync(
-                snapshot.Entities[0].TieCollision!.ProxyAssetId)).SequenceEqual("first proxy"u8.ToArray()),
+        var snapshot = await runtime.ApplyInstancedCollisionProxyAsync(
+            Guid.NewGuid().ToString("D"), sourceAssetId, "first proxy"u8.ToArray(), 1, recipe);
+        Equal(true, (await runtime.ReadAppliedInstancedCollisionProxyAsync(
+                snapshot.Entities[0].InstancedCollision!.ProxyAssetId)).SequenceEqual("first proxy"u8.ToArray()),
             "applied proxy preview reads the verified currently bound blob");
         Equal(true, snapshot.Entities.All(entity => entity.State.Dirty),
             "binding marks every matching TIE dirty");
-        Equal(true, snapshot.Entities.All(entity => entity.TieCollisionEnabled == true),
-            "matching TIEs inherit enabled proxy collision");
-        Equal(true, snapshot.Entities.All(entity => entity.TieCollision?.Recipe == recipe),
+        Equal(true, snapshot.Entities.All(entity => entity.InstancedCollisionEnabled is null),
+            "matching TIEs remain disabled until explicitly enabled");
+        Equal(true, snapshot.Entities.All(entity => entity.InstancedCollision?.Recipe == recipe),
             "matching TIEs expose the applied binding recipe");
         snapshot = await runtime.ExecuteAsync(Command(EditorCommandKind.Undo, []));
         Equal(false, snapshot.IsDirty, "proxy apply undo restores clean project state");
@@ -237,185 +234,204 @@ internal static class EditorRuntimeTests
         await runtime.SaveAsync();
 
         var replacementBytes = "replacement proxy"u8.ToArray();
-        snapshot = await runtime.ApplyTieCollisionProxyAsync(
-            Guid.NewGuid().ToString("D"), tieAssetId, replacementBytes, 1,
+        snapshot = await runtime.ApplyInstancedCollisionProxyAsync(
+            Guid.NewGuid().ToString("D"), sourceAssetId, replacementBytes, 1,
             recipe with { SealOpeningSize = 4 });
         snapshot = await runtime.ExecuteAsync(Command(EditorCommandKind.Undo, []));
         Equal(false, snapshot.IsDirty, "proxy replacement undo restores saved binding");
         snapshot = await runtime.ExecuteAsync(Command(EditorCommandKind.Redo, []));
         Equal(true, snapshot.IsDirty, "proxy replacement redo restores replacement");
 
-        var proxyIdBeforeRawTypeChange = snapshot.Entities[0].TieCollision!.ProxyAssetId;
+        var proxyIdBeforeRawTypeChange = snapshot.Entities[0].InstancedCollision!.ProxyAssetId;
         snapshot = await runtime.ExecuteAsync(new(
             Guid.NewGuid().ToString("D"),
-            EditorCommandKind.SetTieCollisionRawType,
+            EditorCommandKind.SetInstancedCollisionRawType,
             [firstId],
-            TieCollisionRawType: 0xaf));
-        Equal((byte)0xaf, snapshot.Entities[0].TieCollision!.Recipe.RawType,
+            InstancedCollisionRawType: 0xaf));
+        Equal((byte)0xaf, snapshot.Entities[0].InstancedCollision!.Recipe.RawType,
             "collision ID update changes the shared recipe");
-        Equal(proxyIdBeforeRawTypeChange, snapshot.Entities[0].TieCollision!.ProxyAssetId,
+        Equal(proxyIdBeforeRawTypeChange, snapshot.Entities[0].InstancedCollision!.ProxyAssetId,
             "collision ID update reuses the proxy geometry");
         snapshot = await runtime.ExecuteAsync(Command(EditorCommandKind.Undo, []));
-        Equal(recipe.RawType, snapshot.Entities[0].TieCollision!.Recipe.RawType,
+        Equal(recipe.RawType, snapshot.Entities[0].InstancedCollision!.Recipe.RawType,
             "collision ID update is undoable");
 
-        var paintedProxyId = snapshot.Entities[0].TieCollision!.ProxyAssetId;
+        var paintedProxyId = snapshot.Entities[0].InstancedCollision!.ProxyAssetId;
         snapshot = await runtime.ExecuteAsync(new(
             Guid.NewGuid().ToString("D"),
-            EditorCommandKind.SetTieCollisionFaceTypes,
+            EditorCommandKind.SetInstancedCollisionFaceTypes,
             [firstId],
-            TieCollisionProxyAssetId: paintedProxyId,
-            TieCollisionFaceTypes: [new(2, 0x11), new(0, 0x22)]));
-        Equal(true, snapshot.Entities.All(entity => entity.TieCollision!.FaceTypeOverrides
+            InstancedCollisionProxyAssetId: paintedProxyId,
+            InstancedCollisionFaceTypes: [new(2, 0x11), new(0, 0x22)]));
+        Equal(true, snapshot.Entities.All(entity => entity.InstancedCollision!.FaceTypeOverrides
                 .SequenceEqual([new(0, 0x22), new(2, 0x11)])),
             "one face stroke updates the shared binding in sorted order");
         await ThrowsAsync<ArgumentException>(() => runtime.ExecuteAsync(new(
             Guid.NewGuid().ToString("D"),
-            EditorCommandKind.SetTieCollisionFaceTypes,
+            EditorCommandKind.SetInstancedCollisionFaceTypes,
             [firstId],
-            TieCollisionProxyAssetId: AssetId.Parse(new string('f', AssetId.TextLength)),
-            TieCollisionFaceTypes: [new(0, 0x33)])));
+            InstancedCollisionProxyAssetId: AssetId.Parse(new string('f', AssetId.TextLength)),
+            InstancedCollisionFaceTypes: [new(0, 0x33)])));
         await ThrowsAsync<ArgumentException>(() => runtime.ExecuteAsync(new(
             Guid.NewGuid().ToString("D"),
-            EditorCommandKind.SetTieCollisionFaceTypes,
+            EditorCommandKind.SetInstancedCollisionFaceTypes,
             [firstId],
-            TieCollisionProxyAssetId: paintedProxyId,
-            TieCollisionFaceTypes: [new(3, 0x33)])));
+            InstancedCollisionProxyAssetId: paintedProxyId,
+            InstancedCollisionFaceTypes: [new(3, 0x33)])));
         snapshot = await runtime.ExecuteAsync(Command(EditorCommandKind.Undo, []));
-        Equal(0, snapshot.Entities[0].TieCollision!.FaceTypeOverrides.Count,
+        Equal(0, snapshot.Entities[0].InstancedCollision!.FaceTypeOverrides.Count,
             "face-type stroke is undoable as one command");
         snapshot = await runtime.ExecuteAsync(Command(EditorCommandKind.Redo, []));
-        Equal(2, snapshot.Entities[0].TieCollision!.FaceTypeOverrides.Count,
+        Equal(2, snapshot.Entities[0].InstancedCollision!.FaceTypeOverrides.Count,
             "face-type stroke redo restores every assignment");
         snapshot = await runtime.ExecuteAsync(new(
             Guid.NewGuid().ToString("D"),
-            EditorCommandKind.SetTieCollisionFaceTypes,
+            EditorCommandKind.SetInstancedCollisionFaceTypes,
             [secondId],
-            TieCollisionProxyAssetId: paintedProxyId,
-            TieCollisionFaceTypes: [new(0, recipe.RawType)]));
-        Equal(true, snapshot.Entities[0].TieCollision!.FaceTypeOverrides.SequenceEqual([new(2, 0x11)]),
+            InstancedCollisionProxyAssetId: paintedProxyId,
+            InstancedCollisionFaceTypes: [new(0, recipe.RawType)]));
+        Equal(true, snapshot.Entities[0].InstancedCollision!.FaceTypeOverrides.SequenceEqual([new(2, 0x11)]),
             "painting the binding default removes the sparse override");
         await ThrowsAsync<ArgumentException>(() => runtime.ExecuteAsync(new(
             Guid.NewGuid().ToString("D"),
-            EditorCommandKind.SetTieCollisionFaceTypes,
+            EditorCommandKind.SetInstancedCollisionFaceTypes,
             [firstId],
-            TieCollisionProxyAssetId: paintedProxyId,
-            TieCollisionFaceTypes: [new(1, 0x33), new(1, 0x44)])));
+            InstancedCollisionProxyAssetId: paintedProxyId,
+            InstancedCollisionFaceTypes: [new(1, 0x33), new(1, 0x44)])));
         snapshot = await runtime.ExecuteAsync(new(
             Guid.NewGuid().ToString("D"), EditorCommandKind.SetEntityState, [firstId],
             State: new(Locked: true)));
         await ThrowsAsync<ArgumentException>(() => runtime.ExecuteAsync(new(
             Guid.NewGuid().ToString("D"),
-            EditorCommandKind.SetTieCollisionFaceTypes,
+            EditorCommandKind.SetInstancedCollisionFaceTypes,
             [firstId],
-            TieCollisionProxyAssetId: paintedProxyId,
-            TieCollisionFaceTypes: [new(1, 0x33)])));
+            InstancedCollisionProxyAssetId: paintedProxyId,
+            InstancedCollisionFaceTypes: [new(1, 0x33)])));
         snapshot = await runtime.ExecuteAsync(new(
             Guid.NewGuid().ToString("D"), EditorCommandKind.SetEntityState, [firstId],
             State: new(Locked: false)));
 
         snapshot = await runtime.ExecuteAsync(new(
             Guid.NewGuid().ToString("D"),
-            EditorCommandKind.SetTieCollisionEnabled,
+            EditorCommandKind.SetInstancedCollisionEnabled,
             [secondId],
-            TieCollisionEnabled: false));
-        Equal(false, snapshot.Entities.Single(entity => entity.EntityId == secondId).TieCollisionEnabled,
-            "instance collision opt-out command");
+            InstancedCollisionEnabled: true));
+        Equal(true, snapshot.Entities.Single(entity => entity.EntityId == secondId).InstancedCollisionEnabled,
+            "instance shared collision command");
         snapshot = await runtime.ExecuteAsync(Command(EditorCommandKind.Undo, []));
-        Equal(true, snapshot.Entities.Single(entity => entity.EntityId == secondId).TieCollisionEnabled,
-            "instance collision opt-out undo");
+        Equal(null, snapshot.Entities.Single(entity => entity.EntityId == secondId).InstancedCollisionEnabled,
+            "instance shared collision undo");
         snapshot = await runtime.ExecuteAsync(Command(EditorCommandKind.Redo, []));
-        Equal(false, snapshot.Entities.Single(entity => entity.EntityId == secondId).TieCollisionEnabled,
-            "instance collision opt-out redo");
+        Equal(true, snapshot.Entities.Single(entity => entity.EntityId == secondId).InstancedCollisionEnabled,
+            "instance shared collision redo");
+        snapshot = await runtime.ExecuteAsync(new(
+            Guid.NewGuid().ToString("D"),
+            EditorCommandKind.SetInstancedCollisionEnabled,
+            [secondId],
+            InstancedCollisionEnabled: false));
+        Equal(false, snapshot.Entities.Single(entity => entity.EntityId == secondId).InstancedCollisionEnabled,
+            "instance individual collision mode");
+        snapshot = await runtime.ExecuteAsync(Command(EditorCommandKind.Undo, []));
+        Equal(true, snapshot.Entities.Single(entity => entity.EntityId == secondId).InstancedCollisionEnabled,
+            "instance individual collision mode undo");
+        snapshot = await runtime.ExecuteAsync(new(
+            Guid.NewGuid().ToString("D"),
+            EditorCommandKind.SetInstancedCollisionEnabled,
+            [secondId],
+            InstancedCollisionEnabled: null));
+        Equal(null, snapshot.Entities.Single(entity => entity.EntityId == secondId).InstancedCollisionEnabled,
+            "instance collision disable command");
+        snapshot = await runtime.ExecuteAsync(Command(EditorCommandKind.Undo, []));
+        Equal(true, snapshot.Entities.Single(entity => entity.EntityId == secondId).InstancedCollisionEnabled,
+            "instance collision disable undo");
 
         snapshot = await runtime.ExecuteAsync(new(
-            Guid.NewGuid().ToString("D"), EditorCommandKind.RemoveTieCollisionProxy, [firstId]));
+            Guid.NewGuid().ToString("D"), EditorCommandKind.RemoveInstancedCollisionProxy, [firstId]));
         Equal(true, snapshot.Entities.All(entity => entity.State.Dirty),
             "proxy removal marks every matching TIE dirty");
         await ThrowsAsync<ArgumentException>(() => runtime.ExecuteAsync(new(
             Guid.NewGuid().ToString("D"),
-            EditorCommandKind.SetTieCollisionFaceTypes,
+            EditorCommandKind.SetInstancedCollisionFaceTypes,
             [firstId],
-            TieCollisionProxyAssetId: paintedProxyId,
-            TieCollisionFaceTypes: [new(0, 0x33)])));
+            InstancedCollisionProxyAssetId: paintedProxyId,
+            InstancedCollisionFaceTypes: [new(0, 0x33)])));
         await ThrowsAsync<InvalidOperationException>(() =>
-            runtime.ReadAppliedTieCollisionProxyAsync(paintedProxyId));
+            runtime.ReadAppliedInstancedCollisionProxyAsync(paintedProxyId));
         await runtime.SaveAsync();
         var workspace = await ForgeProjectWorkspace.OpenAsync(projectPath);
-        Equal(0, workspace.Content.TieCollisionBindings.Count, "proxy removal persists");
+        Equal(0, workspace.Content.InstancedCollisionBindings.Count, "proxy removal persists");
         snapshot = await runtime.ExecuteAsync(Command(EditorCommandKind.Undo, []));
         Equal(true, snapshot.IsDirty, "proxy removal undo restores binding after save");
         await runtime.SaveAsync();
         workspace = await ForgeProjectWorkspace.OpenAsync(projectPath);
-        Equal(1, workspace.Content.TieCollisionBindings.Count, "restored replacement persists");
-        Equal(false,
-            workspace.Content.Entities.Single(entity => entity.EntityId == secondId).TieCollisionEnabled,
-            "restored binding retains per-instance opt-out");
+        Equal(1, workspace.Content.InstancedCollisionBindings.Count, "restored replacement persists");
+        Equal(true,
+            workspace.Content.Entities.Single(entity => entity.EntityId == secondId).InstancedCollisionEnabled,
+            "restored binding retains per-instance shared collision choice");
 
-        var binding = workspace.Content.TieCollisionBindings.Single();
+        var binding = workspace.Content.InstancedCollisionBindings.Single();
         var proxyId = binding.ProxyAssetId.ToString();
         var proxyPath = Path.Combine(projectPath, "assets", proxyId[..2], $"{proxyId}.blob");
         await File.WriteAllBytesAsync(proxyPath, "corrupt"u8.ToArray());
-        await ThrowsAsync<InvalidDataException>(() => runtime.ReadAppliedTieCollisionProxyAsync(binding.ProxyAssetId));
+        await ThrowsAsync<InvalidDataException>(() => runtime.ReadAppliedInstancedCollisionProxyAsync(binding.ProxyAssetId));
         snapshot = await runtime.OpenAsync(projectPath, catalogPath, TimeSpan.Zero);
         Equal(true, snapshot.Diagnostics.Any(diagnostic =>
-                diagnostic.Code == "tie-collision.proxy-corrupt"
+                diagnostic.Code == "instanced-collision.proxy-corrupt"
                 && diagnostic.Message.Contains("regenerate", StringComparison.OrdinalIgnoreCase)),
             "corrupt proxy reports actionable diagnostic");
-        EqualBinding(binding, (await ForgeProjectWorkspace.OpenAsync(projectPath)).Content.TieCollisionBindings.Single(),
+        EqualBinding(binding, (await ForgeProjectWorkspace.OpenAsync(projectPath)).Content.InstancedCollisionBindings.Single(),
             "corrupt proxy preserves binding");
 
         File.Delete(proxyPath);
         snapshot = await runtime.OpenAsync(projectPath, catalogPath, TimeSpan.Zero);
         Equal(true, snapshot.Diagnostics.Any(diagnostic =>
-                diagnostic.Code == "tie-collision.proxy-missing"
+                diagnostic.Code == "instanced-collision.proxy-missing"
                 && diagnostic.Message.Contains("project assets folder", StringComparison.OrdinalIgnoreCase)),
             "missing proxy reports actionable diagnostic");
-        EqualBinding(binding, (await ForgeProjectWorkspace.OpenAsync(projectPath)).Content.TieCollisionBindings.Single(),
+        EqualBinding(binding, (await ForgeProjectWorkspace.OpenAsync(projectPath)).Content.InstancedCollisionBindings.Single(),
             "missing proxy preserves binding");
         await File.WriteAllBytesAsync(proxyPath, replacementBytes);
 
-        var multiplePath = Path.Combine(root, "multiple-tie-collision-bindings");
-        var otherTieAssetId = AssetId.Parse(new string('b', AssetId.TextLength));
+        var multiplePath = Path.Combine(root, "multiple-instanced-collision-bindings");
+        var otherSourceAssetId = AssetId.Parse(new string('b', AssetId.TextLength));
         var multiple = await ForgeProjectWorkspace.CreateAsync(
-            multiplePath, "Multiple TIE collision bindings", target, baseLevel,
+            multiplePath, "Multiple instanced collision bindings", target, baseLevel,
             [
                 new(EntityId.New(), "First asset", "ties", ProjectTransform.Identity,
-                    new(tieAssetId, AssetKind.Tie)),
+                    new(sourceAssetId, AssetKind.Tie)),
                 new(EntityId.New(), "Second asset", "ties", ProjectTransform.Identity,
-                    new(otherTieAssetId, AssetKind.Tie)),
+                    new(otherSourceAssetId, AssetKind.Tie)),
             ]);
-        _ = await multiple.ApplyTieCollisionProxyAsync(
-            tieAssetId, "first proxy"u8.ToArray(), 1, recipe);
-        _ = await multiple.ApplyTieCollisionProxyAsync(
-            otherTieAssetId, "second proxy"u8.ToArray(), 1, recipe);
+        _ = await multiple.ApplyInstancedCollisionProxyAsync(
+            sourceAssetId, "first proxy"u8.ToArray(), 1, recipe);
+        _ = await multiple.ApplyInstancedCollisionProxyAsync(
+            otherSourceAssetId, "second proxy"u8.ToArray(), 1, recipe);
         await multiple.SaveAsync();
         snapshot = await runtime.OpenAsync(multiplePath, catalogPath, TimeSpan.Zero);
-        Equal(2, (await ForgeProjectWorkspace.OpenAsync(multiplePath)).Content.TieCollisionBindings.Count,
-            "projects with multiple TIE collision bindings open successfully");
+        Equal(2, (await ForgeProjectWorkspace.OpenAsync(multiplePath)).Content.InstancedCollisionBindings.Count,
+            "projects with multiple instanced collision bindings open successfully");
     }
 
-    private static async Task VerifyTieCollisionPreviewAsync(
+    private static async Task VerifyInstancedCollisionPreviewAsync(
         string root,
         ProjectTargetProfile target,
         ProjectBaseLevel baseLevel)
     {
-        var projectPath = Path.Combine(root, "tie-collision-preview");
-        var catalogPath = Path.Combine(root, "tie-collision-preview-catalog");
-        var tieAssetId = AssetId.Parse(new string('b', AssetId.TextLength));
+        var projectPath = Path.Combine(root, "instanced-collision-preview");
+        var catalogPath = Path.Combine(root, "instanced-collision-preview-catalog");
+        var sourceAssetId = AssetId.Parse(new string('b', AssetId.TextLength));
         var entityId = EntityId.New();
-        await ForgeProjectWorkspace.CreateAsync(projectPath, "TIE collision preview", target, baseLevel,
+        await ForgeProjectWorkspace.CreateAsync(projectPath, "instanced collision preview", target, baseLevel,
         [
-            new(entityId, "Preview TIE", "ties", ProjectTransform.Identity, new(tieAssetId, AssetKind.Tie)),
+            new(entityId, "Preview TIE", "ties", ProjectTransform.Identity, new(sourceAssetId, AssetKind.Tie)),
         ]);
-        await DowngradeProjectToVersionFourAsync(projectPath);
         var fail = false;
         var combinedUnsafe = false;
         var blockNext = false;
         var previewStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        EditorTieCollisionGenerationSettings? receivedSettings = null;
+        EditorInstancedCollisionGenerationSettings? receivedSettings = null;
         await using var runtime = new EditorRuntime(
-            tieCollisionPreviewExecutor: async (_, _, _, settings, token) =>
+            instancedCollisionPreviewExecutor: async (_, _, _, _, settings, token) =>
         {
             receivedSettings = settings;
             if (fail) throw new InvalidDataException("synthetic preview failure");
@@ -424,10 +440,10 @@ internal static class EditorRuntimeTests
                 previewStarted.TrySetResult();
                 await Task.Delay(Timeout.InfiniteTimeSpan, token);
             }
-            var recipe = new ProjectTieCollisionRecipe(
-                ProjectTieCollisionRecipeKind.Surface, 2, 1, 0, 0);
-            EditorTieCollisionCandidate candidate = new(
-                EditorTieCollisionPreset.Surface,
+            var recipe = new ProjectInstancedCollisionRecipe(
+                ProjectInstancedCollisionRecipeKind.Surface, 2, 1, 0, 0);
+            EditorInstancedCollisionCandidate candidate = new(
+                EditorInstancedCollisionPreset.Surface,
                 "Decimated mesh",
                 recipe,
                 "preview collision"u8.ToArray(),
@@ -441,96 +457,110 @@ internal static class EditorRuntimeTests
                 [new(0, 0, 0, 6, 8, 6, 96, [])],
                 new(2, 20, 4, 0, combinedUnsafe ? 1 : 0, []));
             return [candidate];
-        }, tieCollisionSourceInspector: (_, _, assetId, _) => Task.FromResult(
-            new EditorTieCollisionSourceInfo(assetId, [0, 2])));
+        }, instancedCollisionSourceInspector: (_, _, assetId, _) => Task.FromResult(
+            new EditorInstancedCollisionSourceInfo(assetId, [0, 2])));
         var snapshot = await runtime.OpenAsync(projectPath, catalogPath, TimeSpan.Zero);
-        var sourceInfo = await runtime.InspectTieCollisionSourceAsync(entityId);
-        Equal(tieAssetId, sourceInfo.TieAssetId, "source inspection resolves the selected TIE asset");
+        var sourceInfo = await runtime.InspectInstancedCollisionSourceAsync(entityId);
+        Equal(sourceAssetId, sourceInfo.SourceAssetId, "source inspection resolves the selected TIE asset");
         Equal(true, sourceInfo.SurfaceLodIndices.SequenceEqual([0, 2]),
             "source inspection returns only available surface LODs");
-        Equal(true, snapshot.MigrationPending, "preview migration fixture starts pending");
-        var generationSettings = new EditorTieCollisionGenerationSettings(
+        var generationSettings = new EditorInstancedCollisionGenerationSettings(
             0xa7, SurfaceLodIndex: 1);
-        var preview = await runtime.PreviewTieCollisionAsync(entityId, generationSettings);
+        var preview = await runtime.PreviewInstancedCollisionAsync(entityId, generationSettings);
         Equal(generationSettings, receivedSettings, "preview forwards generation settings");
         snapshot = await runtime.GetSnapshotAsync();
-        Equal(true, snapshot.IsDirty, "preview preserves pending migration state");
-        Equal(null, snapshot.Entities.Single().TieCollision, "preview does not bind collision");
-        Equal(null, snapshot.Entities.Single().TieCollisionEnabled,
-            "unbound TIE does not report collision as enabled");
+        Equal(false, snapshot.IsDirty, "preview does not dirty the project");
+        Equal(null, snapshot.Entities.Single().InstancedCollision, "preview does not bind collision");
+        Equal(null, snapshot.Entities.Single().InstancedCollisionEnabled,
+            "vanilla TIE has instanced collision disabled by default");
         snapshot = await runtime.SaveAsync();
-        Equal(false, snapshot.IsDirty, "saving migration does not count as an editor mutation");
+        Equal(false, snapshot.IsDirty, "saving an unchanged project remains clean");
 
         fail = true;
-        await ThrowsAsync<InvalidDataException>(() => runtime.PreviewTieCollisionAsync(entityId));
-        snapshot = await runtime.ApplyTieCollisionPreviewAsync(
+        await ThrowsAsync<InvalidDataException>(() => runtime.PreviewInstancedCollisionAsync(entityId));
+        snapshot = await runtime.ApplyInstancedCollisionPreviewAsync(
             Guid.NewGuid().ToString("D"), preview.Candidates.Single().Token);
         Equal(true, snapshot.IsDirty, "applying retained preview dirties project");
-        Equal(EditorTieCollisionPreset.Surface, preview.Candidates.Single().Preset,
+        Equal(EditorInstancedCollisionPreset.Surface, preview.Candidates.Single().Preset,
             "preview returns candidate metadata");
         Equal(2, preview.Candidates.Single().CombinedAnalysis?.InstanceCount,
             "preview returns combined project analysis");
-        Equal(true, snapshot.Entities.Single().TieCollision is not null,
+        Equal(true, snapshot.Entities.Single().InstancedCollision is not null,
             "applying preview creates binding snapshot");
+        Equal(true, snapshot.Entities.Single().InstancedCollisionEnabled,
+            "applying a new preview enables only its selected instance");
         snapshot = await runtime.ExecuteAsync(Command(EditorCommandKind.Undo, []));
-        Equal(null, snapshot.Entities.Single().TieCollision, "preview apply is one undoable history entry");
+        Equal(null, snapshot.Entities.Single().InstancedCollision, "preview apply is one undoable history entry");
         fail = false;
         combinedUnsafe = true;
-        preview = await runtime.PreviewTieCollisionAsync(entityId);
-        await ThrowsAsync<InvalidOperationException>(() => runtime.ApplyTieCollisionPreviewAsync(
+        preview = await runtime.PreviewInstancedCollisionAsync(entityId);
+        await ThrowsAsync<InvalidOperationException>(() => runtime.ApplyInstancedCollisionPreviewAsync(
             Guid.NewGuid().ToString("D"), preview.Candidates.Single().Token));
 
         var retainedToken = preview.Candidates.Single().Token;
         blockNext = true;
         using (var cancellation = new CancellationTokenSource())
         {
-            var cancelled = runtime.PreviewTieCollisionAsync(entityId, cancellationToken: cancellation.Token);
+            var cancelled = runtime.PreviewInstancedCollisionAsync(entityId, cancellationToken: cancellation.Token);
             await previewStarted.Task;
             cancellation.Cancel();
             await ThrowsAsync<OperationCanceledException>(() => cancelled);
         }
         blockNext = false;
-        Equal(EditorTieCollisionPreset.Surface,
-            (await runtime.GetTieCollisionPreviewCandidateAsync(retainedToken)).Preset,
+        Equal(EditorInstancedCollisionPreset.Surface,
+            (await runtime.GetInstancedCollisionPreviewCandidateAsync(retainedToken)).Preset,
             "cancelled generation preserves the prior valid preview cache");
 
-        var firstSoakToken = (await runtime.PreviewTieCollisionAsync(entityId)).Candidates.Single().Token;
+        var firstSoakToken = (await runtime.PreviewInstancedCollisionAsync(entityId)).Candidates.Single().Token;
         string latestSoakToken = firstSoakToken;
         for (var index = 0; index < 32; index++)
-            latestSoakToken = (await runtime.PreviewTieCollisionAsync(entityId)).Candidates.Single().Token;
+            latestSoakToken = (await runtime.PreviewInstancedCollisionAsync(entityId)).Candidates.Single().Token;
         await ThrowsAsync<InvalidOperationException>(() =>
-            runtime.GetTieCollisionPreviewCandidateAsync(firstSoakToken));
-        Equal(EditorTieCollisionPreset.Surface,
-            (await runtime.GetTieCollisionPreviewCandidateAsync(latestSoakToken)).Preset,
+            runtime.GetInstancedCollisionPreviewCandidateAsync(firstSoakToken));
+        Equal(EditorInstancedCollisionPreset.Surface,
+            (await runtime.GetInstancedCollisionPreviewCandidateAsync(latestSoakToken)).Preset,
             "repeated generation retains only the latest preview cache");
 
-        preview = await runtime.PreviewTieCollisionAsync(entityId);
+        preview = await runtime.PreviewInstancedCollisionAsync(entityId);
         await runtime.ExecuteAsync(new(
             Guid.NewGuid().ToString("D"), EditorCommandKind.RenameEntity, [entityId], Text: "Changed TIE"));
-        await ThrowsAsync<InvalidOperationException>(() => runtime.ApplyTieCollisionPreviewAsync(
+        await ThrowsAsync<InvalidOperationException>(() => runtime.ApplyInstancedCollisionPreviewAsync(
             Guid.NewGuid().ToString("D"), preview.Candidates.Single().Token));
-    }
 
-    private static async Task DowngradeProjectToVersionFourAsync(string projectPath)
-    {
-        var manifestPath = Path.Combine(projectPath, ForgeProjectWorkspace.ManifestFileName);
-        var contentPath = Path.Combine(projectPath, ForgeProjectWorkspace.DefaultContentPath);
-        var manifest = JsonNode.Parse(await File.ReadAllBytesAsync(manifestPath))!.AsObject();
-        manifest["schemaVersion"] = 4;
-        manifest["content"] = ForgeProjectWorkspace.LegacyContentPath;
-        await File.WriteAllTextAsync(manifestPath, manifest.ToJsonString() + "\n");
-
-        await using var compressed = File.OpenRead(contentPath);
-        await using var gzip = new GZipStream(compressed, CompressionMode.Decompress);
-        using var plain = new MemoryStream();
-        await gzip.CopyToAsync(plain);
-        var content = JsonNode.Parse(plain.ToArray())!.AsObject();
-        content["schemaVersion"] = 4;
-        content.Remove("tieCollisionBindings");
-        var legacyPath = Path.Combine(projectPath, ForgeProjectWorkspace.LegacyContentPath);
-        await using var output = File.Create(legacyPath);
-        await using var legacyGzip = new GZipStream(output, CompressionLevel.Fastest);
-        await legacyGzip.WriteAsync(System.Text.Encoding.UTF8.GetBytes(content.ToJsonString() + "\n"));
+        var shrubProjectPath = Path.Combine(root, "shrub-collision-preview");
+        var shrubAssetId = AssetId.Parse(new string('c', AssetId.TextLength));
+        var shrubEntityId = EntityId.New();
+        await ForgeProjectWorkspace.CreateAsync(shrubProjectPath, "Shrub collision preview", target, baseLevel,
+        [
+            new(shrubEntityId, "Preview shrub", "shrubs", ProjectTransform.Identity,
+                new(shrubAssetId, AssetKind.Shrub)),
+        ]);
+        combinedUnsafe = false;
+        snapshot = await runtime.OpenAsync(shrubProjectPath, catalogPath, TimeSpan.Zero);
+        sourceInfo = await runtime.InspectInstancedCollisionSourceAsync(shrubEntityId);
+        Equal(shrubAssetId, sourceInfo.SourceAssetId, "source inspection accepts a shrub asset");
+        preview = await runtime.PreviewInstancedCollisionAsync(shrubEntityId);
+        snapshot = await runtime.ApplyInstancedCollisionPreviewAsync(
+            Guid.NewGuid().ToString("D"), preview.Candidates.Single().Token);
+        Equal(true, snapshot.Entities.Single().InstancedCollisionEnabled,
+            "applying a shrub collision preview enables its selected instance");
+        snapshot = await runtime.ExecuteAsync(new(
+            Guid.NewGuid().ToString("D"), EditorCommandKind.SetInstancedCollisionEnabled,
+            [shrubEntityId], InstancedCollisionEnabled: false));
+        Equal(false, snapshot.Entities.Single().InstancedCollisionEnabled,
+            "shrub instances can switch to individual collision mode");
+        preview = await runtime.PreviewInstancedCollisionAsync(shrubEntityId);
+        snapshot = await runtime.ApplyInstancedCollisionPreviewAsync(
+            Guid.NewGuid().ToString("D"), preview.Candidates.Single().Token);
+        Equal(false, snapshot.Entities.Single().InstancedCollisionEnabled,
+            "generating an individual shrub proxy preserves individual mode");
+        Equal(true, snapshot.Entities.Single().IndividualInstancedCollision is not null,
+            "individual mode stores an editable proxy on only the selected shrub");
+        await runtime.SaveAsync();
+        var shrubWorkspace = await ForgeProjectWorkspace.OpenAsync(shrubProjectPath);
+        Equal(true, shrubWorkspace.Content.InstancedCollisionBindings.Any(binding =>
+                binding.InstanceEntityId == shrubEntityId),
+            "individual shrub proxy persists with its instance binding");
     }
 
     private static async Task VerifyCollisionHistoryAsync(
@@ -818,11 +848,11 @@ internal static class EditorRuntimeTests
     }
 
     private static void EqualBinding(
-        ProjectTieCollisionBinding expected,
-        ProjectTieCollisionBinding actual,
+        ProjectInstancedCollisionBinding expected,
+        ProjectInstancedCollisionBinding actual,
         string context) => Equal(
             true,
-            expected.TieAssetId == actual.TieAssetId
+            expected.SourceAssetId == actual.SourceAssetId
                 && expected.ProxyAssetId == actual.ProxyAssetId
                 && expected.Recipe == actual.Recipe
                 && expected.FaceTypeOverrides.SequenceEqual(actual.FaceTypeOverrides),

@@ -1,57 +1,68 @@
 import { Button, Checkbox, Fieldset, Group, Select, Stack, Text } from '@mantine/core';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
-import type { EditorEntity } from '../../types/EditorRuntime.js';
+import type { EditorEntity, EditorInstancedCollisionBinding } from '../../types/EditorRuntime.js';
 import {
   collisionTypeId, collisionTypeIdOptions, defaultCollisionType, formatCollisionType,
   packCollisionType, soundTypeId, soundTypeIdOptions,
 } from '../../utils/CollisionFormat.ts';
 import { useEditor } from './EditorContext.ts';
 
-interface TieCollisionPainterProps {
+interface InstancedCollisionPainterProps {
   entity: EditorEntity;
+  binding: EditorInstancedCollisionBinding;
   disabled: boolean;
   instanceCount: number;
+  showControls: boolean;
+  visible: boolean;
   active: boolean;
   onActiveChange(active: boolean): void;
   wireframe: boolean;
   onWireframeChange(checked: boolean): Promise<void>;
 }
 
-export function TieCollisionPainter({
+export function InstancedCollisionPainter({
   entity,
+  binding,
   disabled,
   instanceCount,
+  showControls,
+  visible,
   active,
   onActiveChange,
   wireframe,
   onWireframeChange,
-}: TieCollisionPainterProps) {
+}: InstancedCollisionPainterProps) {
   const {
-    busy, execute, project, setTieCollisionOverlay, tieCollisionOverlay,
+    busy, execute, project, setInstancedCollisionOverlay, instancedCollisionOverlay,
   } = useEditor();
   const [rawType, setRawType] = useState(
-    entity.tieCollision?.recipe.rawType ?? defaultCollisionType(project.target.game),
+    binding.recipe.rawType ?? defaultCollisionType(project.target.game),
   );
   const [interaction, setInteraction] = useState<'paint' | 'reset' | 'eyedropper'>('paint');
   const [hoveredFace, setHoveredFace] = useState<{ faceId: number; rawType: number }>();
   const [modelStatus, setModelStatus] = useState<'loading' | 'ready' | 'failed'>();
+  const activeRef = useRef(active);
+  activeRef.current = active;
 
   useEffect(() => {
-    setRawType(entity.tieCollision?.recipe.rawType ?? defaultCollisionType(project.target.game));
+    setRawType(binding.recipe.rawType ?? defaultCollisionType(project.target.game));
     setInteraction('paint');
     setHoveredFace(undefined);
   }, [entity.id]);
 
   useEffect(() => {
-    const binding = entity.tieCollision;
-    if (!active || !binding) return;
+    if (!visible) {
+      setModelStatus(undefined);
+      setInstancedCollisionOverlay(undefined);
+      return;
+    }
     let disposed = false;
     const requestToken = crypto.randomUUID();
     setModelStatus('loading');
-    void window.forge.getAppliedTieCollisionModel(binding.proxyAssetId, requestToken).then((source) => {
+    void window.forge.getAppliedInstancedCollisionModel(binding.proxyAssetId, requestToken).then((source) => {
       if (disposed) return;
-      setTieCollisionOverlay({
+      setInstancedCollisionOverlay({
         entityId: entity.id,
         url: source.url,
         showSource: true,
@@ -59,6 +70,7 @@ export function TieCollisionPainter({
         wireframe,
         showOctants: false,
         paint: {
+          active: activeRef.current,
           proxyAssetId: binding.proxyAssetId,
           defaultRawType: binding.recipe.rawType,
           faceTypes: binding.faceTypeOverrides,
@@ -72,7 +84,7 @@ export function TieCollisionPainter({
           }),
           onStroke: (faceIds, strokeRawType) => execute({
             id: crypto.randomUUID(),
-            kind: 'setTieCollisionFaceTypes',
+            kind: 'setInstancedCollisionFaceTypes',
             entityIds: [entity.id],
             expectedProxyAssetId: binding.proxyAssetId,
             faceTypes: faceIds.map((faceIndex) => ({ faceIndex, rawType: strokeRawType })),
@@ -90,30 +102,29 @@ export function TieCollisionPainter({
     return () => {
       disposed = true;
       void window.forge.cancelAssetPreview(requestToken);
-      setTieCollisionOverlay(undefined);
+      setInstancedCollisionOverlay(undefined);
     };
-  }, [active, entity.id, entity.tieCollision?.proxyAssetId, execute, setTieCollisionOverlay]);
+  }, [binding.proxyAssetId, entity.id, execute, setInstancedCollisionOverlay, visible]);
 
   useEffect(() => {
-    const binding = entity.tieCollision;
-    if (!active || !binding || !tieCollisionOverlay?.paint
-      || tieCollisionOverlay.paint.proxyAssetId !== binding.proxyAssetId) return;
-    setTieCollisionOverlay({
-      ...tieCollisionOverlay,
+    if (!instancedCollisionOverlay?.paint
+      || instancedCollisionOverlay.paint.proxyAssetId !== binding.proxyAssetId) return;
+    setInstancedCollisionOverlay({
+      ...instancedCollisionOverlay,
       wireframe,
       paint: {
-        ...tieCollisionOverlay.paint,
+        ...instancedCollisionOverlay.paint,
+        active,
         defaultRawType: binding.recipe.rawType,
         faceTypes: binding.faceTypeOverrides,
         brushRawType: rawType,
         interaction,
       },
     });
-  }, [active, entity.tieCollision?.faceTypeOverrides, entity.tieCollision?.recipe.rawType,
-    interaction, rawType, tieCollisionOverlay?.paint?.proxyAssetId, wireframe]);
+  }, [active, binding.faceTypeOverrides, binding.recipe.rawType,
+    interaction, rawType, instancedCollisionOverlay?.paint?.proxyAssetId, wireframe]);
 
-  const binding = entity.tieCollision;
-  if (!binding) return null;
+  if (!showControls) return null;
   return <>
     <Button size="xs" variant={active ? 'filled' : 'light'} disabled={disabled || busy}
       onClick={() => {
@@ -126,7 +137,7 @@ export function TieCollisionPainter({
     {active && <Fieldset legend="Collision type painter">
       <Stack gap="xs">
         <Text size="xs">
-          Painting the exact proxy faces shared by all {instanceCount.toLocaleString()} matching TIE instances.
+          Painting the exact proxy faces used by {instanceCount.toLocaleString()} {instanceCount === 1 ? 'instance' : 'matching instances'}.
           Middle-drag to orbit. Alt-drag also works. Escape cancels the active stroke.
         </Text>
         <Group grow align="end">
@@ -153,7 +164,7 @@ export function TieCollisionPainter({
           <Button size="compact-xs" variant="subtle" disabled={binding.faceTypeOverrides.length === 0}
             onClick={() => void execute({
               id: crypto.randomUUID(),
-              kind: 'setTieCollisionFaceTypes',
+              kind: 'setInstancedCollisionFaceTypes',
               entityIds: [entity.id],
               expectedProxyAssetId: binding.proxyAssetId,
               faceTypes: binding.faceTypeOverrides.map((value) => ({
@@ -163,13 +174,13 @@ export function TieCollisionPainter({
             })}>Reset all</Button>
         </Group>
         <Group>
-          <Checkbox label="Source" checked={tieCollisionOverlay?.showSource ?? true}
-            onChange={(event) => tieCollisionOverlay && setTieCollisionOverlay({
-              ...tieCollisionOverlay, showSource: event.currentTarget.checked,
+          <Checkbox label="Source" checked={instancedCollisionOverlay?.showSource ?? true}
+            onChange={(event) => instancedCollisionOverlay && setInstancedCollisionOverlay({
+              ...instancedCollisionOverlay, showSource: event.currentTarget.checked,
             })} />
-          <Checkbox label="Proxy" checked={tieCollisionOverlay?.showProxy ?? true}
-            onChange={(event) => tieCollisionOverlay && setTieCollisionOverlay({
-              ...tieCollisionOverlay, showProxy: event.currentTarget.checked,
+          <Checkbox label="Proxy" checked={instancedCollisionOverlay?.showProxy ?? true}
+            onChange={(event) => instancedCollisionOverlay && setInstancedCollisionOverlay({
+              ...instancedCollisionOverlay, showProxy: event.currentTarget.checked,
             })} />
           <Checkbox label="Wireframe" checked={wireframe}
             onChange={(event) => void onWireframeChange(event.currentTarget.checked)} />

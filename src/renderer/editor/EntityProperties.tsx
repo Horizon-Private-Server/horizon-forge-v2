@@ -9,7 +9,7 @@ import { EditorProperty, EditorPropertyGrid } from './EditorPrimitives.tsx';
 import { EntityStateControls, EntityTextEditor } from './EntityPropertyControls.tsx';
 import { SkyShellProperties } from './SkyShellProperties.tsx';
 import { SplineProperties } from './SplineProperties.tsx';
-import { TieCollisionProperties } from './TieCollisionProperties.tsx';
+import { InstancedCollisionProperties } from './InstancedCollisionProperties.tsx';
 
 export function EntityProperties({ entity }: { entity: EditorEntity }) {
   const { busy } = useEditor();
@@ -17,7 +17,8 @@ export function EntityProperties({ entity }: { entity: EditorEntity }) {
   const disabled = busy || entity.state.locked || entity.state.readOnly;
   return <BaseEntityProperties entity={entity} disabled={disabled}>
     {entity.collision && <CollisionProperties entity={entity} />}
-    {entity.asset?.kind === 'Tie' && <TieCollisionProperties entity={entity} disabled={disabled} />}
+    {(entity.asset?.kind === 'Tie' || entity.asset?.kind === 'Shrub')
+      && <InstancedCollisionProperties entity={entity} disabled={disabled} />}
     {(entity.geometry?.kind === 'spline' || entity.geometry?.kind === 'grindPath')
       && <SplineProperties entity={entity} disabled={disabled} />}
   </BaseEntityProperties>;
@@ -94,16 +95,16 @@ export function MultiEntityProperties({ entities }: { entities: EditorEntity[] }
 function CollisionProperties({ entity }: { entity: EditorEntity }) {
   const { project } = useEditor();
   const collision = entity.collision!;
-  const attachedTie = collision.attachment
-    ? project.entities.find((candidate) => candidate.id === collision.attachment!.tieEntityId)
+  const attachedInstance = collision.attachment
+    ? project.entities.find((candidate) => candidate.id === collision.attachment!.parentEntityId)
     : undefined;
   return <Fieldset legend="Collision">
     <EditorPropertyGrid>
       <EditorProperty label="Layer">{collision.kind === 'solid' ? 'Solid collision' : 'Player barrier'}</EditorProperty>
       <EditorProperty label="Piece"><Code>#{collision.sourcePieceIndex}</Code></EditorProperty>
       <EditorProperty label="Geometry">{collision.faceCount} faces · {collision.vertexCount} vertices</EditorProperty>
-      {collision.attachment && <EditorProperty label="Follows TIE">{attachedTie?.name
-        ?? <Code>{collision.attachment.tieEntityId}</Code>}</EditorProperty>}
+      {collision.attachment && <EditorProperty label="Follows instance">{attachedInstance?.name
+        ?? <Code>{collision.attachment.parentEntityId}</Code>}</EditorProperty>}
       <EditorProperty label="Types">{collision.types.length
         ? collision.types.map((value) =>
           `${formatCollisionType(value.rawType, project.target.game)} (${value.count})`).join(', ')

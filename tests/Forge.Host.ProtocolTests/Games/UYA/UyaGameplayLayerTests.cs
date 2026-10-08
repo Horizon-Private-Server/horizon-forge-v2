@@ -142,7 +142,7 @@ internal static class UyaGameplayLayerTests
             path,
             "Gameplay bake",
             new("UYA", "NTSC-U", "1.00", "uya-ntsc-u"),
-            new("UYA", "NTSC-U", "1.00", 3, new string('a', 32), EntityVersion: 1),
+            new("UYA", "NTSC-U", "1.00", 3, new string('a', 32)),
             entities);
 
     private static ProjectEntity Moby(string name, int pvarIndex, ProjectEntityState state)

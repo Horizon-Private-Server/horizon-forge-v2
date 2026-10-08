@@ -44,10 +44,10 @@ export interface EditorCollisionPiece {
   faceCount: number;
   vertexCount: number;
   types: Array<{ rawType: number; count: number }>;
-  attachment?: { tieEntityId: string; bindTransform: ProjectTransform };
+  attachment?: { parentEntityId: string; bindTransform: ProjectTransform };
 }
 
-export interface EditorTieCollisionRecipe {
+export interface EditorInstancedCollisionRecipe {
   kind: 'surface' | 'wrap' | 'hull';
   generatorVersion: number;
   recipeVersion: number;
@@ -65,7 +65,7 @@ export interface EditorCollisionFaceType {
   rawType: number;
 }
 
-export interface EditorTieCollisionGenerationSettings {
+export interface EditorInstancedCollisionGenerationSettings {
   rawType: number;
   profileSections: number;
   surfaceLodIndex: number;
@@ -84,7 +84,7 @@ export interface EditorCollisionOctantCost {
   additionIds?: string[];
 }
 
-export interface EditorTieCollisionCombinedAnalysis {
+export interface EditorInstancedCollisionCombinedAnalysis {
   instanceCount: number;
   logicalFaceCount: number;
   occupiedOctantCount: number;
@@ -94,11 +94,11 @@ export interface EditorTieCollisionCombinedAnalysis {
   error?: string;
 }
 
-export interface EditorTieCollisionCandidate {
+export interface EditorInstancedCollisionCandidate {
   token: string;
   preset: 'surface' | 'solidHull';
   label: string;
-  recipe: EditorTieCollisionRecipe;
+  recipe: EditorInstancedCollisionRecipe;
   encodedByteCount: number;
   vertexCount: number;
   faceCount: number;
@@ -108,16 +108,16 @@ export interface EditorTieCollisionCandidate {
   maximumDeviation: number;
   deviationSampleCount: number;
   octants: EditorCollisionOctantCost[];
-  combinedAnalysis?: EditorTieCollisionCombinedAnalysis;
+  combinedAnalysis?: EditorInstancedCollisionCombinedAnalysis;
 }
 
-export interface EditorTieCollisionPreview {
-  tieAssetId: string;
-  candidates: EditorTieCollisionCandidate[];
+export interface EditorInstancedCollisionPreview {
+  sourceAssetId: string;
+  candidates: EditorInstancedCollisionCandidate[];
 }
 
-export interface EditorTieCollisionSourceInfo {
-  tieAssetId: string;
+export interface EditorInstancedCollisionSourceInfo {
+  sourceAssetId: string;
   surfaceLodIndices: number[];
 }
 
@@ -146,12 +146,9 @@ export interface EditorEntity {
   };
   skyShell?: EditorSkyShell;
   collision?: EditorCollisionPiece;
-  tieCollision?: {
-    proxyAssetId: string;
-    recipe: EditorTieCollisionRecipe;
-    faceTypeOverrides: EditorCollisionFaceType[];
-  };
-  tieCollisionEnabled?: boolean;
+  instancedCollision?: EditorInstancedCollisionBinding;
+  individualInstancedCollision?: EditorInstancedCollisionBinding;
+  instancedCollisionEnabled?: boolean;
   transformModes: Array<'translate' | 'rotate' | 'scale'>;
   state: {
     dirty: boolean;
@@ -162,6 +159,12 @@ export interface EditorEntity {
     invalid: boolean;
     missingAsset: boolean;
   };
+}
+
+export interface EditorInstancedCollisionBinding {
+  proxyAssetId: string;
+  recipe: EditorInstancedCollisionRecipe;
+  faceTypeOverrides: EditorCollisionFaceType[];
 }
 
 export type EditorCommand =
@@ -190,12 +193,12 @@ export type EditorCommand =
     update: { initialRotationRadians?: ProjectVector3; angularVelocityRadiansPerSecond?: ProjectVector3 };
   }
   | { id: string; kind: 'reorderSkyShell'; entityIds: [string]; destinationOrder: number }
-  | { id: string; kind: 'removeTieCollisionProxy'; entityIds: [string] }
-  | { id: string; kind: 'setTieCollisionEnabled'; entityIds: string[]; enabled: boolean }
-  | { id: string; kind: 'setTieCollisionRawType'; entityIds: [string]; rawType: number }
+  | { id: string; kind: 'removeInstancedCollisionProxy'; entityIds: [string] }
+  | { id: string; kind: 'setInstancedCollisionEnabled'; entityIds: string[]; enabled: boolean | null }
+  | { id: string; kind: 'setInstancedCollisionRawType'; entityIds: [string]; rawType: number }
   | {
     id: string;
-    kind: 'setTieCollisionFaceTypes';
+    kind: 'setInstancedCollisionFaceTypes';
     entityIds: [string];
     expectedProxyAssetId: string;
     faceTypes: EditorCollisionFaceType[];
@@ -228,7 +231,6 @@ export interface EditorSnapshot {
   entities: EditorEntity[];
   selection: string[];
   isDirty: boolean;
-  migrationPending: boolean;
   canUndo: boolean;
   canRedo: boolean;
   canPaste: boolean;

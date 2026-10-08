@@ -22,7 +22,7 @@ import {
   nextViewportSelection,
 } from '../src/renderer/editor/EditorPanelState.ts';
 import type { AssetExplorerItem } from '../src/types/AssetExplorer.js';
-import type { EditorEntity, EditorTieCollisionCandidate } from '../src/types/EditorRuntime.js';
+import type { EditorEntity, EditorInstancedCollisionCandidate } from '../src/types/EditorRuntime.js';
 import { createAssetPlacementCommand, createSkyShellAddCommand } from '../src/utils/AssetPlacement.ts';
 import {
   collisionTypeId, collisionTypeIdOptions, defaultCollisionType, formatCollisionType,
@@ -30,7 +30,7 @@ import {
 } from '../src/utils/CollisionFormat.ts';
 import { parseSplinePointId, removeSplinePoints, splinePointId } from '../src/utils/SplinePoints.ts';
 import { applyTextureChannel } from '../src/utils/TexturePreview.ts';
-import { recommendTieCollisionCandidate } from '../src/utils/TieCollision.ts';
+import { recommendInstancedCollisionCandidate } from '../src/utils/InstancedCollision.ts';
 
 function entity(index: number): EditorEntity {
   return {
@@ -76,13 +76,13 @@ test('texture preview channels expose opaque color and alpha values', () => {
   assert.deepEqual([...alpha], [40, 40, 40, 255]);
 });
 
-test('TIE collision recommendation respects hard failures and measured deviation', () => {
+test('instanced collision recommendation respects hard failures and measured deviation', () => {
   const candidate = (
     token: string,
     worstBytes: number,
     maximumDeviation: number,
     hardViolationCount = 0,
-  ): EditorTieCollisionCandidate => ({
+  ): EditorInstancedCollisionCandidate => ({
     token,
     preset: 'surface',
     label: token,
@@ -111,8 +111,8 @@ test('TIE collision recommendation respects hard failures and measured deviation
   const candidates = [
     combinedUnsafe, candidate('unsafe', 10, 1, 1), candidate('too-far', 20, 5), candidate('best', 30, 2),
   ];
-  assert.equal(recommendTieCollisionCandidate(candidates, 4)?.token, 'best');
-  assert.equal(recommendTieCollisionCandidate(candidates, 1), undefined);
+  assert.equal(recommendInstancedCollisionCandidate(candidates, 4)?.token, 'best');
+  assert.equal(recommendInstancedCollisionCandidate(candidates, 1), undefined);
 });
 
 test('asset thumbnails persist, reject corruption, and prune least-recently-used rasters', async () => {

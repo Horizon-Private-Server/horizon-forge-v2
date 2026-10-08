@@ -57,7 +57,7 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen, 
       setMissingProject(project);
       return;
     }
-    if (project.recoveries.length === 0 && !project.migrationPending) {
+    if (project.recoveries.length === 0 && !project.repairRequired) {
       onOpen(project);
       return;
     }
@@ -154,8 +154,8 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen, 
       setBusy(true);
       setError(undefined);
       const restored = await window.forge.restoreForgeProject(recoveryProject.path, recoveryId);
-      const project = restored.migrationPending
-        ? await window.forge.migrateForgeProject(restored.path)
+      const project = restored.repairRequired
+        ? await window.forge.repairForgeProject(restored.path)
         : restored;
       setRecoveryProject(undefined);
       setRecoveryId(null);
@@ -172,8 +172,8 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen, 
     try {
       setBusy(true);
       setError(undefined);
-      const project = recoveryProject.migrationPending
-        ? await window.forge.migrateForgeProject(recoveryProject.path)
+      const project = recoveryProject.repairRequired
+        ? await window.forge.repairForgeProject(recoveryProject.path)
         : recoveryProject;
       setRecoveryProject(undefined);
       setRecoveryId(null);
@@ -235,8 +235,7 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen, 
                     {project?.hasRecovery && <Badge color="yellow" variant="light">
                       Recovery available
                     </Badge>}
-                    {project?.migrationPending && <Badge color="yellow" variant="light" ml="xs">Upgrade required</Badge>}
-                    {project && !project.hasRecovery && !project.migrationPending
+                    {project && !project.hasRecovery
                       && <Text c="dimmed" size="xs">—</Text>}
                   </Table.Td>
                   <Table.Td>
@@ -246,7 +245,7 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen, 
                         if (!project) return;
                         setRenameProject(project);
                         setRename(project.name);
-                      }} disabled={!project || project.migrationPending || busy}>Rename</Button>
+                      }} disabled={!project || busy}>Rename</Button>
                       <Button variant="subtle" onClick={() => void window.forge.revealForgeProject(recent.path)}>Reveal</Button>
                       <Button variant="subtle" color="gray" onClick={async () => {
                         try { setHub(await window.forge.removeRecentProject(recent.path)); }
@@ -330,13 +329,13 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen, 
       <Modal
         opened={Boolean(recoveryProject)}
         onClose={() => setRecoveryProject(undefined)}
-        title={recoveryProject?.recoveries.length ? 'Unsaved work is available' : 'Project upgrade required'}
+        title={recoveryProject?.recoveries.length ? 'Unsaved work is available' : 'Project repair required'}
       >
         <Stack>
           <Alert color="yellow">
             {recoveryProject?.recoveries.length
               ? 'Forge found autosaved work newer than the last explicit save. Review it before choosing which version to open.'
-              : 'This project predates the current project format or base-entity coverage. Forge will preserve the existing files until you explicitly upgrade it.'}
+              : 'Generated project data is missing or stale. Forge can rebuild it from the configured clean ISO.'}
           </Alert>
           {Boolean(recoveryProject?.recoveries.length) && <Select
             label="Recovery snapshot"
@@ -357,12 +356,12 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen, 
             <Button variant="default" onClick={() => setRecoveryProject(undefined)}>Cancel</Button>
             {Boolean(recoveryProject?.recoveries.length) && (
               <Button variant="default" onClick={() => void openSavedProject()} loading={busy}>
-                {recoveryProject?.migrationPending ? 'Upgrade saved project' : 'Open saved project'}
+                {recoveryProject?.repairRequired ? 'Repair saved project' : 'Open saved project'}
               </Button>
             )}
             {recoveryProject?.recoveries.length
               ? <Button onClick={() => void restoreRecovery()} loading={busy} disabled={!recoveryId}>Recover autosave</Button>
-              : <Button onClick={() => void openSavedProject()} loading={busy}>Upgrade and open</Button>}
+              : <Button onClick={() => void openSavedProject()} loading={busy}>Repair and open</Button>}
           </Group>
         </Stack>
       </Modal>

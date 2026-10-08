@@ -211,39 +211,45 @@ test('sky shell commands validate source, rotation, and order payloads', () => {
   }), false);
 });
 
-test('TIE collision binding commands validate instance scope and enabled state', () => {
+test('instanced collision binding commands validate instance scope and enabled state', () => {
   assert.equal(isEditorCommand({
     id: '30000000-0000-4000-8000-000000000013',
-    kind: 'removeTieCollisionProxy',
+    kind: 'removeInstancedCollisionProxy',
     entityIds: ['tie'],
   }), true);
   assert.equal(isEditorCommand({
     id: '30000000-0000-4000-8000-000000000014',
-    kind: 'setTieCollisionEnabled',
+    kind: 'setInstancedCollisionEnabled',
     entityIds: ['tie'],
     enabled: false,
   }), true);
   assert.equal(isEditorCommand({
     id: '30000000-0000-4000-8000-000000000014',
-    kind: 'setTieCollisionEnabled',
+    kind: 'setInstancedCollisionEnabled',
+    entityIds: ['tie'],
+    enabled: null,
+  }), true);
+  assert.equal(isEditorCommand({
+    id: '30000000-0000-4000-8000-000000000014',
+    kind: 'setInstancedCollisionEnabled',
     entityIds: [],
     enabled: false,
   }), false);
   assert.equal(isEditorCommand({
     id: '30000000-0000-4000-8000-000000000015',
-    kind: 'setTieCollisionRawType',
+    kind: 'setInstancedCollisionRawType',
     entityIds: ['tie'],
     rawType: 0xaf,
   }), true);
   assert.equal(isEditorCommand({
     id: '30000000-0000-4000-8000-000000000015',
-    kind: 'setTieCollisionRawType',
+    kind: 'setInstancedCollisionRawType',
     entityIds: ['tie'],
     rawType: 256,
   }), false);
   const paintCommand = {
     id: '30000000-0000-4000-8000-000000000016',
-    kind: 'setTieCollisionFaceTypes',
+    kind: 'setInstancedCollisionFaceTypes',
     entityIds: ['tie'],
     expectedProxyAssetId: 'c'.repeat(64),
     faceTypes: [{ faceIndex: 7, rawType: 0xaf }, { faceIndex: 2, rawType: 0x31 }],
@@ -372,7 +378,7 @@ test('operation payloads round trip and reject trailing data', () => {
   const summary = {
     path: '/project', name: 'Test', targetGame: 'UYA', targetRegion: 'NTSC-U', targetRevision: '1.00',
     bakeProfile: 'uya-ntsc-u', baseLevel: 3, modifiedUnixMilliseconds: 1000,
-    migrationPending: false, hasRecovery: true,
+    hasRecovery: true,
   };
   assert.deepEqual(decodeForgeProjectSummary(encodeForgeProjectSummary(summary)), summary);
   const repairRequest = { ...inspectProject, sourceIsoPath: '/clean.iso' };
@@ -417,7 +423,7 @@ test('operation payloads round trip and reject trailing data', () => {
   const descriptor = {
     path: '/project', name: 'Test', targetGame: 'UYA', targetRegion: 'NTSC-U', targetRevision: '1.00',
     bakeProfile: 'uya-ntsc-u', baseLevel: 3, modifiedUnixMilliseconds: 1000,
-    entityCount: 20, missingAssetCount: 0, isDirty: false, migrationPending: false, warnings: ['partial'],
+    entityCount: 20, missingAssetCount: 0, isDirty: false, repairRequired: false, warnings: ['partial'],
     recoveries: [{
       id: recoveryRequest.recoveryId, createdUnixMilliseconds: 1000, name: 'Recovered',
       entityCount: 20, fingerprint: 'a'.repeat(64), size: 4096,

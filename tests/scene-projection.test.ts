@@ -19,6 +19,7 @@ import {
   applyCollisionFaceTypes,
   collisionFaceIdFromIntersection,
   collisionRawTypeFromIntersection,
+  createInstancedCollisionWireframeOverlay,
   interpolatePointerSegment,
   shouldOrbitWhileCollisionPainting,
 } from '../src/renderer/editor/CollisionPainting.ts';
@@ -600,7 +601,7 @@ test('recovered collision follows its attached TIE instance', () => {
   collision.collision = {
     kind: 'solid', sourcePayloadIndex: 0, sourcePieceIndex: 0,
     faceCount: 1, vertexCount: 3, types: [],
-    attachment: { tieEntityId: tie.id, bindTransform: structuredClone(tie.transform) },
+    attachment: { parentEntityId: tie.id, bindTransform: structuredClone(tie.transform) },
   };
   collision.transformModes = ['translate'];
   const template = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
@@ -882,6 +883,24 @@ test('collision painting resolves one native face ID across triangulated faces',
 
   geometry.dispose();
   mesh.material.dispose();
+});
+
+test('instanced collision wireframe overlays solid geometry without replacing it', () => {
+  const geometry = new THREE.BoxGeometry(1, 1, 1);
+  const material = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+  const source = new THREE.Group();
+  source.add(new THREE.Mesh(geometry, material));
+
+  const overlay = createInstancedCollisionWireframeOverlay(source);
+  const wireframe = overlay.children[0] as THREE.Mesh;
+  assert.equal(material.wireframe, false);
+  assert.equal((wireframe.material as THREE.MeshBasicMaterial).wireframe, true);
+  assert.equal(wireframe.renderOrder, 1);
+  assert.equal(wireframe.geometry, geometry);
+  assert.notEqual(wireframe.material, material);
+
+  disposeObject(overlay);
+  disposeObject(source);
 });
 
 test('collision painting interpolates fast pointer movement at bounded spacing', () => {

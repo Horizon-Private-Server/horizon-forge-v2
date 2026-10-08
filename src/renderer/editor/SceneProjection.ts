@@ -702,7 +702,7 @@ export class SceneProjection {
       const visible = this.isVisible(entity, true, visibleLayers, true, visibleCollisionKinds);
       const isSelected = selected.has(entity.id);
       const attachment = entity.collision?.attachment;
-      const parentTransform = attachment && this.entitiesById.get(attachment.tieEntityId)?.transform;
+      const parentTransform = attachment && this.entitiesById.get(attachment.parentEntityId)?.transform;
       const previous = batch.states.get(entity.id);
       if (previous?.transform === entity.transform
         && previous.bindTransform === attachment?.bindTransform
@@ -763,7 +763,7 @@ export class SceneProjection {
   private projectedMatrix(entity: EditorEntity): THREE.Matrix4 {
     this.composeProjectedMatrix(entity.transform, this.entityMatrix);
     const attachment = entity.collision?.attachment;
-    const parent = attachment && this.entitiesById.get(attachment.tieEntityId);
+    const parent = attachment && this.entitiesById.get(attachment.parentEntityId);
     if (!attachment || !parent) return this.entityMatrix;
     this.composeProjectedMatrix(attachment.bindTransform, this.bindMatrix).invert();
     this.composeProjectedMatrix(parent.transform, this.parentMatrix);
@@ -795,7 +795,7 @@ export class SceneProjection {
       && !this.previewHidden.has(entity.id)
       && !entity.state.disabled
       && !(entity.collision?.attachment
-        && this.entitiesById.get(entity.collision.attachment.tieEntityId)?.state.disabled)
+        && this.entitiesById.get(entity.collision.attachment.parentEntityId)?.state.disabled)
       && (visibleLayers?.has(entity.layer) ?? true)
       && (!entity.collision || visibleCollisionKinds?.has(entity.collision.kind) !== false)
       && (hasTemplate || showMarkers);

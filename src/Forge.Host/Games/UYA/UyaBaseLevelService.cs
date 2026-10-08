@@ -95,7 +95,7 @@ internal static class UyaBaseLevelService
         var baseLayers = UyaBaseLayerService.Extract(package);
         AddSkyShells(entities, baseLayers, level);
         AddCollisionPieces(entities, baseLayers, level);
-        UyaTieCollisionLinkRecoveryService.Recover(entities, baseLayers, catalog);
+        UyaInstancedCollisionLinkRecoveryService.Recover(entities, baseLayers, catalog);
 
         var missing = CountMissing(mobys.Select(value => value.ClassId), mobyClasses, mobyAssets)
             + CountMissing(ties.Select(value => value.ClassId), tieClasses, tieAssets)

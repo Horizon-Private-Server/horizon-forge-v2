@@ -17,7 +17,7 @@ import type { SceneTreeColors } from '../../types/SceneTree.js';
 import type { CollisionVisualization } from '../../types/CollisionVisualization.js';
 import type { EditorLoadProgress, EditorSceneEnvironment, EditorTerrainSource } from '../../types/ForgeApi.js';
 import type { EditorSnapSource, EditorSnapTarget } from '../../types/EditorViewport.js';
-import type { TieCollisionOverlay } from './EditorContext.ts';
+import type { InstancedCollisionOverlay } from './EditorContext.ts';
 import {
   disposeObject,
   applySceneEnvironment,
@@ -49,7 +49,7 @@ import { assetTemplateKey, SceneProjection } from './SceneProjection.ts';
 import { resolvePointerSnapTarget } from './SceneSnapping.ts';
 import { TransformTool } from './TransformTool.ts';
 import type { EditorTransformMode, EditorTransformSpace } from './TransformTool.ts';
-import { TieCollisionOverlayProjection } from './TieCollisionOverlayProjection.ts';
+import { InstancedCollisionOverlayProjection } from './InstancedCollisionOverlayProjection.ts';
 import {
   interpolatePointerSegment, shouldOrbitWhileCollisionPainting,
 } from './CollisionPainting.ts';
@@ -71,7 +71,7 @@ interface SceneViewportProps {
   showTerrain: boolean;
   showSolidCollision: boolean;
   showPlayerBarriers: boolean;
-  tieCollisionOverlay?: TieCollisionOverlay;
+  instancedCollisionOverlay?: InstancedCollisionOverlay;
   onFocusHandled(): void;
   onLoadProgress(progress?: EditorLoadProgress): void;
   onSolidCollisionVisibilityChange(value: boolean): void;
@@ -105,7 +105,7 @@ export function SceneViewport({
   showTerrain,
   showSolidCollision,
   showPlayerBarriers,
-  tieCollisionOverlay,
+  instancedCollisionOverlay,
   onFocusHandled,
   onLoadProgress,
   onSolidCollisionVisibilityChange,
@@ -135,7 +135,7 @@ export function SceneViewport({
   const currentEnvironment = useRef(environment);
   const currentCollisionVisualization = useRef(collisionVisualization);
   const currentSelectionColor = useRef(selectionColor);
-  const currentTieCollisionOverlay = useRef(tieCollisionOverlay);
+  const currentInstancedCollisionOverlay = useRef(instancedCollisionOverlay);
   const focusHandled = useRef(onFocusHandled);
   const loadProgressChanged = useRef(onLoadProgress);
   const selectionChanged = useRef(onSelectionChange);
@@ -149,7 +149,7 @@ export function SceneViewport({
   currentEnvironment.current = environment;
   currentCollisionVisualization.current = collisionVisualization;
   currentSelectionColor.current = selectionColor;
-  currentTieCollisionOverlay.current = tieCollisionOverlay;
+  currentInstancedCollisionOverlay.current = instancedCollisionOverlay;
   currentShowStats.current = showStats;
   focusHandled.current = onFocusHandled;
   loadProgressChanged.current = onLoadProgress;
@@ -180,7 +180,7 @@ export function SceneViewport({
     skyShells: Map<string, SkyShellProjection>;
     previewRequests: Set<string>;
     collisionScenes: Set<THREE.Object3D>;
-    tieCollisionPreview: TieCollisionOverlayProjection;
+    instancedCollisionPreview: InstancedCollisionOverlayProjection;
   }>(null);
   const dropFrame = useRef<number | undefined>(undefined);
   const pendingDrop = useRef<{ x: number; y: number } | undefined>(undefined);
@@ -210,11 +210,11 @@ export function SceneViewport({
     const currentProjection = new SceneProjection();
     currentProjection.setSelectionColor(selectionColor);
     const collisionScenes = new Set<THREE.Object3D>();
-    const tieCollisionPreview = new TieCollisionOverlayProjection(
+    const instancedCollisionPreview = new InstancedCollisionOverlayProjection(
       collisionScenes,
       () => setNotice('Collision candidate overlay unavailable.'),
     );
-    content.add(terrain, occlusion, currentProjection.root, tieCollisionPreview.root);
+    content.add(terrain, occlusion, currentProjection.root, instancedCollisionPreview.root);
     skyScene.add(sky);
     scene.add(content);
 
@@ -335,7 +335,7 @@ export function SceneViewport({
       skyShells: new Map(),
       previewRequests: new Set(),
       collisionScenes,
-      tieCollisionPreview,
+      instancedCollisionPreview,
     };
 
     let noticeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -445,16 +445,16 @@ export function SceneViewport({
       rawType: number;
     } | undefined;
     const paintAt = (clientX: number, clientY: number) => {
-      const overlay = currentTieCollisionOverlay.current;
-      if (!overlay?.paint) return undefined;
+      const overlay = currentInstancedCollisionOverlay.current;
+      if (!overlay?.paint?.active) return undefined;
       const bounds = renderer.domElement.getBoundingClientRect();
       pointer.set(
         (clientX - bounds.left) / bounds.width * 2 - 1,
         -(clientY - bounds.top) / bounds.height * 2 + 1,
       );
       raycaster.setFromCamera(pointer, camera);
-      const hit = tieCollisionPreview.pick(raycaster);
-      tieCollisionPreview.setHoveredFace(hit?.faceId, currentSelectionColor.current);
+      const hit = instancedCollisionPreview.pick(raycaster);
+      instancedCollisionPreview.setHoveredFace(hit?.faceId, currentSelectionColor.current);
       overlay.paint.onHover(hit?.faceId, hit?.rawType);
       return hit;
     };
@@ -463,7 +463,7 @@ export function SceneViewport({
       if (renderer.domElement.hasPointerCapture(paintStroke.pointerId))
         renderer.domElement.releasePointerCapture(paintStroke.pointerId);
       paintStroke = undefined;
-      tieCollisionPreview.finishStroke(false);
+      instancedCollisionPreview.finishStroke(false);
       return true;
     };
     const updateSnapPointer = (event: PointerEvent) => {
@@ -477,7 +477,8 @@ export function SceneViewport({
       renderer.domElement.focus({ preventScroll: true });
       if (transformTool.isInteracting) return;
       if (viewport.current) viewport.current.flight = undefined;
-      const paint = currentTieCollisionOverlay.current?.paint;
+      const paintState = currentInstancedCollisionOverlay.current?.paint;
+      const paint = paintState?.active ? paintState : undefined;
       if (event.button === 0 && paint && !event.altKey) {
         const hit = paintAt(event.clientX, event.clientY);
         if (!hit) return;
@@ -492,7 +493,7 @@ export function SceneViewport({
           faceIds: new Set([hit.faceId]),
           rawType,
         };
-        tieCollisionPreview.previewFace(hit.faceId, rawType);
+        instancedCollisionPreview.previewFace(hit.faceId, rawType);
         paint.onHover(hit.faceId, rawType);
         renderer.domElement.setPointerCapture(event.pointerId);
         event.preventDefault();
@@ -519,15 +520,16 @@ export function SceneViewport({
           const hit = paintAt(point.x, point.y);
           if (hit && !paintStroke.faceIds.has(hit.faceId)) {
             paintStroke.faceIds.add(hit.faceId);
-            tieCollisionPreview.previewFace(hit.faceId, paintStroke.rawType);
-            currentTieCollisionOverlay.current?.paint?.onHover(hit.faceId, paintStroke.rawType);
+            instancedCollisionPreview.previewFace(hit.faceId, paintStroke.rawType);
+            currentInstancedCollisionOverlay.current?.paint?.onHover(hit.faceId, paintStroke.rawType);
           }
         }
         paintStroke.last = { x: event.clientX, y: event.clientY };
         event.preventDefault();
         return;
       }
-      if (currentTieCollisionOverlay.current?.paint && lookPointerId === undefined && !event.altKey) {
+      if (currentInstancedCollisionOverlay.current?.paint?.active
+        && lookPointerId === undefined && !event.altKey) {
         paintAt(event.clientX, event.clientY);
         return;
       }
@@ -541,10 +543,11 @@ export function SceneViewport({
         const stroke = paintStroke;
         paintStroke = undefined;
         if (renderer.domElement.hasPointerCapture(event.pointerId)) renderer.domElement.releasePointerCapture(event.pointerId);
-        const paint = currentTieCollisionOverlay.current?.paint;
-        if (!paint) tieCollisionPreview.finishStroke(false);
+        const paintState = currentInstancedCollisionOverlay.current?.paint;
+        const paint = paintState?.active ? paintState : undefined;
+        if (!paint) instancedCollisionPreview.finishStroke(false);
         else void paint.onStroke([...stroke.faceIds], stroke.rawType)
-          .then((committed) => tieCollisionPreview.finishStroke(committed));
+          .then((committed) => instancedCollisionPreview.finishStroke(committed));
         event.preventDefault();
         return;
       }
@@ -673,7 +676,7 @@ export function SceneViewport({
       terrain.removeFromParent();
       terrain.clear();
       currentProjection.dispose();
-      tieCollisionPreview.dispose();
+      instancedCollisionPreview.dispose();
       viewport.current?.previewRequests.forEach((token) => { void window.forge.cancelAssetPreview(token); });
       viewport.current?.placedTemplates.forEach(disposeObject);
       viewport.current?.skyShells.forEach((shell) => disposeObject(shell.root));
@@ -687,16 +690,16 @@ export function SceneViewport({
     };
   }, []);
 
-  const tieCollisionEntity = tieCollisionOverlay
-    ? entities.find((entity) => entity.id === tieCollisionOverlay.entityId)
+  const instancedCollisionEntity = instancedCollisionOverlay
+    ? entities.find((entity) => entity.id === instancedCollisionOverlay.entityId)
     : undefined;
-  const tieCollisionTransform = tieCollisionEntity ? JSON.stringify(tieCollisionEntity.transform) : '';
+  const instancedCollisionTransform = instancedCollisionEntity ? JSON.stringify(instancedCollisionEntity.transform) : '';
 
   useEffect(() => {
     const current = viewport.current;
     if (!current) return;
     current.projection.setPreviewHiddenEntity(
-      tieCollisionOverlay && !tieCollisionOverlay.showSource ? tieCollisionOverlay.entityId : undefined);
+      instancedCollisionOverlay && !instancedCollisionOverlay.showSource ? instancedCollisionOverlay.entityId : undefined);
     current.projection.sync(
       currentEntities.current,
       currentSelection.current,
@@ -705,34 +708,34 @@ export function SceneViewport({
       currentCollisionVisibility.current,
     );
     current.transformTool.sync(currentEntities.current, currentSelection.current, current.projection);
-  }, [tieCollisionOverlay?.entityId, tieCollisionOverlay?.showSource]);
+  }, [instancedCollisionOverlay?.entityId, instancedCollisionOverlay?.showSource]);
 
   useEffect(() => {
     const current = viewport.current;
-    const overlay = tieCollisionOverlay;
-    if (!current || !overlay || !tieCollisionEntity) return;
-    current.tieCollisionPreview.show(
+    const overlay = instancedCollisionOverlay;
+    if (!current || !overlay || !instancedCollisionEntity) return;
+    current.instancedCollisionPreview.show(
       overlay,
-      tieCollisionEntity.transform,
+      instancedCollisionEntity.transform,
       currentCollisionVisualization.current,
     );
-    return () => current.tieCollisionPreview.clear();
-  }, [tieCollisionOverlay?.candidate?.token, tieCollisionOverlay?.url, tieCollisionTransform]);
+    return () => current.instancedCollisionPreview.clear();
+  }, [instancedCollisionOverlay?.candidate?.token, instancedCollisionOverlay?.url, instancedCollisionTransform]);
 
   useEffect(() => {
-    const projection = viewport.current?.tieCollisionPreview;
-    const overlay = tieCollisionOverlay;
+    const projection = viewport.current?.instancedCollisionPreview;
+    const overlay = instancedCollisionOverlay;
     if (!projection || !overlay) return;
     projection.update(overlay);
-  }, [tieCollisionOverlay?.paint, tieCollisionOverlay?.showOctants,
-    tieCollisionOverlay?.showProxy, tieCollisionOverlay?.wireframe]);
+  }, [instancedCollisionOverlay?.paint, instancedCollisionOverlay?.showOctants,
+    instancedCollisionOverlay?.showProxy, instancedCollisionOverlay?.wireframe]);
 
   useEffect(() => {
     const current = viewport.current;
     if (!current) return;
-    (tieCollisionOverlay?.paint ? current.toolScene : current.content)
-      .add(current.tieCollisionPreview.root);
-  }, [Boolean(tieCollisionOverlay?.paint)]);
+    (instancedCollisionOverlay?.paint?.active ? current.toolScene : current.content)
+      .add(current.instancedCollisionPreview.root);
+  }, [Boolean(instancedCollisionOverlay?.paint?.active)]);
 
   useEffect(() => {
     if (!terrainSource) return;
@@ -982,12 +985,12 @@ export function SceneViewport({
   useEffect(() => viewport.current?.transformTool.setSnapping(
     snapEnabled, translationSnap, rotationSnap, scaleSnap, snapSource, snapTarget,
   ), [rotationSnap, scaleSnap, snapEnabled, snapSource, snapTarget, translationSnap]);
-  useEffect(() => viewport.current?.transformTool.setEnabled(!disabled && !tieCollisionOverlay?.paint),
-    [disabled, tieCollisionOverlay?.paint]);
+  useEffect(() => viewport.current?.transformTool.setEnabled(!disabled && !instancedCollisionOverlay?.paint?.active),
+    [disabled, instancedCollisionOverlay?.paint?.active]);
   useEffect(() => {
     const canvas = container.current?.querySelector('canvas');
-    if (canvas) canvas.style.cursor = tieCollisionOverlay?.paint ? 'crosshair' : '';
-  }, [tieCollisionOverlay?.paint]);
+    if (canvas) canvas.style.cursor = instancedCollisionOverlay?.paint?.active ? 'crosshair' : '';
+  }, [instancedCollisionOverlay?.paint?.active]);
 
   useEffect(() => {
     if (!focusEntityId) return;

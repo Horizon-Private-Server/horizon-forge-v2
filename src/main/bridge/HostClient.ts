@@ -10,9 +10,9 @@ import type {
   EditorCommand,
   EditorEvent,
   EditorSnapshot,
-  EditorTieCollisionGenerationSettings,
-  EditorTieCollisionPreview,
-  EditorTieCollisionSourceInfo,
+  EditorInstancedCollisionGenerationSettings,
+  EditorInstancedCollisionPreview,
+  EditorInstancedCollisionSourceInfo,
   ForgeHostStatus,
   ForgeProjectDescriptor,
   ForgeProjectSummary,
@@ -42,15 +42,15 @@ import {
 import {
   decodeEditorEvents,
   decodeEditorSnapshot,
-  decodeTieCollisionPreview,
-  decodeTieCollisionSourceInfo,
+  decodeInstancedCollisionPreview,
+  decodeInstancedCollisionSourceInfo,
   encodeEditorCommand,
   encodeEditorEventRequest,
   encodeEditorOpenRequest,
-  encodeTieCollisionApplyRequest,
-  encodeTieCollisionPreviewRequest,
-  encodeTieCollisionSourceRequest,
-  encodeTieCollisionRenderRequest,
+  encodeInstancedCollisionApplyRequest,
+  encodeInstancedCollisionPreviewRequest,
+  encodeInstancedCollisionSourceRequest,
+  encodeInstancedCollisionRenderRequest,
 } from './EditorPayloadCodec.js';
 import { decodeCatalogMaintenance, encodeCatalogCollectionRequest, encodeCatalogMaintenanceRequest,
   encodeProjectAssetRepairRequest } from './MaintenancePayloadCodec.js';
@@ -294,13 +294,13 @@ export class HostClient {
     return { requestId: request.requestId, result: request.result.then(decodeForgeProjectDescriptor) };
   }
 
-  async migrateForgeProject(
+  async repairForgeProject(
     projectPath: string,
     catalogRootPath: string,
     sourceIsoPath: string,
   ): Promise<HostRequest<ForgeProjectDescriptor>> {
     const request = await this.#request(
-      BridgeOpcode.MigrateForgeProject,
+      BridgeOpcode.RepairForgeProject,
       encodeProjectAssetRepairRequest({ projectPath, catalogRootPath, sourceIsoPath }),
     );
     return { requestId: request.requestId, result: request.result.then(decodeForgeProjectDescriptor) };
@@ -373,46 +373,46 @@ export class HostClient {
     return { requestId: request.requestId, result: request.result.then(decodeEditorSnapshot) };
   }
 
-  async previewTieCollision(
+  async previewInstancedCollision(
     entityId: string,
-    settings?: EditorTieCollisionGenerationSettings,
-  ): Promise<HostRequest<EditorTieCollisionPreview>> {
+    settings?: EditorInstancedCollisionGenerationSettings,
+  ): Promise<HostRequest<EditorInstancedCollisionPreview>> {
     const request = await this.#request(
-      BridgeOpcode.PreviewTieCollision, encodeTieCollisionPreviewRequest(entityId, settings));
-    return { requestId: request.requestId, result: request.result.then(decodeTieCollisionPreview) };
+      BridgeOpcode.PreviewInstancedCollision, encodeInstancedCollisionPreviewRequest(entityId, settings));
+    return { requestId: request.requestId, result: request.result.then(decodeInstancedCollisionPreview) };
   }
 
-  async inspectTieCollisionSource(entityId: string): Promise<HostRequest<EditorTieCollisionSourceInfo>> {
+  async inspectInstancedCollisionSource(entityId: string): Promise<HostRequest<EditorInstancedCollisionSourceInfo>> {
     const request = await this.#request(
-      BridgeOpcode.InspectTieCollisionSource, encodeTieCollisionSourceRequest(entityId));
-    return { requestId: request.requestId, result: request.result.then(decodeTieCollisionSourceInfo) };
+      BridgeOpcode.InspectInstancedCollisionSource, encodeInstancedCollisionSourceRequest(entityId));
+    return { requestId: request.requestId, result: request.result.then(decodeInstancedCollisionSourceInfo) };
   }
 
-  async applyTieCollisionPreview(commandId: string, token: string): Promise<HostRequest<EditorSnapshot>> {
+  async applyInstancedCollisionPreview(commandId: string, token: string): Promise<HostRequest<EditorSnapshot>> {
     const request = await this.#request(
-      BridgeOpcode.ApplyTieCollisionPreview, encodeTieCollisionApplyRequest(commandId, token));
+      BridgeOpcode.ApplyInstancedCollisionPreview, encodeInstancedCollisionApplyRequest(commandId, token));
     return { requestId: request.requestId, result: request.result.then(decodeEditorSnapshot) };
   }
 
-  async prepareTieCollisionPreview(
+  async prepareInstancedCollisionPreview(
     cacheRootPath: string,
     catalogRootPath: string,
     token: string,
   ): Promise<HostRequest<AssetPreviewResult>> {
     const request = await this.#request(
-      BridgeOpcode.PrepareTieCollisionPreview,
-      encodeTieCollisionRenderRequest(cacheRootPath, catalogRootPath, token));
+      BridgeOpcode.PrepareInstancedCollisionPreview,
+      encodeInstancedCollisionRenderRequest(cacheRootPath, catalogRootPath, token));
     return { requestId: request.requestId, result: request.result.then(decodeAssetPreviewResult) };
   }
 
-  async prepareAppliedTieCollision(
+  async prepareAppliedInstancedCollision(
     cacheRootPath: string,
     catalogRootPath: string,
     proxyAssetId: string,
   ): Promise<HostRequest<AssetPreviewResult>> {
     const request = await this.#request(
-      BridgeOpcode.PrepareAppliedTieCollision,
-      encodeTieCollisionRenderRequest(cacheRootPath, catalogRootPath, proxyAssetId));
+      BridgeOpcode.PrepareAppliedInstancedCollision,
+      encodeInstancedCollisionRenderRequest(cacheRootPath, catalogRootPath, proxyAssetId));
     return { requestId: request.requestId, result: request.result.then(decodeAssetPreviewResult) };
   }
 

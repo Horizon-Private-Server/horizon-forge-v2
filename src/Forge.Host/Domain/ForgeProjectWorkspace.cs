@@ -1,27 +1,23 @@
 namespace Forge.Host.Domain;
 
-public sealed class ForgeProjectWorkspace
+public sealed partial class ForgeProjectWorkspace
 {
     public const string ManifestFileName = "forge-project.json";
     public const string DefaultContentPath = "content/project.json.gz";
-    public const string LegacyContentPath = "content/project.json";
     public const string RecoveryDirectoryName = ForgeProjectPersistence.RecoveryDirectoryName;
     public const int MaxRecoverySnapshots = ForgeProjectPersistence.MaxRecoverySnapshots;
     public const long MaxRecoveryBytes = ForgeProjectPersistence.MaxRecoveryBytes;
     private string _savedFingerprint;
-    private bool _migrationPending;
 
     private ForgeProjectWorkspace(
         string rootPath,
         ForgeProjectManifest manifest,
-        ForgeProjectContent content,
-        bool migrationPending = false)
+        ForgeProjectContent content)
     {
         RootPath = rootPath;
         Manifest = manifest;
         Content = content;
         _savedFingerprint = ForgeProjectPersistence.Fingerprint(manifest, content);
-        _migrationPending = migrationPending;
     }
 
     public string RootPath { get; }
@@ -29,9 +25,7 @@ public sealed class ForgeProjectWorkspace
     public ForgeProjectContent Content { get; private set; }
     public string ContentFilePath => ForgeProjectPersistence.ResolveRelativePath(RootPath, Manifest.Content);
     public string CurrentFingerprint => ForgeProjectPersistence.Fingerprint(Manifest, Content);
-    public bool IsDirty => _migrationPending || CurrentFingerprint != _savedFingerprint;
-    public bool MigrationPending => _migrationPending
-        || Manifest.BaseLevel.EntityVersion < ProjectSchema.CurrentBaseEntityVersion;
+    public bool IsDirty => CurrentFingerprint != _savedFingerprint;
 
     internal ForgeProjectState CaptureState() => new(Manifest, Content);
 
@@ -93,7 +87,7 @@ public sealed class ForgeProjectWorkspace
     {
         var root = Path.GetFullPath(rootPath);
         var loaded = await ForgeProjectPersistence.LoadAsync(root, cancellationToken);
-        var workspace = new ForgeProjectWorkspace(root, loaded.Manifest, loaded.Content, loaded.Migrated);
+        var workspace = new ForgeProjectWorkspace(root, loaded.Manifest, loaded.Content);
         workspace.Validate();
         return workspace;
     }
@@ -103,7 +97,7 @@ public sealed class ForgeProjectWorkspace
         CancellationToken cancellationToken = default)
     {
         var root = Path.GetFullPath(rootPath);
-        var (manifest, storedVersion) = await ForgeProjectPersistence.LoadManifestAsync(root, cancellationToken);
+        var manifest = await ForgeProjectPersistence.LoadManifestAsync(root, cancellationToken);
         var manifestPath = Path.Combine(root, ManifestFileName);
         var contentPath = ForgeProjectPersistence.ResolveRelativePath(root, manifest.Content);
         if (!File.Exists(contentPath)) throw new InvalidDataException("Project content is missing.");
@@ -124,8 +118,6 @@ public sealed class ForgeProjectWorkspace
             manifest.Target.BakeProfile,
             manifest.BaseLevel.Level,
             modifiedUnixMilliseconds,
-            storedVersion != ProjectSchema.CurrentVersion
-                || manifest.BaseLevel.EntityVersion < ProjectSchema.CurrentBaseEntityVersion,
             hasRecovery);
     }
 
@@ -140,7 +132,6 @@ public sealed class ForgeProjectWorkspace
             Validate();
             await ForgeProjectPersistence.SaveAsync(RootPath, Manifest, Content, cancellationToken);
             _savedFingerprint = CurrentFingerprint;
-            _migrationPending = false;
         }
         catch
         {
@@ -168,19 +159,16 @@ public sealed class ForgeProjectWorkspace
             throw new InvalidDataException("Recovery belongs to a different project.");
         var previousManifest = Manifest;
         var previousContent = Content;
-        var previousMigration = _migrationPending;
         try
         {
             Manifest = loaded.Manifest;
             Content = loaded.Content;
-            _migrationPending = loaded.Migrated;
             Validate();
         }
         catch
         {
             Manifest = previousManifest;
             Content = previousContent;
-            _migrationPending = previousMigration;
             throw;
         }
     }
@@ -205,14 +193,14 @@ public sealed class ForgeProjectWorkspace
             var entity = entities[update.EntityId];
             if (entity.Collision?.Attachment is not { } attachment) continue;
             transforms.Remove(update.EntityId);
-            if (transforms.ContainsKey(attachment.TieEntityId)) continue;
+            if (transforms.ContainsKey(attachment.ParentEntityId)) continue;
             var delta = new ProjectVector3(
                 update.Transform.Position.X - entity.Transform.Position.X,
                 update.Transform.Position.Y - entity.Transform.Position.Y,
                 update.Transform.Position.Z - entity.Transform.Position.Z);
-            if (parentDeltas.TryGetValue(attachment.TieEntityId, out var existing) && existing != delta)
+            if (parentDeltas.TryGetValue(attachment.ParentEntityId, out var existing) && existing != delta)
                 throw new ArgumentException("Linked collision pieces require the same parent translation.", nameof(updates));
-            parentDeltas[attachment.TieEntityId] = delta;
+            parentDeltas[attachment.ParentEntityId] = delta;
         }
         foreach (var (parentId, delta) in parentDeltas)
         {
@@ -291,7 +279,12 @@ public sealed class ForgeProjectWorkspace
     {
         var index = FindEntityIndex(entityId);
         var removed = Content.Entities[index];
-        Content = Content with { Entities = Content.Entities.Where(entity => entity.EntityId != entityId).ToArray() };
+        Content = Content with
+        {
+            Entities = Content.Entities.Where(entity => entity.EntityId != entityId).ToArray(),
+            InstancedCollisionBindings = Content.InstancedCollisionBindings
+                .Where(binding => binding.InstanceEntityId != entityId).ToArray(),
+        };
         return removed;
     }
 
@@ -300,10 +293,16 @@ public sealed class ForgeProjectWorkspace
         var indexes = EntityIndexes(entityIds);
         var removed = entityIds.ToHashSet();
         foreach (var collision in Content.Entities.Where(entity =>
-            entity.Collision?.Attachment is { } attachment && removed.Contains(attachment.TieEntityId)))
+            entity.Collision?.Attachment is { } attachment && removed.Contains(attachment.ParentEntityId)))
             removed.Add(collision.EntityId);
         var entities = Content.Entities.Where(entity => !removed.Contains(entity.EntityId)).ToArray();
-        Content = Content with { Entities = entities };
+        Content = Content with
+        {
+            Entities = entities,
+            InstancedCollisionBindings = Content.InstancedCollisionBindings
+                .Where(binding => binding.InstanceEntityId is null || !removed.Contains(binding.InstanceEntityId.Value))
+                .ToArray(),
+        };
         NormalizeSkyShellOrders();
         if (entities.Length == 0) return [];
         return [entities[Math.Min(indexes.Min(), entities.Length - 1)].EntityId];
@@ -384,104 +383,6 @@ public sealed class ForgeProjectWorkspace
         ApplySkyShellOrders(ordered);
     }
 
-    public void CompleteBaseEntityImport(IReadOnlyList<ProjectEntity> entities, int missingAssetCount)
-    {
-        ArgumentNullException.ThrowIfNull(entities);
-        if (Manifest.BaseLevel.EntityVersion >= ProjectSchema.CurrentBaseEntityVersion) return;
-        if (missingAssetCount < 0) throw new ArgumentOutOfRangeException(nameof(missingAssetCount));
-        var importedBySource = entities.Where(entity => entity.Provenance is not null)
-            .ToDictionary(entity => (entity.Provenance!.Section, entity.Provenance.SourceIndex));
-        var existingSources = new HashSet<(string Section, int SourceIndex)>();
-        var updated = Content.Entities.Select(entity =>
-        {
-            if (entity.Provenance is null) return entity;
-            var key = (entity.Provenance.Section, entity.Provenance.SourceIndex);
-            existingSources.Add(key);
-            return importedBySource.TryGetValue(key, out var imported)
-                ? entity with
-                {
-                    Name = imported.Geometry is null ? entity.Name : imported.Name,
-                    Source = imported.Source,
-                    Geometry = imported.Geometry,
-                    Lighting = imported.Lighting,
-                    TieLighting = imported.TieLighting,
-                    Camera = imported.Camera,
-                    AmbientSound = imported.AmbientSound,
-                    SkyShell = imported.SkyShell,
-                    Collision = imported.Collision,
-                }
-                : entity;
-        });
-        var merged = updated.Concat(entities.Where(entity => entity.Provenance is not null
-            && existingSources.Add((entity.Provenance.Section, entity.Provenance.SourceIndex)))).ToArray();
-        Content = Content with { Entities = RemapImportedLinks(merged, entities) };
-        Manifest = Manifest with
-        {
-            BaseLevel = Manifest.BaseLevel with
-            {
-                MissingAssetCount = missingAssetCount,
-                EntityVersion = ProjectSchema.CurrentBaseEntityVersion,
-            },
-        };
-    }
-
-    private static ProjectEntity[] RemapImportedLinks(
-        ProjectEntity[] merged,
-        IReadOnlyList<ProjectEntity> imported)
-    {
-        var importedSources = imported.Where(entity => entity.Provenance is not null)
-            .ToDictionary(entity => entity.EntityId,
-                entity => (entity.Provenance!.Section, entity.Provenance.SourceIndex));
-        var mergedIds = merged.Where(entity => entity.Provenance is not null)
-            .ToDictionary(entity => (entity.Provenance!.Section, entity.Provenance.SourceIndex),
-                entity => entity.EntityId);
-        return RemapGeometryLinks(merged).Select(entity =>
-        {
-            var attachment = entity.Collision?.Attachment;
-            if (attachment is null || !importedSources.TryGetValue(attachment.TieEntityId, out var source)
-                || !mergedIds.TryGetValue(source, out var tieEntityId)) return entity;
-            return entity with
-            {
-                Collision = entity.Collision! with
-                {
-                    Attachment = attachment with { TieEntityId = tieEntityId },
-                },
-            };
-        }).ToArray();
-    }
-
-    private static ProjectEntity[] RemapGeometryLinks(ProjectEntity[] entities)
-    {
-        var cuboids = entities.Where(entity => entity.Geometry?.Cuboid is not null && entity.Provenance is not null)
-            .ToDictionary(entity => entity.Provenance!.SourceIndex, entity => entity.EntityId);
-        var spheres = entities.Where(entity => entity.Geometry?.Sphere is not null && entity.Provenance is not null)
-            .ToDictionary(entity => entity.Provenance!.SourceIndex, entity => entity.EntityId);
-        var cylinders = entities.Where(entity => entity.Geometry?.Cylinder is not null && entity.Provenance is not null)
-            .ToDictionary(entity => entity.Provenance!.SourceIndex, entity => entity.EntityId);
-        var splines = entities.Where(entity => entity.Geometry?.Spline is not null && entity.Provenance is not null)
-            .ToDictionary(entity => entity.Provenance!.SourceIndex, entity => entity.EntityId);
-        return entities.Select(entity => entity.Geometry?.Area is not { } area ? entity : entity with
-        {
-            Geometry = entity.Geometry with
-            {
-                Area = area with
-                {
-                    Splines = Remap(area.Splines, splines),
-                    Cuboids = Remap(area.Cuboids, cuboids),
-                    Spheres = Remap(area.Spheres, spheres),
-                    Cylinders = Remap(area.Cylinders, cylinders),
-                    NegativeCuboids = Remap(area.NegativeCuboids, cuboids),
-                },
-            },
-        }).ToArray();
-    }
-
-    private static ProjectGeometryLink[] Remap(
-        IReadOnlyList<ProjectGeometryLink> links,
-        IReadOnlyDictionary<int, EntityId> entities) => links
-        .Select(link => link with { EntityId = entities.GetValueOrDefault(link.SourceIndex) })
-        .ToArray();
-
     public void Rename(string name)
     {
         ForgeProjectValidation.ValidateText(name, nameof(name));
@@ -513,14 +414,17 @@ public sealed class ForgeProjectWorkspace
             || existing.ParentId != attached.ParentId
             || existing.Size != attached.Size))
             throw new InvalidDataException($"Project asset {derivedId} has inconsistent metadata.");
-        await EnsureAssetBlobAsync(attached, canonicalBytes, cancellationToken);
-
         var current = new ProjectAssetReference(derivedId, source.Kind);
         var changes = Content.Entities
             .Where(entity => entity.Asset == source && (entity.EntityId == entityId || !makeUnique))
             .Select(entity => new ProjectAssetReferenceChange(entity.EntityId, source, current))
             .ToArray();
         var changedIds = changes.Select(change => change.EntityId).ToHashSet();
+        if (Content.InstancedCollisionBindings.Any(binding =>
+            binding.InstanceEntityId is { } instanceEntityId && changedIds.Contains(instanceEntityId)))
+            throw new InvalidOperationException(
+                "Remove the individual collision before editing its source asset.");
+        await EnsureAssetBlobAsync(attached, canonicalBytes, cancellationToken);
         Content = Content with
         {
             Entities = Content.Entities.Select(entity => changedIds.Contains(entity.EntityId)
@@ -531,129 +435,6 @@ public sealed class ForgeProjectWorkspace
         return new(derivedId, changes);
     }
 
-    public async Task<ProjectTieCollisionBinding> ApplyTieCollisionProxyAsync(
-        AssetId tieAssetId,
-        ReadOnlyMemory<byte> canonicalBytes,
-        uint canonicalFormatVersion,
-        ProjectTieCollisionRecipe recipe,
-        CancellationToken cancellationToken = default)
-    {
-        if (tieAssetId.ToString().Length != AssetId.TextLength)
-            throw new ArgumentException("TIE Asset ID is invalid.", nameof(tieAssetId));
-        if (canonicalBytes.IsEmpty)
-            throw new ArgumentException("Collision proxy bytes cannot be empty.", nameof(canonicalBytes));
-        ForgeProjectValidation.ValidateTieCollisionRecipe(recipe);
-        if (!Content.Entities.Any(entity => entity.Asset is { Kind: AssetKind.Tie } asset
-            && asset.Id == tieAssetId))
-            throw new InvalidOperationException($"Project has no TIE entity for asset {tieAssetId}.");
-
-        var proxyAssetId = AssetId.Compute(AssetKind.Collision, canonicalFormatVersion, canonicalBytes.Span);
-        var attached = new ProjectAttachedAsset(
-            proxyAssetId,
-            AssetKind.Collision,
-            canonicalFormatVersion,
-            tieAssetId,
-            canonicalBytes.Length);
-        var existing = Content.Assets.SingleOrDefault(asset => asset.Id == proxyAssetId);
-        if (existing is not null && (existing.Kind != attached.Kind
-            || existing.CanonicalFormatVersion != attached.CanonicalFormatVersion
-            || existing.ParentId != attached.ParentId
-            || existing.Size != attached.Size))
-            throw new InvalidDataException($"Project asset {proxyAssetId} has inconsistent metadata.");
-
-        await EnsureAssetBlobAsync(attached, canonicalBytes, cancellationToken);
-        var binding = new ProjectTieCollisionBinding(tieAssetId, proxyAssetId, recipe, []);
-        var content = Content with
-        {
-            Assets = existing is null ? Content.Assets.Append(attached).ToArray() : Content.Assets,
-            TieCollisionBindings = Content.TieCollisionBindings
-                .Where(value => value.TieAssetId != tieAssetId)
-                .Append(binding)
-                .OrderBy(value => value.TieAssetId.ToString(), StringComparer.Ordinal)
-                .ToArray(),
-        };
-        ForgeProjectValidation.Validate(RootPath, Manifest, content);
-        Content = content;
-        return binding;
-    }
-
-    public ProjectTieCollisionBinding RemoveTieCollisionProxy(AssetId tieAssetId)
-    {
-        var binding = Content.TieCollisionBindings.SingleOrDefault(value => value.TieAssetId == tieAssetId)
-            ?? throw new KeyNotFoundException($"TIE asset {tieAssetId} has no collision proxy binding.");
-        var content = Content with
-        {
-            TieCollisionBindings = Content.TieCollisionBindings.Where(value => value != binding).ToArray(),
-        };
-        ForgeProjectValidation.Validate(RootPath, Manifest, content);
-        Content = content;
-        return binding;
-    }
-
-    public void SetTieCollisionEnabled(EntityId entityId, bool enabled)
-        => SetTieCollisionEnabled([entityId], enabled);
-
-    public void SetTieCollisionEnabled(IReadOnlyList<EntityId> entityIds, bool enabled)
-    {
-        var entities = GetEntities(entityIds);
-        if (entities.Any(entity => entity.Asset?.Kind != AssetKind.Tie))
-            throw new InvalidOperationException("Only TIE entities can override generated collision.");
-        UpdateEntities(entityIds, value => value with { TieCollisionEnabled = enabled ? null : false });
-    }
-
-    public void SetTieCollisionRawType(AssetId tieAssetId, byte rawType)
-    {
-        var binding = Content.TieCollisionBindings.SingleOrDefault(value => value.TieAssetId == tieAssetId)
-            ?? throw new KeyNotFoundException($"TIE asset {tieAssetId} has no collision proxy binding.");
-        var replacement = binding with
-        {
-            Recipe = binding.Recipe with { RawType = rawType },
-            FaceTypeOverrides = binding.FaceTypeOverrides.Where(value => value.RawType != rawType).ToArray(),
-        };
-        var content = Content with
-        {
-            TieCollisionBindings = Content.TieCollisionBindings.Select(value =>
-                value == binding ? replacement : value).ToArray(),
-        };
-        ForgeProjectValidation.Validate(RootPath, Manifest, content);
-        Content = content;
-    }
-
-    public void SetTieCollisionFaceTypes(
-        AssetId tieAssetId,
-        AssetId expectedProxyAssetId,
-        IReadOnlyList<ProjectCollisionFaceTypeOverride> assignments,
-        int faceCount)
-    {
-        ArgumentNullException.ThrowIfNull(assignments);
-        if (faceCount < 1) throw new ArgumentOutOfRangeException(nameof(faceCount));
-        if (assignments.Count is 0 or > ForgeProjectValidation.MaxTieCollisionFaceTypeOverrides
-            || assignments.Any(value => value is null || value.FaceIndex < 0 || value.FaceIndex >= faceCount)
-            || assignments.Select(value => value.FaceIndex).Distinct().Count() != assignments.Count)
-            throw new ArgumentException("TIE collision face-type assignments are invalid.", nameof(assignments));
-        var binding = Content.TieCollisionBindings.SingleOrDefault(value => value.TieAssetId == tieAssetId)
-            ?? throw new KeyNotFoundException($"TIE asset {tieAssetId} has no collision proxy binding.");
-        if (binding.ProxyAssetId != expectedProxyAssetId)
-            throw new InvalidOperationException("The TIE collision proxy changed before face types were applied.");
-
-        var overrides = binding.FaceTypeOverrides.ToDictionary(value => value.FaceIndex);
-        foreach (var assignment in assignments)
-        {
-            if (assignment.RawType == binding.Recipe.RawType) overrides.Remove(assignment.FaceIndex);
-            else overrides[assignment.FaceIndex] = assignment;
-        }
-        var replacement = binding with
-        {
-            FaceTypeOverrides = overrides.Values.OrderBy(value => value.FaceIndex).ToArray(),
-        };
-        var content = Content with
-        {
-            TieCollisionBindings = Content.TieCollisionBindings.Select(value =>
-                value == binding ? replacement : value).ToArray(),
-        };
-        ForgeProjectValidation.Validate(RootPath, Manifest, content);
-        Content = content;
-    }
 
     public void UndoAssetEdit(ProjectAssetEdit edit)
     {
@@ -674,7 +455,7 @@ public sealed class ForgeProjectWorkspace
     }
 
     public bool IsAssetReferenced(AssetId id) => Content.Entities.Any(entity => entity.Asset?.Id == id)
-        || Content.TieCollisionBindings.Any(binding => binding.ProxyAssetId == id);
+        || Content.InstancedCollisionBindings.Any(binding => binding.ProxyAssetId == id);
 
     public async Task<IReadOnlyList<AssetId>> CollectUnreferencedAssetsAsync(
         CancellationToken cancellationToken = default)
@@ -694,7 +475,7 @@ public sealed class ForgeProjectWorkspace
             .SelectMany(content => content.Entities)
             .Where(entity => entity.Asset is not null)
             .Select(entity => entity.Asset!.Id)
-            .Concat(contents.SelectMany(content => content.TieCollisionBindings)
+            .Concat(contents.SelectMany(content => content.InstancedCollisionBindings)
                 .Select(binding => binding.ProxyAssetId))
             .ToHashSet();
         var assets = contents.SelectMany(content => content.Assets).ToArray();

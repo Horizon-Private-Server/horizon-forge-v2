@@ -5,7 +5,7 @@ import type {
   AssetExplorerQuery,
   AssetPreviewKind,
   EditorCommand,
-  EditorTieCollisionGenerationSettings,
+  EditorInstancedCollisionGenerationSettings,
   ForgeAction,
   ForgeApi,
   ForgeWindowAction,
@@ -39,7 +39,7 @@ const forgeApi = Object.freeze({
   openRecentProject: (path: string) => ipcRenderer.invoke('forge:projects-open-recent', path),
   renameForgeProject: (path: string, name: string) => ipcRenderer.invoke('forge:projects-rename', path, name),
   restoreForgeProject: (path: string, recoveryId: string) => ipcRenderer.invoke('forge:projects-restore', path, recoveryId),
-  migrateForgeProject: (path: string) => ipcRenderer.invoke('forge:projects-migrate', path),
+  repairForgeProject: (path: string) => ipcRenderer.invoke('forge:projects-repair', path),
   repairForgeProjectAssets: (path: string) => ipcRenderer.invoke('forge:projects-repair-assets', path),
   previewCatalogGarbageCollection: () => ipcRenderer.invoke('forge:catalog-gc-preview'),
   collectCatalogGarbage: (confirmationToken: string) => ipcRenderer.invoke('forge:catalog-gc-collect', confirmationToken),
@@ -59,17 +59,17 @@ const forgeApi = Object.freeze({
   closeEditorProject: () => ipcRenderer.invoke('forge:editor-close'),
   getEditorSnapshot: () => ipcRenderer.invoke('forge:editor-query'),
   executeEditorCommand: (command: EditorCommand) => ipcRenderer.invoke('forge:editor-execute', command),
-  inspectTieCollisionSource: (entityId: string) =>
-    ipcRenderer.invoke('forge:editor-tie-collision-inspect', entityId),
-  previewTieCollision: (entityId: string, settings?: EditorTieCollisionGenerationSettings) =>
-    ipcRenderer.invoke('forge:editor-tie-collision-preview', entityId, settings),
-  cancelTieCollisionPreview: () => ipcRenderer.invoke('forge:editor-tie-collision-cancel'),
-  applyTieCollisionPreview: (commandId: string, token: string) =>
-    ipcRenderer.invoke('forge:editor-tie-collision-apply', commandId, token),
-  getTieCollisionPreviewModel: (token: string, requestToken: string) =>
-    ipcRenderer.invoke('forge:editor-tie-collision-model', token, requestToken),
-  getAppliedTieCollisionModel: (proxyAssetId: string, requestToken: string) =>
-    ipcRenderer.invoke('forge:editor-tie-collision-applied-model', proxyAssetId, requestToken),
+  inspectInstancedCollisionSource: (entityId: string) =>
+    ipcRenderer.invoke('forge:editor-instanced-collision-inspect', entityId),
+  previewInstancedCollision: (entityId: string, settings?: EditorInstancedCollisionGenerationSettings) =>
+    ipcRenderer.invoke('forge:editor-instanced-collision-preview', entityId, settings),
+  cancelInstancedCollisionPreview: () => ipcRenderer.invoke('forge:editor-instanced-collision-cancel'),
+  applyInstancedCollisionPreview: (commandId: string, token: string) =>
+    ipcRenderer.invoke('forge:editor-instanced-collision-apply', commandId, token),
+  getInstancedCollisionPreviewModel: (token: string, requestToken: string) =>
+    ipcRenderer.invoke('forge:editor-instanced-collision-model', token, requestToken),
+  getAppliedInstancedCollisionModel: (proxyAssetId: string, requestToken: string) =>
+    ipcRenderer.invoke('forge:editor-instanced-collision-applied-model', proxyAssetId, requestToken),
   saveEditorProject: () => ipcRenderer.invoke('forge:editor-save'),
   getBuildPlan: () => ipcRenderer.invoke('forge:editor-build-plan'),
   buildAndPatchProject: (includedLayers: BuildLayerId[]) =>

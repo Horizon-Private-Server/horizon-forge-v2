@@ -15,7 +15,7 @@ public static class UyaBaseLayerStore
     private const string PointLightsAssetName = "point-lights.bin";
     private const string TieAmbientAssetName = "tie-ambient-rgbas.bin";
     private const int SkyCompositionVersion = 2;
-    private const int CollisionCompositionVersion = 3;
+    private const int CollisionCompositionVersion = 4;
 
     internal static async Task WriteAsync(
         string projectRoot,
@@ -191,8 +191,8 @@ public static class UyaBaseLayerStore
                 assetIds = assetIds.Concat(EnabledSkyShells(workspace)
                     .Where(value => value.Asset is not null).Select(value => value.Asset!.Id));
             if (layer == BakeLayerId.Collision)
-                assetIds = assetIds.Concat(workspace.Content.TieCollisionBindings
-                    .SelectMany(value => new[] { value.TieAssetId, value.ProxyAssetId }));
+                assetIds = assetIds.Concat(workspace.Content.InstancedCollisionBindings
+                    .SelectMany(value => new[] { value.SourceAssetId, value.ProxyAssetId }));
             return new BakeLayerInput(
                 layer,
                 content,
@@ -228,7 +228,7 @@ public static class UyaBaseLayerStore
                                 value.Transform.Position,
                                 value.Collision.Attachment,
                                 Parent = value.Collision.Attachment is { } attachment
-                                    ? workspace.Content.Entities.Where(entity => entity.EntityId == attachment.TieEntityId)
+                                    ? workspace.Content.Entities.Where(entity => entity.EntityId == attachment.ParentEntityId)
                                         .Select(entity => new
                                         {
                                             Enabled = entity.State?.Disabled != true,
@@ -236,25 +236,27 @@ public static class UyaBaseLayerStore
                                         }).Single()
                                     : null,
                             }).ToArray(),
-                        Bindings = workspace.Content.TieCollisionBindings
-                            .OrderBy(value => value.TieAssetId.ToString(), StringComparer.Ordinal)
+                        Bindings = workspace.Content.InstancedCollisionBindings
+                            .OrderBy(value => value.SourceAssetId.ToString(), StringComparer.Ordinal)
+                            .ThenBy(value => value.InstanceEntityId?.ToString(), StringComparer.Ordinal)
                             .Select(value => new
                             {
-                                value.TieAssetId,
+                                value.SourceAssetId,
+                                value.InstanceEntityId,
                                 value.ProxyAssetId,
                                 value.Recipe,
                                 value.FaceTypeOverrides,
                             }).ToArray(),
                         Instances = workspace.Content.Entities.Where(value =>
-                                value.Asset is { Kind: AssetKind.Tie }
-                                && workspace.Content.TieCollisionBindings.Any(
-                                    binding => binding.TieAssetId == value.Asset.Id))
+                                value.Asset.IsInstancedCollisionSource()
+                                && workspace.Content.InstancedCollisionBindings.Any(
+                                    binding => binding.SourceAssetId == value.Asset.Id))
                             .OrderBy(value => value.EntityId.ToString(), StringComparer.Ordinal)
                             .Select(value => new
                             {
                                 value.EntityId,
-                                TieAssetId = value.Asset!.Id,
-                                Enabled = value.State?.Disabled != true && value.TieCollisionEnabled != false,
+                                SourceAssetId = value.Asset!.Id,
+                                Mode = value.State?.Disabled == true ? null : value.InstancedCollisionEnabled,
                                 value.Transform,
                             }).ToArray(),
                     }),
@@ -420,10 +422,11 @@ public static class UyaBaseLayerStore
     {
         var result = new Dictionary<string, byte[]>(StringComparer.Ordinal);
         IReadOnlyList<CollisionSolidAddition> proxyAdditions = record.Assets.Any(asset => asset.Name == "collision.bin")
-            ? await UyaTieCollisionCompositionService.BuildAdditionsAsync(
+            ? await UyaInstancedCollisionCompositionService.BuildAdditionsAsync(
                 workspace,
                 catalog,
-                replacementTieAssetId: null,
+                replacementEntityId: null,
+                replacementSourceAssetId: null,
                 replacementProxyBytes: null,
                 decodedProxies: new Dictionary<AssetId, CollisionSolidAddition>(),
                 cancellationToken: cancellationToken)
@@ -434,10 +437,11 @@ public static class UyaBaseLayerStore
             var path = workspace.ResolveAssetPath(asset.Asset.Id, catalog)
                 ?? throw new FileNotFoundException($"Collision source {asset.Asset.Id} is missing.");
             var source = await File.ReadAllBytesAsync(path, cancellationToken);
-            var edits = UyaTieCollisionCompositionService.CreateEdits(
+            var edits = UyaInstancedCollisionCompositionService.CreateEdits(
                 workspace, asset.Asset.Id, source);
-            var assetAdditions = UyaTieCollisionCompositionService.BuildLinkedAdditions(
-                    workspace, asset.Asset.Id, source, sourcePayloadIndex: null, cancellationToken)
+            var assetAdditions = UyaInstancedCollisionCompositionService.BuildLinkedAdditions(
+                    workspace, asset.Asset.Id, source, sourcePayloadIndex: null,
+                    replacementEntityId: null, cancellationToken)
                 .Concat(asset.Name == "collision.bin" ? proxyAdditions : [])
                 .ToArray();
             var composition = await Task.Run(

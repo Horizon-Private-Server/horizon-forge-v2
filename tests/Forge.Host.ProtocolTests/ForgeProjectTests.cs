@@ -1,8 +1,6 @@
 using Forge.Host.Games.UYA;
 using System.Security.Cryptography;
 using System.IO.Compression;
-using System.Text.Json;
-using System.Text.Json.Nodes;
 using Forge.Host.Domain;
 
 internal static class ForgeProjectTests
@@ -33,82 +31,46 @@ internal static class ForgeProjectTests
             };
             var target = new ProjectTargetProfile("UYA", "NTSC-U", "1.00", "uya-ntsc-u");
             var baseLevel = new ProjectBaseLevel(
-                "UYA", "NTSC-U", "1.00", 3, UyaIsoService.SupportedMd5,
-                EntityVersion: ProjectSchema.CurrentBaseEntityVersion);
+                "UYA", "NTSC-U", "1.00", 3, UyaIsoService.SupportedMd5);
             var originalPath = Path.Combine(root, "project-a");
             var otherPath = Path.Combine(root, "project-b");
             var project = await ForgeProjectWorkspace.CreateAsync(originalPath, "Portable project", target, baseLevel, entities);
             var otherProject = await ForgeProjectWorkspace.CreateAsync(otherPath, "Other project", target, baseLevel, entities);
             Equal(false, project.IsDirty, "new project is clean after creation");
-            Equal(false, project.MigrationPending, "new project needs no migration");
             var summary = await ForgeProjectWorkspace.SummarizeAsync(originalPath);
             Equal("Portable project", summary.Name, "project summary reads the manifest");
             Equal(false, summary.HasRecovery, "clean project summary has no recovery");
 
-            var migrationPath = Path.Combine(root, "collision-migration");
-            var migrating = await ForgeProjectWorkspace.CreateAsync(
-                migrationPath,
-                "Collision migration",
-                target,
-                baseLevel with { EntityVersion = ProjectSchema.CurrentBaseEntityVersion - 1 },
-                []);
             var collisionAsset = new ProjectAssetReference(
                 AssetId.Parse(new string('c', AssetId.TextLength)), AssetKind.Collision);
-            var migratedPieces = new[]
-            {
-                new ProjectEntity(EntityId.New(), "Solid #0", "collision", ProjectTransform.Identity, collisionAsset,
-                    new("UYA", 3, "collision/primary/solid", 0),
-                    Collision: new(ProjectCollisionPieceKind.Solid, 0, 0, 1, 3, [new(0x21, 1)])),
-                new ProjectEntity(EntityId.New(), "Solid #1", "collision", ProjectTransform.Identity, collisionAsset,
-                    new("UYA", 3, "collision/primary/solid", 1),
-                    Collision: new(ProjectCollisionPieceKind.Solid, 0, 1, 1, 3, [new(0x22, 1)])),
-            };
-            migrating.CompleteBaseEntityImport(migratedPieces, 0);
-            Equal(2, migrating.Content.Entities.Count, "migration imports every collision piece from one payload");
-            migrating.RemoveEntity(migratedPieces[0].EntityId);
-            migrating.CompleteBaseEntityImport(migratedPieces, 0);
-            Equal(1, migrating.Content.Entities.Count, "completed migration does not resurrect deleted collision");
-
-            var linkMigrationPath = Path.Combine(root, "collision-link-migration");
+            var collisionProjectPath = Path.Combine(root, "collision-project");
             var existingTieId = EntityId.New();
-            var importedTieId = EntityId.New();
             var tieAsset = new ProjectAssetReference(
                 AssetId.Parse(new string('d', AssetId.TextLength)), AssetKind.Tie);
             var existingTie = new ProjectEntity(
                 existingTieId, "Existing TIE", "ties", ProjectTransform.Identity, tieAsset,
                 new("UYA", 3, "gameplay/core/tie_instances", 0));
-            var linkMigration = await ForgeProjectWorkspace.CreateAsync(
-                linkMigrationPath,
-                "Collision link migration",
-                target,
-                baseLevel with { EntityVersion = ProjectSchema.CurrentBaseEntityVersion - 1 },
-                [existingTie]);
-            var importedTie = existingTie with { EntityId = importedTieId, Name = "Imported TIE" };
             var linkedCollision = new ProjectEntity(
                 EntityId.New(), "Linked solid", "collision", ProjectTransform.Identity, collisionAsset,
                 new("UYA", 3, "collision/primary/solid", 0),
                 Collision: new(
                     ProjectCollisionPieceKind.Solid, 0, 0, 1, 3, [new(0x21, 1)],
-                    new(importedTieId, importedTie.Transform)));
-            linkMigration.CompleteBaseEntityImport([importedTie, linkedCollision], 0);
-            Equal(existingTieId,
-                linkMigration.Content.Entities.Single(value => value.Collision is not null)
-                    .Collision!.Attachment!.TieEntityId,
-                "base migration remaps recovered collision to the retained TIE entity");
-            var retainedCollision = linkMigration.Content.Entities.Single(value => value.Collision is not null);
-            linkMigration.UpdateTransform(retainedCollision.EntityId,
-                retainedCollision.Transform with { Position = new(2, 3, 4) });
+                    new(existingTieId, existingTie.Transform)));
+            var collisionProject = await ForgeProjectWorkspace.CreateAsync(
+                collisionProjectPath, "Collision project", target, baseLevel, [existingTie, linkedCollision]);
+            collisionProject.UpdateTransform(linkedCollision.EntityId,
+                linkedCollision.Transform with { Position = new(2, 3, 4) });
             Equal(new ProjectVector3(2, 3, 4),
-                linkMigration.Content.Entities.Single(value => value.EntityId == existingTieId).Transform.Position,
+                collisionProject.Content.Entities.Single(value => value.EntityId == existingTieId).Transform.Position,
                 "moving recovered collision translates its attached TIE");
             Equal(ProjectTransform.Identity.Position,
-                linkMigration.Content.Entities.Single(value => value.EntityId == retainedCollision.EntityId)
+                collisionProject.Content.Entities.Single(value => value.EntityId == linkedCollision.EntityId)
                     .Transform.Position,
                 "reverse movement does not apply the translation twice to recovered collision");
-            await linkMigration.SaveAsync();
-            linkMigration = await ForgeProjectWorkspace.OpenAsync(linkMigrationPath);
-            _ = linkMigration.RemoveEntities([existingTieId]);
-            Equal(0, linkMigration.Content.Entities.Count,
+            await collisionProject.SaveAsync();
+            collisionProject = await ForgeProjectWorkspace.OpenAsync(collisionProjectPath);
+            _ = collisionProject.RemoveEntities([existingTieId]);
+            Equal(0, collisionProject.Content.Entities.Count,
                 "deleting a TIE also deletes its recovered collision pieces");
 
             project.UpdateTransform(firstId, ProjectTransform.Identity with { Position = new(1, 2, 3) });
@@ -162,6 +124,15 @@ internal static class ForgeProjectTests
             var rejectedContent = await File.ReadAllBytesAsync(contentPath);
             Equal(true, storedFutureContent.SequenceEqual(rejectedContent), "future content remains unchanged");
             await File.WriteAllBytesAsync(contentPath, contentAfter);
+            var manifestPath = Path.Combine(movedPath, ForgeProjectWorkspace.ManifestFileName);
+            var currentVersion = $"\"schemaVersion\":{ProjectSchema.CurrentVersion}";
+            var obsoleteManifest = System.Text.Encoding.UTF8.GetString(manifestAfter)
+                .Replace(currentVersion, "\"schemaVersion\":7", StringComparison.Ordinal);
+            Equal(false, obsoleteManifest.Contains(currentVersion, StringComparison.Ordinal),
+                "obsolete schema fixture changes the manifest version");
+            await File.WriteAllTextAsync(manifestPath, obsoleteManifest);
+            await ThrowsAsync<UnsupportedProjectSchemaException>(() => ForgeProjectWorkspace.OpenAsync(movedPath));
+            await File.WriteAllBytesAsync(manifestPath, manifestAfter);
 
             project.UpdateTransform(firstId, ProjectTransform.Identity with { Position = new(9, 8, 7) });
             var firstRecovery = await project.WriteRecoveryAsync()
@@ -216,56 +187,6 @@ internal static class ForgeProjectTests
             Equal(true, savedContent.SequenceEqual(restoredContent), "interrupted save restores explicit content");
             Equal(false, Directory.Exists(journal), "completed journal recovery is removed");
 
-            var legacyPath = Path.Combine(root, "legacy-project");
-            Directory.CreateDirectory(Path.Combine(legacyPath, "content"));
-            var savedContentJson = Decompress(savedContent);
-            await WriteLegacyManifestAsync(savedManifest, Path.Combine(legacyPath, ForgeProjectWorkspace.ManifestFileName), 0);
-            await WriteSchemaVersionAsync(savedContentJson, Path.Combine(legacyPath, ForgeProjectWorkspace.LegacyContentPath), 0, true);
-            var legacy = await ForgeProjectWorkspace.OpenAsync(legacyPath);
-            Equal(true, legacy.MigrationPending, "v0 project migration is pending");
-            Equal(true, legacy.IsDirty, "migration marks project dirty");
-            var legacyDescriptor = await UyaProjectService.InspectAsync(legacyPath, catalog);
-            Equal(true, legacyDescriptor.MigrationPending, "project inspection offers migration");
-            Equal(0, ReadSchemaVersion(await File.ReadAllBytesAsync(Path.Combine(legacyPath, ForgeProjectWorkspace.ManifestFileName))),
-                "migration does not silently overwrite v0 manifest");
-            await legacy.SaveAsync();
-            Equal(false, File.Exists(Path.Combine(legacyPath, ForgeProjectWorkspace.LegacyContentPath)),
-                "explicit save removes legacy content");
-            Equal(true, File.Exists(Path.Combine(legacyPath, ForgeProjectWorkspace.DefaultContentPath)),
-                "explicit save writes compressed content");
-            legacyDescriptor = await UyaProjectService.InspectAsync(legacyPath, catalog);
-            Equal(true, legacyDescriptor.MigrationPending,
-                "schema-only migration still requires UYA source-backed content upgrade");
-            Equal(ProjectSchema.CurrentVersion,
-                ReadSchemaVersion(await File.ReadAllBytesAsync(Path.Combine(legacyPath, ForgeProjectWorkspace.ManifestFileName))),
-                "explicit save writes current manifest");
-
-            var versionOnePath = Path.Combine(root, "version-one-project");
-            Directory.CreateDirectory(Path.Combine(versionOnePath, "content"));
-            await WriteLegacyManifestAsync(savedManifest, Path.Combine(versionOnePath, ForgeProjectWorkspace.ManifestFileName), 1);
-            await WriteSchemaVersionAsync(savedContentJson, Path.Combine(versionOnePath, ForgeProjectWorkspace.LegacyContentPath), 1);
-            var versionOne = await ForgeProjectWorkspace.OpenAsync(versionOnePath);
-            Equal(true, versionOne.MigrationPending, "v1 project migration is pending");
-            await versionOne.SaveAsync();
-            Equal(ProjectSchema.CurrentVersion,
-                ReadSchemaVersion(await File.ReadAllBytesAsync(Path.Combine(versionOnePath, ForgeProjectWorkspace.ManifestFileName))),
-                "explicit save migrates v1 manifest");
-
-            var versionFourPath = Path.Combine(root, "version-four-project");
-            Directory.CreateDirectory(Path.Combine(versionFourPath, "content"));
-            await WriteLegacyManifestAsync(
-                savedManifest,
-                Path.Combine(versionFourPath, ForgeProjectWorkspace.ManifestFileName),
-                4);
-            await WriteSchemaVersionAsync(
-                savedContentJson,
-                Path.Combine(versionFourPath, ForgeProjectWorkspace.LegacyContentPath),
-                4,
-                compress: true);
-            var versionFour = await ForgeProjectWorkspace.OpenAsync(versionFourPath);
-            Equal(true, versionFour.MigrationPending, "v4 project migration is pending");
-            Equal(0, versionFour.Content.TieCollisionBindings.Count, "v4 migration supplies an empty proxy binding list");
-
             var sharedEdit = await project.ApplyAssetEditAsync(firstId, "shared edit"u8.ToArray(), catalog);
             Equal(2, sharedEdit.Changes.Count, "default edit updates project references");
             Equal(true, project.Content.Entities.All(entity => entity.Asset!.Id == sharedEdit.DerivedAssetId), "shared references redirected");
@@ -302,8 +223,8 @@ internal static class ForgeProjectTests
             var secondTieId = EntityId.New();
             reopened.AddEntity(Entity(firstTieId, "First TIE", tie.Id, AssetKind.Tie));
             reopened.AddEntity(Entity(secondTieId, "Second TIE", tie.Id, AssetKind.Tie));
-            var recipe = new ProjectTieCollisionRecipe(
-                ProjectTieCollisionRecipeKind.Wrap,
+            var recipe = new ProjectInstancedCollisionRecipe(
+                ProjectInstancedCollisionRecipeKind.Wrap,
                 GeneratorVersion: 5,
                 RecipeVersion: 1,
                 LodIndex: 0,
@@ -311,33 +232,33 @@ internal static class ForgeProjectTests
                 DetailSize: 1,
                 SealOpeningSize: 2);
             var assetCountBeforeProxy = reopened.Content.Assets.Count;
-            var binding = await reopened.ApplyTieCollisionProxyAsync(
+            var binding = await reopened.ApplyInstancedCollisionProxyAsync(
                 tie.Id,
                 "proxy geometry"u8.ToArray(),
                 canonicalFormatVersion: 1,
                 recipe);
-            Equal(1, reopened.Content.TieCollisionBindings.Count, "matching TIEs share one proxy binding");
+            Equal(1, reopened.Content.InstancedCollisionBindings.Count, "matching TIEs share one proxy binding");
             Equal(assetCountBeforeProxy + 1, reopened.Content.Assets.Count, "proxy geometry is attached once");
             Equal(tie.Id,
                 reopened.Content.Assets.Single(asset => asset.Id == binding.ProxyAssetId).ParentId,
                 "proxy parent is the exact TIE Asset ID");
             Equal(true, reopened.IsAssetReferenced(binding.ProxyAssetId), "bound proxy is protected from collection");
-            _ = await reopened.ApplyTieCollisionProxyAsync(
+            _ = await reopened.ApplyInstancedCollisionProxyAsync(
                 tie.Id,
                 "proxy geometry"u8.ToArray(),
                 canonicalFormatVersion: 1,
                 recipe);
             Equal(assetCountBeforeProxy + 1, reopened.Content.Assets.Count, "reapplying equal geometry deduplicates its blob");
-            reopened.SetTieCollisionEnabled(secondTieId, false);
-            Equal(false,
-                reopened.Content.Entities.Single(entity => entity.EntityId == secondTieId).TieCollisionEnabled,
-                "one matching TIE can opt out without copying proxy geometry");
+            reopened.SetInstancedCollisionEnabled(secondTieId, true);
+            Equal(true,
+                reopened.Content.Entities.Single(entity => entity.EntityId == secondTieId).InstancedCollisionEnabled,
+                "one matching TIE can opt into shared collision without copying proxy geometry");
             var futureTieId = EntityId.New();
             reopened.AddEntity(Entity(futureTieId, "Future TIE", tie.Id, AssetKind.Tie));
-            Equal(1, reopened.Content.TieCollisionBindings.Count,
+            Equal(1, reopened.Content.InstancedCollisionBindings.Count,
                 "future placement inherits the exact Asset-ID binding without another record");
             var fingerprintBeforeInvalidRecipe = reopened.CurrentFingerprint;
-            await ThrowsAsync<InvalidDataException>(() => reopened.ApplyTieCollisionProxyAsync(
+            await ThrowsAsync<InvalidDataException>(() => reopened.ApplyInstancedCollisionProxyAsync(
                 tie.Id,
                 "invalid proxy"u8.ToArray(),
                 canonicalFormatVersion: 1,
@@ -345,53 +266,33 @@ internal static class ForgeProjectTests
             Equal(fingerprintBeforeInvalidRecipe, reopened.CurrentFingerprint,
                 "invalid recipe preserves the last known-good project state");
 
-            reopened.SetTieCollisionFaceTypes(
+            reopened.SetInstancedCollisionFaceTypes(
                 tie.Id,
                 binding.ProxyAssetId,
                 [new(2, 0x11), new(0, 0x22)],
                 faceCount: 3);
-            binding = reopened.Content.TieCollisionBindings.Single();
+            binding = reopened.Content.InstancedCollisionBindings.Single();
             Equal(true, binding.FaceTypeOverrides.SequenceEqual([new(0, 0x22), new(2, 0x11)]),
                 "proxy face types are stored sparsely in face order");
 
             await reopened.SaveAsync();
             reopened = await ForgeProjectWorkspace.OpenAsync(movedPath);
-            EqualBinding(binding, reopened.Content.TieCollisionBindings.Single(), "proxy binding survives save and reopen");
-            reopened.SetTieCollisionFaceTypes(
+            EqualBinding(binding, reopened.Content.InstancedCollisionBindings.Single(), "proxy binding survives save and reopen");
+            reopened.SetInstancedCollisionFaceTypes(
                 tie.Id,
                 binding.ProxyAssetId,
                 [new(0, recipe.RawType), new(2, recipe.RawType)],
                 faceCount: 3);
-            binding = reopened.Content.TieCollisionBindings.Single();
+            binding = reopened.Content.InstancedCollisionBindings.Single();
             Equal(0, binding.FaceTypeOverrides.Count, "painting the default removes persisted overrides");
-            Equal(false,
-                reopened.Content.Entities.Single(entity => entity.EntityId == secondTieId).TieCollisionEnabled,
-                "per-instance proxy opt-out survives save and reopen");
+            Equal(true,
+                reopened.Content.Entities.Single(entity => entity.EntityId == secondTieId).InstancedCollisionEnabled,
+                "per-instance shared collision choice survives save and reopen");
             Equal(true, File.Exists(reopened.ResolveAssetPath(binding.ProxyAssetId, catalog)),
                 "reopened proxy resolves from its portable project-relative blob");
 
-            var versionSixPath = Path.Combine(root, "version-six-project");
-            Directory.CreateDirectory(Path.Combine(versionSixPath, "content"));
-            var currentManifest = await File.ReadAllBytesAsync(
-                Path.Combine(movedPath, ForgeProjectWorkspace.ManifestFileName));
-            var currentContent = Decompress(await File.ReadAllBytesAsync(
-                Path.Combine(movedPath, ForgeProjectWorkspace.DefaultContentPath)));
-            await WriteLegacyManifestAsync(
-                currentManifest,
-                Path.Combine(versionSixPath, ForgeProjectWorkspace.ManifestFileName),
-                6);
-            await WriteSchemaVersionAsync(
-                currentContent,
-                Path.Combine(versionSixPath, ForgeProjectWorkspace.LegacyContentPath),
-                6,
-                compress: true);
-            var versionSix = await ForgeProjectWorkspace.OpenAsync(versionSixPath);
-            Equal(true, versionSix.MigrationPending, "v6 proxy project migration is pending");
-            Equal(0, versionSix.Content.TieCollisionBindings.Single().FaceTypeOverrides.Count,
-                "v6 migration supplies an empty face-type override list");
-
             var replacementBytes = "replacement proxy geometry"u8.ToArray();
-            var replacement = await reopened.ApplyTieCollisionProxyAsync(
+            var replacement = await reopened.ApplyInstancedCollisionProxyAsync(
                 tie.Id,
                 replacementBytes,
                 canonicalFormatVersion: 1,
@@ -419,7 +320,7 @@ internal static class ForgeProjectTests
                 "collection protects a referenced asset's attached parent");
             Equal(true, reopened.Content.Assets.Any(asset => asset.Id == replacement.ProxyAssetId),
                 "collection protects the active proxy metadata");
-            reopened.RemoveTieCollisionProxy(tie.Id);
+            reopened.RemoveInstancedCollisionProxy(tie.Id);
             Equal(false, reopened.IsAssetReferenced(replacement.ProxyAssetId),
                 "removed proxy becomes eligible for safe collection");
             await reopened.SaveAsync();
@@ -428,7 +329,7 @@ internal static class ForgeProjectTests
             Equal(true, File.Exists(reopened.ResolveAttachedAssetPath(replacement.ProxyAssetId)),
                 "recovery-protected proxy blob survives collection");
             await reopened.LoadRecoveryAsync(proxyRecovery.Id);
-            EqualBinding(replacement, reopened.Content.TieCollisionBindings.Single(),
+            EqualBinding(replacement, reopened.Content.InstancedCollisionBindings.Single(),
                 "recovery restores the reusable proxy binding");
             await reopened.SaveAsync();
 
@@ -437,7 +338,7 @@ internal static class ForgeProjectTests
             var transferredPath = Path.Combine(root, "transferred-project");
             ZipFile.ExtractToDirectory(archivePath, transferredPath);
             var transferred = await ForgeProjectWorkspace.OpenAsync(transferredPath);
-            EqualBinding(replacement, transferred.Content.TieCollisionBindings.Single(),
+            EqualBinding(replacement, transferred.Content.InstancedCollisionBindings.Single(),
                 "zip transfer preserves the exact proxy binding");
             var transferredProxyPath = transferred.ResolveAttachedAssetPath(replacement.ProxyAssetId)
                 ?? throw new InvalidOperationException("Transferred proxy blob did not resolve");
@@ -459,7 +360,7 @@ internal static class ForgeProjectTests
             Equal(tie.Id, repairedTie.Id, "repair restores the same content-addressed TIE ID");
             Equal(true, transferred.ResolveAssetPath(tie.Id, repairedCatalog) is not null,
                 "repaired source TIE resolves after transfer");
-            EqualBinding(replacement, transferred.Content.TieCollisionBindings.Single(),
+            EqualBinding(replacement, transferred.Content.InstancedCollisionBindings.Single(),
                 "source repair leaves the proxy binding unchanged");
         }
         finally
@@ -479,38 +380,6 @@ internal static class ForgeProjectTests
         ProjectTransform.Identity,
         new(assetId, kind));
 
-    private static async Task WriteLegacyManifestAsync(byte[] currentBytes, string path, int version)
-    {
-        var document = JsonNode.Parse(currentBytes)?.AsObject()
-            ?? throw new InvalidOperationException("Current project document is invalid");
-        document["schemaVersion"] = version;
-        document["content"] = ForgeProjectWorkspace.LegacyContentPath;
-        if (version == 0) document.Remove("documentType");
-        await File.WriteAllTextAsync(path, document.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n");
-    }
-
-    private static async Task WriteSchemaVersionAsync(
-        byte[] currentBytes,
-        string path,
-        int version,
-        bool legacyV0 = false,
-        bool compress = false)
-    {
-        var document = JsonNode.Parse(currentBytes)?.AsObject()
-            ?? throw new InvalidOperationException("Current project document is invalid");
-        document["schemaVersion"] = version;
-        if (version < 5) document.Remove("tieCollisionBindings");
-        if (version < 7 && document["tieCollisionBindings"] is JsonArray bindings)
-            foreach (var binding in bindings.OfType<JsonObject>()) binding.Remove("faceTypeOverrides");
-        if (legacyV0)
-        {
-            document.Remove("documentType");
-        }
-        var bytes = System.Text.Encoding.UTF8.GetBytes(
-            document.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n");
-        await File.WriteAllBytesAsync(path, compress ? Compress(bytes) : bytes);
-    }
-
     private static byte[] Compress(byte[] bytes)
     {
         using var output = new MemoryStream();
@@ -527,10 +396,6 @@ internal static class ForgeProjectTests
         return output.ToArray();
     }
 
-    private static int ReadSchemaVersion(byte[] bytes) =>
-        JsonNode.Parse(bytes)?["schemaVersion"]?.GetValue<int>()
-        ?? throw new InvalidOperationException("Project document has no schema version");
-
     private static void Equal<T>(T expected, T actual, string context)
     {
         if (!EqualityComparer<T>.Default.Equals(expected, actual))
@@ -538,11 +403,11 @@ internal static class ForgeProjectTests
     }
 
     private static void EqualBinding(
-        ProjectTieCollisionBinding expected,
-        ProjectTieCollisionBinding actual,
+        ProjectInstancedCollisionBinding expected,
+        ProjectInstancedCollisionBinding actual,
         string context) => Equal(
             true,
-            expected.TieAssetId == actual.TieAssetId
+            expected.SourceAssetId == actual.SourceAssetId
                 && expected.ProxyAssetId == actual.ProxyAssetId
                 && expected.Recipe == actual.Recipe
                 && expected.FaceTypeOverrides.SequenceEqual(actual.FaceTypeOverrides),

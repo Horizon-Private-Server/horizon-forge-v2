@@ -57,6 +57,25 @@ export function applyCollisionFaceTypes(
   });
 }
 
+export function createInstancedCollisionWireframeOverlay(source: THREE.Object3D): THREE.Object3D {
+  const overlay = source.clone(true);
+  overlay.name = 'Collision wireframe overlay';
+  overlay.traverse((object) => {
+    if (!(object instanceof THREE.Mesh)) return;
+    object.renderOrder = 1;
+    object.material = new THREE.MeshBasicMaterial({
+      color: 0x000000,
+      depthWrite: false,
+      fog: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1,
+      wireframe: true,
+    });
+  });
+  return overlay;
+}
+
 export function interpolatePointerSegment(
   from: { x: number; y: number },
   to: { x: number; y: number },

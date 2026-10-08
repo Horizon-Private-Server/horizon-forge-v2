@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { gzipSync } from 'node:zlib';
 
 import {
   HostClient,
@@ -83,7 +84,7 @@ test('host handshake, echo, progress, cancellation, crash recovery, and concurre
   const projectId = '10000000-0000-4000-8000-000000000001';
   const entityId = '20000000-0000-4000-8000-000000000002';
   await writeFile(path.join(editorRoot, 'forge-project.json'), JSON.stringify({
-    schemaVersion: 1,
+    schemaVersion: 9,
     documentType: 'forge-project',
     projectId,
     name: 'Bridge project',
@@ -92,10 +93,10 @@ test('host handshake, echo, progress, cancellation, crash recovery, and concurre
       game: 'UYA', region: 'NTSC-U', revision: '1.00', level: 3,
       sourceFingerprint: 'a'.repeat(32), missingAssetCount: 0,
     },
-    content: 'content/project.json',
+    content: 'content/project.json.gz',
   }));
-  await writeFile(path.join(editorContent, 'project.json'), JSON.stringify({
-    schemaVersion: 1,
+  await writeFile(path.join(editorContent, 'project.json.gz'), gzipSync(JSON.stringify({
+    schemaVersion: 9,
     documentType: 'forge-project-content',
     entities: [{
       entityId,
@@ -110,7 +111,8 @@ test('host handshake, echo, progress, cancellation, crash recovery, and concurre
       provenance: null,
     }],
     assets: [],
-  }));
+    instancedCollisionBindings: [],
+  })));
   const opened = await (await client.openEditorProject(editorRoot, catalogRoot, 0)).result;
   assert.equal(opened.projectId, projectId);
   assert.equal(opened.entities[0].id, entityId);

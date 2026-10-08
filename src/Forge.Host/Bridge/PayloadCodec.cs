@@ -326,7 +326,7 @@ public static partial class BridgePayloadCodec
         writer.WriteUInt32(value.EntityCount);
         writer.WriteUInt32(value.MissingAssetCount);
         writer.WriteBoolean(value.IsDirty);
-        writer.WriteBoolean(value.MigrationPending);
+        writer.WriteBoolean(value.RepairRequired);
         writer.WriteStrings(value.Warnings);
         if (value.Recoveries.Count > MaxListItems) Malformed("List exceeds item limit");
         writer.WriteUInt32((uint)value.Recoveries.Count);
@@ -363,7 +363,6 @@ public static partial class BridgePayloadCodec
         writer.WriteString(value.BakeProfile);
         writer.WriteUInt32(value.BaseLevel);
         writer.WriteUInt64(value.ModifiedUnixMilliseconds);
-        writer.WriteBoolean(value.MigrationPending);
         writer.WriteBoolean(value.HasRecovery);
         return writer.ToArray();
     }
@@ -374,7 +373,7 @@ public static partial class BridgePayloadCodec
         var value = new ForgeProjectSummaryPayload(
             reader.ReadString(), reader.ReadString(), reader.ReadString(), reader.ReadString(),
             reader.ReadString(), reader.ReadString(), reader.ReadUInt32(), reader.ReadUInt64(),
-            reader.ReadBoolean(), reader.ReadBoolean());
+            reader.ReadBoolean());
         reader.Complete();
         return value;
     }
@@ -393,7 +392,7 @@ public static partial class BridgePayloadCodec
         var entityCount = reader.ReadUInt32();
         var missingAssetCount = reader.ReadUInt32();
         var isDirty = reader.ReadBoolean();
-        var migrationPending = reader.ReadBoolean();
+        var repairRequired = reader.ReadBoolean();
         var warnings = reader.ReadStrings();
         var recoveryCount = reader.ReadUInt32();
         if (recoveryCount > MaxListItems) Malformed("List exceeds item limit");
@@ -413,7 +412,7 @@ public static partial class BridgePayloadCodec
         }
         var value = new ForgeProjectDescriptorPayload(
             path, name, targetGame, targetRegion, targetRevision, bakeProfile, baseLevel, modified,
-            entityCount, missingAssetCount, isDirty, migrationPending, warnings, recoveries, missingAssets);
+            entityCount, missingAssetCount, isDirty, repairRequired, warnings, recoveries, missingAssets);
         reader.Complete();
         return value;
     }

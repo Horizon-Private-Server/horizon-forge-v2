@@ -205,7 +205,6 @@ public sealed record ForgeProjectSummaryPayload(
     string BakeProfile,
     uint BaseLevel,
     ulong ModifiedUnixMilliseconds,
-    bool MigrationPending,
     bool HasRecovery);
 public sealed record MissingProjectAssetPayload(
     string Id,
@@ -225,7 +224,7 @@ public sealed record ForgeProjectDescriptorPayload(
     uint EntityCount,
     uint MissingAssetCount,
     bool IsDirty,
-    bool MigrationPending,
+    bool RepairRequired,
     IReadOnlyList<string> Warnings,
     IReadOnlyList<ProjectRecoverySnapshotPayload> Recoveries,
     IReadOnlyList<MissingProjectAssetPayload> MissingAssets);

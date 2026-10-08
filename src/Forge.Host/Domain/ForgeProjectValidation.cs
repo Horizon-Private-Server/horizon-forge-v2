@@ -2,7 +2,7 @@ namespace Forge.Host.Domain;
 
 internal static class ForgeProjectValidation
 {
-    internal const int MaxTieCollisionFaceTypeOverrides = 100_000;
+    internal const int MaxInstancedCollisionFaceTypeOverrides = 100_000;
 
     public static void Validate(string rootPath, ForgeProjectManifest manifest, ForgeProjectContent content)
     {
@@ -43,7 +43,7 @@ internal static class ForgeProjectValidation
             throw new UnsupportedProjectSchemaException(content.SchemaVersion);
         if (content.DocumentType != ProjectSchema.ContentDocumentType)
             throw new InvalidDataException("Project content document type is invalid.");
-        if (content.Entities is null || content.Assets is null || content.TieCollisionBindings is null)
+        if (content.Entities is null || content.Assets is null || content.InstancedCollisionBindings is null)
             throw new InvalidDataException("Project content lists are required.");
         if (content.LevelSettings is not null) ValidateLevelSettings(content.LevelSettings);
         if (content.Entities.Any(entity => entity is null))
@@ -66,8 +66,8 @@ internal static class ForgeProjectValidation
                 if (!Enum.IsDefined(entity.Asset.Kind))
                     throw new InvalidDataException($"Entity {entity.EntityId} has an unknown asset kind.");
             }
-            if (entity.TieCollisionEnabled is not null && entity.Asset?.Kind != AssetKind.Tie)
-                throw new InvalidDataException($"Entity {entity.EntityId} cannot override TIE collision.");
+            if (entity.InstancedCollisionEnabled is not null && !entity.Asset.IsInstancedCollisionSource())
+                throw new InvalidDataException($"Entity {entity.EntityId} cannot override instanced collision.");
             if (entity.Provenance is not null)
             {
                 ValidateText(entity.Provenance.Game, nameof(entity.Provenance.Game));
@@ -108,52 +108,57 @@ internal static class ForgeProjectValidation
             if (asset.Id == asset.ParentId)
                 throw new InvalidDataException($"Project asset {asset.Id} cannot derive from itself.");
         }
-        if (content.TieCollisionBindings.Any(binding => binding is null))
-            throw new InvalidDataException("Project TIE collision bindings cannot contain null entries.");
-        if (content.TieCollisionBindings.Select(binding => binding.TieAssetId).Distinct().Count()
-            != content.TieCollisionBindings.Count)
-            throw new InvalidDataException("Project contains duplicate TIE collision bindings.");
-        foreach (var binding in content.TieCollisionBindings)
+        if (content.InstancedCollisionBindings.Any(binding => binding is null))
+            throw new InvalidDataException("Project instanced collision bindings cannot contain null entries.");
+        if (content.InstancedCollisionBindings.Select(binding => (binding.SourceAssetId, binding.InstanceEntityId)).Distinct().Count()
+            != content.InstancedCollisionBindings.Count)
+            throw new InvalidDataException("Project contains duplicate instanced collision bindings.");
+        foreach (var binding in content.InstancedCollisionBindings)
         {
-            if (binding.TieAssetId.ToString().Length != AssetId.TextLength
+            if (binding.SourceAssetId.ToString().Length != AssetId.TextLength
                 || binding.ProxyAssetId.ToString().Length != AssetId.TextLength
-                || binding.TieAssetId == binding.ProxyAssetId)
-                throw new InvalidDataException("Project TIE collision binding IDs are invalid.");
-            ValidateTieCollisionRecipe(binding.Recipe);
+                || binding.SourceAssetId == binding.ProxyAssetId)
+                throw new InvalidDataException("Project instanced collision binding IDs are invalid.");
+            ValidateInstancedCollisionRecipe(binding.Recipe);
             if (binding.FaceTypeOverrides is null
-                || binding.FaceTypeOverrides.Count > MaxTieCollisionFaceTypeOverrides
+                || binding.FaceTypeOverrides.Count > MaxInstancedCollisionFaceTypeOverrides
                 || binding.FaceTypeOverrides.Any(value => value is null || value.FaceIndex < 0)
                 || !binding.FaceTypeOverrides.Select(value => value.FaceIndex)
                     .SequenceEqual(binding.FaceTypeOverrides.Select(value => value.FaceIndex).Order()))
-                throw new InvalidDataException($"TIE collision proxy {binding.ProxyAssetId} has invalid face-type overrides.");
+                throw new InvalidDataException($"Instanced collision proxy {binding.ProxyAssetId} has invalid face-type overrides.");
             if (binding.FaceTypeOverrides.Select(value => value.FaceIndex).Distinct().Count()
                 != binding.FaceTypeOverrides.Count)
-                throw new InvalidDataException($"TIE collision proxy {binding.ProxyAssetId} has duplicate face-type overrides.");
+                throw new InvalidDataException($"Instanced collision proxy {binding.ProxyAssetId} has duplicate face-type overrides.");
             if (binding.FaceTypeOverrides.Any(value => value.RawType == binding.Recipe.RawType))
-                throw new InvalidDataException($"TIE collision proxy {binding.ProxyAssetId} stores a redundant face-type override.");
+                throw new InvalidDataException($"Instanced collision proxy {binding.ProxyAssetId} stores a redundant face-type override.");
             var proxy = content.Assets.SingleOrDefault(asset => asset.Id == binding.ProxyAssetId);
-            if (proxy is null || proxy.Kind != AssetKind.Collision || proxy.ParentId != binding.TieAssetId)
-                throw new InvalidDataException($"TIE collision proxy {binding.ProxyAssetId} has invalid attached metadata.");
+            if (proxy is null || proxy.Kind != AssetKind.Collision || proxy.ParentId != binding.SourceAssetId)
+                throw new InvalidDataException($"Instanced collision proxy {binding.ProxyAssetId} has invalid attached metadata.");
+            if (binding.InstanceEntityId is { } instanceEntityId
+                && !content.Entities.Any(entity => entity.EntityId == instanceEntityId
+                    && entity.Asset is { } asset && asset.IsInstancedCollisionSource()
+                    && asset.Id == binding.SourceAssetId))
+                throw new InvalidDataException($"Instanced collision proxy {binding.ProxyAssetId} has an invalid instance binding.");
         }
     }
 
-    internal static void ValidateTieCollisionRecipe(ProjectTieCollisionRecipe recipe)
+    internal static void ValidateInstancedCollisionRecipe(ProjectInstancedCollisionRecipe recipe)
     {
         ArgumentNullException.ThrowIfNull(recipe);
         if (!Enum.IsDefined(recipe.Kind) || recipe.GeneratorVersion < 1 || recipe.RecipeVersion < 1
             || recipe.LodIndex < 0 || !float.IsFinite(recipe.DetailSize)
             || !float.IsFinite(recipe.SealOpeningSize) || !float.IsFinite(recipe.SurfaceOffset))
-            throw new InvalidDataException("TIE collision recipe is invalid.");
+            throw new InvalidDataException("Instanced collision recipe is invalid.");
         if (recipe.ProfileSections is < 0 or > 16
-            || recipe.Kind == ProjectTieCollisionRecipeKind.Surface
+            || recipe.Kind == ProjectInstancedCollisionRecipeKind.Surface
             && (recipe.DetailSize != 0 || recipe.SealOpeningSize != 0
                 || recipe.SurfaceOffset != 0 || recipe.OpenBase || recipe.ProfileSections != 0)
-            || recipe.Kind == ProjectTieCollisionRecipeKind.Hull
+            || recipe.Kind == ProjectInstancedCollisionRecipeKind.Hull
             && (recipe.DetailSize != 0 || recipe.SealOpeningSize != 0
                 || recipe.SurfaceOffset != 0 || recipe.OpenBase)
-            || recipe.Kind == ProjectTieCollisionRecipeKind.Wrap
+            || recipe.Kind == ProjectInstancedCollisionRecipeKind.Wrap
             && (recipe.DetailSize <= 0 || recipe.SealOpeningSize < 0 || recipe.ProfileSections != 0))
-            throw new InvalidDataException("TIE collision recipe parameters do not match its generator.");
+            throw new InvalidDataException("Instanced collision recipe parameters do not match its generator.");
     }
 
     private static void ValidateCollision(ProjectEntity entity, IReadOnlyList<ProjectEntity> entities)
@@ -175,11 +180,11 @@ internal static class ForgeProjectValidation
             throw new InvalidDataException($"Entity {entity.EntityId} collision supports translation only.");
         if (collision.Attachment is not { } attachment) return;
         if (collision.Kind != ProjectCollisionPieceKind.Solid)
-            throw new InvalidDataException($"Entity {entity.EntityId} player barrier cannot follow a TIE.");
+            throw new InvalidDataException($"Entity {entity.EntityId} player barrier cannot follow an instance.");
         ValidateTransform(attachment.BindTransform);
-        var tie = entities.SingleOrDefault(value => value.EntityId == attachment.TieEntityId);
-        if (tie?.Asset?.Kind != AssetKind.Tie)
-            throw new InvalidDataException($"Entity {entity.EntityId} collision attachment does not reference a TIE.");
+        var parent = entities.SingleOrDefault(value => value.EntityId == attachment.ParentEntityId);
+        if (parent is null || !parent.Asset.IsInstancedCollisionSource())
+            throw new InvalidDataException($"Entity {entity.EntityId} collision attachment does not reference a TIE or shrub.");
     }
 
     public static void ValidateTransform(ProjectTransform transform)

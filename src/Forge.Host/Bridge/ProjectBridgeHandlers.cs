@@ -81,7 +81,7 @@ internal static class ProjectBridgeHandlers
         BridgeOpcode.InspectForgeProjectSummary => await InspectSummaryAsync(frame.Payload, cancellationToken),
         BridgeOpcode.RenameForgeProject => await RenameAsync(frame.Payload, cancellationToken),
         BridgeOpcode.RestoreForgeProjectRecovery => await RestoreAsync(frame.Payload, cancellationToken),
-        BridgeOpcode.MigrateForgeProject => await MigrateAsync(frame.Payload, cancellationToken),
+        BridgeOpcode.RepairForgeProject => await RepairProjectAsync(frame.Payload, cancellationToken),
         BridgeOpcode.RepairForgeProjectAssets => await RepairAsync(
             frame.Payload, sdkRevision, progress, cancellationToken),
         BridgeOpcode.PreviewCatalogGarbageCollection => await PreviewCatalogAsync(frame.Payload, cancellationToken),
@@ -159,11 +159,11 @@ internal static class ProjectBridgeHandlers
             request.ProjectPath, request.RecoveryId, catalog, cancellationToken));
     }
 
-    private static async Task<byte[]> MigrateAsync(byte[] payload, CancellationToken cancellationToken)
+    private static async Task<byte[]> RepairProjectAsync(byte[] payload, CancellationToken cancellationToken)
     {
         var request = BridgePayloadCodec.DecodeProjectAssetRepairRequest(payload);
         var catalog = await AssetCatalogStore.OpenAsync(request.CatalogRootPath, cancellationToken);
-        return EncodeProject(await UyaProjectService.MigrateAsync(
+        return EncodeProject(await UyaProjectService.RepairAsync(
             request.ProjectPath, catalog, request.SourceIsoPath, cancellationToken));
     }
 
@@ -369,7 +369,7 @@ internal static class ProjectBridgeHandlers
             checked((uint)result.EntityCount),
             checked((uint)result.MissingAssetCount),
             result.IsDirty,
-            result.MigrationPending,
+            result.RepairRequired,
             result.Warnings,
             result.Recoveries.Select(recovery => new ProjectRecoverySnapshotPayload(
                 recovery.Id,
@@ -395,7 +395,6 @@ internal static class ProjectBridgeHandlers
             result.BakeProfile,
             checked((uint)result.BaseLevel),
             checked((ulong)result.ModifiedUnixMilliseconds),
-            result.MigrationPending,
             result.HasRecovery));
 
     private static byte[] EncodeMaintenance(AssetCatalogMaintenanceReport result) =>

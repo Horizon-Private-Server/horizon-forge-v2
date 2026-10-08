@@ -9,7 +9,7 @@ public enum ProjectCollisionPieceKind : byte
 public sealed record ProjectCollisionTypeCount(byte RawType, int Count);
 
 public sealed record ProjectCollisionAttachment(
-    EntityId TieEntityId,
+    EntityId ParentEntityId,
     ProjectTransform BindTransform);
 
 public sealed record ProjectCollisionPiece(

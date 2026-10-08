@@ -162,8 +162,6 @@ public static class UyaBuildPatchService
         if (!workspace.Manifest.BaseLevel.SourceFingerprint.Equals(
                 request.SourceFingerprint, StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("The configured clean ISO does not match the project's base source fingerprint.");
-        if (workspace.MigrationPending)
-            throw new InvalidOperationException("Migrate the project before building it.");
     }
 
     private static async Task<byte[]> ReadSourceLevelAsync(

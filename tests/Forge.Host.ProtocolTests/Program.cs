@@ -160,7 +160,7 @@ internal static class Program
         Equal(recoveryRequest, BridgePayloadCodec.DecodeProjectRecoveryRequest(
             BridgePayloadCodec.EncodeProjectRecoveryRequest(recoveryRequest)), "project recovery request payload");
         var summary = new ForgeProjectSummaryPayload(
-            "project", "Test", "UYA", "NTSC-U", "1.00", "uya-ntsc-u", 3, 1000, false, true);
+            "project", "Test", "UYA", "NTSC-U", "1.00", "uya-ntsc-u", 3, 1000, true);
         Equal(summary, BridgePayloadCodec.DecodeForgeProjectSummary(
             BridgePayloadCodec.EncodeForgeProjectSummary(summary)), "project summary payload");
         var repairRequest = new ProjectAssetRepairRequestPayload("project", "assets", "source.iso");
@@ -299,35 +299,35 @@ internal static class Program
         var buildProgress = new UyaBuildPatchProgressPayload("Pack", 2, 4, "Packing");
         Equal(buildProgress, BuildPayloadCodec.DecodeProgress(BuildPayloadCodec.EncodeProgress(buildProgress)),
             "build progress payload");
-        var tieEntityId = EntityId.New();
-        var tiePreviewWriter = new PayloadWriter();
-        tiePreviewWriter.WriteString(tieEntityId.ToString());
-        tiePreviewWriter.WriteBoolean(true);
-        tiePreviewWriter.WriteUInt32(0xa7);
-        tiePreviewWriter.WriteUInt32(9);
-        tiePreviewWriter.WriteUInt32(2);
-        tiePreviewWriter.WriteBoolean(true);
-        var tiePreviewRequest = EditorPayloadCodec.DecodeTieCollisionPreviewRequest(tiePreviewWriter.ToArray());
-        Equal(tieEntityId, tiePreviewRequest.EntityId, "TIE collision preview entity payload");
-        Equal(new EditorTieCollisionGenerationSettings(0xa7, 9, 1, true), tiePreviewRequest.Settings,
-            "TIE collision generation settings payload");
-        var invalidTiePreviewWriter = new PayloadWriter();
-        invalidTiePreviewWriter.WriteString(tieEntityId.ToString());
-        invalidTiePreviewWriter.WriteBoolean(true);
-        invalidTiePreviewWriter.WriteUInt32(256);
-        invalidTiePreviewWriter.WriteUInt32(6);
-        invalidTiePreviewWriter.WriteUInt32(0);
-        invalidTiePreviewWriter.WriteBoolean(false);
+        var parentEntityId = EntityId.New();
+        var collisionPreviewWriter = new PayloadWriter();
+        collisionPreviewWriter.WriteString(parentEntityId.ToString());
+        collisionPreviewWriter.WriteBoolean(true);
+        collisionPreviewWriter.WriteUInt32(0xa7);
+        collisionPreviewWriter.WriteUInt32(9);
+        collisionPreviewWriter.WriteUInt32(2);
+        collisionPreviewWriter.WriteBoolean(true);
+        var collisionPreviewRequest = EditorPayloadCodec.DecodeInstancedCollisionPreviewRequest(collisionPreviewWriter.ToArray());
+        Equal(parentEntityId, collisionPreviewRequest.EntityId, "instanced collision preview entity payload");
+        Equal(new EditorInstancedCollisionGenerationSettings(0xa7, 9, 1, true), collisionPreviewRequest.Settings,
+            "instanced collision generation settings payload");
+        var invalidCollisionPreviewWriter = new PayloadWriter();
+        invalidCollisionPreviewWriter.WriteString(parentEntityId.ToString());
+        invalidCollisionPreviewWriter.WriteBoolean(true);
+        invalidCollisionPreviewWriter.WriteUInt32(256);
+        invalidCollisionPreviewWriter.WriteUInt32(6);
+        invalidCollisionPreviewWriter.WriteUInt32(0);
+        invalidCollisionPreviewWriter.WriteBoolean(false);
         Expect(BridgeErrorCode.MalformedPayload, () =>
-            EditorPayloadCodec.DecodeTieCollisionPreviewRequest(invalidTiePreviewWriter.ToArray()));
+            EditorPayloadCodec.DecodeInstancedCollisionPreviewRequest(invalidCollisionPreviewWriter.ToArray()));
 
         var collisionFaceCommandId = Guid.NewGuid().ToString("D");
         var collisionFaceProxyId = new string('d', AssetId.TextLength);
         var collisionFaceCommandWriter = new PayloadWriter();
         collisionFaceCommandWriter.WriteString(collisionFaceCommandId);
-        collisionFaceCommandWriter.WriteUInt32((uint)EditorCommandKind.SetTieCollisionFaceTypes);
+        collisionFaceCommandWriter.WriteUInt32((uint)EditorCommandKind.SetInstancedCollisionFaceTypes);
         collisionFaceCommandWriter.WriteUInt32(1);
-        collisionFaceCommandWriter.WriteString(tieEntityId.ToString());
+        collisionFaceCommandWriter.WriteString(parentEntityId.ToString());
         collisionFaceCommandWriter.WriteBoolean(false);
         collisionFaceCommandWriter.WriteUInt32(0);
         for (var index = 0; index < 10; index++) collisionFaceCommandWriter.WriteBoolean(false);
@@ -340,11 +340,11 @@ internal static class Program
         collisionFaceCommandWriter.WriteUInt32(0x31);
         var collisionFaceCommand = EditorPayloadCodec.DecodeCommand(collisionFaceCommandWriter.ToArray());
         Equal(collisionFaceCommandId, collisionFaceCommand.Id, "collision face command ID payload");
-        Equal(EditorCommandKind.SetTieCollisionFaceTypes, collisionFaceCommand.Kind,
+        Equal(EditorCommandKind.SetInstancedCollisionFaceTypes, collisionFaceCommand.Kind,
             "collision face command kind payload");
-        Equal(AssetId.Parse(collisionFaceProxyId), collisionFaceCommand.TieCollisionProxyAssetId,
+        Equal(AssetId.Parse(collisionFaceProxyId), collisionFaceCommand.InstancedCollisionProxyAssetId,
             "collision face command proxy payload");
-        Equal(true, collisionFaceCommand.TieCollisionFaceTypes!.SequenceEqual([new(7, 0xaf), new(2, 0x31)]),
+        Equal(true, collisionFaceCommand.InstancedCollisionFaceTypes!.SequenceEqual([new(7, 0xaf), new(2, 0x31)]),
             "collision face command assignment payload");
         var buildResult = new UyaBuildPatchResultPayload(
             true, false, [], ["diagnostic"], "Patched", "Reload", "development.iso", "InPlace",

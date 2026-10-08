@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron';
 
 import type {
-  EditorCommand, EditorSnapshot, EditorTieCollisionGenerationSettings,
+  EditorCommand, EditorSnapshot, EditorInstancedCollisionGenerationSettings,
 } from '../types/ForgeApi.js';
 import { isEditorCommand } from '../utils/EditorCommandValidation.js';
 import { setEditorMenuState, setEditorTextInputActive } from './ApplicationMenu.js';
@@ -63,37 +63,37 @@ export function registerEditorIpcHandlers(
     assertEditorCommand(command);
     return updateSnapshot(await (await host.executeEditorCommand(command)).result);
   });
-  ipcMain.handle('forge:editor-tie-collision-inspect', async (event, entityId: unknown) => {
+  ipcMain.handle('forge:editor-instanced-collision-inspect', async (event, entityId: unknown) => {
     assertSender(event.sender.id);
     if (typeof entityId !== 'string' || !entityId)
-      throw new TypeError('TIE collision entity ID is invalid');
-    return await (await host.inspectTieCollisionSource(entityId)).result;
+      throw new TypeError('instanced collision entity ID is invalid');
+    return await (await host.inspectInstancedCollisionSource(entityId)).result;
   });
-  ipcMain.handle('forge:editor-tie-collision-preview', async (
+  ipcMain.handle('forge:editor-instanced-collision-preview', async (
     event,
     entityId: unknown,
     generationSettings: unknown,
   ) => {
     assertSender(event.sender.id);
-    if (typeof entityId !== 'string' || !entityId) throw new TypeError('TIE collision entity ID is invalid');
-    assertTieCollisionSettings(generationSettings);
+    if (typeof entityId !== 'string' || !entityId) throw new TypeError('instanced collision entity ID is invalid');
+    assertInstancedCollisionSettings(generationSettings);
     if (activePreviewRequestId !== undefined) await host.cancel(activePreviewRequestId);
-    const request = await host.previewTieCollision(entityId, generationSettings);
+    const request = await host.previewInstancedCollision(entityId, generationSettings);
     activePreviewRequestId = request.requestId;
     try { return await request.result; }
     finally {
       if (activePreviewRequestId === request.requestId) activePreviewRequestId = undefined;
     }
   });
-  ipcMain.handle('forge:editor-tie-collision-cancel', async (event) => {
+  ipcMain.handle('forge:editor-instanced-collision-cancel', async (event) => {
     assertSender(event.sender.id);
     if (activePreviewRequestId !== undefined) await host.cancel(activePreviewRequestId);
   });
-  ipcMain.handle('forge:editor-tie-collision-apply', async (event, commandId: unknown, token: unknown) => {
+  ipcMain.handle('forge:editor-instanced-collision-apply', async (event, commandId: unknown, token: unknown) => {
     assertSender(event.sender.id);
     if (typeof commandId !== 'string' || !commandId || typeof token !== 'string' || !token)
-      throw new TypeError('TIE collision apply request is invalid');
-    return updateSnapshot(await (await host.applyTieCollisionPreview(commandId, token)).result);
+      throw new TypeError('instanced collision apply request is invalid');
+    return updateSnapshot(await (await host.applyInstancedCollisionPreview(commandId, token)).result);
   });
   ipcMain.handle('forge:editor-save', async (event) => {
     assertSender(event.sender.id);
@@ -115,11 +115,11 @@ function assertEditorCommand(value: unknown): asserts value is EditorCommand {
   if (!isEditorCommand(value)) throw new TypeError('Editor command is invalid');
 }
 
-function assertTieCollisionSettings(
+function assertInstancedCollisionSettings(
   value: unknown,
-): asserts value is EditorTieCollisionGenerationSettings | undefined {
+): asserts value is EditorInstancedCollisionGenerationSettings | undefined {
   if (value === undefined) return;
-  if (!value || typeof value !== 'object') throw new TypeError('TIE collision settings are invalid');
+  if (!value || typeof value !== 'object') throw new TypeError('instanced collision settings are invalid');
   const settings = value as Record<string, unknown>;
   if (typeof settings.rawType !== 'number' || !Number.isInteger(settings.rawType)
     || settings.rawType < 0 || settings.rawType > 0xff
@@ -128,5 +128,5 @@ function assertTieCollisionSettings(
     || typeof settings.surfaceLodIndex !== 'number' || !Number.isInteger(settings.surfaceLodIndex)
     || settings.surfaceLodIndex < -1 || settings.surfaceLodIndex > 2
     || typeof settings.useHull !== 'boolean')
-    throw new TypeError('TIE collision settings are invalid');
+    throw new TypeError('instanced collision settings are invalid');
 }

@@ -6,9 +6,10 @@ import type { EditorCollisionOctantCost, ProjectTransform } from '../../types/Ed
 import { configureCollisionMaterials } from '../../utils/CollisionMaterials.ts';
 import { disposeObject } from '../../utils/Scene.ts';
 import { projectTransformToSceneMatrix } from '../../utils/Transforms.ts';
-import type { TieCollisionOverlay } from './EditorContext.ts';
+import type { InstancedCollisionOverlay } from './EditorContext.ts';
 import {
   applyCollisionFaceTypes, collisionFaceIdFromIntersection, collisionRawTypeFromIntersection,
+  createInstancedCollisionWireframeOverlay,
 } from './CollisionPainting.ts';
 
 interface PaintGeometry {
@@ -18,11 +19,12 @@ interface PaintGeometry {
   verticesByFace: Map<number, number[]>;
 }
 
-export class TieCollisionOverlayProjection {
+export class InstancedCollisionOverlayProjection {
   readonly root = new THREE.Group();
   private candidate?: THREE.Group;
   private proxy?: THREE.Object3D;
-  private paint?: TieCollisionOverlay['paint'];
+  private wireframe?: THREE.Object3D;
+  private paint?: InstancedCollisionOverlay['paint'];
   private paintGeometry: PaintGeometry[] = [];
   private pendingFaceTypes = new Map<number, number>();
   private hoveredFace?: { faceId: number | undefined; color: string };
@@ -33,11 +35,11 @@ export class TieCollisionOverlayProjection {
     private readonly collisionScenes: Set<THREE.Object3D>,
     private readonly onLoadError: () => void,
   ) {
-    this.root.name = 'TIE collision candidate preview';
+    this.root.name = 'Instanced collision candidate preview';
   }
 
   show(
-    overlay: TieCollisionOverlay,
+    overlay: InstancedCollisionOverlay,
     transform: ProjectTransform,
     visualization: CollisionVisualization,
   ): void {
@@ -70,6 +72,8 @@ export class TieCollisionOverlayProjection {
       this.collisionScenes.add(gltf.scene);
       candidate.add(gltf.scene);
       this.proxy = gltf.scene;
+      this.wireframe = createInstancedCollisionWireframeOverlay(gltf.scene);
+      candidate.add(this.wireframe);
       this.paintGeometry = this.paint ? indexPaintGeometry(gltf.scene) : [];
       this.applyPaintPreview();
       this.updateVisibility();
@@ -78,7 +82,7 @@ export class TieCollisionOverlayProjection {
     });
   }
 
-  update(overlay: TieCollisionOverlay): void {
+  update(overlay: InstancedCollisionOverlay): void {
     this.visibility = {
       showOctants: overlay.showOctants,
       showProxy: overlay.showProxy,
@@ -130,7 +134,7 @@ export class TieCollisionOverlayProjection {
       };
     }
     this.pendingFaceTypes.clear();
-    if (!committed) this.applyPaintPreview();
+    this.applyPaintPreview();
   }
 
   setHoveredFace(faceId: number | undefined, color: string): void {
@@ -151,6 +155,7 @@ export class TieCollisionOverlayProjection {
     disposeObject(this.candidate);
     this.candidate = undefined;
     this.proxy = undefined;
+    this.wireframe = undefined;
     this.paint = undefined;
     this.paintGeometry = [];
     this.pendingFaceTypes.clear();
@@ -168,8 +173,9 @@ export class TieCollisionOverlayProjection {
     const octants = this.candidate?.getObjectByName('Candidate octant pressure');
     if (proxy) {
       proxy.visible = this.visibility.showProxy;
-      setWireframe(proxy, this.visibility.wireframe);
     }
+    if (this.wireframe)
+      this.wireframe.visible = this.visibility.showProxy && this.visibility.wireframe;
     if (octants) octants.visible = this.visibility.showOctants;
   }
 
@@ -217,24 +223,17 @@ function setOpacity(root: THREE.Object3D, opacity: number): void {
   });
 }
 
-function setWireframe(root: THREE.Object3D, enabled: boolean): void {
-  root.traverse((object) => {
-    if (!(object instanceof THREE.Mesh)) return;
-    for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
-      (material as THREE.Material & { wireframe?: boolean }).wireframe = enabled;
-      material.needsUpdate = true;
-    }
-  });
-}
-
 function indexPaintGeometry(root: THREE.Object3D): PaintGeometry[] {
   const indexed: PaintGeometry[] = [];
+  const meshes: THREE.Mesh[] = [];
   root.traverse((object) => {
-    if (!(object instanceof THREE.Mesh)) return;
+    if (object instanceof THREE.Mesh) meshes.push(object);
+  });
+  for (const object of meshes) {
     const faceIds = object.geometry.getAttribute('_collision_face_id');
     const collisionTypes = object.geometry.getAttribute('_collision_type');
     const soundTypes = object.geometry.getAttribute('_sound_type');
-    if (!faceIds || !collisionTypes || !soundTypes) return;
+    if (!faceIds || !collisionTypes || !soundTypes) continue;
     // Keep hover in the existing color path; binding integer face IDs in the shader hides some applied proxies.
     const colors = new THREE.Float32BufferAttribute(new Float32Array(faceIds.count * 3).fill(1), 3);
     object.geometry.setAttribute('color', colors);
@@ -250,7 +249,7 @@ function indexPaintGeometry(root: THREE.Object3D): PaintGeometry[] {
       else verticesByFace.set(faceId, [vertex]);
     }
     indexed.push({ collisionTypes, soundTypes, colors, verticesByFace });
-  });
+  }
   return indexed;
 }
 

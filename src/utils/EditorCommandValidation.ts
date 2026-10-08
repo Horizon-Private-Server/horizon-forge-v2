@@ -7,8 +7,8 @@ const commandKinds = new Set([
   'updateLevelSettings', 'updateSplinePoints',
   'createEntityFromAsset',
   'addSkyShellFromAsset', 'updateSkyShell', 'reorderSkyShell',
-  'removeTieCollisionProxy', 'setTieCollisionEnabled', 'setTieCollisionRawType',
-  'setTieCollisionFaceTypes',
+  'removeInstancedCollisionProxy', 'setInstancedCollisionEnabled', 'setInstancedCollisionRawType',
+  'setInstancedCollisionFaceTypes',
 ]);
 
 export function isEditorCommand(value: unknown): value is EditorCommand {
@@ -32,13 +32,14 @@ export function isEditorCommand(value: unknown): value is EditorCommand {
   if (command.kind === 'reorderSkyShell')
     return command.entityIds.length === 1 && Number.isInteger(command.destinationOrder)
       && Number(command.destinationOrder) >= 0 && Number(command.destinationOrder) <= 100_000;
-  if (command.kind === 'removeTieCollisionProxy') return command.entityIds.length === 1;
-  if (command.kind === 'setTieCollisionEnabled')
-    return command.entityIds.length > 0 && typeof command.enabled === 'boolean';
-  if (command.kind === 'setTieCollisionRawType')
+  if (command.kind === 'removeInstancedCollisionProxy') return command.entityIds.length === 1;
+  if (command.kind === 'setInstancedCollisionEnabled')
+    return command.entityIds.length > 0
+      && (command.enabled === null || typeof command.enabled === 'boolean');
+  if (command.kind === 'setInstancedCollisionRawType')
     return command.entityIds.length === 1 && Number.isInteger(command.rawType)
       && Number(command.rawType) >= 0 && Number(command.rawType) <= 0xff;
-  if (command.kind === 'setTieCollisionFaceTypes')
+  if (command.kind === 'setInstancedCollisionFaceTypes')
     return command.entityIds.length === 1
       && typeof command.expectedProxyAssetId === 'string'
       && /^[0-9a-f]{64}$/.test(command.expectedProxyAssetId)

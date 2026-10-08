@@ -18,9 +18,9 @@ public static class BridgeHost
             UyaAssetPlacementService.CreateAsync,
             UyaEditorCapabilities.ResolveTransformCapabilities,
             UyaSkyShellEditorService.ExecuteAsync,
-            UyaTieCollisionPreviewService.GenerateAsync,
-            UyaTieCollisionPreviewService.InspectAsync,
-            UyaTieCollisionPreviewService.CountProxyFacesAsync);
+            UyaInstancedCollisionPreviewService.GenerateAsync,
+            UyaInstancedCollisionPreviewService.InspectAsync,
+            UyaInstancedCollisionPreviewService.CountProxyFacesAsync);
         var requests = new ConcurrentDictionary<uint, CancellationTokenSource>();
         var tasks = new ConcurrentDictionary<uint, Task>();
 
@@ -133,7 +133,7 @@ public static class BridgeHost
                 case BridgeOpcode.RenameForgeProject:
                 case BridgeOpcode.PreflightUyaProject:
                 case BridgeOpcode.RestoreForgeProjectRecovery:
-                case BridgeOpcode.MigrateForgeProject:
+                case BridgeOpcode.RepairForgeProject:
                 case BridgeOpcode.RepairForgeProjectAssets:
                 case BridgeOpcode.PreviewCatalogGarbageCollection:
                 case BridgeOpcode.CollectCatalogGarbage:
@@ -151,9 +151,9 @@ public static class BridgeHost
                 case BridgeOpcode.ExecuteEditorCommand:
                 case BridgeOpcode.SaveEditorProject:
                 case BridgeOpcode.ReadEditorEvents:
-                case BridgeOpcode.PreviewTieCollision:
-                case BridgeOpcode.ApplyTieCollisionPreview:
-                case BridgeOpcode.InspectTieCollisionSource:
+                case BridgeOpcode.PreviewInstancedCollision:
+                case BridgeOpcode.ApplyInstancedCollisionPreview:
+                case BridgeOpcode.InspectInstancedCollisionSource:
                     await writer.WriteAsync(new(
                         BridgeMessageKind.Result, frame.Opcode, BridgeErrorCode.None, frame.RequestId,
                         await EditorBridgeHandlers.HandleAsync(frame, editor, requestCancellation.Token)), hostCancellation);
@@ -175,19 +175,19 @@ public static class BridgeHost
                             handshake.SdkRevision,
                             requestCancellation.Token)), hostCancellation);
                     break;
-                case BridgeOpcode.PrepareTieCollisionPreview:
+                case BridgeOpcode.PrepareInstancedCollisionPreview:
                     await writer.WriteAsync(new(
                         BridgeMessageKind.Result, frame.Opcode, BridgeErrorCode.None, frame.RequestId,
-                        await RenderBridgeHandlers.PrepareTieCollisionPreviewAsync(
+                        await RenderBridgeHandlers.PrepareInstancedCollisionPreviewAsync(
                             frame.Payload,
                             handshake.SdkRevision,
                             editor,
                             requestCancellation.Token)), hostCancellation);
                     break;
-                case BridgeOpcode.PrepareAppliedTieCollision:
+                case BridgeOpcode.PrepareAppliedInstancedCollision:
                     await writer.WriteAsync(new(
                         BridgeMessageKind.Result, frame.Opcode, BridgeErrorCode.None, frame.RequestId,
-                        await RenderBridgeHandlers.PrepareAppliedTieCollisionAsync(
+                        await RenderBridgeHandlers.PrepareAppliedInstancedCollisionAsync(
                             frame.Payload,
                             handshake.SdkRevision,
                             editor,

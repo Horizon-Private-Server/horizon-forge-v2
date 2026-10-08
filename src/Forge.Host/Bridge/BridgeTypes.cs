@@ -23,7 +23,7 @@ public enum BridgeOpcode : ushort
     RenameForgeProject = 8,
     PreflightUyaProject = 9,
     RestoreForgeProjectRecovery = 10,
-    MigrateForgeProject = 11,
+    RepairForgeProject = 11,
     RepairForgeProjectAssets = 12,
     PreviewCatalogGarbageCollection = 13,
     CollectCatalogGarbage = 14,
@@ -39,11 +39,11 @@ public enum BridgeOpcode : ushort
     QueryAssetExplorer = 24,
     PrepareAssetPreview = 25,
     InspectForgeProjectSummary = 26,
-    PreviewTieCollision = 27,
-    ApplyTieCollisionPreview = 28,
-    PrepareTieCollisionPreview = 29,
-    InspectTieCollisionSource = 30,
-    PrepareAppliedTieCollision = 31,
+    PreviewInstancedCollision = 27,
+    ApplyInstancedCollisionPreview = 28,
+    PrepareInstancedCollisionPreview = 29,
+    InspectInstancedCollisionSource = 30,
+    PrepareAppliedInstancedCollision = 31,
 }
 
 public enum BridgeErrorCode : ushort

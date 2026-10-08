@@ -31,7 +31,7 @@ internal static class ForgeProjectPersistence
         return await LoadDirectoryAsync(root, cancellationToken);
     }
 
-    public static async Task<(ForgeProjectManifest Manifest, int StoredVersion)> LoadManifestAsync(
+    public static async Task<ForgeProjectManifest> LoadManifestAsync(
         string rootPath,
         CancellationToken cancellationToken = default)
     {
@@ -41,15 +41,10 @@ internal static class ForgeProjectPersistence
             throw new InvalidDataException("Project manifest exceeds the size limit.");
         var manifestBytes = await File.ReadAllBytesAsync(manifestPath, cancellationToken);
         var version = ReadVersion(manifestBytes);
-        var manifest = version switch
-        {
-            0 => Migrate(Deserialize<ManifestV0>(manifestBytes, "Project manifest")),
-            1 or 2 or 3 or 4 or 5 or 6 => Migrate(Deserialize<ForgeProjectManifest>(manifestBytes, "Project manifest")),
-            ProjectSchema.CurrentVersion => Deserialize<ForgeProjectManifest>(manifestBytes, "Project manifest"),
-            _ => throw new UnsupportedProjectSchemaException(version),
-        };
+        if (version != ProjectSchema.CurrentVersion) throw new UnsupportedProjectSchemaException(version);
+        var manifest = Deserialize<ForgeProjectManifest>(manifestBytes, "Project manifest");
         ForgeProjectValidation.ValidateManifest(root, manifest);
-        return (manifest, version);
+        return manifest;
     }
 
     public static async Task SaveAsync(
@@ -201,20 +196,15 @@ internal static class ForgeProjectPersistence
 
     private static async Task<LoadedProject> LoadDirectoryAsync(string root, CancellationToken cancellationToken)
     {
-        var (manifest, manifestVersion) = await LoadManifestAsync(root, cancellationToken);
+        var manifest = await LoadManifestAsync(root, cancellationToken);
         var storedContentBytes = await ReadContentFileAsync(
             ResolveRelativePath(root, manifest.Content), cancellationToken);
-        var contentBytes = manifestVersion >= 4 ? Decompress(storedContentBytes) : storedContentBytes;
+        var contentBytes = Decompress(storedContentBytes);
         var contentVersion = ReadVersion(contentBytes);
-        if (manifestVersion != contentVersion) throw new InvalidDataException("Project manifest and content schema versions do not match.");
-        var content = contentVersion switch
-        {
-            0 => Migrate(Deserialize<ContentV0>(contentBytes, "Project content")),
-            1 or 2 or 3 or 4 or 5 or 6 => Migrate(Deserialize<ForgeProjectContent>(contentBytes, "Project content")),
-            ProjectSchema.CurrentVersion => Deserialize<ForgeProjectContent>(contentBytes, "Project content"),
-            _ => throw new UnsupportedProjectSchemaException(contentVersion),
-        };
-        return new(manifest, content, manifestVersion != ProjectSchema.CurrentVersion);
+        if (contentVersion != ProjectSchema.CurrentVersion)
+            throw new UnsupportedProjectSchemaException(contentVersion);
+        var content = Deserialize<ForgeProjectContent>(contentBytes, "Project content");
+        return new(manifest, content);
     }
 
     private static int ReadVersion(byte[] bytes)
@@ -222,36 +212,6 @@ internal static class ForgeProjectPersistence
         using var document = ProjectSchema.Parse(bytes);
         return document.RootElement.GetProperty("schemaVersion").GetInt32();
     }
-
-    private static ForgeProjectManifest Migrate(ManifestV0 value) => new(
-        ProjectSchema.CurrentVersion,
-        ProjectSchema.ManifestDocumentType,
-        value.ProjectId,
-        value.Name,
-        value.Target,
-        value.BaseLevel,
-        value.Content);
-
-    private static ForgeProjectContent Migrate(ContentV0 value) => new(
-        ProjectSchema.CurrentVersion,
-        ProjectSchema.ContentDocumentType,
-        value.Entities,
-        value.Assets,
-        [],
-        value.LevelSettings);
-
-    private static ForgeProjectManifest Migrate(ForgeProjectManifest value) =>
-        value with { SchemaVersion = ProjectSchema.CurrentVersion };
-
-    private static ForgeProjectContent Migrate(ForgeProjectContent value) =>
-        value with
-        {
-            SchemaVersion = ProjectSchema.CurrentVersion,
-            TieCollisionBindings = (value.TieCollisionBindings ?? []).Select(binding => binding with
-            {
-                FaceTypeOverrides = binding.FaceTypeOverrides ?? [],
-            }).ToArray(),
-        };
 
     internal static T Deserialize<T>(byte[] bytes, string description) =>
         JsonSerializer.Deserialize<T>(bytes, JsonOptions)
@@ -422,22 +382,8 @@ internal static class ForgeProjectPersistence
         if (Directory.Exists(path)) Directory.Delete(path, recursive: true);
     }
 
-    private sealed record ManifestV0(
-        int SchemaVersion,
-        EntityId ProjectId,
-        string Name,
-        ProjectTargetProfile Target,
-        ProjectBaseLevel BaseLevel,
-        string Content);
-
-    private sealed record ContentV0(
-        int SchemaVersion,
-        IReadOnlyList<ProjectEntity> Entities,
-        IReadOnlyList<ProjectAttachedAsset> Assets,
-        ProjectLevelSettings? LevelSettings = null);
 }
 
 internal sealed record LoadedProject(
     ForgeProjectManifest Manifest,
-    ForgeProjectContent Content,
-    bool Migrated);
+    ForgeProjectContent Content);

@@ -41,7 +41,7 @@ export function ViewportPanel() {
     execute, busy, showViewportStats, showOcclusionOctants, splinePointSelection, setSplinePointSelection,
     setSkyCompositionSelected, showSolidCollision, setShowSolidCollision,
     showPlayerBarriers, setShowPlayerBarriers, showTerrain,
-    tieCollisionOverlay,
+    instancedCollisionOverlay,
   } = useEditor();
   const levelSettingsSignature = JSON.stringify(project.levelSettings);
   const environment = useMemo(() => project.levelSettings
@@ -61,7 +61,7 @@ export function ViewportPanel() {
     showTerrain={showTerrain}
     showSolidCollision={showSolidCollision}
     showPlayerBarriers={showPlayerBarriers}
-    tieCollisionOverlay={tieCollisionOverlay}
+    instancedCollisionOverlay={instancedCollisionOverlay}
     terrain={terrain}
     environment={environment}
     onFocusHandled={() => setCameraFocus(undefined)}
@@ -467,7 +467,7 @@ export function PropertiesPanel() {
 }
 
 export function DiagnosticsPanel() {
-  const { project, sceneLoad, busy, save } = useEditor();
+  const { project, sceneLoad } = useEditor();
   return <EditorPanel label="Diagnostics">
     <Stack>
       {sceneLoad?.status === 'loading' && <EditorProgressState
@@ -478,10 +478,6 @@ export function DiagnosticsPanel() {
       {sceneLoad?.status === 'error' && <Alert color="red" title="Scene loading failed">
         {sceneLoad.label}
       </Alert>}
-      {project.migrationPending && <Alert color="yellow" title="Project migration pending">
-        Save the project to commit its migrated format.
-        <Button ml="sm" disabled={busy} onClick={() => void save()}>Save now</Button>
-      </Alert>}
       {project.baseLevel.missingAssetCount > 0 && <Alert color="yellow" title="Base assets missing">
         {project.baseLevel.missingAssetCount} source instances were unavailable when this project was created.
         Re-import the source catalog and recreate the project to include them.
@@ -491,7 +487,7 @@ export function DiagnosticsPanel() {
         title={diagnostic.code}
         key={`${diagnostic.code}:${diagnostic.message}`}
       >{diagnostic.message}</Alert>)}
-      {!sceneLoad && !project.migrationPending && !project.baseLevel.missingAssetCount && !project.diagnostics.length
+      {!sceneLoad && !project.baseLevel.missingAssetCount && !project.diagnostics.length
         && <EditorEmptyState message="No diagnostics." />}
       <Button variant="default" onClick={() => void window.forge.revealLogs()}>Open detailed logs</Button>
     </Stack>

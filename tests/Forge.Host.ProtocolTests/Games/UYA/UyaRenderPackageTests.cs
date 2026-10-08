@@ -22,7 +22,7 @@ internal static class UyaRenderPackageTests
             projectPath,
             "Render test",
             new("UYA", "NTSC-U", "1.00", "uya-ntsc-u"),
-            new("UYA", "NTSC-U", "1.00", 3, fingerprint, EntityVersion: ProjectSchema.CurrentBaseEntityVersion),
+            new("UYA", "NTSC-U", "1.00", 3, fingerprint),
             [
                 new(
                     EntityId.New(), "Sky shell 1", "sky", ProjectTransform.Identity,
@@ -109,22 +109,22 @@ internal static class UyaRenderPackageTests
                 Equal(true, collisionGltf.RootElement.GetProperty("nodes").EnumerateArray()
                     .Any(value => value.GetProperty("name").GetString() == "player_barrier_0000"),
                     "collision render package preserves selectable piece nodes");
-            var collisionPreview = await UyaTieCollisionPreviewService.PrepareRenderAsync(
+            var collisionPreview = await UyaInstancedCollisionPreviewService.PrepareRenderAsync(
                 cache, catalogPath, sdkRevision, collisionId, collisionBytes, default);
             Equal(false, collisionPreview.CacheHit, "first collision candidate preview cache write");
             Equal(true, File.Exists(Path.Combine(collisionPreview.RootPath, collisionPreview.ModelPath)),
                 "collision candidate preview model");
-            Equal(true, (await UyaTieCollisionPreviewService.PrepareRenderAsync(
+            Equal(true, (await UyaInstancedCollisionPreviewService.PrepareRenderAsync(
                 cache, catalogPath, sdkRevision, collisionId, collisionBytes, default)).CacheHit,
                 "collision candidate preview cache hit");
-            var appliedCollisionPreview = await UyaTieCollisionPreviewService.PrepareRenderAsync(
+            var appliedCollisionPreview = await UyaInstancedCollisionPreviewService.PrepareRenderAsync(
                 cache, catalogPath, sdkRevision, collisionId, collisionBytes, default);
             Equal(true, appliedCollisionPreview.CacheHit
                 && appliedCollisionPreview.CacheKey == collisionPreview.CacheKey,
                 "applied collision preview reuses the verified content-addressed render cache");
             for (var index = 0; index < 16; index++)
             {
-                var repeatedCollisionPreview = await UyaTieCollisionPreviewService.PrepareRenderAsync(
+                var repeatedCollisionPreview = await UyaInstancedCollisionPreviewService.PrepareRenderAsync(
                     cache, catalogPath, sdkRevision, collisionId, collisionBytes, default);
                 Equal(true, repeatedCollisionPreview.CacheHit
                     && repeatedCollisionPreview.RootPath == collisionPreview.RootPath

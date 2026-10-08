@@ -2,9 +2,9 @@ import { createContext, useContext } from 'react';
 
 import type { KeybindingMap } from '../../types/Keybindings.js';
 import type {
-  EditorCollisionFaceType, EditorCommand, EditorSnapshot, EditorTieCollisionCandidate, EditorTieCollisionGenerationSettings,
-  EditorTieCollisionPreview,
-  EditorTieCollisionSourceInfo,
+  EditorCollisionFaceType, EditorCommand, EditorSnapshot, EditorInstancedCollisionCandidate, EditorInstancedCollisionGenerationSettings,
+  EditorInstancedCollisionPreview,
+  EditorInstancedCollisionSourceInfo,
 } from '../../types/EditorRuntime.js';
 import type { AssetExplorerFamily } from '../../types/AssetExplorer.js';
 import type { SceneTreeColors } from '../../types/SceneTree.js';
@@ -50,27 +50,30 @@ export interface EditorContextValue {
   build(includedLayers: BuildLayerId[]): Promise<void>;
   cancelBuild(): Promise<void>;
   execute(command: EditorCommand): Promise<boolean>;
-  inspectTieCollisionSource(entityId: string): Promise<EditorTieCollisionSourceInfo>;
-  previewTieCollision(
+  inspectInstancedCollisionSource(entityId: string): Promise<EditorInstancedCollisionSourceInfo>;
+  previewInstancedCollision(
     entityId: string,
-    settings?: EditorTieCollisionGenerationSettings,
-  ): Promise<EditorTieCollisionPreview>;
-  cancelTieCollisionPreview(): Promise<void>;
-  applyTieCollisionPreview(token: string): Promise<boolean>;
-  tieCollisionOverlay?: TieCollisionOverlay;
-  setTieCollisionOverlay(value?: TieCollisionOverlay): void;
+    settings?: EditorInstancedCollisionGenerationSettings,
+  ): Promise<EditorInstancedCollisionPreview>;
+  cancelInstancedCollisionPreview(): Promise<void>;
+  applyInstancedCollisionPreview(token: string): Promise<boolean>;
+  instancedCollisionOverlay?: InstancedCollisionOverlay;
+  setInstancedCollisionOverlay(value?: InstancedCollisionOverlay): void;
+  renderedInstancedCollisionEntityIds: ReadonlySet<string>;
+  setInstancedCollisionRendered(entityId: string, rendered: boolean): void;
   save(): Promise<void>;
 }
 
-export interface TieCollisionOverlay {
+export interface InstancedCollisionOverlay {
   entityId: string;
-  candidate?: EditorTieCollisionCandidate;
+  candidate?: EditorInstancedCollisionCandidate;
   url: string;
   showSource: boolean;
   showProxy: boolean;
   wireframe: boolean;
   showOctants: boolean;
   paint?: {
+    active: boolean;
     proxyAssetId: string;
     defaultRawType: number;
     faceTypes: EditorCollisionFaceType[];

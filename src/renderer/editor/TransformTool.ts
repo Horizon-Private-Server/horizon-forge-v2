@@ -279,7 +279,7 @@ export class TransformTool {
     const explicit = new Set(transforms.keys());
     for (const update of updates) {
       const entity = this.entitiesById.get(update.entityId);
-      const parentId = entity?.collision?.attachment?.tieEntityId;
+      const parentId = entity?.collision?.attachment?.parentEntityId;
       if (!entity || !parentId) continue;
       transforms.delete(entity.id);
       if (explicit.has(parentId) || transforms.has(parentId)) continue;

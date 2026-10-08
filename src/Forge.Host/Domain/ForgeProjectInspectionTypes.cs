@@ -16,7 +16,6 @@ public sealed record ForgeProjectSummary(
     string BakeProfile,
     int BaseLevel,
     long ModifiedUnixMilliseconds,
-    bool MigrationPending,
     bool HasRecovery);
 
 public sealed record ForgeProjectDescriptor(
@@ -31,7 +30,7 @@ public sealed record ForgeProjectDescriptor(
     int EntityCount,
     int MissingAssetCount,
     bool IsDirty,
-    bool MigrationPending,
+    bool RepairRequired,
     IReadOnlyList<string> Warnings,
     IReadOnlyList<ProjectRecoverySnapshot> Recoveries,
     IReadOnlyList<MissingProjectAsset> MissingAssets);

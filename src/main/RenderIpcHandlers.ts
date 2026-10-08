@@ -107,14 +107,14 @@ export function registerRenderIpcHandlers(options: RenderIpcHandlersOptions): vo
     if (requestId !== undefined) await host.cancel(requestId);
   });
 
-  ipcMain.handle('forge:editor-tie-collision-model', async (
+  ipcMain.handle('forge:editor-instanced-collision-model', async (
     event, token: unknown, requestToken: unknown,
   ) => {
     assertSender(event.sender.id);
     assertRequestToken(token);
     assertRequestToken(requestToken);
     if (activePreviewRequests.has(requestToken)) throw new Error('Preview request token is already active');
-    const request = await host.prepareTieCollisionPreview(
+    const request = await host.prepareInstancedCollisionPreview(
       settings.paths.renderCache, settings.paths.assets, token);
     activePreviewRequests.set(requestToken, request.requestId);
     try { return await renderAssets.addPreview(await request.result); }
@@ -123,14 +123,14 @@ export function registerRenderIpcHandlers(options: RenderIpcHandlersOptions): vo
     }
   });
 
-  ipcMain.handle('forge:editor-tie-collision-applied-model', async (
+  ipcMain.handle('forge:editor-instanced-collision-applied-model', async (
     event, proxyAssetId: unknown, requestToken: unknown,
   ) => {
     assertSender(event.sender.id);
     assertPreview(proxyAssetId);
     assertRequestToken(requestToken);
     if (activePreviewRequests.has(requestToken)) throw new Error('Preview request token is already active');
-    const request = await host.prepareAppliedTieCollision(
+    const request = await host.prepareAppliedInstancedCollision(
       settings.paths.renderCache, settings.paths.assets, proxyAssetId);
     activePreviewRequests.set(requestToken, request.requestId);
     try { return await renderAssets.addPreview(await request.result); }

@@ -14,8 +14,7 @@ public sealed record ProjectBaseLevel(
     string Revision,
     int Level,
     string SourceFingerprint,
-    int MissingAssetCount = 0,
-    int EntityVersion = 0);
+    int MissingAssetCount = 0);
 
 public sealed record ProjectVector3(float X, float Y, float Z);
 
@@ -73,7 +72,7 @@ public sealed record ProjectEntity(
     ProjectAmbientSoundInstance? AmbientSound = null,
     ProjectSkyShell? SkyShell = null,
     ProjectCollisionPiece? Collision = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? TieCollisionEnabled = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? InstancedCollisionEnabled = null);
 
 public sealed record ProjectAttachedAsset(
     AssetId Id,
@@ -81,33 +80,6 @@ public sealed record ProjectAttachedAsset(
     uint CanonicalFormatVersion,
     AssetId ParentId,
     long Size);
-
-public enum ProjectTieCollisionRecipeKind
-{
-    Surface,
-    Wrap,
-    Hull,
-}
-
-public sealed record ProjectTieCollisionRecipe(
-    ProjectTieCollisionRecipeKind Kind,
-    int GeneratorVersion,
-    int RecipeVersion,
-    int LodIndex,
-    byte RawType,
-    float DetailSize = 0,
-    float SealOpeningSize = 0,
-    float SurfaceOffset = 0,
-    bool OpenBase = false,
-    int ProfileSections = 0);
-
-public sealed record ProjectCollisionFaceTypeOverride(int FaceIndex, byte RawType);
-
-public sealed record ProjectTieCollisionBinding(
-    AssetId TieAssetId,
-    AssetId ProxyAssetId,
-    ProjectTieCollisionRecipe Recipe,
-    IReadOnlyList<ProjectCollisionFaceTypeOverride> FaceTypeOverrides);
 
 public sealed record ForgeProjectManifest(
     int SchemaVersion,
@@ -123,7 +95,7 @@ public sealed record ForgeProjectContent(
     string DocumentType,
     IReadOnlyList<ProjectEntity> Entities,
     IReadOnlyList<ProjectAttachedAsset> Assets,
-    IReadOnlyList<ProjectTieCollisionBinding> TieCollisionBindings,
+    IReadOnlyList<ProjectInstancedCollisionBinding> InstancedCollisionBindings,
     ProjectLevelSettings? LevelSettings = null);
 
 public sealed record ProjectRecoverySnapshot(

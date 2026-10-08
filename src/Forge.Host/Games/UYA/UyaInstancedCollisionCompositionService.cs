@@ -4,7 +4,7 @@ using RatchetPs2.Sdk;
 
 namespace Forge.Host.Games.UYA;
 
-internal static class UyaTieCollisionCompositionService
+internal static class UyaInstancedCollisionCompositionService
 {
     internal sealed record CollisionSource(
         byte[] Bytes,
@@ -14,6 +14,7 @@ internal static class UyaTieCollisionCompositionService
     public static async Task<CollisionSource> ReadPrimaryAsync(
         ForgeProjectWorkspace workspace,
         AssetCatalogStore catalog,
+        EntityId? replacementEntityId,
         CancellationToken cancellationToken)
     {
         var primaryEntities = workspace.Content.Entities
@@ -29,7 +30,8 @@ internal static class UyaTieCollisionCompositionService
         return new(
             bytes,
             CreateEdits(workspace, assetIds[0], bytes, sourcePayloadIndex: 0),
-            BuildLinkedAdditions(workspace, assetIds[0], bytes, sourcePayloadIndex: 0, cancellationToken));
+            BuildLinkedAdditions(
+                workspace, assetIds[0], bytes, sourcePayloadIndex: 0, replacementEntityId, cancellationToken));
     }
 
     public static IReadOnlyList<CollisionPieceEdit> CreateEdits(
@@ -68,6 +70,7 @@ internal static class UyaTieCollisionCompositionService
         AssetId assetId,
         byte[] source,
         int? sourcePayloadIndex,
+        EntityId? replacementEntityId,
         CancellationToken cancellationToken)
     {
         var linked = workspace.Content.Entities.Where(value =>
@@ -79,14 +82,23 @@ internal static class UyaTieCollisionCompositionService
             .ToArray();
         if (linked.Length == 0) return [];
         var entities = workspace.Content.Entities.ToDictionary(value => value.EntityId);
+        var bindings = workspace.Content.InstancedCollisionBindings
+            .Select(value => (value.SourceAssetId, value.InstanceEntityId))
+            .ToHashSet();
         var pieces = CollisionWork.DecodeSolidPieces(source, GameId.UYA, cancellationToken)
             .ToDictionary(value => value.SourcePieceIndex);
         return linked.Select(value =>
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var attachment = value.Collision!.Attachment!;
-                var tie = entities[attachment.TieEntityId];
-                if (tie.State?.Disabled == true) return null;
+                var parent = entities[attachment.ParentEntityId];
+                if (parent.State?.Disabled == true) return null;
+                var bindingEntityId = parent.InstancedCollisionEnabled == false ? parent.EntityId : (EntityId?)null;
+                if (parent.EntityId == replacementEntityId
+                    || parent.InstancedCollisionEnabled is not null
+                    && parent.Asset is { } parentAsset && parentAsset.IsInstancedCollisionSource()
+                    && bindings.Contains((parentAsset.Id, bindingEntityId)))
+                    return null;
                 var id = $"linked:{value.EntityId}";
                 var addition = new CollisionSolidAddition(id, pieces[value.Collision.SourcePieceIndex].Faces);
                 return CollisionWork.TransformAdditionRelative(
@@ -95,7 +107,7 @@ internal static class UyaTieCollisionCompositionService
                     id,
                     ToCollisionTransform(value.Transform),
                     ToCollisionTransform(attachment.BindTransform),
-                    ToCollisionTransform(tie.Transform),
+                    ToCollisionTransform(parent.Transform),
                     cancellationToken);
             })
             .OfType<CollisionSolidAddition>()
@@ -105,14 +117,18 @@ internal static class UyaTieCollisionCompositionService
     public static async Task<IReadOnlyList<CollisionSolidAddition>> BuildAdditionsAsync(
         ForgeProjectWorkspace workspace,
         AssetCatalogStore catalog,
-        AssetId? replacementTieAssetId,
+        EntityId? replacementEntityId,
+        AssetId? replacementSourceAssetId,
         byte[]? replacementProxyBytes,
         IDictionary<AssetId, CollisionSolidAddition> decodedProxies,
         CancellationToken cancellationToken)
     {
-        var bindings = workspace.Content.TieCollisionBindings.ToDictionary(value => value.TieAssetId);
+        var bindings = workspace.Content.InstancedCollisionBindings.ToDictionary(
+            value => (value.SourceAssetId, value.InstanceEntityId));
         CollisionSolidAddition? replacement = null;
-        if (replacementTieAssetId is not null)
+        var replacementShared = replacementEntityId is not null
+            && workspace.Content.Entities.Single(value => value.EntityId == replacementEntityId).InstancedCollisionEnabled != false;
+        if (replacementSourceAssetId is not null)
         {
             ArgumentNullException.ThrowIfNull(replacementProxyBytes);
             replacement = CollisionWork.DecodeSolidAddition(
@@ -120,32 +136,44 @@ internal static class UyaTieCollisionCompositionService
         }
 
         var entities = workspace.Content.Entities.Where(entity =>
-                entity.Asset is { Kind: AssetKind.Tie }
+                entity.Asset.IsInstancedCollisionSource()
                 && entity.State?.Disabled != true
-                && entity.TieCollisionEnabled != false
-                && (entity.Asset.Id == replacementTieAssetId || bindings.ContainsKey(entity.Asset.Id)))
+                && (entity.EntityId == replacementEntityId
+                    || entity.InstancedCollisionEnabled is not null
+                    && bindings.ContainsKey((
+                        entity.Asset.Id,
+                        entity.InstancedCollisionEnabled == false ? entity.EntityId : null)))
+                && (entity.Asset.Id == replacementSourceAssetId
+                    || bindings.ContainsKey((
+                        entity.Asset.Id,
+                        entity.InstancedCollisionEnabled == false ? entity.EntityId : null))))
             .OrderBy(entity => entity.EntityId.ToString(), StringComparer.Ordinal)
             .ToArray();
         var additions = new List<CollisionSolidAddition>(entities.Length);
-        var verifiedTieAssets = new HashSet<AssetId>();
-        var effectiveProxies = new Dictionary<AssetId, CollisionSolidAddition>();
+        var verifiedSourceAssets = new HashSet<AssetId>();
+        var effectiveProxies = new Dictionary<(AssetId, EntityId?), CollisionSolidAddition>();
         foreach (var entity in entities)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var tieAssetId = entity.Asset!.Id;
-            if (verifiedTieAssets.Add(tieAssetId))
+            var sourceAssetId = entity.Asset!.Id;
+            if (verifiedSourceAssets.Add(sourceAssetId))
                 _ = await ReadAssetAsync(
-                    workspace, catalog, tieAssetId, AssetKind.Tie, cancellationToken);
+                    workspace, catalog, sourceAssetId, entity.Asset.Kind, cancellationToken);
             CollisionSolidAddition addition;
-            if (tieAssetId == replacementTieAssetId)
+            if (entity.EntityId == replacementEntityId
+                || replacementShared && entity.InstancedCollisionEnabled == true
+                    && sourceAssetId == replacementSourceAssetId)
             {
                 addition = replacement!;
             }
             else
             {
-                if (!effectiveProxies.TryGetValue(tieAssetId, out addition!))
+                var bindingKey = (
+                    sourceAssetId,
+                    entity.InstancedCollisionEnabled == false ? entity.EntityId : (EntityId?)null);
+                if (!effectiveProxies.TryGetValue(bindingKey, out addition!))
                 {
-                    var binding = bindings[tieAssetId];
+                    var binding = bindings[bindingKey];
                     var proxyId = binding.ProxyAssetId;
                     if (!decodedProxies.TryGetValue(proxyId, out addition!))
                     {
@@ -157,7 +185,7 @@ internal static class UyaTieCollisionCompositionService
                     }
                     if (binding.FaceTypeOverrides.Any(value => value.FaceIndex >= addition.Faces.Count))
                         throw new InvalidDataException(
-                            $"TIE collision proxy {proxyId} contains a face-type override outside its decoded topology.");
+                            $"Instanced collision proxy {proxyId} contains a face-type override outside its decoded topology.");
                     var faceTypes = binding.FaceTypeOverrides.ToDictionary(
                         value => value.FaceIndex, value => value.RawType);
                     addition = addition with
@@ -167,7 +195,7 @@ internal static class UyaTieCollisionCompositionService
                             RawType = faceTypes.GetValueOrDefault(faceIndex, binding.Recipe.RawType),
                         }).ToArray(),
                     };
-                    effectiveProxies.Add(tieAssetId, addition);
+                    effectiveProxies.Add(bindingKey, addition);
                 }
             }
             additions.Add(CollisionWork.TransformAddition(

@@ -67,7 +67,7 @@ internal static class UyaStaticLayerTests
                 project,
                 "Static bake",
                 new("UYA", "NTSC-U", "1.00", "uya-ntsc-u"),
-                new("UYA", "NTSC-U", "1.00", 3, new string('a', 32), EntityVersion: 1),
+                new("UYA", "NTSC-U", "1.00", 3, new string('a', 32)),
                 [hiddenTie, disabledTie, lockedShrub, legacyPlacedShrub, moby, disabledMoby, modelLessMoby]);
             await WriteSourceAsync(project);
 
@@ -159,7 +159,7 @@ internal static class UyaStaticLayerTests
             project,
             "Tie order",
             new("UYA", "NTSC-U", "1.00", "uya-ntsc-u"),
-            new("UYA", "NTSC-U", "1.00", 3, new string('a', 32), EntityVersion: 1),
+            new("UYA", "NTSC-U", "1.00", 3, new string('a', 32)),
             [first, second, copy]);
         var workspace = await ForgeProjectWorkspace.OpenAsync(project);
         Equal(true, UyaStaticLayerStore.OrderedEntities(workspace, BakeLayerId.Ties)
@@ -178,7 +178,7 @@ internal static class UyaStaticLayerTests
             project,
             "Shrub order",
             new("UYA", "NTSC-U", "1.00", "uya-ntsc-u"),
-            new("UYA", "NTSC-U", "1.00", 3, new string('a', 32), EntityVersion: 1),
+            new("UYA", "NTSC-U", "1.00", 3, new string('a', 32)),
             [high, low]);
         var workspace = await ForgeProjectWorkspace.OpenAsync(project);
         Equal(true, UyaStaticLayerStore.OrderedEntities(workspace, BakeLayerId.Shrubs)
@@ -198,7 +198,7 @@ internal static class UyaStaticLayerTests
             project,
             "Bad static bake",
             new("UYA", "NTSC-U", "1.00", "uya-ntsc-u"),
-            new("UYA", "NTSC-U", "1.00", 3, new string('a', 32), EntityVersion: 1),
+            new("UYA", "NTSC-U", "1.00", 3, new string('a', 32)),
             [
                 Entity("Missing tie", "ties", missing, 0x0200, UyaTieInstancesReader.RecordSize,
                     new(), new(0, 0, 0), new(1, 1, 1), 0),
@@ -329,7 +329,7 @@ internal static class UyaStaticLayerTests
             project,
             "Multi-class placement",
             new("UYA", "NTSC-U", "1.00", "uya-ntsc-u"),
-            new("UYA", "NTSC-U", "1.00", 3, new string('a', 32), EntityVersion: 1),
+            new("UYA", "NTSC-U", "1.00", 3, new string('a', 32)),
             []);
         var workspace = await ForgeProjectWorkspace.OpenAsync(project);
         var placed = await UyaAssetPlacementService.CreateAsync(

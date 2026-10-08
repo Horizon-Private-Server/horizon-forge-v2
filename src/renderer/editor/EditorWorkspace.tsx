@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { KeybindingMap } from '../../types/Keybindings.js';
 import type { AssetExplorerFamily } from '../../types/AssetExplorer.js';
 import type {
-  EditorCommand, EditorSnapshot, EditorTieCollisionGenerationSettings, ProjectVector4,
+  EditorCommand, EditorSnapshot, EditorInstancedCollisionGenerationSettings, ProjectVector4,
 } from '../../types/EditorRuntime.js';
 import type { SceneTreeColors } from '../../types/SceneTree.js';
 import type { CollisionVisualization } from '../../types/CollisionVisualization.js';
@@ -22,7 +22,7 @@ import { isTextInput } from '../../utils/Dom.ts';
 import { errorMessage } from '../../utils/Errors.ts';
 import { findKeybindingCommand, forgeActionForKeybinding } from '../../utils/Keybindings.ts';
 import { parseSplinePointId, removeSplinePoints, splinePointId } from '../../utils/SplinePoints.ts';
-import { EditorContext, type TieCollisionOverlay } from './EditorContext.ts';
+import { EditorContext, type InstancedCollisionOverlay } from './EditorContext.ts';
 import { BuildPanel } from './BuildPanel.tsx';
 import { AssetExplorerPanel } from './AssetExplorerPanel.tsx';
 import { AssetPreviewPanel } from './AssetPreviewPanel.tsx';
@@ -95,7 +95,10 @@ export function EditorWorkspace({
   const [showSolidCollision, setShowSolidCollision] = useState(true);
   const [showPlayerBarriers, setShowPlayerBarriers] = useState(true);
   const [assetPreview, setAssetPreview] = useState<AssetExplorerFamily>();
-  const [tieCollisionOverlay, setTieCollisionOverlay] = useState<TieCollisionOverlay>();
+  const [instancedCollisionOverlay, setInstancedCollisionOverlay] = useState<InstancedCollisionOverlay>();
+  const [renderedInstancedCollisionEntityIds, setRenderedInstancedCollisionEntityIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const terrainProjectId = useRef<string | undefined>(undefined);
   const onReady = useCallback((event: DockviewReadyEvent) => setApi(event.api), []);
 
@@ -106,7 +109,8 @@ export function EditorWorkspace({
       setTerrain(undefined);
       setCameraFocus(undefined);
       setAssetPreview(undefined);
-      setTieCollisionOverlay(undefined);
+      setInstancedCollisionOverlay(undefined);
+      setRenderedInstancedCollisionEntityIds(new Set());
       setSplinePointSelection([]);
       setSkyCompositionSelected(false);
       splinePointClipboard.current = [];
@@ -240,34 +244,34 @@ export function EditorWorkspace({
     }
   }, [onProjectChange]);
 
-  const previewTieCollision = useCallback(async (
+  const previewInstancedCollision = useCallback(async (
     entityId: string,
-    settings?: EditorTieCollisionGenerationSettings,
+    settings?: EditorInstancedCollisionGenerationSettings,
   ) => {
     setError(undefined);
-    try { return await window.forge.previewTieCollision(entityId, settings); }
+    try { return await window.forge.previewInstancedCollision(entityId, settings); }
     catch (cause) {
       setError(errorMessage(cause));
       throw cause;
     }
   }, []);
 
-  const inspectTieCollisionSource = useCallback(async (entityId: string) => {
+  const inspectInstancedCollisionSource = useCallback(async (entityId: string) => {
     setError(undefined);
-    try { return await window.forge.inspectTieCollisionSource(entityId); }
+    try { return await window.forge.inspectInstancedCollisionSource(entityId); }
     catch (cause) {
       setError(errorMessage(cause));
       throw cause;
     }
   }, []);
 
-  const cancelTieCollisionPreview = useCallback(() => window.forge.cancelTieCollisionPreview(), []);
+  const cancelInstancedCollisionPreview = useCallback(() => window.forge.cancelInstancedCollisionPreview(), []);
 
-  const applyTieCollisionPreview = useCallback(async (token: string) => {
+  const applyInstancedCollisionPreview = useCallback(async (token: string) => {
     setBusy(true);
     setError(undefined);
     try {
-      onProjectChange(await window.forge.applyTieCollisionPreview(crypto.randomUUID(), token));
+      onProjectChange(await window.forge.applyInstancedCollisionPreview(crypto.randomUUID(), token));
       return true;
     }
     catch (cause) {
@@ -276,6 +280,16 @@ export function EditorWorkspace({
     }
     finally { setBusy(false); }
   }, [onProjectChange]);
+
+  const setInstancedCollisionRendered = useCallback((entityId: string, rendered: boolean) => {
+    setRenderedInstancedCollisionEntityIds((current) => {
+      if (current.has(entityId) === rendered) return current;
+      const next = new Set(current);
+      if (rendered) next.add(entityId);
+      else next.delete(entityId);
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     if (!splinePointSelection.length) return;
@@ -357,12 +371,14 @@ export function EditorWorkspace({
     build: buildAndPatch,
     cancelBuild: () => window.forge.cancelBuildAndPatch(),
     execute,
-    previewTieCollision,
-    inspectTieCollisionSource,
-    cancelTieCollisionPreview,
-    applyTieCollisionPreview,
-    tieCollisionOverlay,
-    setTieCollisionOverlay,
+    previewInstancedCollision,
+    inspectInstancedCollisionSource,
+    cancelInstancedCollisionPreview,
+    applyInstancedCollisionPreview,
+    instancedCollisionOverlay,
+    setInstancedCollisionOverlay,
+    renderedInstancedCollisionEntityIds,
+    setInstancedCollisionRendered,
     save: async () => {
       setBusy(true);
       setError(undefined);
@@ -370,14 +386,15 @@ export function EditorWorkspace({
       catch (cause) { setError(errorMessage(cause)); }
       finally { setBusy(false); }
     },
-  }), [applyTieCollisionPreview, assetPreview, buildAndPatch, buildProgress, buildResult, busy, cameraFocus,
-    cancelTieCollisionPreview, execute,
+  }), [applyInstancedCollisionPreview, assetPreview, buildAndPatch, buildProgress, buildResult, busy, cameraFocus,
+    cancelInstancedCollisionPreview, execute,
     hostStatus, inspectAsset, keybindings,
     collisionVisualization, project, sceneLoad, sceneTreeColors, showOcclusionOctants, showPlayerBarriers, showSolidCollision,
     selectionColor, showTerrain,
     showViewportStats, skyCompositionSelected,
     splinePointSelection,
-    terrain, previewTieCollision, inspectTieCollisionSource, tieCollisionOverlay]);
+    terrain, previewInstancedCollision, inspectInstancedCollisionSource, instancedCollisionOverlay,
+    renderedInstancedCollisionEntityIds, setInstancedCollisionRendered]);
 
   return <EditorContext.Provider value={context}>
     <div className="editor-workspace">

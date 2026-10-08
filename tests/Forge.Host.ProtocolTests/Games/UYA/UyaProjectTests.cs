@@ -1,9 +1,6 @@
 using Forge.Host.Games.UYA;
 using System.Buffers.Binary;
 using System.Security.Cryptography;
-using System.IO.Compression;
-using System.Text.Json;
-using System.Text.Json.Nodes;
 using Forge.Host.Domain;
 using RatchetPs2.Games.UYA.Gameplay;
 using RatchetPs2.Games.UYA.Level;
@@ -190,7 +187,7 @@ internal static class UyaProjectTests
             Equal(BakeLayerState.Clean,
                 missingBasePlan.Layers.Single(value => value.Layer == BakeLayerId.Tfrags).State,
                 "unrelated base layer remains clean");
-            await UyaProjectService.MigrateValidatedAsync(projectPath, catalog, new MemoryStream(iso, writable: false));
+            await UyaProjectService.RepairValidatedAsync(projectPath, catalog, new MemoryStream(iso, writable: false));
             Equal(true, (await UyaBaseLayerStore.InspectAsync(projectPath, catalog)).IsValid,
                 "base layer repair restores catalog data");
 
@@ -205,6 +202,8 @@ internal static class UyaProjectTests
             Equal(0, entity.Provenance.SourceIndex, "entity source index");
             Equal(tieAsset.Id, tie.Asset!.Id, "tie global asset reference");
             Equal(shrubAsset.Id, shrub.Asset!.Id, "shrub global asset reference");
+            Equal(null, tie.InstancedCollisionEnabled, "vanilla tie imports with instanced collision disabled");
+            Equal(null, shrub.InstancedCollisionEnabled, "vanilla shrub imports with instanced collision disabled");
             Equal("ties", tie.Layer, "tie layer");
             Equal("shrubs", shrub.Layer, "shrub layer");
             Equal(200, tie.Source!.ClassId, "tie source class");
@@ -383,53 +382,15 @@ internal static class UyaProjectTests
                 "altered opaque content blocks bake");
             Equal(true, altered.Blockers!.Any(value => value.Contains("checksum changed", StringComparison.Ordinal)),
                 "altered opaque content is actionable");
-            await UyaProjectService.MigrateValidatedAsync(projectPath, catalog, new MemoryStream(iso, writable: false));
+            await UyaProjectService.RepairValidatedAsync(projectPath, catalog, new MemoryStream(iso, writable: false));
             File.Delete(codePath);
             var missingOpaque = await OpaqueContentStore.CreateBakeInputAsync(projectPath);
             Equal(true, missingOpaque.Blockers!.Any(value => value.Contains("is missing", StringComparison.Ordinal)),
                 "missing opaque content is actionable");
-            var repaired = await UyaProjectService.MigrateValidatedAsync(
+            var repaired = await UyaProjectService.RepairValidatedAsync(
                 projectPath, catalog, new MemoryStream(iso, writable: false));
-            Equal(false, repaired.MigrationPending, "opaque content repair completes");
+            Equal(false, repaired.RepairRequired, "opaque content repair completes");
             Equal(true, (await OpaqueContentStore.InspectAsync(projectPath)).IsValid, "opaque content repair restores bytes");
-
-            var legacyPath = Path.Combine(root, "legacy-base-project");
-            await UyaProjectService.CreateValidatedAsync(
-                new MemoryStream(iso, writable: false), catalog,
-                request with { ProjectPath = legacyPath, Name = "Legacy base" });
-            var legacy = await ForgeProjectWorkspace.OpenAsync(legacyPath);
-            var legacyMobyId = legacy.Content.Entities.First(value => value.Layer == "mobys").EntityId;
-            foreach (var staticEntity in legacy.Content.Entities.Where(value => value.Layer is "ties" or "shrubs").ToArray())
-                legacy.RemoveEntity(staticEntity.EntityId);
-            await legacy.SaveAsync();
-            var legacyManifestPath = Path.Combine(legacyPath, ForgeProjectWorkspace.ManifestFileName);
-            var legacyManifest = JsonNode.Parse(await File.ReadAllBytesAsync(legacyManifestPath))!.AsObject();
-            legacyManifest["baseLevel"]!["entityVersion"] = 0;
-            await File.WriteAllTextAsync(legacyManifestPath,
-                legacyManifest.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n");
-            var legacyContentPath = Path.Combine(legacyPath, ForgeProjectWorkspace.DefaultContentPath);
-            var legacyContent = JsonNode.Parse(await ReadCompressedAsync(legacyContentPath))!.AsObject();
-            foreach (var legacyEntity in legacyContent["entities"]!.AsArray().Select(value => value!.AsObject()))
-                if (legacyEntity["layer"]!.GetValue<string>() == "mobys") legacyEntity.Remove("source");
-            await WriteCompressedAsync(legacyContentPath,
-                System.Text.Encoding.UTF8.GetBytes(legacyContent.ToJsonString() + "\n"));
-            var migrated = await UyaProjectService.MigrateValidatedAsync(
-                legacyPath, catalog, new MemoryStream(iso, writable: false));
-            Equal(false, migrated.MigrationPending, "base entity migration completes");
-            legacy = await ForgeProjectWorkspace.OpenAsync(legacyPath);
-            Equal(1, legacy.Content.Entities.Count(value => value.Layer == "ties"), "migration adds ties once");
-            Equal(1, legacy.Content.Entities.Count(value => value.Layer == "shrubs"), "migration adds shrubs once");
-            Equal(legacyMobyId, legacy.Content.Entities.First(value => value.Layer == "mobys").EntityId,
-                "migration preserves existing moby identity");
-            Equal(true, legacy.Content.Entities.Where(value => value.Layer == "mobys").All(value => value.Source is not null),
-                "migration enriches existing moby source records");
-            var migratedTie = legacy.Content.Entities.Single(value => value.Layer == "ties");
-            legacy.RemoveEntity(migratedTie.EntityId);
-            await legacy.SaveAsync();
-            await UyaProjectService.MigrateValidatedAsync(
-                legacyPath, catalog, new MemoryStream(iso, writable: false));
-            legacy = await ForgeProjectWorkspace.OpenAsync(legacyPath);
-            Equal(0, legacy.Content.Entities.Count(value => value.Layer == "ties"), "migration does not resurrect deleted ties");
 
             var refusedPath = Path.Combine(root, "refused");
             var missingCatalog = await AssetCatalogStore.OpenAsync(Path.Combine(root, "missing-catalog"));
@@ -763,22 +724,6 @@ internal static class UyaProjectTests
         bytes[14 + definitionLength] = modelByte;
         WriteInt32(bytes, 15 + definitionLength, 0);
         return bytes;
-    }
-
-    private static async Task<byte[]> ReadCompressedAsync(string path)
-    {
-        await using var input = File.OpenRead(path);
-        await using var gzip = new GZipStream(input, CompressionMode.Decompress);
-        using var output = new MemoryStream();
-        await gzip.CopyToAsync(output);
-        return output.ToArray();
-    }
-
-    private static async Task WriteCompressedAsync(string path, byte[] bytes)
-    {
-        await using var output = File.Create(path);
-        await using var gzip = new GZipStream(output, CompressionLevel.Fastest);
-        await gzip.WriteAsync(bytes);
     }
 
     private static void Equal<T>(T expected, T actual, string context)

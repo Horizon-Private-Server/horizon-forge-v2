@@ -4,10 +4,10 @@ import type {
   EditorEvent,
   EditorLevelSettings,
   EditorSnapshot,
-  EditorTieCollisionGenerationSettings,
-  EditorTieCollisionPreview,
-  EditorTieCollisionSourceInfo,
-  EditorTieCollisionRecipe,
+  EditorInstancedCollisionGenerationSettings,
+  EditorInstancedCollisionPreview,
+  EditorInstancedCollisionSourceInfo,
+  EditorInstancedCollisionRecipe,
   ProjectTransform,
   ProjectVector3,
 } from '../../types/EditorRuntime.js';
@@ -36,10 +36,10 @@ const commandKinds = {
   addSkyShellFromAsset: 17,
   updateSkyShell: 18,
   reorderSkyShell: 19,
-  removeTieCollisionProxy: 20,
-  setTieCollisionEnabled: 21,
-  setTieCollisionRawType: 22,
-  setTieCollisionFaceTypes: 23,
+  removeInstancedCollisionProxy: 20,
+  setInstancedCollisionEnabled: 21,
+  setInstancedCollisionRawType: 22,
+  setInstancedCollisionFaceTypes: 23,
 } as const;
 const eventKinds: Record<number, EditorEvent['kind']> = {
   1: 'projectOpened', 2: 'projectChanged', 3: 'selectionChanged', 4: 'projectSaved',
@@ -118,12 +118,12 @@ export function encodeEditorCommand(value: EditorCommand): Buffer {
   }
   writer.writeBoolean(value.kind === 'reorderSkyShell');
   if (value.kind === 'reorderSkyShell') writer.writeUInt32(value.destinationOrder);
-  writer.writeBoolean(value.kind === 'setTieCollisionEnabled');
-  if (value.kind === 'setTieCollisionEnabled') writer.writeBoolean(value.enabled);
-  writer.writeBoolean(value.kind === 'setTieCollisionRawType');
-  if (value.kind === 'setTieCollisionRawType') writer.writeUInt32(value.rawType);
-  writer.writeBoolean(value.kind === 'setTieCollisionFaceTypes');
-  if (value.kind === 'setTieCollisionFaceTypes') {
+  writer.writeBoolean(value.kind === 'setInstancedCollisionEnabled' && value.enabled !== null);
+  if (value.kind === 'setInstancedCollisionEnabled' && value.enabled !== null) writer.writeBoolean(value.enabled);
+  writer.writeBoolean(value.kind === 'setInstancedCollisionRawType');
+  if (value.kind === 'setInstancedCollisionRawType') writer.writeUInt32(value.rawType);
+  writer.writeBoolean(value.kind === 'setInstancedCollisionFaceTypes');
+  if (value.kind === 'setInstancedCollisionFaceTypes') {
     writer.writeString(value.expectedProxyAssetId);
     writer.writeUInt32(value.faceTypes.length);
     value.faceTypes.forEach((faceType) => {
@@ -141,9 +141,9 @@ export function encodeEditorEventRequest(afterSequence: number, limit: number): 
   return writer.toBuffer();
 }
 
-export function encodeTieCollisionPreviewRequest(
+export function encodeInstancedCollisionPreviewRequest(
   entityId: string,
-  settings?: EditorTieCollisionGenerationSettings,
+  settings?: EditorInstancedCollisionGenerationSettings,
 ): Buffer {
   const writer = new PayloadWriter();
   writer.writeString(entityId);
@@ -157,30 +157,30 @@ export function encodeTieCollisionPreviewRequest(
   return writer.toBuffer();
 }
 
-export function encodeTieCollisionSourceRequest(entityId: string): Buffer {
+export function encodeInstancedCollisionSourceRequest(entityId: string): Buffer {
   const writer = new PayloadWriter();
   writer.writeString(entityId);
   return writer.toBuffer();
 }
 
-export function decodeTieCollisionSourceInfo(payload: Uint8Array): EditorTieCollisionSourceInfo {
+export function decodeInstancedCollisionSourceInfo(payload: Uint8Array): EditorInstancedCollisionSourceInfo {
   const reader = new PayloadReader(payload);
-  const tieAssetId = reader.readString();
+  const sourceAssetId = reader.readString();
   const surfaceLodIndices = readList(reader, 3, () => reader.readUInt32());
   reader.complete();
   if (surfaceLodIndices.some((value) => value > 2 || !Number.isInteger(value)))
     malformed('Invalid TIE surface LOD index');
-  return { tieAssetId, surfaceLodIndices };
+  return { sourceAssetId, surfaceLodIndices };
 }
 
-export function encodeTieCollisionApplyRequest(commandId: string, token: string): Buffer {
+export function encodeInstancedCollisionApplyRequest(commandId: string, token: string): Buffer {
   const writer = new PayloadWriter();
   writer.writeString(commandId);
   writer.writeString(token);
   return writer.toBuffer();
 }
 
-export function encodeTieCollisionRenderRequest(
+export function encodeInstancedCollisionRenderRequest(
   cacheRootPath: string,
   catalogRootPath: string,
   token: string,
@@ -192,18 +192,18 @@ export function encodeTieCollisionRenderRequest(
   return writer.toBuffer();
 }
 
-export function decodeTieCollisionPreview(payload: Uint8Array): EditorTieCollisionPreview {
+export function decodeInstancedCollisionPreview(payload: Uint8Array): EditorInstancedCollisionPreview {
   const reader = new PayloadReader(payload);
-  const tieAssetId = reader.readString();
+  const sourceAssetId = reader.readString();
   const candidates = readList(reader, 16, () => ({
     token: reader.readString(),
     preset: enumValue(
       { 1: 'surface', 3: 'solidHull' },
       reader.readUInt32(),
-      'TIE collision preset',
+      'instanced collision preset',
     ),
     label: reader.readString(),
-    recipe: readTieCollisionRecipe(reader),
+    recipe: readInstancedCollisionRecipe(reader),
     encodedByteCount: reader.readUInt32(),
     vertexCount: reader.readUInt32(),
     faceCount: reader.readUInt32(),
@@ -224,7 +224,7 @@ export function decodeTieCollisionPreview(payload: Uint8Array): EditorTieCollisi
     } : undefined,
   }));
   reader.complete();
-  return { tieAssetId, candidates };
+  return { sourceAssetId, candidates };
 }
 
 export function decodeEditorSnapshot(payload: Uint8Array): EditorSnapshot {
@@ -244,7 +244,6 @@ export function decodeEditorSnapshot(payload: Uint8Array): EditorSnapshot {
   const entities = readList(reader, MAX_ENTITIES, () => readEntity(reader));
   const selection = readStrings(reader, MAX_ENTITIES);
   const isDirty = reader.readBoolean();
-  const migrationPending = reader.readBoolean();
   const canUndo = reader.readBoolean();
   const canRedo = reader.readBoolean();
   const canPaste = reader.readBoolean();
@@ -260,7 +259,7 @@ export function decodeEditorSnapshot(payload: Uint8Array): EditorSnapshot {
   reader.complete();
   return {
     projectPath, projectId, projectName, target, baseLevel, levelSettings, entities, selection, isDirty,
-    migrationPending, canUndo, canRedo, canPaste, lastEventSequence, capabilities, tools, diagnostics,
+    canUndo, canRedo, canPaste, lastEventSequence, capabilities, tools, diagnostics,
   };
 }
 
@@ -314,18 +313,25 @@ function readEntity(reader: PayloadReader): EditorEntity {
       types: readList(reader, 256, () => ({ rawType: reader.readUInt32(), count: reader.readUInt32() })),
     };
     if (reader.readBoolean()) value.collision.attachment = {
-      tieEntityId: reader.readString(),
+      parentEntityId: reader.readString(),
       bindTransform: readTransform(reader),
     };
   }
-  if (reader.readBoolean()) value.tieCollision = {
+  if (reader.readBoolean()) value.instancedCollision = {
     proxyAssetId: reader.readString(),
-    recipe: readTieCollisionRecipe(reader),
+    recipe: readInstancedCollisionRecipe(reader),
     faceTypeOverrides: readList(reader, MAX_ENTITIES, () => ({
       faceIndex: reader.readUInt32(), rawType: reader.readUInt32(),
     })),
   };
-  if (reader.readBoolean()) value.tieCollisionEnabled = reader.readBoolean();
+  if (reader.readBoolean()) value.individualInstancedCollision = {
+    proxyAssetId: reader.readString(),
+    recipe: readInstancedCollisionRecipe(reader),
+    faceTypeOverrides: readList(reader, MAX_ENTITIES, () => ({
+      faceIndex: reader.readUInt32(), rawType: reader.readUInt32(),
+    })),
+  };
+  if (reader.readBoolean()) value.instancedCollisionEnabled = reader.readBoolean();
   const transformCapabilities = reader.readUInt32();
   value.transformModes = [
     transformCapabilities & 1 ? 'translate' : undefined,
@@ -344,9 +350,9 @@ function readEntity(reader: PayloadReader): EditorEntity {
   return value;
 }
 
-function readTieCollisionRecipe(reader: PayloadReader): EditorTieCollisionRecipe {
+function readInstancedCollisionRecipe(reader: PayloadReader): EditorInstancedCollisionRecipe {
   return {
-    kind: enumValue({ 0: 'surface', 1: 'wrap', 2: 'hull' }, reader.readUInt32(), 'TIE collision recipe kind'),
+    kind: enumValue({ 0: 'surface', 1: 'wrap', 2: 'hull' }, reader.readUInt32(), 'instanced collision recipe kind'),
     generatorVersion: reader.readUInt32(),
     recipeVersion: reader.readUInt32(),
     lodIndex: reader.readUInt32(),

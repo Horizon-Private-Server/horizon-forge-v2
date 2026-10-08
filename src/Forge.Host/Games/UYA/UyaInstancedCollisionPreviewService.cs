@@ -6,7 +6,7 @@ using RatchetPs2.Sdk;
 
 namespace Forge.Host.Games.UYA;
 
-public static class UyaTieCollisionPreviewService
+public static class UyaInstancedCollisionPreviewService
 {
     public static async Task<int> CountProxyFacesAsync(
         ForgeProjectWorkspace workspace,
@@ -15,54 +15,62 @@ public static class UyaTieCollisionPreviewService
         CancellationToken cancellationToken)
     {
         if (workspace.Manifest.Target is not { Game: "UYA", Region: "NTSC-U", Revision: "1.00" })
-            throw new NotSupportedException("TIE collision face painting currently supports UYA NTSC-U 1.00 only.");
+            throw new NotSupportedException("Instanced collision face painting currently supports UYA NTSC-U 1.00 only.");
         var catalog = await AssetCatalogStore.OpenAsync(catalogRootPath, cancellationToken);
-        var bytes = await UyaTieCollisionCompositionService.ReadAssetAsync(
+        var bytes = await UyaInstancedCollisionCompositionService.ReadAssetAsync(
             workspace, catalog, proxyAssetId, AssetKind.Collision, cancellationToken);
         return CollisionWork.DecodeSolidAddition(
             bytes, GameId.UYA, proxyAssetId.ToString(), cancellationToken).Faces.Count;
     }
 
-    public static async Task<IReadOnlyList<EditorTieCollisionCandidate>> GenerateAsync(
+    public static async Task<IReadOnlyList<EditorInstancedCollisionCandidate>> GenerateAsync(
         ForgeProjectWorkspace workspace,
         string catalogRootPath,
-        AssetId tieAssetId,
-        EditorTieCollisionGenerationSettings? settings,
+        EntityId sourceEntityId,
+        AssetId sourceAssetId,
+        EditorInstancedCollisionGenerationSettings? settings,
         CancellationToken cancellationToken)
     {
-        var (catalog, tieBytes) = await ReadTieAsync(
-            workspace, catalogRootPath, tieAssetId, cancellationToken);
+        var (catalog, sourceBytes, sourceKind) = await ReadSourceAsync(
+            workspace, catalogRootPath, sourceAssetId, cancellationToken);
         var rawType = settings?.RawType ?? 0x0f;
         var profileSections = settings?.ProfileSections ?? 6;
         var surfaceLodIndex = settings?.SurfaceLodIndex ?? -1;
 
-        var candidates = new List<EditorTieCollisionCandidate>();
+        var candidates = new List<EditorInstancedCollisionCandidate>();
         cancellationToken.ThrowIfCancellationRequested();
         if (settings?.UseHull == true)
         {
-            var hull = CollisionWork.GenerateTieConvexHullCandidate(
-                tieBytes, GameId.UYA, "preview:hull", rawType: rawType,
-                profileSections: profileSections,
-                cancellationToken: cancellationToken);
+            var hull = sourceKind == AssetKind.Tie
+                ? CollisionWork.GenerateTieConvexHullCandidate(
+                    sourceBytes, GameId.UYA, "preview:hull", rawType: rawType,
+                    profileSections: profileSections, cancellationToken: cancellationToken)
+                : CollisionWork.GenerateShrubConvexHullCandidate(
+                    sourceBytes, GameId.UYA, "preview:hull", rawType: rawType,
+                    profileSections: profileSections, cancellationToken: cancellationToken);
             if (hull.Analysis.HardViolationCount == 0)
                 candidates.Add(CreateHull(hull, cancellationToken));
         }
         else
         {
-            var decimated = surfaceLodIndex < 0
-                ? CollisionWork.GenerateTieDecimatedCandidate(
-                    tieBytes, GameId.UYA, "preview:decimated", rawType: rawType,
+            var decimated = sourceKind == AssetKind.Shrub
+                ? CollisionWork.GenerateShrubSurfaceCandidate(
+                    sourceBytes, GameId.UYA, "preview:decimated", rawType: rawType,
                     cancellationToken: cancellationToken)
-                : CollisionWork.GenerateTieSurfaceCandidate(
-                    tieBytes, GameId.UYA, "preview:decimated", lodIndex: surfaceLodIndex,
-                    rawType: rawType, cancellationToken: cancellationToken);
+                : surfaceLodIndex < 0
+                    ? CollisionWork.GenerateTieDecimatedCandidate(
+                        sourceBytes, GameId.UYA, "preview:decimated", rawType: rawType,
+                        cancellationToken: cancellationToken)
+                    : CollisionWork.GenerateTieSurfaceCandidate(
+                        sourceBytes, GameId.UYA, "preview:decimated", lodIndex: surfaceLodIndex,
+                        rawType: rawType, cancellationToken: cancellationToken);
             if (decimated.Analysis.HardViolationCount == 0)
                 candidates.Add(CreateSurface(decimated, cancellationToken));
         }
         if (candidates.Count == 0)
-            throw new InvalidDataException("No generated TIE collision candidate fits the native collision limits.");
-        var primary = await UyaTieCollisionCompositionService.ReadPrimaryAsync(
-            workspace, catalog, cancellationToken);
+            throw new InvalidDataException("No generated instanced collision candidate fits the native collision limits.");
+        var primary = await UyaInstancedCollisionCompositionService.ReadPrimaryAsync(
+            workspace, catalog, sourceEntityId, cancellationToken);
         var decodedProxies = new Dictionary<AssetId, CollisionSolidAddition>();
         for (var index = 0; index < candidates.Count; index++)
         {
@@ -70,23 +78,25 @@ public static class UyaTieCollisionPreviewService
             candidates[index] = candidates[index] with
             {
                 CombinedAnalysis = await AnalyzeCombinedAsync(
-                    workspace, catalog, tieAssetId, candidates[index], primary, decodedProxies, cancellationToken),
+                    workspace, catalog, sourceEntityId, sourceAssetId,
+                    candidates[index], primary, decodedProxies, cancellationToken),
             };
         }
         return candidates;
     }
 
-    public static async Task<EditorTieCollisionSourceInfo> InspectAsync(
+    public static async Task<EditorInstancedCollisionSourceInfo> InspectAsync(
         ForgeProjectWorkspace workspace,
         string catalogRootPath,
-        AssetId tieAssetId,
+        AssetId sourceAssetId,
         CancellationToken cancellationToken)
     {
-        var (_, tieBytes) = await ReadTieAsync(
-            workspace, catalogRootPath, tieAssetId, cancellationToken);
+        var (_, sourceBytes, sourceKind) = await ReadSourceAsync(
+            workspace, catalogRootPath, sourceAssetId, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
+        if (sourceKind == AssetKind.Shrub) return new(sourceAssetId, [0]);
         var tie = TieClassReader.Read(
-            tieBytes,
+            sourceBytes,
             TieClassReadOptions.ForGameProfile(TieGameProfile.ForGame(GameId.UYA)));
         var lods = tie.LodTopologies
             .Where(value => value.LodIndex is >= 0 and <= 2
@@ -96,30 +106,30 @@ public static class UyaTieCollisionPreviewService
             .Distinct()
             .Order()
             .ToArray();
-        return new(tieAssetId, lods);
+        return new(sourceAssetId, lods);
     }
 
-    private static async Task<(AssetCatalogStore Catalog, byte[] TieBytes)> ReadTieAsync(
+    private static async Task<(AssetCatalogStore Catalog, byte[] SourceBytes, AssetKind SourceKind)> ReadSourceAsync(
         ForgeProjectWorkspace workspace,
         string catalogRootPath,
-        AssetId tieAssetId,
+        AssetId sourceAssetId,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(workspace);
         if (workspace.Manifest.Target is not { Game: "UYA", Region: "NTSC-U", Revision: "1.00" })
-            throw new NotSupportedException("TIE collision generation currently supports UYA NTSC-U 1.00 only.");
+            throw new NotSupportedException("Instanced collision generation currently supports UYA NTSC-U 1.00 only.");
 
         var catalog = await AssetCatalogStore.OpenAsync(catalogRootPath, cancellationToken);
-        var entry = catalog.Query(new(Id: tieAssetId)).SingleOrDefault()
-            ?? throw new FileNotFoundException($"TIE asset {tieAssetId} is not present in the catalog.");
-        if (entry.Kind != AssetKind.Tie
+        var entry = catalog.Query(new(Id: sourceAssetId)).SingleOrDefault()
+            ?? throw new FileNotFoundException($"Source asset {sourceAssetId} is not present in the catalog.");
+        if (entry.Kind is not (AssetKind.Tie or AssetKind.Shrub)
             || entry.CanonicalFormatVersion != UyaAssetImportService.CanonicalFormatVersion)
-            throw new InvalidDataException("The selected asset is not a supported canonical UYA TIE.");
-        var path = workspace.ResolveAssetPath(tieAssetId, catalog)
-            ?? throw new FileNotFoundException($"TIE asset blob {tieAssetId} is missing.");
+            throw new InvalidDataException("The selected asset is not a supported canonical UYA TIE or shrub.");
+        var path = workspace.ResolveAssetPath(sourceAssetId, catalog)
+            ?? throw new FileNotFoundException($"Source asset blob {sourceAssetId} is missing.");
         var canonicalBytes = await AssetCatalogBlobReader.ReadVerifiedAsync(
             entry, path, UyaAssetLimits.MaxCanonicalBytes, cancellationToken);
-        return (catalog, UyaCanonicalAssetCodec.Decode(canonicalBytes).ModelBytes);
+        return (catalog, UyaCanonicalAssetCodec.Decode(canonicalBytes).ModelBytes, entry.Kind);
     }
 
     public static async Task<UyaAssetPreviewResult> PrepareRenderAsync(
@@ -153,16 +163,16 @@ public static class UyaTieCollisionPreviewService
             request, sdkRevision, package, cancellationToken);
     }
 
-    private static EditorTieCollisionCandidate CreateSurface(
-        TieCollisionCandidate value,
+    private static EditorInstancedCollisionCandidate CreateSurface(
+        InstancedCollisionCandidate value,
         CancellationToken cancellationToken)
     {
         var encoded = CollisionWork.EncodeStandalone(GameId.UYA, [value.Addition], cancellationToken);
         return Create(
-            EditorTieCollisionPreset.Surface,
+            EditorInstancedCollisionPreset.Surface,
             $"Decimated mesh · LOD {value.Recipe.LodIndex}",
             new(
-                ProjectTieCollisionRecipeKind.Surface,
+                ProjectInstancedCollisionRecipeKind.Surface,
                 value.Recipe.Version,
                 RecipeVersion: 1,
                 value.Recipe.LodIndex,
@@ -175,16 +185,16 @@ public static class UyaTieCollisionPreviewService
             value.Analysis);
     }
 
-    private static EditorTieCollisionCandidate CreateHull(
-        TieCollisionCandidate value,
+    private static EditorInstancedCollisionCandidate CreateHull(
+        InstancedCollisionCandidate value,
         CancellationToken cancellationToken)
     {
         var encoded = CollisionWork.EncodeStandalone(GameId.UYA, [value.Addition], cancellationToken);
         return Create(
-            EditorTieCollisionPreset.SolidHull,
+            EditorInstancedCollisionPreset.SolidHull,
             $"Shrinkwrap · {value.Recipe.ProfileSections} sections",
             new(
-                ProjectTieCollisionRecipeKind.Hull,
+                ProjectInstancedCollisionRecipeKind.Hull,
                 value.Recipe.Version,
                 RecipeVersion: 1,
                 value.Recipe.LodIndex,
@@ -198,10 +208,10 @@ public static class UyaTieCollisionPreviewService
             value.Analysis);
     }
 
-    private static EditorTieCollisionCandidate Create(
-        EditorTieCollisionPreset preset,
+    private static EditorInstancedCollisionCandidate Create(
+        EditorInstancedCollisionPreset preset,
         string label,
-        ProjectTieCollisionRecipe recipe,
+        ProjectInstancedCollisionRecipe recipe,
         byte[] bytes,
         int vertexCount,
         int faceCount,
@@ -229,22 +239,24 @@ public static class UyaTieCollisionPreviewService
                 octant.EncodedByteCount,
                 octant.Violations)).ToArray());
 
-    private static async Task<EditorTieCollisionCombinedAnalysis> AnalyzeCombinedAsync(
+    private static async Task<EditorInstancedCollisionCombinedAnalysis> AnalyzeCombinedAsync(
         ForgeProjectWorkspace workspace,
         AssetCatalogStore catalog,
-        AssetId previewTieAssetId,
-        EditorTieCollisionCandidate candidate,
-        UyaTieCollisionCompositionService.CollisionSource primary,
+        EntityId previewEntityId,
+        AssetId previewSourceAssetId,
+        EditorInstancedCollisionCandidate candidate,
+        UyaInstancedCollisionCompositionService.CollisionSource primary,
         Dictionary<AssetId, CollisionSolidAddition> decodedProxies,
         CancellationToken cancellationToken)
     {
         var instanceCount = 0;
         try
         {
-            var additions = await UyaTieCollisionCompositionService.BuildAdditionsAsync(
+            var additions = await UyaInstancedCollisionCompositionService.BuildAdditionsAsync(
                 workspace,
                 catalog,
-                previewTieAssetId,
+                previewEntityId,
+                previewSourceAssetId,
                 candidate.CanonicalBytes,
                 decodedProxies,
                 cancellationToken);

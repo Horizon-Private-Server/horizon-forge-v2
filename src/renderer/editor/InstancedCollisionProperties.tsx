@@ -2,53 +2,64 @@ import { Accordion, Button, Checkbox, Code, Fieldset, Group, NumberInput, Select
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import type {
-  EditorCollisionOctantCost, EditorEntity, EditorTieCollisionCandidate, EditorTieCollisionPreview,
+  EditorCollisionOctantCost, EditorEntity, EditorInstancedCollisionCandidate, EditorInstancedCollisionPreview,
 } from '../../types/EditorRuntime.js';
 import {
   collisionTypeId, collisionTypeIdOptions, defaultCollisionType, formatCollisionType,
   packCollisionType, soundTypeId, soundTypeIdOptions,
 } from '../../utils/CollisionFormat.ts';
 import {
-  recommendTieCollisionCandidate, tieCollisionWorstOctantBytes,
-} from '../../utils/TieCollision.ts';
+  recommendInstancedCollisionCandidate, instancedCollisionWorstOctantBytes,
+} from '../../utils/InstancedCollision.ts';
 import { useEditor } from './EditorContext.ts';
 import { EditorProperty, EditorPropertyGrid } from './EditorPrimitives.tsx';
-import { TieCollisionPainter } from './TieCollisionPainter.tsx';
+import { InstancedCollisionPainter } from './InstancedCollisionPainter.tsx';
 
-const TIE_COLLISION_METHOD_OPTIONS = [
+const INSTANCED_COLLISION_METHOD_OPTIONS = [
   { value: 'surface-auto', label: 'Decimate (Automatic LOD)' },
-  { value: 'surface-0', label: 'Decimate LOD 0' },
-  { value: 'surface-1', label: 'Decimate LOD 1' },
-  { value: 'surface-2', label: 'Decimate LOD 2' },
+  { value: 'surface-0', label: 'Decimate High LOD' },
+  { value: 'surface-1', label: 'Decimate Med LOD' },
+  { value: 'surface-2', label: 'Decimate Low LOD' },
   { value: 'hull', label: 'Shrinkwrap' },
 ];
+const INSTANCED_COLLISION_MODE_OPTIONS = [
+  { value: 'individual', label: 'Individual' },
+  { value: 'shared', label: 'Shared' },
+];
 const DEFAULT_MAXIMUM_DEVIATION = 4;
-type TieCollisionMethod = 'surface-auto' | 'surface-0' | 'surface-1' | 'surface-2' | 'hull';
-const tieSurfaceLodCache = new Map<string, number[]>();
+type InstancedCollisionMethod = 'surface-auto' | 'surface-0' | 'surface-1' | 'surface-2' | 'hull';
+const sourceSurfaceLodCache = new Map<string, number[]>();
 
-export function TieCollisionProperties({ entity, disabled }: { entity: EditorEntity; disabled: boolean }) {
+export function InstancedCollisionProperties({ entity, disabled }: { entity: EditorEntity; disabled: boolean }) {
   const {
-    applyTieCollisionPreview, busy, cancelTieCollisionPreview, execute, inspectTieCollisionSource,
-    previewTieCollision, project,
-    setTieCollisionOverlay, tieCollisionOverlay,
+    applyInstancedCollisionPreview, busy, cancelInstancedCollisionPreview, execute, inspectInstancedCollisionSource,
+    previewInstancedCollision, project,
+    renderedInstancedCollisionEntityIds, setInstancedCollisionRendered,
+    setInstancedCollisionOverlay, instancedCollisionOverlay,
   } = useEditor();
-  const [preview, setPreview] = useState<EditorTieCollisionPreview>();
+  const collision = entity.instancedCollisionEnabled === false
+    ? entity.individualInstancedCollision
+    : entity.instancedCollisionEnabled === true
+      ? entity.instancedCollision
+      : undefined;
+  const [preview, setPreview] = useState<EditorInstancedCollisionPreview>();
   const [selectedToken, setSelectedToken] = useState('');
   const [generating, setGenerating] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState<string | null>(null);
   const [modelStatus, setModelStatus] = useState<'loading' | 'ready' | 'failed'>();
   const [rawType, setRawType] = useState(
-    entity.tieCollision?.recipe.rawType ?? defaultCollisionType(project.target.game),
+    collision?.recipe.rawType ?? defaultCollisionType(project.target.game),
   );
   const [profileSections, setProfileSections] = useState(
-    entity.tieCollision?.recipe.kind === 'hull' && entity.tieCollision.recipe.profileSections > 0
-      ? entity.tieCollision.recipe.profileSections : 6,
+    collision?.recipe.kind === 'hull' && collision.recipe.profileSections > 0
+      ? collision.recipe.profileSections : 6,
   );
-  const [method, setMethod] = useState<TieCollisionMethod>(tieCollisionMethod(entity));
+  const [method, setMethod] = useState<InstancedCollisionMethod>(instancedCollisionMethod(collision));
   const generation = useRef(0);
   const sourceInspection = useRef(0);
   const regenerationTimer = useRef<number | undefined>(undefined);
   const [wireframe, setWireframe] = useState(false);
+  const renderCollision = renderedInstancedCollisionEntityIds.has(entity.id);
   const [painting, setPainting] = useState(false);
   const [debugInfo, setDebugInfo] = useState(false);
   const [surfaceLodIndices, setSurfaceLodIndices] = useState<number[]>();
@@ -59,32 +70,29 @@ export function TieCollisionProperties({ entity, disabled }: { entity: EditorEnt
     setSelectedToken('');
     setGenerating(false);
     setSettingsOpen(null);
-    setRawType(entity.tieCollision?.recipe.rawType ?? defaultCollisionType(project.target.game));
+    setRawType(collision?.recipe.rawType ?? defaultCollisionType(project.target.game));
     setProfileSections(
-      entity.tieCollision?.recipe.kind === 'hull' && entity.tieCollision.recipe.profileSections > 0
-        ? entity.tieCollision.recipe.profileSections : 6,
+      collision?.recipe.kind === 'hull' && collision.recipe.profileSections > 0
+        ? collision.recipe.profileSections : 6,
     );
-    setMethod(tieCollisionMethod(entity));
-    setSurfaceLodIndices(entity.asset ? tieSurfaceLodCache.get(entity.asset.id) : undefined);
+    setMethod(instancedCollisionMethod(collision));
+    setSurfaceLodIndices(entity.asset ? sourceSurfaceLodCache.get(entity.asset.id) : undefined);
     setInspectingLods(false);
     setPainting(false);
     return () => {
       window.clearTimeout(regenerationTimer.current);
       sourceInspection.current += 1;
       generation.current += 1;
-      void cancelTieCollisionPreview();
+      void cancelInstancedCollisionPreview();
     };
-  }, [cancelTieCollisionPreview, entity.id]);
+  }, [cancelInstancedCollisionPreview, entity.id, project.projectId]);
   useEffect(() => {
-    if (!entity.tieCollision) return;
-    setRawType(entity.tieCollision.recipe.rawType);
-    setMethod(tieCollisionMethod(entity));
-    if (entity.tieCollision.recipe.kind === 'hull' && entity.tieCollision.recipe.profileSections > 0)
-      setProfileSections(entity.tieCollision.recipe.profileSections);
-  }, [entity.tieCollision?.recipe]);
-  useEffect(() => {
-    if (!entity.tieCollision) setPainting(false);
-  }, [entity.tieCollision?.proxyAssetId]);
+    if (!collision) return;
+    setRawType(collision.recipe.rawType);
+    setMethod(instancedCollisionMethod(collision));
+    if (collision.recipe.kind === 'hull' && collision.recipe.profileSections > 0)
+      setProfileSections(collision.recipe.profileSections);
+  }, [collision?.recipe]);
 
   const generate = async (
     requestedMethod = method,
@@ -95,18 +103,18 @@ export function TieCollisionProperties({ entity, disabled }: { entity: EditorEnt
     const request = ++generation.current;
     setGenerating(true);
     try {
-      const next = await previewTieCollision(entity.id, {
+      const next = await previewInstancedCollision(entity.id, {
         rawType: requestedRawType,
         profileSections: requestedProfileSections,
         surfaceLodIndex: surfaceLodIndex(requestedMethod),
         useHull: requestedMethod === 'hull',
       });
-      if (generation.current !== request || next.tieAssetId !== entity.asset?.id) return;
+      if (generation.current !== request || next.sourceAssetId !== entity.asset?.id) return;
       const candidate = candidateForMethod(next.candidates, requestedMethod);
       setPreview(next);
       setSelectedToken(candidate?.token ?? '');
       if (apply && candidate && candidate.hardViolationCount === 0 && !combinedUnsafe(candidate))
-        await applyTieCollisionPreview(candidate.token);
+        await applyInstancedCollisionPreview(candidate.token);
       return next;
     }
     catch {
@@ -118,7 +126,7 @@ export function TieCollisionProperties({ entity, disabled }: { entity: EditorEnt
     }
   };
   const scheduleRegeneration = (
-    requestedMethod: TieCollisionMethod,
+    requestedMethod: InstancedCollisionMethod,
     requestedProfileSections = profileSections,
   ) => {
     window.clearTimeout(regenerationTimer.current);
@@ -135,22 +143,22 @@ export function TieCollisionProperties({ entity, disabled }: { entity: EditorEnt
         recipe: { ...candidate.recipe, rawType: nextRawType },
       })),
     }));
-    if (!entity.tieCollision) return;
+    if (!collision) return;
     const updated = await execute({
       id: crypto.randomUUID(),
-      kind: 'setTieCollisionRawType',
+      kind: 'setInstancedCollisionRawType',
       entityIds: [entity.id],
       rawType: nextRawType,
     });
-    if (!updated) setRawType(entity.tieCollision.recipe.rawType);
+    if (!updated) setRawType(collision.recipe.rawType);
   };
   const inspectLods = async () => {
     const request = ++sourceInspection.current;
     setInspectingLods(true);
     try {
-      const info = await inspectTieCollisionSource(entity.id);
-      if (sourceInspection.current !== request || info.tieAssetId !== entity.asset?.id) return;
-      tieSurfaceLodCache.set(info.tieAssetId, info.surfaceLodIndices);
+      const info = await inspectInstancedCollisionSource(entity.id);
+      if (sourceInspection.current !== request || info.sourceAssetId !== entity.asset?.id) return;
+      sourceSurfaceLodCache.set(info.sourceAssetId, info.surfaceLodIndices);
       setSurfaceLodIndices(info.surfaceLodIndices);
       setMethod((current) => {
         const lodIndex = surfaceLodIndex(current);
@@ -166,47 +174,74 @@ export function TieCollisionProperties({ entity, disabled }: { entity: EditorEnt
       if (sourceInspection.current === request) setInspectingLods(false);
     }
   };
-  const setInstancedCollision = async (enabled: boolean) => {
-    if (!enabled || entity.tieCollision) {
+  useEffect(() => {
+    if (entity.instancedCollisionEnabled === false && surfaceLodIndices === undefined && !inspectingLods)
+      void inspectLods();
+  }, [entity.instancedCollisionEnabled]);
+  const closeSharedCollisionEditor = () => {
+    setSettingsOpen(null);
+    setPainting(false);
+  };
+  const setInstancedCollisionEnabled = async (enabled: boolean) => {
+    closeSharedCollisionEditor();
+    await execute({
+      id: crypto.randomUUID(), kind: 'setInstancedCollisionEnabled', entityIds: [entity.id],
+      enabled: enabled ? false : null,
+    });
+  };
+  const setInstancedCollisionMode = async (shared: boolean) => {
+    closeSharedCollisionEditor();
+    if (!shared) {
       await execute({
-        id: crypto.randomUUID(), kind: 'setTieCollisionEnabled', entityIds: [entity.id], enabled,
+        id: crypto.randomUUID(), kind: 'setInstancedCollisionEnabled', entityIds: [entity.id], enabled: false,
       });
       return;
     }
+    if (entity.instancedCollision) {
+      await execute({
+        id: crypto.randomUUID(), kind: 'setInstancedCollisionEnabled', entityIds: [entity.id], enabled: true,
+      });
+      return;
+    }
+    if (!await execute({
+      id: crypto.randomUUID(), kind: 'setInstancedCollisionEnabled', entityIds: [entity.id], enabled: true,
+    })) return;
     const next = await generate();
     const requested = next ? candidateForMethod(next.candidates, method) : undefined;
     const automatic = requested
-      ? recommendTieCollisionCandidate([requested], DEFAULT_MAXIMUM_DEVIATION)
+      ? recommendInstancedCollisionCandidate([requested], DEFAULT_MAXIMUM_DEVIATION)
       : undefined;
-    if (!automatic || !await applyTieCollisionPreview(automatic.token)) {
+    if (!automatic || !await applyInstancedCollisionPreview(automatic.token)) {
       setSettingsOpen('settings');
-      return;
     }
   };
   const selected = preview?.candidates.find((candidate) => candidate.token === selectedToken);
   const setWireframeView = async (checked: boolean) => {
     setWireframe(checked);
     wireframeRef.current = checked;
-    if (tieCollisionOverlay) {
-      setTieCollisionOverlay({ ...tieCollisionOverlay, wireframe: checked });
+    if (instancedCollisionOverlay) {
+      setInstancedCollisionOverlay({ ...instancedCollisionOverlay, wireframe: checked });
     }
-    else if (checked && !selected) {
+    else if (checked && !collision && !selected) {
       await generate();
     }
   };
   useEffect(() => {
-    if (painting) return;
-    if (!selected) {
+    if (collision) {
       setModelStatus(undefined);
-      setTieCollisionOverlay(undefined);
+      return;
+    }
+    if ((entity.instancedCollisionEnabled !== false && settingsOpen !== 'settings') || !selected) {
+      setModelStatus(undefined);
+      setInstancedCollisionOverlay(undefined);
       return;
     }
     let disposed = false;
     const requestToken = crypto.randomUUID();
     setModelStatus('loading');
-    void window.forge.getTieCollisionPreviewModel(selected.token, requestToken).then((source) => {
+    void window.forge.getInstancedCollisionPreviewModel(selected.token, requestToken).then((source) => {
       if (disposed) return;
-      setTieCollisionOverlay({
+      setInstancedCollisionOverlay({
         entityId: entity.id,
         candidate: selected,
         url: source.url,
@@ -222,9 +257,10 @@ export function TieCollisionProperties({ entity, disabled }: { entity: EditorEnt
     return () => {
       disposed = true;
       void window.forge.cancelAssetPreview(requestToken);
-      setTieCollisionOverlay(undefined);
+      setInstancedCollisionOverlay(undefined);
     };
-  }, [entity.id, painting, selected?.token, setTieCollisionOverlay]);
+  }, [collision?.proxyAssetId, entity.id, entity.instancedCollisionEnabled,
+    selected?.token, settingsOpen, setInstancedCollisionOverlay]);
 
   const pressure = debugInfo && selected ? [...selected.octants]
     .sort((left, right) => right.encodedByteCount - left.encodedByteCount)
@@ -232,66 +268,93 @@ export function TieCollisionProperties({ entity, disabled }: { entity: EditorEnt
   const combinedPressure = debugInfo && selected ? [...(selected.combinedAnalysis?.octants ?? [])]
     .sort((left, right) => right.encodedByteCount - left.encodedByteCount)
     .slice(0, 3) : [];
-  const matchingTieInstances = project.entities.filter((candidate) =>
-    candidate.asset?.kind === 'Tie' && candidate.asset.id === entity.asset?.id);
-  const sharedCollisionInstanceCount = matchingTieInstances.filter(
-    (candidate) => candidate.tieCollisionEnabled === true,
+  const matchingInstances = project.entities.filter((candidate) =>
+    candidate.asset?.kind === entity.asset?.kind && candidate.asset?.id === entity.asset?.id);
+  const sharedCollisionInstanceCount = matchingInstances.filter(
+    (candidate) => candidate.instancedCollisionEnabled === true,
   ).length;
+  const editingSharedCollision = entity.instancedCollisionEnabled === true && settingsOpen === 'settings';
+  const editingCollision = entity.instancedCollisionEnabled === false || editingSharedCollision;
+  const toggleSharedCollisionEditor = () => {
+    if (editingSharedCollision) {
+      closeSharedCollisionEditor();
+      return;
+    }
+    setSettingsOpen('settings');
+    if (surfaceLodIndices === undefined && !inspectingLods) void inspectLods();
+    if (wireframe && !selected && !generating) void generate();
+  };
 
   return <Fieldset legend="Collision">
     <Stack gap="xs">
-      <Checkbox label="Use shared collision" checked={entity.tieCollisionEnabled === true}
+      <Checkbox label="Use instanced collision" checked={entity.instancedCollisionEnabled !== undefined}
         disabled={disabled || busy || generating}
-        onChange={(event) => void setInstancedCollision(event.currentTarget.checked)} />
-      {generating && <Text size="xs" c="dimmed">Generating shared collision…</Text>}
-      {entity.tieCollision && <Text size="xs" c="dimmed">
-        Used by {sharedCollisionInstanceCount.toLocaleString()} of {matchingTieInstances.length.toLocaleString()} matching TIE {matchingTieInstances.length === 1 ? 'instance' : 'instances'}.
+        onChange={(event) => void setInstancedCollisionEnabled(event.currentTarget.checked)} />
+      <Select label="Mode"
+        value={entity.instancedCollisionEnabled === true ? 'shared' : 'individual'}
+        data={INSTANCED_COLLISION_MODE_OPTIONS} allowDeselect={false}
+        description="Individual edits only this instance; Shared uses the class proxy."
+        disabled={disabled || busy || generating || entity.instancedCollisionEnabled === undefined}
+        onChange={(value) => value && void setInstancedCollisionMode(value === 'shared')} />
+      {generating && <Text size="xs" c="dimmed">Generating collision…</Text>}
+      {entity.instancedCollision && <Text size="xs" c="dimmed">
+        Shared collision is used by {sharedCollisionInstanceCount.toLocaleString()} of {matchingInstances.length.toLocaleString()} matching {entity.asset?.kind.toLowerCase()} {matchingInstances.length === 1 ? 'instance' : 'instances'}.
       </Text>}
-
-      <TieCollisionPainter
-        entity={entity}
+      {entity.instancedCollisionEnabled === true && <Button
+        size="xs" variant="light" disabled={disabled || busy || generating}
+        onClick={toggleSharedCollisionEditor}>
+        {editingSharedCollision ? 'Close shared collision editor' : 'Edit shared collision'}
+      </Button>}
+      {editingSharedCollision && <Text size="xs" c="yellow" fw={600}>
+        Warning: Editing shared collision applies for all instances using shared mode
+      </Text>}
+      {collision && <Checkbox label="Render instanced collision" checked={renderCollision}
         disabled={disabled}
-        instanceCount={matchingTieInstances.length}
+        onChange={(event) => setInstancedCollisionRendered(entity.id, event.currentTarget.checked)} />}
+      {collision && <InstancedCollisionPainter
+        entity={entity}
+        binding={collision}
+        disabled={disabled}
+        instanceCount={editingSharedCollision ? sharedCollisionInstanceCount : 1}
+        showControls={editingCollision}
+        visible={painting || renderCollision}
         active={painting}
         onActiveChange={setPainting}
         wireframe={wireframe}
-        onWireframeChange={setWireframeView} />
+        onWireframeChange={setWireframeView} />}
 
-      <Accordion value={settingsOpen} onChange={(value) => {
-        setSettingsOpen(value);
-        if (value === 'settings' && surfaceLodIndices === undefined && !inspectingLods)
-          void inspectLods();
-        if (value === 'settings' && wireframe && !selected && !generating) void generate();
-      }} variant="contained">
-        <Accordion.Item value="settings">
-          <Accordion.Control>Shared collision settings</Accordion.Control>
-          <Accordion.Panel>
-            <Stack gap="xs">
+      {editingCollision && <Stack gap="xs">
       <Checkbox label="Wireframe view" checked={wireframe} disabled={disabled || generating}
         onChange={(event) => void setWireframeView(event.currentTarget.checked)} />
       <Checkbox label="Debug info" checked={debugInfo}
         onChange={(event) => {
           const checked = event.currentTarget.checked;
           setDebugInfo(checked);
-          if (!checked && tieCollisionOverlay?.showOctants) {
-            setTieCollisionOverlay({ ...tieCollisionOverlay, showOctants: false });
+          if (!checked && instancedCollisionOverlay?.showOctants) {
+            setInstancedCollisionOverlay({ ...instancedCollisionOverlay, showOctants: false });
           }
         }} />
-      {entity.tieCollision
+      {collision
         ? <>
           {debugInfo && <EditorPropertyGrid>
-            <EditorProperty label="Proxy"><Code>{entity.tieCollision.proxyAssetId}</Code></EditorProperty>
-            <EditorProperty label="Recipe">{formatRecipe(entity.tieCollision.recipe)}</EditorProperty>
-            <EditorProperty label="Collision IDs">{formatCollisionType(entity.tieCollision.recipe.rawType, project.target.game)}</EditorProperty>
+            <EditorProperty label="Proxy"><Code>{collision.proxyAssetId}</Code></EditorProperty>
+            <EditorProperty label="Recipe">{formatRecipe(collision.recipe)}</EditorProperty>
+            <EditorProperty label="Collision IDs">{formatCollisionType(collision.recipe.rawType, project.target.game)}</EditorProperty>
           </EditorPropertyGrid>}
           <Group>
             <Button size="xs" variant="subtle" color="red" disabled={disabled || busy}
               onClick={() => void execute({
-                id: crypto.randomUUID(), kind: 'removeTieCollisionProxy', entityIds: [entity.id],
-              })}>Remove shared collision</Button>
+                id: crypto.randomUUID(), kind: 'removeInstancedCollisionProxy', entityIds: [entity.id],
+              })}>Remove {editingSharedCollision ? 'shared' : 'individual'} collision</Button>
           </Group>
         </>
-        : <Text size="sm" c="dimmed">No shared collision is assigned to this TIE asset.</Text>}
+        : <>
+          <Text size="sm" c="dimmed">No {editingSharedCollision ? 'shared' : 'individual'} collision is assigned.</Text>
+          <Button size="xs" variant="light" disabled={disabled || busy || generating}
+            onClick={() => void generate(method, rawType, profileSections, true)}>
+            Generate {editingSharedCollision ? 'shared' : 'individual'} collision
+          </Button>
+        </>}
 
       <Text size="sm" fw={500}>Generation settings</Text>
       <Group grow align="end">
@@ -317,19 +380,19 @@ export function TieCollisionProperties({ entity, disabled }: { entity: EditorEnt
       <Text size="xs" c="dimmed">Generated faces use {formatCollisionType(rawType, project.target.game)}.</Text>
 
       <Select label="Collision method"
-        value={method} data={TIE_COLLISION_METHOD_OPTIONS.filter((option) => {
-          const lodIndex = surfaceLodIndex(option.value as TieCollisionMethod);
+        value={method} data={INSTANCED_COLLISION_METHOD_OPTIONS.filter((option) => {
+          const lodIndex = surfaceLodIndex(option.value as InstancedCollisionMethod);
           return lodIndex < 0 || surfaceLodIndices === undefined || surfaceLodIndices.includes(lodIndex);
         })} allowDeselect={false}
         disabled={disabled || generating || inspectingLods}
         description={inspectingLods ? 'Checking available model LODs…' : undefined}
         onChange={(value) => {
           if (value === null) return;
-          const nextMethod = value as TieCollisionMethod;
+          const nextMethod = value as InstancedCollisionMethod;
           setMethod(nextMethod);
           setPreview(undefined);
           setSelectedToken('');
-          if (entity.tieCollision) void generate(nextMethod, rawType, profileSections, true);
+          if (collision) void generate(nextMethod, rawType, profileSections, true);
           else if (wireframe) void generate(nextMethod);
         }} />
 
@@ -343,7 +406,7 @@ export function TieCollisionProperties({ entity, disabled }: { entity: EditorEnt
           setProfileSections(nextProfileSections);
           setPreview(undefined);
           setSelectedToken('');
-          if (entity.tieCollision) scheduleRegeneration(method, nextProfileSections);
+          if (collision) scheduleRegeneration(method, nextProfileSections);
           else if (wireframe) void generate(method, rawType, nextProfileSections);
         }} />
       }
@@ -354,7 +417,7 @@ export function TieCollisionProperties({ entity, disabled }: { entity: EditorEnt
           <EditorPropertyGrid>
             <EditorProperty label="Geometry">{selected.faceCount.toLocaleString()} faces · {selected.vertexCount.toLocaleString()} vertices</EditorProperty>
             <EditorProperty label="Octants">{selected.occupiedOctantCount.toLocaleString()} occupied · {selected.duplicateFaceCount.toLocaleString()} duplicated faces</EditorProperty>
-            <EditorProperty label="Worst octant">{worstFaces(selected).toLocaleString()} faces · {tieCollisionWorstOctantBytes(selected).toLocaleString()} bytes</EditorProperty>
+            <EditorProperty label="Worst octant">{worstFaces(selected).toLocaleString()} faces · {instancedCollisionWorstOctantBytes(selected).toLocaleString()} bytes</EditorProperty>
             <EditorProperty label="Soft pressure">Unqualified · hard limits only</EditorProperty>
             <EditorProperty label="Max deviation">{selected.maximumDeviation.toFixed(3)} units ({selected.deviationSampleCount.toLocaleString()} samples)</EditorProperty>
             <EditorProperty label="Encoded size">{formatBytes(selected.encodedByteCount)}</EditorProperty>
@@ -368,18 +431,18 @@ export function TieCollisionProperties({ entity, disabled }: { entity: EditorEnt
           {pressure.length > 0 && <OctantPressureDetails title="Highest candidate pressure" octants={pressure} />}
           {combinedPressure.length > 0
             && <OctantPressureDetails title="Highest combined pressure" octants={combinedPressure} />}
-          {tieCollisionOverlay?.candidate?.token === selected.token && <Group>
-            <Checkbox label="Source" checked={tieCollisionOverlay.showSource}
-              onChange={(event) => setTieCollisionOverlay({
-                ...tieCollisionOverlay, showSource: event.currentTarget.checked,
+          {instancedCollisionOverlay?.candidate?.token === selected.token && <Group>
+            <Checkbox label="Source" checked={instancedCollisionOverlay.showSource}
+              onChange={(event) => setInstancedCollisionOverlay({
+                ...instancedCollisionOverlay, showSource: event.currentTarget.checked,
               })} />
-            <Checkbox label="Proxy" checked={tieCollisionOverlay.showProxy}
-              onChange={(event) => setTieCollisionOverlay({
-                ...tieCollisionOverlay, showProxy: event.currentTarget.checked,
+            <Checkbox label="Proxy" checked={instancedCollisionOverlay.showProxy}
+              onChange={(event) => setInstancedCollisionOverlay({
+                ...instancedCollisionOverlay, showProxy: event.currentTarget.checked,
               })} />
-            <Checkbox label="Octant pressure" checked={tieCollisionOverlay.showOctants}
-              onChange={(event) => setTieCollisionOverlay({
-                ...tieCollisionOverlay, showOctants: event.currentTarget.checked,
+            <Checkbox label="Octant pressure" checked={instancedCollisionOverlay.showOctants}
+              onChange={(event) => setInstancedCollisionOverlay({
+                ...instancedCollisionOverlay, showOctants: event.currentTarget.checked,
               })} />
           </Group>}
         </>}
@@ -399,10 +462,7 @@ export function TieCollisionProperties({ entity, disabled }: { entity: EditorEnt
         {modelStatus === 'loading' && <Text size="xs" c="dimmed">Preparing viewport overlay…</Text>}
         {modelStatus === 'failed' && <Text size="xs" c="yellow">Viewport overlay unavailable.</Text>}
       </>}
-            </Stack>
-          </Accordion.Panel>
-        </Accordion.Item>
-      </Accordion>
+      </Stack>}
     </Stack>
   </Fieldset>;
 }
@@ -436,16 +496,16 @@ function OctantPressureDetails({ title, octants }: {
   </Stack>;
 }
 
-function worstFaces(candidate: EditorTieCollisionPreview['candidates'][number]): number {
+function worstFaces(candidate: EditorInstancedCollisionPreview['candidates'][number]): number {
   return Math.max(0, ...candidate.octants.map((octant) => octant.faceCount));
 }
 
-function combinedUnsafe(candidate: EditorTieCollisionPreview['candidates'][number]): boolean {
+function combinedUnsafe(candidate: EditorInstancedCollisionPreview['candidates'][number]): boolean {
   return Boolean(candidate.combinedAnalysis?.error || candidate.combinedAnalysis?.hardViolationCount);
 }
 
-function tieCollisionMethod(entity: EditorEntity): TieCollisionMethod {
-  const recipe = entity.tieCollision?.recipe;
+function instancedCollisionMethod(collision: EditorEntity['instancedCollision']): InstancedCollisionMethod {
+  const recipe = collision?.recipe;
   if (!recipe) return 'surface-auto';
   if (recipe.kind !== 'surface') return 'hull';
   if (recipe.lodIndex === 0) return 'surface-0';
@@ -454,7 +514,7 @@ function tieCollisionMethod(entity: EditorEntity): TieCollisionMethod {
   return 'surface-auto';
 }
 
-function surfaceLodIndex(method: TieCollisionMethod): number {
+function surfaceLodIndex(method: InstancedCollisionMethod): number {
   if (method === 'surface-0') return 0;
   if (method === 'surface-1') return 1;
   if (method === 'surface-2') return 2;
@@ -462,16 +522,17 @@ function surfaceLodIndex(method: TieCollisionMethod): number {
 }
 
 function candidateForMethod(
-  candidates: EditorTieCollisionCandidate[],
-  method: TieCollisionMethod,
-): EditorTieCollisionCandidate | undefined {
+  candidates: EditorInstancedCollisionCandidate[],
+  method: InstancedCollisionMethod,
+): EditorInstancedCollisionCandidate | undefined {
   const preset = method === 'hull' ? 'solidHull' : 'surface';
   return candidates.find((candidate) => candidate.preset === preset);
 }
 
-function formatRecipe(recipe: NonNullable<EditorEntity['tieCollision']>['recipe']): string {
-  if (recipe.kind === 'surface') return `Decimated mesh · LOD ${recipe.lodIndex}`;
-  if (recipe.kind === 'hull') return `Shrinkwrap · ${Math.max(1, recipe.profileSections)} sections · LOD ${recipe.lodIndex}`;
+function formatRecipe(recipe: NonNullable<EditorEntity['instancedCollision']>['recipe']): string {
+  const lod = ['High LOD', 'Med LOD', 'Low LOD'][recipe.lodIndex] ?? `LOD ${recipe.lodIndex}`;
+  if (recipe.kind === 'surface') return `Decimated mesh · ${lod}`;
+  if (recipe.kind === 'hull') return `Shrinkwrap · ${Math.max(1, recipe.profileSections)} sections · ${lod}`;
   return `Custom wrap · ${recipe.detailSize} detail · seals ${recipe.sealOpeningSize}`;
 }
 

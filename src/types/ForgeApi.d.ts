@@ -1,14 +1,14 @@
 import type {
-  EditorCommand, EditorEvent, EditorSnapshot, EditorTieCollisionGenerationSettings, EditorTieCollisionPreview,
-  EditorTieCollisionSourceInfo,
+  EditorCommand, EditorEvent, EditorSnapshot, EditorInstancedCollisionGenerationSettings, EditorInstancedCollisionPreview,
+  EditorInstancedCollisionSourceInfo,
 } from './EditorRuntime.js';
 import type { AssetExplorerPage, AssetExplorerQuery, AssetModelKind, AssetPreviewKind, AssetPreviewSource } from './AssetExplorer.js';
 import type { ForgeNotification } from './Notifications.js';
 import type { UpdateCheckResult } from './Updates.js';
 
 export type {
-  EditorCommand, EditorEvent, EditorSnapshot, EditorTieCollisionGenerationSettings, EditorTieCollisionPreview,
-  EditorTieCollisionSourceInfo,
+  EditorCommand, EditorEvent, EditorSnapshot, EditorInstancedCollisionGenerationSettings, EditorInstancedCollisionPreview,
+  EditorInstancedCollisionSourceInfo,
 } from './EditorRuntime.js';
 export type { AssetExplorerPage, AssetExplorerQuery, AssetModelKind, AssetPreviewKind, AssetPreviewSource } from './AssetExplorer.js';
 export type { ForgeNotification } from './Notifications.js';
@@ -186,7 +186,7 @@ export interface ForgeProjectDescriptor {
   entityCount: number;
   missingAssetCount: number;
   isDirty: boolean;
-  migrationPending: boolean;
+  repairRequired: boolean;
   warnings: string[];
   recoveries: ProjectRecoverySnapshot[];
   missingAssets: MissingProjectAsset[];
@@ -201,7 +201,6 @@ export interface ForgeProjectSummary {
   bakeProfile: string;
   baseLevel: number;
   modifiedUnixMilliseconds: number;
-  migrationPending: boolean;
   hasRecovery: boolean;
 }
 
@@ -329,7 +328,7 @@ export interface ForgeApi {
   openRecentProject(path: string): Promise<ForgeProjectDescriptor>;
   renameForgeProject(path: string, name: string): Promise<ForgeProjectDescriptor>;
   restoreForgeProject(path: string, recoveryId: string): Promise<ForgeProjectDescriptor>;
-  migrateForgeProject(path: string): Promise<ForgeProjectDescriptor>;
+  repairForgeProject(path: string): Promise<ForgeProjectDescriptor>;
   repairForgeProjectAssets(path: string): Promise<ForgeProjectDescriptor>;
   previewCatalogGarbageCollection(): Promise<CatalogMaintenancePreview>;
   collectCatalogGarbage(confirmationToken: string): Promise<CatalogMaintenancePreview>;
@@ -346,15 +345,15 @@ export interface ForgeApi {
   closeEditorProject(): Promise<void>;
   getEditorSnapshot(): Promise<EditorSnapshot>;
   executeEditorCommand(command: EditorCommand): Promise<EditorSnapshot>;
-  inspectTieCollisionSource(entityId: string): Promise<EditorTieCollisionSourceInfo>;
-  previewTieCollision(
+  inspectInstancedCollisionSource(entityId: string): Promise<EditorInstancedCollisionSourceInfo>;
+  previewInstancedCollision(
     entityId: string,
-    settings?: EditorTieCollisionGenerationSettings,
-  ): Promise<EditorTieCollisionPreview>;
-  cancelTieCollisionPreview(): Promise<void>;
-  applyTieCollisionPreview(commandId: string, token: string): Promise<EditorSnapshot>;
-  getTieCollisionPreviewModel(token: string, requestToken: string): Promise<AssetPreviewSource>;
-  getAppliedTieCollisionModel(proxyAssetId: string, requestToken: string): Promise<AssetPreviewSource>;
+    settings?: EditorInstancedCollisionGenerationSettings,
+  ): Promise<EditorInstancedCollisionPreview>;
+  cancelInstancedCollisionPreview(): Promise<void>;
+  applyInstancedCollisionPreview(commandId: string, token: string): Promise<EditorSnapshot>;
+  getInstancedCollisionPreviewModel(token: string, requestToken: string): Promise<AssetPreviewSource>;
+  getAppliedInstancedCollisionModel(proxyAssetId: string, requestToken: string): Promise<AssetPreviewSource>;
   saveEditorProject(): Promise<EditorSnapshot>;
   getBuildPlan(): Promise<BuildPlan>;
   buildAndPatchProject(includedLayers: BuildLayerId[]): Promise<BuildPatchResult>;

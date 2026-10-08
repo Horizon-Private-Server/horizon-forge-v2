@@ -4,7 +4,7 @@ using RatchetPs2.Sdk;
 
 namespace Forge.Host.Games.UYA;
 
-internal static class UyaTieCollisionLinkRecoveryService
+internal static class UyaInstancedCollisionLinkRecoveryService
 {
     private const float MinimumConfidenceLead = 0.02f;
 
@@ -13,32 +13,34 @@ internal static class UyaTieCollisionLinkRecoveryService
         IReadOnlyList<UyaBaseLayerPayload> payloads,
         AssetCatalogStore catalog)
     {
-        var tieGroups = entities.Where(entity => entity.Asset?.Kind == AssetKind.Tie)
-            .GroupBy(entity => entity.Asset!.Id).ToArray();
-        if (tieGroups.Length == 0) return;
-        var tiesById = tieGroups.SelectMany(group => group).ToDictionary(entity => entity.EntityId);
+        var sourceGroups = entities.Where(entity => entity.Asset.IsInstancedCollisionSource())
+            .GroupBy(entity => (entity.Asset!.Id, entity.Asset.Kind)).ToArray();
+        if (sourceGroups.Length == 0) return;
+        var sourcesById = sourceGroups.SelectMany(group => group).ToDictionary(entity => entity.EntityId);
         var collisionIndexes = entities.Select((entity, index) => (entity, index))
             .Where(value => value.entity.Collision?.Kind == ProjectCollisionPieceKind.Solid)
             .ToDictionary(
                 value => (value.entity.Collision!.SourcePayloadIndex, value.entity.Collision.SourcePieceIndex),
                 value => value.index);
-        var sources = new List<CollisionTieGroup>();
-        foreach (var group in tieGroups)
+        var tieSources = new List<CollisionTieGroup>();
+        var shrubSources = new List<CollisionShrubGroup>();
+        foreach (var group in sourceGroups)
         {
-            var path = catalog.ResolveBlobPath(group.Key);
-            var entry = catalog.Query(new(Id: group.Key)).SingleOrDefault();
-            if (path is null || entry?.Kind != AssetKind.Tie) continue;
+            var path = catalog.ResolveBlobPath(group.Key.Id);
+            var entry = catalog.Query(new(Id: group.Key.Id)).SingleOrDefault();
+            if (path is null || entry?.Kind != group.Key.Kind) continue;
             try
             {
                 var length = new FileInfo(path).Length;
                 if (length != entry.Size || length is <= 0 or > UyaAssetLimits.MaxCanonicalBytes) continue;
                 var canonicalBytes = File.ReadAllBytes(path);
                 if (AssetId.Compute(entry.Kind, entry.CanonicalFormatVersion, canonicalBytes) != entry.Id) continue;
-                sources.Add(new(
-                    UyaCanonicalAssetCodec.Decode(canonicalBytes).ModelBytes,
-                    group.Select(entity => new CollisionTieInstance(
-                        entity.EntityId.ToString(),
-                        UyaTieCollisionCompositionService.ToCollisionTransform(entity.Transform))).ToArray()));
+                var modelBytes = UyaCanonicalAssetCodec.Decode(canonicalBytes).ModelBytes;
+                var instances = group.Select(entity => new CollisionInstance(
+                    entity.EntityId.ToString(),
+                    UyaInstancedCollisionCompositionService.ToCollisionTransform(entity.Transform))).ToArray();
+                if (group.Key.Kind == AssetKind.Tie) tieSources.Add(new(modelBytes, instances));
+                else shrubSources.Add(new(modelBytes, instances));
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
                 or InvalidDataException or ArgumentException)
@@ -49,11 +51,13 @@ internal static class UyaTieCollisionLinkRecoveryService
 
         foreach (var payload in payloads.Where(value => value.Layer == BakeLayerId.Collision))
         {
-            (EntityId TieEntityId, int SourcePieceIndex, float Confidence)[] candidates;
+            (EntityId ParentEntityId, int SourcePieceIndex, float Confidence)[] candidates;
             try
             {
                 candidates = CollisionWork.FindTieCollisionCandidates(
-                        payload.Bytes, GameId.UYA, sources)
+                        payload.Bytes, GameId.UYA, tieSources)
+                    .Concat(CollisionWork.FindShrubCollisionCandidates(
+                        payload.Bytes, GameId.UYA, shrubSources))
                     .Select(value => (EntityId.Parse(value.InstanceId), value.SourcePieceIndex, value.Confidence))
                     .ToArray();
             }
@@ -70,12 +74,12 @@ internal static class UyaTieCollisionLinkRecoveryService
                 var candidate = ranked[0];
                 var match = collisionIndexes[(payload.SourceIndex, candidate.SourcePieceIndex)];
                 var collision = entities[match];
-                var tie = tiesById[candidate.TieEntityId];
+                var parent = sourcesById[candidate.ParentEntityId];
                 entities[match] = collision with
                 {
                     Collision = collision.Collision! with
                     {
-                        Attachment = new(candidate.TieEntityId, tie.Transform),
+                        Attachment = new(candidate.ParentEntityId, parent.Transform),
                     },
                 };
             }

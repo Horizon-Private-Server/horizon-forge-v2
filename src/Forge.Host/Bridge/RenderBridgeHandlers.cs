@@ -5,15 +5,15 @@ namespace Forge.Host.Bridge;
 
 internal static class RenderBridgeHandlers
 {
-    public static async Task<byte[]> PrepareTieCollisionPreviewAsync(
+    public static async Task<byte[]> PrepareInstancedCollisionPreviewAsync(
         byte[] payload,
         string sdkRevision,
         EditorRuntime runtime,
         CancellationToken cancellationToken)
     {
-        var request = EditorPayloadCodec.DecodeTieCollisionRenderRequest(payload);
-        var candidate = await runtime.GetTieCollisionPreviewCandidateAsync(request.Token, cancellationToken);
-        var result = await UyaTieCollisionPreviewService.PrepareRenderAsync(
+        var request = EditorPayloadCodec.DecodeInstancedCollisionRenderRequest(payload);
+        var candidate = await runtime.GetInstancedCollisionPreviewCandidateAsync(request.Token, cancellationToken);
+        var result = await UyaInstancedCollisionPreviewService.PrepareRenderAsync(
             request.CacheRootPath,
             request.CatalogRootPath,
             sdkRevision,
@@ -24,16 +24,16 @@ internal static class RenderBridgeHandlers
             result.RootPath, result.CacheKey, result.ModelPath, result.CacheHit));
     }
 
-    public static async Task<byte[]> PrepareAppliedTieCollisionAsync(
+    public static async Task<byte[]> PrepareAppliedInstancedCollisionAsync(
         byte[] payload,
         string sdkRevision,
         EditorRuntime runtime,
         CancellationToken cancellationToken)
     {
-        var request = EditorPayloadCodec.DecodeTieCollisionRenderRequest(payload);
+        var request = EditorPayloadCodec.DecodeInstancedCollisionRenderRequest(payload);
         var proxyAssetId = AssetId.Parse(request.Token);
-        var bytes = await runtime.ReadAppliedTieCollisionProxyAsync(proxyAssetId, cancellationToken);
-        var result = await UyaTieCollisionPreviewService.PrepareRenderAsync(
+        var bytes = await runtime.ReadAppliedInstancedCollisionProxyAsync(proxyAssetId, cancellationToken);
+        var result = await UyaInstancedCollisionPreviewService.PrepareRenderAsync(
             request.CacheRootPath,
             request.CatalogRootPath,
             sdkRevision,

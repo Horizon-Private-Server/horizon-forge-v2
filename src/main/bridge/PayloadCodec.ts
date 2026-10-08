@@ -350,7 +350,7 @@ export function encodeForgeProjectDescriptor(value: ForgeProjectDescriptor): Buf
   writer.writeUInt32(value.entityCount);
   writer.writeUInt32(value.missingAssetCount);
   writer.writeBoolean(value.isDirty);
-  writer.writeBoolean(value.migrationPending);
+  writer.writeBoolean(value.repairRequired);
   writer.writeStrings(value.warnings);
   if (value.recoveries.length > MAX_LIST_ITEMS) malformed('List exceeds item limit');
   writer.writeUInt32(value.recoveries.length);
@@ -384,7 +384,6 @@ export function encodeForgeProjectSummary(value: ForgeProjectSummary): Buffer {
   writer.writeString(value.bakeProfile);
   writer.writeUInt32(value.baseLevel);
   writer.writeUInt64(value.modifiedUnixMilliseconds);
-  writer.writeBoolean(value.migrationPending);
   writer.writeBoolean(value.hasRecovery);
   return writer.toBuffer();
 }
@@ -400,7 +399,6 @@ export function decodeForgeProjectSummary(payload: Uint8Array): ForgeProjectSumm
     bakeProfile: reader.readString(),
     baseLevel: reader.readUInt32(),
     modifiedUnixMilliseconds: reader.readUInt64(),
-    migrationPending: reader.readBoolean(),
     hasRecovery: reader.readBoolean(),
   };
   reader.complete();
@@ -421,7 +419,7 @@ export function decodeForgeProjectDescriptor(payload: Uint8Array): ForgeProjectD
     entityCount: reader.readUInt32(),
     missingAssetCount: reader.readUInt32(),
     isDirty: reader.readBoolean(),
-    migrationPending: reader.readBoolean(),
+    repairRequired: reader.readBoolean(),
     warnings: reader.readStrings(),
     recoveries: [],
     missingAssets: [],
