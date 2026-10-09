@@ -19,6 +19,8 @@ public static class BakeLayerGraph
         new(BakeLayerId.Lighting,
             [BakeLayerId.World, BakeLayerId.Tfrags, BakeLayerId.Ties, BakeLayerId.Shrubs, BakeLayerId.Mobys]),
         new(BakeLayerId.Opaque, []),
+        new(BakeLayerId.Hud, []),
+        new(BakeLayerId.Fx, []),
     ];
 
     public static IReadOnlyList<BakeLayerDefinition> Definitions => LayerDefinitions;
@@ -100,6 +102,11 @@ public static class BakeLayerGraph
             AppendString(hash, context.Target.Region);
             AppendString(hash, context.Target.Revision);
             AppendString(hash, context.Target.BakeProfile);
+            if (BakeSchema.UsesSharedPalette(input.Id))
+            {
+                AppendString(hash, context.Target.PaletteOptimization.MappingVersion);
+                AppendInt(hash, context.Target.PaletteOptimization.Strength);
+            }
             AppendString(hash, context.TranslatorVersion);
             AppendString(hash, context.BakerVersion);
             AppendBytes(hash, input.RelevantSettings.Span);

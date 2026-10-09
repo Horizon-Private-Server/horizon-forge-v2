@@ -3,19 +3,16 @@ import { useEffect, useMemo, useState } from 'react';
 
 import type { EditorSnapshot } from '../../types/EditorRuntime.js';
 import type { BuildLayerId, BuildLayerStatus, BuildPlan } from '../../types/ForgeApi.js';
+import { BUILD_LAYERS } from '../../utils/BuildLayers.ts';
 import { errorMessage } from '../../utils/Errors.ts';
 import { useEditor } from './EditorContext.ts';
 import { EditorPanel } from './EditorPrimitives.tsx';
-
-const ALL_LAYERS: BuildLayerId[] = [
-  'World', 'Sky', 'Tfrags', 'Collision', 'Ties', 'Shrubs', 'Mobys', 'Gameplay', 'Lighting', 'Opaque',
-];
 
 export function BuildPanel() {
   const { project, busy, hostAvailable, buildProgress, buildResult, build, cancelBuild } = useEditor();
   const [plan, setPlan] = useState<BuildPlan>();
   const [planError, setPlanError] = useState<string>();
-  const [selected, setSelected] = useState(() => new Set(ALL_LAYERS));
+  const [selected, setSelected] = useState(() => new Set<BuildLayerId>(BUILD_LAYERS));
   const unsaved = useMemo(() => unsavedLayerStates(project), [project]);
 
   useEffect(() => {
@@ -28,7 +25,7 @@ export function BuildPanel() {
   }, [project.projectId, project.isDirty, buildResult]);
 
   useEffect(() => {
-    setSelected(new Set(ALL_LAYERS));
+    setSelected(new Set(BUILD_LAYERS));
   }, [project.projectId]);
 
   const layers = plan?.layers.map((layer) => ({
@@ -98,6 +95,8 @@ function unsavedLayerStates(project: EditorSnapshot): Map<BuildLayerId, BuildLay
     const layer = byProjectLayer[entity.layer.toLowerCase()];
     if (layer && entity.state.dirty) result.set(layer, 'Dirty');
   }
+  if (project.hud?.isDirty) result.set('Hud', 'Dirty');
+  if (project.fx?.isDirty) result.set('Fx', 'Dirty');
   if (result.has('Mobys')) result.set('Gameplay', 'DependencyInvalidated');
   if (['Ties', 'Shrubs', 'Mobys'].some((layer) => result.has(layer as BuildLayerId)))
     result.set('Lighting', 'DependencyInvalidated');
@@ -105,13 +104,16 @@ function unsavedLayerStates(project: EditorSnapshot): Map<BuildLayerId, BuildLay
 }
 
 function layerLabel(layer: BuildLayerId): string {
+  if (layer === 'Hud') return 'HUD';
+  if (layer === 'Fx') return 'FX Textures';
   return layer === 'Opaque' ? 'Preserved Data' : layer;
 }
 
 function layerDescription(layer: BuildLayerId): string | undefined {
-  return layer === 'Opaque'
-    ? 'Code, audio, HUD, and unsupported map sections copied unchanged.'
-    : undefined;
+  if (layer === 'Hud') return 'HUD icon mappings, palettes, and texture banks.';
+  if (layer === 'Fx') return 'FX texture definitions, palettes, and indexed pixels.';
+  if (layer === 'Opaque') return 'Code, audio, and unsupported map sections copied unchanged.';
+  return undefined;
 }
 
 function stateLabel(layer: BuildLayerStatus): string {

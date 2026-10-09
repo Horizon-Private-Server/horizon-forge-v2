@@ -130,8 +130,8 @@ public sealed record UyaRenderPackageRequestPayload(
     uint Level,
     string ProjectPath,
     string CatalogRootPath);
-public sealed record UyaRenderAssetPayload(string AssetId, string Kind, string? Path, string? Error);
-public sealed record UyaRenderEnvironmentPayload(
+public sealed record RenderAssetPayload(string AssetId, string Kind, string? Path, string? Error);
+public sealed record RenderEnvironmentPayload(
     uint BackgroundRed,
     uint BackgroundGreen,
     uint BackgroundBlue,
@@ -156,19 +156,20 @@ public sealed record UyaRenderEnvironmentPayload(
     int ShipCameraCuboidEnd = -1,
     int ChunkPlaneCount = 0,
     int CoreSoundsCount = 0);
-public readonly record struct UyaRenderOcclusionOctantPayload(int X, int Y, int Z, int MaskIndex);
-public sealed record UyaRenderPackageResultPayload(
+public readonly record struct RenderOcclusionOctantPayload(int X, int Y, int Z, int MaskIndex);
+public sealed record RenderPackageResultPayload(
     string RootPath,
     string CacheKey,
     IReadOnlyList<string> TerrainPaths,
     string? SkyPath,
-    UyaRenderEnvironmentPayload? Environment,
-    IReadOnlyList<UyaRenderAssetPayload> Assets,
+    RenderEnvironmentPayload? Environment,
+    IReadOnlyList<RenderAssetPayload> Assets,
     bool CacheHit,
-    IReadOnlyList<UyaRenderOcclusionOctantPayload>? OcclusionOctants = null);
+    IReadOnlyList<RenderOcclusionOctantPayload>? OcclusionOctants = null);
 public sealed record AssetPreviewRequestPayload(
     string CacheRootPath,
     string CatalogRootPath,
+    string ProjectPath,
     string AssetId,
     string Kind,
     string TargetGame,
@@ -179,6 +180,28 @@ public sealed record AssetPreviewResultPayload(
     string CacheKey,
     string ModelPath,
     bool CacheHit);
+public sealed record FxTextureInventoryItemPayload(
+    int Index,
+    string Label,
+    int Width,
+    int Height,
+    string PixelFormat,
+    string PaletteFormat,
+    int PaletteOffset,
+    int PaletteLength,
+    int PixelOffset,
+    int PixelLength,
+    bool IsSwizzled,
+    bool IsValid,
+    string? SourceAssetId,
+    string? Diagnostic);
+public sealed record FxTextureInventoryPayload(
+    string Game,
+    bool CanRead,
+    bool CanReplace,
+    bool CanAppend,
+    string? AuthoringDisabledReason,
+    IReadOnlyList<FxTextureInventoryItemPayload> Entries);
 public sealed record CatalogMaintenancePayload(
     uint ProjectCount,
     uint CatalogAssetCount,

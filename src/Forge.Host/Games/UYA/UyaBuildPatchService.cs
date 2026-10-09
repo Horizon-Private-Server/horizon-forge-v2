@@ -7,7 +7,7 @@ namespace Forge.Host.Games.UYA;
 
 public static class UyaBuildPatchService
 {
-    public static async Task<UyaBuildPlan> PlanAsync(
+    public static async Task<BuildPlan> PlanAsync(
         string projectRoot,
         string catalogRoot,
         string hostVersion,
@@ -24,7 +24,7 @@ public static class UyaBuildPatchService
             projectRoot, catalog, context, cancellationToken: cancellationToken);
         var staging = await BakeStagingStore.OpenAsync(projectRoot, cancellationToken);
         var staged = staging.Manifest.Layers.Select(value => value.Layer).ToHashSet();
-        return new(validation.Plan.Layers.Select(value => new UyaBuildLayerStatus(
+        return new(validation.Plan.Layers.Select(value => new BuildLayerStatus(
             value.Layer, value.State, staged.Contains(value.Layer))).ToArray());
     }
 

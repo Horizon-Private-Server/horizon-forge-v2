@@ -34,7 +34,7 @@ public static class BuildPayloadCodec
         return value;
     }
 
-    public static byte[] EncodePlanRequest(UyaBuildPlanRequestPayload value)
+    public static byte[] EncodePlanRequest(BuildPlanRequestPayload value)
     {
         var writer = new PayloadWriter();
         writer.WriteString(value.ProjectRoot);
@@ -42,15 +42,15 @@ public static class BuildPayloadCodec
         return writer.ToArray();
     }
 
-    public static UyaBuildPlanRequestPayload DecodePlanRequest(ReadOnlySpan<byte> payload)
+    public static BuildPlanRequestPayload DecodePlanRequest(ReadOnlySpan<byte> payload)
     {
         var reader = new PayloadReader(payload);
-        var value = new UyaBuildPlanRequestPayload(reader.ReadString(), reader.ReadString());
+        var value = new BuildPlanRequestPayload(reader.ReadString(), reader.ReadString());
         reader.Complete();
         return value;
     }
 
-    public static byte[] EncodePlan(UyaBuildPlanPayload value)
+    public static byte[] EncodePlan(BuildPlanPayload value)
     {
         var writer = new PayloadWriter();
         writer.WriteUInt32(checked((uint)value.Layers.Count));
@@ -63,11 +63,11 @@ public static class BuildPayloadCodec
         return writer.ToArray();
     }
 
-    public static UyaBuildPlanPayload DecodePlan(ReadOnlySpan<byte> payload)
+    public static BuildPlanPayload DecodePlan(ReadOnlySpan<byte> payload)
     {
         var reader = new PayloadReader(payload);
         var count = reader.ReadUInt32();
-        var layers = new UyaBuildLayerStatusPayload[count];
+        var layers = new BuildLayerStatusPayload[count];
         for (var index = 0; index < layers.Length; index++)
             layers[index] = new(reader.ReadString(), reader.ReadString(), reader.ReadBoolean());
         reader.Complete();

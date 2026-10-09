@@ -38,8 +38,10 @@ Verification: valid feature matrix, malformed corpus, and deterministic import s
 
 ## P1-003 — Port the alpha-aware K-means baseline into the SDK
 
+Status: ✅ Complete
+
 Requirements: FR-TEX-007, DR-013
-Depends on: P1-002
+Depends on: M5-002
 
 Port deadlocked-level-packer's MIT-licensed `AlphaAwareKMeans` implementation into the
 Ratchet .NET SDK with its notice, deterministic behavior, and cross-project golden fixtures.
@@ -54,10 +56,24 @@ Acceptance:
 
 Verification: golden compatibility suite against deadlocked-level-packer outputs.
 
+Implementation: `RatchetPs2.Core.Textures.Palettes.AlphaAwareKMeans` ports the
+MIT-licensed baseline with frequency weighting, premultiplied RGBA distance, alpha
+weight 2.5, transparent reservation, seed 1337, twelve iterations, deterministic
+sorting/remapping, and cancellation checkpoints. The focused `--alpha-aware-kmeans`
+suite pins palette and index output captured from deadlocked-level-packer and covers
+transparent, padding, invalid, empty, cancellation, and repeated-run cases. The full
+upstream notice is retained in the SDK's `THIRD_PARTY_NOTICES.md`.
+
+This model-format-independent prerequisite is ordered after the existing exact-color
+palette optimizer so HUD/FX work can consume it before custom-model authoring. P1-002
+remains an independent prerequisite of P1-005's GLB conversion path.
+
 ## P1-004 — Jointly optimize vanilla and custom texture palettes
 
+Status: ✅ Complete
+
 Requirements: FR-TEX-002, FR-TEX-003, FR-TEX-005, FR-TEX-007, FR-TEX-008, DR-011, DR-012
-Depends on: P1-003, M5-005
+Depends on: P1-003, M5-004
 
 Extend shared palette assignment with fixed vanilla centroids, movable custom centroids,
 and the versioned 0–100 fidelity-versus-reuse control stored in the project bake profile.
@@ -70,6 +86,23 @@ Acceptance:
 - Output and reports are deterministic and include custom error/reuse statistics and warnings.
 
 Verification: mixed vanilla/custom optimum cases, slider boundaries, golden images, and determinism tests.
+
+Implementation: the SDK's shared `PaletteOptimizer` first retains the proven exact
+vanilla assignment, then evaluates deterministic custom inputs against compatible
+fixed imported centroids. `paletteOptimization.v1` maps strength 0–100 to the
+documented quadratic reuse threshold; candidates outside it receive a new palette,
+while over-capacity colors use the ported alpha-aware K-means implementation. Results
+include per-texture source/output color counts, pixel indices, imported color/texel
+reuse, new entries, mean/maximum error, violations, and maximum-error warnings.
+
+Forge project schema 12 stores the versioned setting at default strength 50, migrates
+older projects in memory, exposes an outcome-labeled Level Settings slider, and routes
+changes through undo/redo and autosave. The mapping version and strength invalidate
+only shared-palette bake layers and their dependents. Focused fixtures cover strength
+0/50/100, exact vanilla preservation, fixed-centroid reuse, new-palette fallback,
+over-capacity quantization, reserved transparency, input-order determinism, warnings,
+invalid profiles, migration, history, and selective bake fingerprints. M5-005 remains
+the packaged PCSX2 qualification gate rather than an implementation prerequisite.
 
 ## P1-005 — Convert supported GLBs to UYA PS2 model structures
 

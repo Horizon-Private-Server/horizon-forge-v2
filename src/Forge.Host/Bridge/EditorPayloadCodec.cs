@@ -34,7 +34,10 @@ internal static class EditorPayloadCodec
     }
 
     private const uint MaxEntities = 100_000;
+    private const uint MaxReferences = 1_000_000;
     private const uint MaxEvents = 1_024;
+    private const int MaxHudImageBytes = 16 * 1024 * 1024;
+    private const int MaxFxImageBytes = 16 * 1024 * 1024;
 
     public static EditorOpenRequest DecodeOpenRequest(ReadOnlySpan<byte> payload)
     {
@@ -212,11 +215,48 @@ internal static class EditorPayloadCodec
             }
             instancedCollisionFaceTypes = values;
         }
+        EditorReferenceUpdate? referenceUpdate = null;
+        if (reader.ReadBoolean())
+        {
+            var fieldKey = reader.ReadString();
+            int? sourceValue = reader.ReadBoolean() ? checked((int)reader.ReadUInt32()) : null;
+            EntityId? targetEntityId = reader.ReadBoolean() ? EntityId.Parse(reader.ReadString()) : null;
+            referenceUpdate = new(fieldKey, sourceValue, targetEntityId);
+        }
+        ProjectPaletteOptimization? paletteOptimization = null;
+        if (reader.ReadBoolean())
+            paletteOptimization = new(reader.ReadString(), checked((int)reader.ReadUInt32()));
+        EditorHudEdit? hudEdit = null;
+        if (reader.ReadBoolean())
+        {
+            var sourceAssetId = reader.ReadBoolean() ? AssetId.Parse(reader.ReadString()) : (AssetId?)null;
+            ushort? spriteId = null;
+            if (reader.ReadBoolean())
+            {
+                var value = reader.ReadUInt32();
+                if (value > ushort.MaxValue) PayloadFormat.Malformed("Invalid HUD sprite ID");
+                spriteId = (ushort)value;
+            }
+            int? bankIndex = reader.ReadBoolean() ? checked((int)reader.ReadUInt32()) : null;
+            var imageFormat = reader.ReadBoolean() ? reader.ReadString() : null;
+            var imageBytes = reader.ReadBoolean() ? reader.ReadBytes(MaxHudImageBytes) : null;
+            hudEdit = new(sourceAssetId, spriteId, bankIndex, imageFormat, imageBytes);
+        }
+        EditorFxEdit? fxEdit = null;
+        if (reader.ReadBoolean())
+        {
+            var sourceAssetId = reader.ReadBoolean() ? AssetId.Parse(reader.ReadString()) : (AssetId?)null;
+            int? index = reader.ReadBoolean() ? checked((int)reader.ReadUInt32()) : null;
+            var imageFormat = reader.ReadBoolean() ? reader.ReadString() : null;
+            var imageBytes = reader.ReadBoolean() ? reader.ReadBytes(MaxFxImageBytes) : null;
+            fxEdit = new(sourceAssetId, index, imageFormat, imageBytes);
+        }
         reader.Complete();
         return new(
             id, kind, entities, transform, text, state, transforms, levelSettings, points, placement,
             skyShellSource, skyShellUpdate, destinationOrder, instancedCollisionEnabled, instancedCollisionRawType,
-            instancedCollisionProxyAssetId, instancedCollisionFaceTypes);
+            instancedCollisionProxyAssetId, instancedCollisionFaceTypes, referenceUpdate, paletteOptimization, hudEdit,
+            fxEdit);
     }
 
     public static byte[] EncodeSnapshot(EditorSnapshot value)
@@ -229,9 +269,16 @@ internal static class EditorPayloadCodec
         WriteBaseLevel(writer, value.BaseLevel);
         writer.WriteBoolean(value.LevelSettings is not null);
         if (value.LevelSettings is not null) WriteLevelSettings(writer, value.LevelSettings);
+        writer.WriteBoolean(value.Hud is not null);
+        if (value.Hud is not null) WriteHud(writer, value.Hud);
+        writer.WriteBoolean(value.Fx is not null);
+        if (value.Fx is not null) WriteFx(writer, value.Fx);
         if (value.Entities.Count > MaxEntities) PayloadFormat.Malformed("Entity list exceeds item limit");
         writer.WriteUInt32((uint)value.Entities.Count);
         foreach (var entity in value.Entities) WriteEntity(writer, entity);
+        if (value.References.Count > MaxReferences) PayloadFormat.Malformed("Reference list exceeds item limit");
+        writer.WriteUInt32((uint)value.References.Count);
+        foreach (var reference in value.References) WriteReference(writer, reference);
         WriteEntityIds(writer, value.Selection);
         writer.WriteBoolean(value.IsDirty);
         writer.WriteBoolean(value.CanUndo);
@@ -254,6 +301,115 @@ internal static class EditorPayloadCodec
             writer.WriteString(diagnostic.Message);
         }
         return writer.ToArray();
+    }
+
+    private static void WriteHud(PayloadWriter writer, EditorHudSnapshot value)
+    {
+        writer.WriteBoolean(value.CanRead);
+        writer.WriteBoolean(value.IsDirty);
+        writer.WriteBoolean(value.CanReplace);
+        writer.WriteBoolean(value.CanAppend);
+        writer.WriteString(value.AuthoringDisabledReason ?? string.Empty);
+        writer.WriteUInt32(checked((uint)value.PhysicalBankCount));
+        writer.WriteUInt32(checked((uint)value.MinimumAppendBank));
+        writer.WriteUInt32(value.MinimumAppendSpriteId);
+        writer.WriteUInt32(value.MaximumAppendSpriteId);
+        writer.WriteUInt32(checked((uint)value.MaximumIconCount));
+        writer.WriteUInt32(checked((uint)value.SourceIcons.Count));
+        foreach (var icon in value.SourceIcons)
+        {
+            writer.WriteUInt32(checked((uint)icon.SourceIconIndex));
+            writer.WriteUInt32(icon.SpriteId);
+            writer.WriteUInt32(checked((uint)icon.Frames.Count));
+            foreach (var frame in icon.Frames)
+            {
+                writer.WriteUInt32(checked((uint)frame.SourceFrameIndex));
+                writer.WriteInt32(frame.SourcePaletteIndex);
+                writer.WriteInt32(frame.SourceTextureIndex);
+                writer.WriteInt32(frame.PaletteBankIndex);
+                writer.WriteInt32(frame.TextureBankIndex);
+                writer.WriteInt32(frame.Width);
+                writer.WriteInt32(frame.Height);
+                WriteAssetReference(writer, frame.SourceTexture);
+                WriteAssetReference(writer, frame.EffectiveTexture);
+                writer.WriteString(frame.Diagnostic ?? string.Empty);
+            }
+        }
+        writer.WriteUInt32(checked((uint)value.Additions.Count));
+        foreach (var addition in value.Additions)
+        {
+            writer.WriteUInt32(addition.SpriteId);
+            writer.WriteUInt32(checked((uint)addition.BankIndex));
+            writer.WriteUInt32(checked((uint)addition.Width));
+            writer.WriteUInt32(checked((uint)addition.Height));
+            WriteAssetReference(writer, addition.Texture);
+        }
+    }
+
+    private static void WriteAssetReference(PayloadWriter writer, ProjectAssetReference? value)
+    {
+        writer.WriteBoolean(value is not null);
+        if (value is null) return;
+        writer.WriteString(value.Id.ToString());
+        writer.WriteString(value.Kind.ToString());
+    }
+
+    private static void WriteFx(PayloadWriter writer, EditorFxSnapshot value)
+    {
+        writer.WriteBoolean(value.CanRead);
+        writer.WriteBoolean(value.IsDirty);
+        writer.WriteBoolean(value.CanReplace);
+        writer.WriteBoolean(value.CanAppend);
+        writer.WriteString(value.AuthoringDisabledReason ?? string.Empty);
+        writer.WriteUInt32(checked((uint)value.MaximumTextureCount));
+        writer.WriteUInt32(checked((uint)value.SourceTextures.Count));
+        foreach (var texture in value.SourceTextures)
+        {
+            writer.WriteUInt32(checked((uint)texture.SourceIndex));
+            writer.WriteString(texture.Label);
+            writer.WriteInt32(texture.Width);
+            writer.WriteInt32(texture.Height);
+            writer.WriteInt32(texture.PaletteOffset);
+            writer.WriteInt32(texture.PixelOffset);
+            writer.WriteBoolean(texture.IsSwizzled);
+            WriteAssetReference(writer, texture.SourceTexture);
+            WriteAssetReference(writer, texture.EffectiveTexture);
+            writer.WriteString(texture.Diagnostic ?? string.Empty);
+        }
+        writer.WriteUInt32(checked((uint)value.Additions.Count));
+        foreach (var addition in value.Additions)
+        {
+            writer.WriteUInt32(checked((uint)addition.Width));
+            writer.WriteUInt32(checked((uint)addition.Height));
+            WriteAssetReference(writer, addition.Texture);
+        }
+    }
+
+    private static void WriteReference(PayloadWriter writer, EditorReferenceSnapshot value)
+    {
+        writer.WriteString(value.OwnerEntityId.ToString());
+        writer.WriteUInt32((uint)value.Reference.Domain);
+        writer.WriteString(value.Reference.FieldKey);
+        writer.WriteBoolean(value.Reference.Nullable);
+        switch (value.Reference.Domain)
+        {
+            case ProjectReferenceDomain.Entity when value.Reference.EntityKind is { } entityKind:
+                writer.WriteUInt32((uint)entityKind);
+                writer.WriteBoolean(value.Reference.EntityId is not null);
+                if (value.Reference.EntityId is { } entityId) writer.WriteString(entityId.ToString());
+                break;
+            case ProjectReferenceDomain.Asset when value.Reference.AssetKind is { } assetKind:
+                writer.WriteString(assetKind.ToString());
+                writer.WriteBoolean(value.Reference.AssetId is not null);
+                if (value.Reference.AssetId is { } assetId) writer.WriteString(assetId.ToString());
+                break;
+            default:
+                PayloadFormat.Malformed($"Invalid {value.Reference.Domain} reference contract");
+                break;
+        }
+        writer.WriteBoolean(value.SourceValue is not null);
+        if (value.SourceValue is { } sourceValue) writer.WriteUInt32(checked((uint)sourceValue));
+        writer.WriteBoolean(value.Missing);
     }
 
     public static byte[] EncodeEvents(IReadOnlyList<EditorEvent> values)
@@ -281,6 +437,8 @@ internal static class EditorPayloadCodec
         writer.WriteString(value.Region);
         writer.WriteString(value.Revision);
         writer.WriteString(value.BakeProfile);
+        writer.WriteString(value.PaletteOptimization.MappingVersion);
+        writer.WriteUInt32(checked((uint)value.PaletteOptimization.Strength));
     }
 
     private static void WriteBaseLevel(PayloadWriter writer, ProjectBaseLevel value)

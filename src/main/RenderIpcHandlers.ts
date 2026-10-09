@@ -10,11 +10,12 @@ interface RenderIpcHandlersOptions {
   settings: SettingsStore;
   renderAssets: RenderAssetProtocol;
   getEditorTargetGame(): string | undefined;
+  getEditorProjectPath(): string | undefined;
   assertSender(senderId: number): void;
 }
 
 export function registerRenderIpcHandlers(options: RenderIpcHandlersOptions): void {
-  const { host, settings, renderAssets, getEditorTargetGame, assertSender } = options;
+  const { host, settings, renderAssets, getEditorTargetGame, getEditorProjectPath, assertSender } = options;
   let activeRequestId: number | undefined;
   const activePreviewRequests = new Map<string, number>();
   let terrainLoading = false;
@@ -86,6 +87,7 @@ export function registerRenderIpcHandlers(options: RenderIpcHandlersOptions): vo
     const request = await host.prepareAssetPreview({
       cacheRootPath: settings.paths.renderCache,
       catalogRootPath: settings.paths.assets,
+      projectPath: getEditorProjectPath() ?? '',
       assetId,
       kind: kind as AssetPreviewKind,
       targetGame,

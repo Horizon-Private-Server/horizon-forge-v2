@@ -135,7 +135,7 @@ internal static class UyaSkyShellEditorService
         if (blockers.Count > 0) throw new InvalidDataException(string.Join(' ', blockers));
         var baseAsset = inspection.Manifest!.Layers.Single(layer => layer.Layer == BakeLayerId.Sky)
             .Assets.Single(asset => asset.Name == "sky.bin").Asset;
-        var basePath = workspace.ResolveAssetPath(baseAsset.Id, catalog)
+        var basePath = workspace.ResolveAssetPath(baseAsset, catalog)
             ?? throw new FileNotFoundException($"Base sky asset {baseAsset.Id} is missing.");
         var baseBytes = await File.ReadAllBytesAsync(basePath, cancellationToken);
 
@@ -185,10 +185,11 @@ internal static class UyaSkyShellEditorService
             .ThenBy(value => value.SourceIndex)
             .FirstOrDefault()
             ?? throw new InvalidDataException($"Sky asset {assetId} is incompatible with the active project target.");
-        var path = workspace.ResolveAssetPath(assetId, catalog)
+        var resolved = workspace.ResolveAsset(new(assetId, AssetKind.Sky), catalog)
             ?? throw new FileNotFoundException($"Sky asset blob {assetId} is missing.");
         var bytes = await AssetCatalogBlobReader.ReadVerifiedAsync(
-            entry, path, UyaAssetLimits.MaxCanonicalBytes, cancellationToken);
+            resolved.Effective.Id, resolved.Effective.Kind, resolved.CanonicalFormatVersion, resolved.Size,
+            resolved.Path, ForgeProjectWorkspace.MaxAttachedAssetBytes, cancellationToken);
         using var stream = new MemoryStream(bytes, writable: false);
         var skybox = SkyboxReader.Read(stream, GameId.UYA);
         return new(bytes, skybox, ParseLevel(source.Level));

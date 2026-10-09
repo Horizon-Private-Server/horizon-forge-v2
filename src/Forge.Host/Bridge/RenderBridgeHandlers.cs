@@ -67,7 +67,8 @@ internal static class RenderBridgeHandlers
             kind,
             request.TargetGame,
             request.ViewPreset,
-            request.ShellIndex is { } shellIndex ? checked((int)shellIndex) : null), sdkRevision, cancellationToken);
+            request.ShellIndex is { } shellIndex ? checked((int)shellIndex) : null,
+            request.ProjectPath), sdkRevision, cancellationToken);
         return BridgePayloadCodec.EncodeAssetPreviewResult(new(
             result.RootPath, result.CacheKey, result.ModelPath, result.CacheHit));
     }
@@ -86,7 +87,7 @@ internal static class RenderBridgeHandlers
             checked((int)request.Level),
             request.ProjectPath,
             request.CatalogRootPath), sdkRevision, progress, cancellationToken);
-        return BridgePayloadCodec.EncodeUyaRenderPackageResult(new(
+        return BridgePayloadCodec.EncodeRenderPackageResult(new(
             result.RootPath, result.CacheKey, result.TerrainPaths,
             result.SkyPath,
             result.Environment is { } environment ? new(
@@ -100,10 +101,10 @@ internal static class RenderBridgeHandlers
                 environment.ShipRotationZ, environment.ShipPath,
                 environment.ShipCameraCuboidStart, environment.ShipCameraCuboidEnd,
                 environment.ChunkPlaneCount, environment.CoreSoundsCount) : null,
-            result.Assets.Select(asset => new UyaRenderAssetPayload(
+            result.Assets.Select(asset => new RenderAssetPayload(
                 asset.AssetId, asset.Kind, asset.Path, asset.Error)).ToArray(),
             result.CacheHit,
-            result.OcclusionOctants?.Select(value => new UyaRenderOcclusionOctantPayload(
+            result.OcclusionOctants?.Select(value => new RenderOcclusionOctantPayload(
                 value.X, value.Y, value.Z, value.MaskIndex)).ToArray()));
     }
 }

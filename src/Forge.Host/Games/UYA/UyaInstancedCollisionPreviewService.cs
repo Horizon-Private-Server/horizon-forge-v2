@@ -125,14 +125,12 @@ public static class UyaInstancedCollisionPreviewService
         if (entry.Kind is not (AssetKind.Tie or AssetKind.Shrub)
             || entry.CanonicalFormatVersion != UyaAssetImportService.CanonicalFormatVersion)
             throw new InvalidDataException("The selected asset is not a supported canonical UYA TIE or shrub.");
-        var path = workspace.ResolveAssetPath(sourceAssetId, catalog)
-            ?? throw new FileNotFoundException($"Source asset blob {sourceAssetId} is missing.");
-        var canonicalBytes = await AssetCatalogBlobReader.ReadVerifiedAsync(
-            entry, path, UyaAssetLimits.MaxCanonicalBytes, cancellationToken);
+        var canonicalBytes = await UyaInstancedCollisionCompositionService.ReadAssetAsync(
+            workspace, catalog, sourceAssetId, entry.Kind, cancellationToken);
         return (catalog, UyaCanonicalAssetCodec.Decode(canonicalBytes).ModelBytes, entry.Kind);
     }
 
-    public static async Task<UyaAssetPreviewResult> PrepareRenderAsync(
+    public static async Task<AssetPreviewResult> PrepareRenderAsync(
         string cacheRootPath,
         string catalogRootPath,
         string sdkRevision,
@@ -140,7 +138,7 @@ public static class UyaInstancedCollisionPreviewService
         byte[] canonicalBytes,
         CancellationToken cancellationToken)
     {
-        var request = new UyaAssetPreviewRequest(
+        var request = new AssetPreviewRequest(
             cacheRootPath,
             catalogRootPath,
             assetId,

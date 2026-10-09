@@ -48,7 +48,7 @@ public static class UyaTextureInventoryService
                     var role = texture.Role == 0 ? TextureRole.Material : TextureRole.Billboard;
                     var textureIndex = role == TextureRole.Material ? materialIndex++ : billboardIndex++;
                     inputs.Add(new(
-                        definition.Asset.Id.ToString(),
+                        definition.EffectiveAsset.Id.ToString(),
                         Family(layer),
                         definition.ClassId,
                         textureIndex,

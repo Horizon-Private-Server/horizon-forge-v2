@@ -6,7 +6,19 @@ public sealed record ProjectTargetProfile(
     string Game,
     string Region,
     string Revision,
-    string BakeProfile);
+    string BakeProfile)
+{
+    public ProjectPaletteOptimization PaletteOptimization { get; init; } = ProjectPaletteOptimization.Default;
+}
+
+public sealed record ProjectPaletteOptimization(string MappingVersion, int Strength)
+{
+    public const string CurrentMappingVersion = "paletteOptimization.v1";
+    public const int DefaultStrength = 50;
+
+    public static ProjectPaletteOptimization Default { get; } =
+        new(CurrentMappingVersion, DefaultStrength);
+}
 
 public sealed record ProjectBaseLevel(
     string Game,
@@ -78,8 +90,95 @@ public sealed record ProjectAttachedAsset(
     AssetId Id,
     AssetKind Kind,
     uint CanonicalFormatVersion,
-    AssetId ParentId,
+    AssetId? ParentId,
     long Size);
+
+public static class ProjectTextureAssetSchema
+{
+    public const uint CanonicalFormatVersion = 1;
+    public const long MaximumCanonicalBytes = 64L * 1024 * 1024;
+}
+
+public static class ProjectAssetOverrideSchema
+{
+    public const int CurrentVersion = 1;
+}
+
+public sealed record ProjectAssetOverride(
+    int SchemaVersion,
+    ProjectAssetReference Source,
+    ProjectAssetReference Replacement);
+
+public static class ProjectHudSchema
+{
+    public const int CurrentVersion = 1;
+    public const int PhysicalBankCount = 5;
+    public const int MaximumIconCount = 1_024;
+}
+
+public sealed record ProjectHudSourceFrame(
+    int SourceFrameIndex,
+    int SourcePaletteIndex,
+    int SourceTextureIndex,
+    int PaletteBankIndex,
+    int TextureBankIndex,
+    int Width,
+    int Height,
+    ProjectAssetReference? Texture,
+    string? Diagnostic = null);
+
+public sealed record ProjectHudSourceIcon(
+    int SourceIconIndex,
+    ushort SpriteId,
+    IReadOnlyList<ProjectHudSourceFrame> Frames);
+
+public sealed record ProjectHudIconAddition(
+    ushort SpriteId,
+    int BankIndex,
+    int Width,
+    int Height,
+    ProjectAssetReference Texture);
+
+public sealed record ProjectHudState(
+    int SchemaVersion,
+    int MinimumAppendBank,
+    IReadOnlyList<ProjectHudSourceIcon> SourceIcons,
+    IReadOnlyList<ProjectHudIconAddition> Additions);
+
+public static class ProjectFxSchema
+{
+    public const int CurrentVersion = 1;
+    public const int MaximumTextureCount = 4_096;
+}
+
+public sealed record ProjectFxSourceTexture(
+    int SourceIndex,
+    string Label,
+    int Width,
+    int Height,
+    int PaletteOffset,
+    int PixelOffset,
+    bool IsSwizzled,
+    ProjectAssetReference? Texture,
+    string? Diagnostic = null);
+
+public sealed record ProjectFxTextureAddition(
+    int Width,
+    int Height,
+    ProjectAssetReference Texture);
+
+public sealed record ProjectFxState(
+    int SchemaVersion,
+    IReadOnlyList<ProjectFxSourceTexture> SourceTextures,
+    IReadOnlyList<ProjectFxTextureAddition> Additions);
+
+public sealed record ProjectResolvedAsset(
+    ProjectAssetReference Source,
+    ProjectAssetReference Effective,
+    uint CanonicalFormatVersion,
+    long Size,
+    string Path,
+    bool ProjectAttached);
 
 public sealed record ForgeProjectManifest(
     int SchemaVersion,
@@ -96,7 +195,10 @@ public sealed record ForgeProjectContent(
     IReadOnlyList<ProjectEntity> Entities,
     IReadOnlyList<ProjectAttachedAsset> Assets,
     IReadOnlyList<ProjectInstancedCollisionBinding> InstancedCollisionBindings,
-    ProjectLevelSettings? LevelSettings = null);
+    IReadOnlyList<ProjectAssetOverride> AssetOverrides,
+    ProjectLevelSettings? LevelSettings = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ProjectHudState? Hud = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ProjectFxState? Fx = null);
 
 public sealed record ProjectRecoverySnapshot(
     string Id,

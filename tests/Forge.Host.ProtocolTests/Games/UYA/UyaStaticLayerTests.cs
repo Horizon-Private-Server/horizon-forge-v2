@@ -17,10 +17,10 @@ internal static class UyaStaticLayerTests
 
     public static async Task RunAsync()
     {
-        var neutralTieAmbient = UyaAssetPlacementService.CreateNeutralTieAmbient(8);
+        var neutralTieAmbient = UyaGameplayInstanceTemplates.CreateNeutralTieAmbient(8);
         Equal(true, neutralTieAmbient.SequenceEqual(new byte[] { 0x80, 0x80, 0x80, 0, 0, 0, 0, 0 }),
             "placed tie neutral ambient words");
-        var placedShrub = UyaAssetPlacementService.CreateShrubRecord(0x0300);
+        var placedShrub = UyaGameplayInstanceTemplates.CreateShrub(0x0300);
         Equal(255, BinaryPrimitives.ReadInt32LittleEndian(placedShrub.AsSpan(0x50)),
             "placed shrub neutral red channel");
         Equal(255, BinaryPrimitives.ReadInt32LittleEndian(placedShrub.AsSpan(0x54)),
@@ -130,6 +130,29 @@ internal static class UyaStaticLayerTests
             var repeated = await UyaStaticLayerStore.StageAsync(
                 project, catalog, staging, Layer(plan, BakeLayerId.Ties));
             Equal(tieSnapshot.OutputFingerprint, repeated.OutputFingerprint, "static output deterministic");
+
+            var workspace = await ForgeProjectWorkspace.OpenAsync(project);
+            var replacementTieBytes = CanonicalAsset(AssetKind.Tie, 0x55);
+            var replacementTie = await workspace.AttachAssetAsync(
+                AssetKind.Tie, UyaAssetImportService.CanonicalFormatVersion,
+                replacementTieBytes, tieAsset.Id);
+            workspace.SetAssetOverride(
+                new(tieAsset.Id, AssetKind.Tie), new(replacementTie.Id, AssetKind.Tie));
+            await workspace.SaveAsync();
+            var overrideInputs = await UyaStaticLayerStore.CreateBakeInputsAsync(project, catalog);
+            var overridePlan = BakeLayerGraph.CreatePlan(Context(), overrideInputs, staging.Manifest);
+            var overrideTiePlan = Layer(overridePlan, BakeLayerId.Ties);
+            Equal(BakeLayerState.Dirty, overrideTiePlan.State,
+                "effective override identity invalidates the tie bake fingerprint");
+            Equal(true, overrideTiePlan.ContentFingerprint != Layer(plan, BakeLayerId.Ties).ContentFingerprint,
+                "override replacement participates in the tie content fingerprint");
+            var overrideTieSnapshot = await UyaStaticLayerStore.StageAsync(
+                project, catalog, staging, overrideTiePlan);
+            var overrideTieManifest = ReadManifest(Path.Combine(
+                staging.RootPath, overrideTieSnapshot.RelativePath, "manifest.json"));
+            Equal(true, File.ReadAllBytes(Path.Combine(staging.RootPath, overrideTieSnapshot.RelativePath,
+                    overrideTieManifest.Definitions.Single().Resource)).SequenceEqual(replacementTieBytes),
+                "static bake stages the effective override bytes under the stable source definition");
 
             await VerifyTieClassOrderingAsync(root, tieAsset);
             await VerifyShrubClassOrderingAsync(root, shrubAsset);

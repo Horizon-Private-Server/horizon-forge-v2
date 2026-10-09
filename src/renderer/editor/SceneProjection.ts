@@ -13,6 +13,9 @@ import { ps2PositionToScene } from '../../utils/Scene.ts';
 import { DEFAULT_SCENE_TREE_COLORS } from '../../utils/SceneTreeColors.ts';
 import { createSelectionOverrideMaterial, INSTANCE_SELECTION_MARKER } from '../../utils/SelectionMaterials.ts';
 import { parseSplinePointId, splinePointId } from '../../utils/SplinePoints.ts';
+import {
+  isSceneBillboardGizmo, SceneBillboardGizmo, SceneBillboardResources,
+} from './SceneBillboardGizmo.ts';
 
 const ENTITY_ID_KEY = 'forgeEntityId';
 const INSTANCE_IDS_KEY = 'forgeInstanceIds';
@@ -120,6 +123,7 @@ export class SceneProjection {
   private readonly selectionOutlineMaterial = new THREE.MeshBasicMaterial({
     colorWrite: false, depthTest: false, depthWrite: false,
   });
+  private readonly billboardResources = new SceneBillboardResources();
   private readonly objects = new Map<string, THREE.Object3D>();
   private readonly instances = new Map<string, InstancedAsset>();
   private readonly selectionOutlines = new Map<string, THREE.Group>();
@@ -139,6 +143,7 @@ export class SceneProjection {
   private readonly instanceMatrix = new THREE.Matrix4();
   private readonly instanceBounds = new THREE.Box3();
   private entitiesById = new Map<string, EditorEntity>();
+  private hoveredEntityId?: string;
   private disposed = false;
 
   constructor() {
@@ -183,6 +188,25 @@ export class SceneProjection {
     if (entityId) this.previewHidden.add(entityId);
   }
 
+  setHoveredEntityId(entityId?: string): void {
+    if (entityId === this.hoveredEntityId) return;
+    const previous = this.hoveredEntityId && this.objects.get(this.hoveredEntityId);
+    this.hoveredEntityId = entityId;
+    if (previous instanceof SceneBillboardGizmo) previous.setHovered(false);
+    const next = entityId && this.objects.get(entityId);
+    if (next instanceof SceneBillboardGizmo) next.setHovered(true);
+  }
+
+  updateBillboards(camera: THREE.Camera, viewportHeight: number): void {
+    this.objects.forEach((object) => {
+      if (object instanceof SceneBillboardGizmo && object.visible) object.updateForCamera(camera, viewportHeight);
+    });
+  }
+
+  getBillboardResourceCounts() {
+    return this.billboardResources.counts();
+  }
+
   setAssetTemplates(templates: ReadonlyMap<string, THREE.Object3D>, failedAssets: ReadonlySet<string> = new Set()): void {
     this.clearProjection();
     this.templates.clear();
@@ -221,6 +245,7 @@ export class SceneProjection {
   isPlacementSurface(intersection: THREE.Intersection): boolean {
     if (!(intersection.object instanceof THREE.Mesh)) return false;
     for (let current: THREE.Object3D | null = intersection.object; current; current = current.parent) {
+      if (isSceneBillboardGizmo(current)) return false;
       if (current.userData[PLACEMENT_PROXY_KEY] === true) return false;
       if (current === this.root) break;
     }
@@ -237,6 +262,7 @@ export class SceneProjection {
     if (this.disposed) throw new Error('Scene projection is disposed');
     entities = entities.filter((entity) => !entity.skyShell);
     this.entitiesById = new Map(entities.map((entity) => [entity.id, entity]));
+    if (this.hoveredEntityId && !this.entitiesById.has(this.hoveredEntityId)) this.hoveredEntityId = undefined;
     const selected = new Set(selection);
     const selectedPoints = new Map<string, number[]>();
     selection.forEach((value) => {
@@ -451,6 +477,7 @@ export class SceneProjection {
       object?.updateMatrixWorld(true);
       object?.traverse((child) => {
         if (child instanceof THREE.Mesh
+          && !isSceneBillboardGizmo(child)
           && !child.userData[SPLINE_NODES_KEY] && !child.userData[VOLUME_EDGE_PICKER_KEY])
           appendWorldVertices(child.geometry, child.matrixWorld, vertices);
       });
@@ -524,6 +551,7 @@ export class SceneProjection {
     this.selectedSplineNodeMaterial.dispose();
     this.selectedLineMaterial.dispose();
     this.selectionOutlineMaterial.dispose();
+    this.billboardResources.dispose();
   }
 
   private removeStaleObjects(projected: ReadonlySet<string>, entities: readonly EditorEntity[]): number {
@@ -582,6 +610,8 @@ export class SceneProjection {
       const points = entity.geometry.points.map((point) => ps2PositionToScene(point, new THREE.Vector3()));
       object = new THREE.Line(new THREE.BufferGeometry().setFromPoints(points), this.directionalLightMaterial);
       object.userData[OWNED_GEOMETRY_KEY] = true;
+    } else if (!entity.geometry && !entity.asset) {
+      object = this.billboardResources.create(this.billboardOptions(entity, false));
     } else {
       object = new THREE.Mesh(this.geometry, this.materialFor(entity, false));
     }
@@ -609,6 +639,15 @@ export class SceneProjection {
     selectedPointIndices: readonly number[],
   ): boolean {
     this.projectedMatrix(entity);
+    if (object instanceof SceneBillboardGizmo) {
+      const changed = object.configure(this.billboardOptions(
+        entity,
+        selected,
+        this.hoveredEntityId === entity.id,
+      ));
+      object.visible = visible;
+      return changed;
+    }
     const marker = object.children.find((child) => child.userData.selectionMarker);
     const splineNodes = object.children.find((child) => child.userData[SPLINE_NODES_KEY]) as
       THREE.Points | undefined;
@@ -739,7 +778,7 @@ export class SceneProjection {
     this.directSelectionOutlines = entities.flatMap((entity) => {
       if (!selected.has(entity.id) || desired.has(entity.id)) return [];
       const object = this.objects.get(entity.id);
-      return object?.visible ? [object] : [];
+      return object?.visible && !isSceneBillboardGizmo(object) ? [object] : [];
     });
     for (const [id, outline] of this.selectionOutlines) {
       if (desired.has(id)) continue;
@@ -829,6 +868,22 @@ export class SceneProjection {
     return this.failedAssets.has(entity.asset.id) ? this.failedMaterial : this.assetMaterial;
   }
 
+  private billboardOptions(entity: EditorEntity, selected: boolean, hovered = false) {
+    return {
+      entityId: entity.id,
+      label: `${entity.name}, meshless object`,
+      worldPosition: this.position,
+      color: this.modelLessMaterial.color.getHex(),
+      glyph: 'robot' as const,
+      depthPolicy: 'occluded' as const,
+      selected,
+      hovered,
+      worldSize: 32,
+      minScreenSize: 18,
+      maxScreenSize: 48,
+    };
+  }
+
   private clearProjection(): void {
     this.objects.forEach((object) => this.removeObject(object));
     this.objects.clear();
@@ -846,11 +901,16 @@ export class SceneProjection {
     this.selectionOutlines.clear();
     this.directSelectionOutlines = [];
     this.pickable.clear();
+    this.hoveredEntityId = undefined;
     this.root.clear();
   }
 
   private removeObject(object: THREE.Object3D): void {
     object.removeFromParent();
+    if (object instanceof SceneBillboardGizmo) {
+      object.dispose();
+      return;
+    }
     object.traverse((child) => {
       if (child instanceof THREE.Points
         && (child.userData[SPLINE_NODES_KEY] || child.userData[SPLINE_SELECTED_NODES_KEY])) child.geometry.dispose();

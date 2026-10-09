@@ -7,6 +7,7 @@ public static partial class BridgePayloadCodec
         var writer = new PayloadWriter();
         writer.WriteString(value.CacheRootPath);
         writer.WriteString(value.CatalogRootPath);
+        writer.WriteString(value.ProjectPath);
         writer.WriteString(value.AssetId);
         writer.WriteString(value.Kind);
         writer.WriteString(value.TargetGame);
@@ -21,12 +22,13 @@ public static partial class BridgePayloadCodec
         var reader = new PayloadReader(payload);
         var cacheRootPath = reader.ReadString();
         var catalogRootPath = reader.ReadString();
+        var projectPath = reader.ReadString();
         var assetId = reader.ReadString();
         var kind = reader.ReadString();
         var targetGame = reader.ReadString();
         var viewPreset = reader.ReadString();
         var value = new AssetPreviewRequestPayload(
-            cacheRootPath, catalogRootPath, assetId, kind, targetGame, viewPreset,
+            cacheRootPath, catalogRootPath, projectPath, assetId, kind, targetGame, viewPreset,
             reader.ReadBoolean() ? reader.ReadUInt32() : null);
         reader.Complete();
         return value;
@@ -73,7 +75,7 @@ public static partial class BridgePayloadCodec
         return value;
     }
 
-    public static byte[] EncodeUyaRenderPackageResult(UyaRenderPackageResultPayload value)
+    public static byte[] EncodeRenderPackageResult(RenderPackageResultPayload value)
     {
         var writer = new PayloadWriter();
         writer.WriteString(value.RootPath);
@@ -132,7 +134,7 @@ public static partial class BridgePayloadCodec
         return writer.ToArray();
     }
 
-    public static UyaRenderPackageResultPayload DecodeUyaRenderPackageResult(ReadOnlySpan<byte> payload)
+    public static RenderPackageResultPayload DecodeRenderPackageResult(ReadOnlySpan<byte> payload)
     {
         var reader = new PayloadReader(payload);
         var rootPath = reader.ReadString();
@@ -140,7 +142,7 @@ public static partial class BridgePayloadCodec
         var terrainPaths = reader.ReadStrings();
         var skyPath = reader.ReadBoolean() ? reader.ReadString() : null;
         var environment = reader.ReadBoolean()
-            ? new UyaRenderEnvironmentPayload(
+            ? new RenderEnvironmentPayload(
                 reader.ReadUInt32(), reader.ReadUInt32(), reader.ReadUInt32(),
                 reader.ReadUInt32(), reader.ReadUInt32(), reader.ReadUInt32(),
                 reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle(),
@@ -151,7 +153,7 @@ public static partial class BridgePayloadCodec
             : null;
         var assetCount = reader.ReadUInt32();
         if (assetCount > 100_000) PayloadFormat.Malformed("Render asset list exceeds item limit");
-        var assets = new UyaRenderAssetPayload[assetCount];
+        var assets = new RenderAssetPayload[assetCount];
         for (var index = 0; index < assets.Length; index++)
             assets[index] = new(
                 reader.ReadString(),
@@ -160,10 +162,10 @@ public static partial class BridgePayloadCodec
                 reader.ReadBoolean() ? reader.ReadString() : null);
         var octantCount = reader.ReadUInt32();
         if (octantCount > 1_000_000) PayloadFormat.Malformed("Occlusion octant list exceeds item limit");
-        var octants = new UyaRenderOcclusionOctantPayload[octantCount];
+        var octants = new RenderOcclusionOctantPayload[octantCount];
         for (var index = 0; index < octants.Length; index++)
             octants[index] = new(reader.ReadInt32(), reader.ReadInt32(), reader.ReadInt32(), reader.ReadInt32());
-        var value = new UyaRenderPackageResultPayload(
+        var value = new RenderPackageResultPayload(
             rootPath, cacheKey, terrainPaths, skyPath, environment, assets, reader.ReadBoolean(), octants);
         reader.Complete();
         return value;

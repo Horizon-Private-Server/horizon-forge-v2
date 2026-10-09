@@ -104,6 +104,8 @@ public static class UyaProjectService
                 baseData.MissingInstanceCount),
             entities,
             baseData.LevelSettings,
+            baseData.Hud,
+            baseData.Fx,
             cancellationToken);
         await OpaqueContentStore.WriteAsync(
             workspace.RootPath,
@@ -320,7 +322,7 @@ public static class UyaProjectService
     {
         var attached = workspace.Content.Assets.Select(asset => asset.Id).ToHashSet();
         return workspace.Content.Entities
-            .Where(entity => entity.Asset is not null && workspace.ResolveAssetPath(entity.Asset.Id, catalog) is null)
+            .Where(entity => entity.Asset is not null && workspace.ResolveAsset(entity.Asset, catalog) is null)
             .GroupBy(entity => entity.Asset!)
             .OrderBy(group => group.Key.Id.ToString(), StringComparer.Ordinal)
             .Select(group =>

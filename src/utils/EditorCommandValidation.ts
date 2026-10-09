@@ -9,6 +9,10 @@ const commandKinds = new Set([
   'addSkyShellFromAsset', 'updateSkyShell', 'reorderSkyShell',
   'removeInstancedCollisionProxy', 'setInstancedCollisionEnabled', 'setInstancedCollisionRawType',
   'setInstancedCollisionFaceTypes',
+  'setEntityReference',
+  'updatePaletteOptimization',
+  'replaceHudTexture', 'removeHudTextureOverride', 'addHudIcon', 'removeHudIcon',
+  'replaceFxTexture', 'removeFxTextureOverride', 'addFxTexture', 'removeFxTexture',
 ]);
 
 export function isEditorCommand(value: unknown): value is EditorCommand {
@@ -20,6 +24,14 @@ export function isEditorCommand(value: unknown): value is EditorCommand {
     || command.entityIds.some((id) => typeof id !== 'string')) return false;
   if (command.kind === 'updateLevelSettings')
     return command.entityIds.length === 0 && isLevelSettings(command.levelSettings);
+  if (command.kind === 'updatePaletteOptimization') {
+    if (!command.paletteOptimization || typeof command.paletteOptimization !== 'object') return false;
+    const profile = command.paletteOptimization as Record<string, unknown>;
+    return command.entityIds.length === 0
+      && profile.mappingVersion === 'paletteOptimization.v1'
+      && Number.isInteger(profile.strength)
+      && Number(profile.strength) >= 0 && Number(profile.strength) <= 100;
+  }
   if (command.kind === 'updateSplinePoints')
     return command.entityIds.length === 1 && Array.isArray(command.points)
       && command.points.length <= 100_000 && command.points.every(isPoint);
@@ -47,7 +59,55 @@ export function isEditorCommand(value: unknown): value is EditorCommand {
       && command.faceTypes.length <= 100_000
       && command.faceTypes.every(isCollisionFaceType)
       && new Set(command.faceTypes.map((value) => value.faceIndex)).size === command.faceTypes.length;
+  if (command.kind === 'setEntityReference')
+    return command.entityIds.length === 1 && isReferenceUpdate(command.reference);
+  if (command.kind === 'replaceHudTexture')
+    return command.entityIds.length === 0 && isAssetId(command.sourceAssetId)
+      && isHudImage(command.imageFormat, command.imageBytes);
+  if (command.kind === 'removeHudTextureOverride')
+    return command.entityIds.length === 0 && isAssetId(command.sourceAssetId);
+  if (command.kind === 'addHudIcon')
+    return command.entityIds.length === 0
+      && Number.isInteger(command.spriteId) && Number(command.spriteId) >= 0
+      && Number(command.spriteId) <= 0xffff
+      && Number.isInteger(command.bankIndex) && Number(command.bankIndex) >= 0
+      && Number(command.bankIndex) < 5
+      && isHudImage(command.imageFormat, command.imageBytes);
+  if (command.kind === 'removeHudIcon')
+    return command.entityIds.length === 0
+      && Number.isInteger(command.spriteId) && Number(command.spriteId) >= 0
+      && Number(command.spriteId) <= 0xffff;
+  if (command.kind === 'replaceFxTexture')
+    return command.entityIds.length === 0 && isAssetId(command.sourceAssetId)
+      && isHudImage(command.imageFormat, command.imageBytes);
+  if (command.kind === 'removeFxTextureOverride')
+    return command.entityIds.length === 0 && isAssetId(command.sourceAssetId);
+  if (command.kind === 'addFxTexture')
+    return command.entityIds.length === 0 && isHudImage(command.imageFormat, command.imageBytes);
+  if (command.kind === 'removeFxTexture')
+    return command.entityIds.length === 0 && Number.isInteger(command.index)
+      && Number(command.index) >= 0 && Number(command.index) < 4_096;
   return true;
+}
+
+function isAssetId(value: unknown): value is string {
+  return typeof value === 'string' && /^[0-9a-f]{64}$/.test(value);
+}
+
+function isHudImage(format: unknown, bytes: unknown): boolean {
+  return (format === 'png' || format === 'pif') && bytes instanceof Uint8Array
+    && bytes.byteLength > 0 && bytes.byteLength <= 16 * 1024 * 1024;
+}
+
+function isReferenceUpdate(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const reference = value as Record<string, unknown>;
+  return typeof reference.fieldKey === 'string'
+    && reference.fieldKey.length > 0 && reference.fieldKey.length <= 128
+    && /^[A-Za-z0-9.\[\]-]+$/.test(reference.fieldKey)
+    && (reference.sourceValue === undefined || Number.isInteger(reference.sourceValue)
+      && Number(reference.sourceValue) >= 0 && Number(reference.sourceValue) <= 0x7fff_ffff)
+    && (reference.targetEntityId === undefined || typeof reference.targetEntityId === 'string');
 }
 
 function isCollisionFaceType(value: unknown): value is { faceIndex: number; rawType: number } {

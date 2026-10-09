@@ -32,7 +32,7 @@ internal static class UyaInstancedCollisionLinkRecoveryService
             try
             {
                 var length = new FileInfo(path).Length;
-                if (length != entry.Size || length is <= 0 or > UyaAssetLimits.MaxCanonicalBytes) continue;
+                if (length != entry.Size || length is <= 0 or > ForgeProjectWorkspace.MaxAttachedAssetBytes) continue;
                 var canonicalBytes = File.ReadAllBytes(path);
                 if (AssetId.Compute(entry.Kind, entry.CanonicalFormatVersion, canonicalBytes) != entry.Id) continue;
                 var modelBytes = UyaCanonicalAssetCodec.Decode(canonicalBytes).ModelBytes;

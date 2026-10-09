@@ -23,8 +23,8 @@ public static class UyaAssetPreviewService
     private static CatalogCache? CachedCatalog;
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
-    public static async Task<UyaAssetPreviewResult> PrepareAsync(
-        UyaAssetPreviewRequest request,
+    public static async Task<AssetPreviewResult> PrepareAsync(
+        AssetPreviewRequest request,
         string sdkRevision,
         CancellationToken cancellationToken = default)
     {
@@ -34,22 +34,36 @@ public static class UyaAssetPreviewService
         var cached = await TryOpenAsync(target, request, sdkRevision, cancellationToken);
         if (cached is not null) return cached with { CacheHit = true };
         var catalog = await OpenCatalogAsync(request.CatalogRootPath, cancellationToken);
-        var entry = catalog.Query(new(Id: request.AssetId)).SingleOrDefault()
-            ?? throw new InvalidDataException($"Asset {request.AssetId} is not present in the catalog.");
-        if (entry.Kind != request.Kind) throw new InvalidDataException("Asset kind does not match the catalog entry.");
-        var path = catalog.ResolveBlobPath(entry.Id) ?? throw new FileNotFoundException("Asset blob is missing.");
-        var package = entry.Kind switch
+        var entry = catalog.Query(new(Id: request.AssetId)).SingleOrDefault();
+        if (entry is not null && entry.Kind != request.Kind)
+            throw new InvalidDataException("Asset kind does not match the catalog entry.");
+        var package = entry?.Kind switch
         {
-            AssetKind.Texture => await BuildTexturePackageAsync(entry, path, cancellationToken),
-            AssetKind.Sky => await BuildSkyPackageAsync(entry, path, request.ShellIndex, cancellationToken),
+            AssetKind.Texture => await BuildTexturePackageAsync(
+                entry,
+                catalog.ResolveBlobPath(entry.Id) ?? throw new FileNotFoundException("Asset blob is missing."),
+                cancellationToken),
+            AssetKind.Sky => await BuildSkyPackageAsync(
+                entry,
+                catalog.ResolveBlobPath(entry.Id) ?? throw new FileNotFoundException("Asset blob is missing."),
+                request.ShellIndex,
+                cancellationToken),
+            null when request.Kind == AssetKind.Texture && !string.IsNullOrWhiteSpace(request.ProjectPath) =>
+                await BuildProjectTexturePackageAsync(request, cancellationToken),
+            null => throw new InvalidDataException($"Asset {request.AssetId} is not present in the catalog or active project."),
             _ => await UyaRenderPackageService.BuildAssetPackageAsync(
-                entry.Id, entry.Kind, entry.CanonicalFormatVersion, entry.Size, path, cancellationToken),
+                entry.Id,
+                entry.Kind,
+                entry.CanonicalFormatVersion,
+                entry.Size,
+                catalog.ResolveBlobPath(entry.Id) ?? throw new FileNotFoundException("Asset blob is missing."),
+                cancellationToken),
         };
         return await MaterializeAsync(request, sdkRevision, package, cancellationToken);
     }
 
-    internal static async Task<UyaAssetPreviewResult> MaterializeAsync(
-        UyaAssetPreviewRequest request,
+    internal static async Task<AssetPreviewResult> MaterializeAsync(
+        AssetPreviewRequest request,
         string sdkRevision,
         PackedFilePackage package,
         CancellationToken cancellationToken = default)
@@ -118,7 +132,7 @@ public static class UyaAssetPreviewService
         }
     }
 
-    internal static string CreateCacheKey(UyaAssetPreviewRequest request, string sdkRevision)
+    internal static string CreateCacheKey(AssetPreviewRequest request, string sdkRevision)
     {
         Validate(request, sdkRevision);
         var schema = request.Kind switch
@@ -137,13 +151,51 @@ public static class UyaAssetPreviewService
         string path,
         CancellationToken cancellationToken)
     {
-        if (entry.CanonicalFormatVersion != UyaAssetImportService.TextureCanonicalFormatVersion)
-            throw new InvalidDataException($"Unsupported canonical texture format {entry.CanonicalFormatVersion}.");
         var bytes = await AssetCatalogBlobReader.ReadVerifiedAsync(
-            entry, path, UyaAssetLimits.MaxTextureBytes, cancellationToken);
-        var png = await Task.Run(
-            () => PifAssetExporter.Export(bytes, options: new() { DoubleAlpha = true }).PngBytes,
+            entry, path, ProjectTextureAssetSchema.MaximumCanonicalBytes, cancellationToken);
+        return await BuildTexturePackageAsync(entry.CanonicalFormatVersion, bytes, cancellationToken);
+    }
+
+    private static async Task<PackedFilePackage> BuildProjectTexturePackageAsync(
+        AssetPreviewRequest request,
+        CancellationToken cancellationToken)
+    {
+        var projectRoot = Path.GetFullPath(request.ProjectPath);
+        var id = request.AssetId.ToString();
+        var path = Path.Combine(projectRoot, "assets", id[..2], $"{id}.blob");
+        var info = new FileInfo(path);
+        if (!info.Exists) throw new FileNotFoundException($"Project asset blob {request.AssetId} is missing.");
+        if (info.Length is <= 0 or > ProjectTextureAssetSchema.MaximumCanonicalBytes)
+            throw new InvalidDataException($"Project texture {request.AssetId} has an invalid size.");
+        var bytes = await AssetCatalogBlobReader.ReadVerifiedAsync(
+            request.AssetId,
+            AssetKind.Texture,
+            ProjectTextureAssetSchema.CanonicalFormatVersion,
+            info.Length,
+            path,
+            ProjectTextureAssetSchema.MaximumCanonicalBytes,
             cancellationToken);
+        return await BuildTexturePackageAsync(ProjectTextureAssetSchema.CanonicalFormatVersion, bytes, cancellationToken);
+    }
+
+    private static async Task<PackedFilePackage> BuildTexturePackageAsync(
+        uint canonicalFormatVersion,
+        byte[] bytes,
+        CancellationToken cancellationToken)
+    {
+        if (canonicalFormatVersion != UyaAssetImportService.TextureCanonicalFormatVersion)
+            throw new InvalidDataException($"Unsupported canonical texture format {canonicalFormatVersion}.");
+        byte[] png;
+        try
+        {
+            png = await Task.Run(
+                () => PifAssetExporter.Export(bytes, options: new() { DoubleAlpha = true }).PngBytes,
+                cancellationToken);
+        }
+        catch (Exception exception) when (exception is EndOfStreamException or ArgumentException or OverflowException)
+        {
+            throw new InvalidDataException("Texture preview decoding failed because the canonical PIF is invalid.", exception);
+        }
         cancellationToken.ThrowIfCancellationRequested();
         return PackedFilePackageBuilder.Pack([new("texture.png", png, "image/png")]);
     }
@@ -190,7 +242,7 @@ public static class UyaAssetPreviewService
         CancellationToken cancellationToken)
     {
         var bytes = await AssetCatalogBlobReader.ReadVerifiedAsync(
-            entry, path, UyaAssetLimits.MaxCanonicalBytes, cancellationToken);
+            entry, path, ForgeProjectWorkspace.MaxAttachedAssetBytes, cancellationToken);
         return await Task.Run(() =>
         {
             using var stream = new MemoryStream(bytes, writable: false);
@@ -223,9 +275,9 @@ public static class UyaAssetPreviewService
         }, cancellationToken);
     }
 
-    private static async Task<UyaAssetPreviewResult?> TryOpenAsync(
+    private static async Task<AssetPreviewResult?> TryOpenAsync(
         string root,
-        UyaAssetPreviewRequest request,
+        AssetPreviewRequest request,
         string sdkRevision,
         CancellationToken cancellationToken)
     {
@@ -277,7 +329,7 @@ public static class UyaAssetPreviewService
         return new(root, marker.CacheKey, marker.ModelPath, true);
     }
 
-    private static void Validate(UyaAssetPreviewRequest request, string sdkRevision)
+    private static void Validate(AssetPreviewRequest request, string sdkRevision)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.CacheRootPath);

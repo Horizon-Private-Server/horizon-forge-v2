@@ -1,4 +1,3 @@
-using System.Buffers.Binary;
 using Forge.Host.Domain;
 using RatchetPs2.Games.UYA.Gameplay;
 
@@ -46,8 +45,8 @@ internal static class UyaStaticReferenceStore
             : -1;
         if (sourceIndices.Any(value => value < 0) && insertedBitIndex < 0)
             throw new InvalidDataException("UYA occlusion mapping has no free visibility bit for an inserted tie.");
-        var occlusionIds = ties.Select(value => BinaryPrimitives.ReadInt32LittleEndian(
-            value.Source!.RawRecord.AsSpan(UyaTieInstancesReader.OcclusionIdOffset))).ToArray();
+        var occlusionIds = ties.Select(value =>
+            UyaTieInstancesReader.ReadInstance(value.Source!.RawRecord).OcclusionId).ToArray();
         if (sourceIndices.SequenceEqual(Enumerable.Range(0, mappings.Ties.Count))) return null;
         var groups = opaque.Manifest.Sections.SingleOrDefault(value => value.Name == "gameplay/tie_groups");
         var groupBytes = groups is null ? null : UyaTieGroupsWriter.Remap(

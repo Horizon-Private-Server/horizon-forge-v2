@@ -38,7 +38,7 @@ internal static class AssetMaintenanceTests
             var movedProjectPath = Path.Combine(root, "moved-project");
             Directory.Move(projectPath, movedProjectPath);
             project = await ForgeProjectWorkspace.OpenAsync(movedProjectPath);
-            Equal(true, project.ResolveAssetPath(keep.Id, matchingCatalog) is not null,
+            Equal(true, project.ResolveAssetPath(new(keep.Id, keep.Kind), matchingCatalog) is not null,
                 "moved project resolves against matching catalog");
 
             File.Delete(matchingCatalog.ResolveBlobPath(keep.Id)!);

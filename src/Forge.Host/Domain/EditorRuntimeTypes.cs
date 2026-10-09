@@ -25,6 +25,16 @@ public enum EditorCommandKind : byte
     SetInstancedCollisionEnabled = 21,
     SetInstancedCollisionRawType = 22,
     SetInstancedCollisionFaceTypes = 23,
+    SetEntityReference = 24,
+    UpdatePaletteOptimization = 25,
+    ReplaceHudTexture = 26,
+    RemoveHudTextureOverride = 27,
+    AddHudIcon = 28,
+    RemoveHudIcon = 29,
+    ReplaceFxTexture = 30,
+    RemoveFxTextureOverride = 31,
+    AddFxTexture = 32,
+    RemoveFxTexture = 33,
 }
 
 public enum EditorEventKind : byte
@@ -62,7 +72,39 @@ public sealed record EditorCommand(
     bool? InstancedCollisionEnabled = null,
     byte? InstancedCollisionRawType = null,
     AssetId? InstancedCollisionProxyAssetId = null,
-    IReadOnlyList<ProjectCollisionFaceTypeOverride>? InstancedCollisionFaceTypes = null);
+    IReadOnlyList<ProjectCollisionFaceTypeOverride>? InstancedCollisionFaceTypes = null,
+    EditorReferenceUpdate? ReferenceUpdate = null,
+    ProjectPaletteOptimization? PaletteOptimization = null,
+    EditorHudEdit? HudEdit = null,
+    EditorFxEdit? FxEdit = null);
+
+public sealed record EditorHudEdit(
+    AssetId? SourceAssetId = null,
+    ushort? SpriteId = null,
+    int? BankIndex = null,
+    string? ImageFormat = null,
+    byte[]? ImageBytes = null);
+
+public delegate Task EditorHudCommandExecutor(
+    ForgeProjectWorkspace workspace,
+    EditorCommand command,
+    CancellationToken cancellationToken);
+
+public sealed record EditorFxEdit(
+    AssetId? SourceAssetId = null,
+    int? Index = null,
+    string? ImageFormat = null,
+    byte[]? ImageBytes = null);
+
+public delegate Task EditorFxCommandExecutor(
+    ForgeProjectWorkspace workspace,
+    EditorCommand command,
+    CancellationToken cancellationToken);
+
+public sealed record EditorReferenceUpdate(
+    string FieldKey,
+    int? SourceValue,
+    EntityId? TargetEntityId);
 
 public sealed record EditorAssetPlacement(
     AssetId AssetId,
@@ -154,6 +196,65 @@ public sealed record EditorEntitySnapshot(
     EditorInstancedCollisionBindingSnapshot? IndividualInstancedCollision,
     bool? InstancedCollisionEnabled);
 
+public sealed record EditorReferenceSnapshot(
+    EntityId OwnerEntityId,
+    ProjectReference Reference,
+    int? SourceValue,
+    bool Missing);
+
+public sealed record EditorHudFrameSnapshot(
+    int SourceFrameIndex,
+    int SourcePaletteIndex,
+    int SourceTextureIndex,
+    int PaletteBankIndex,
+    int TextureBankIndex,
+    int Width,
+    int Height,
+    ProjectAssetReference? SourceTexture,
+    ProjectAssetReference? EffectiveTexture,
+    string? Diagnostic);
+
+public sealed record EditorHudIconSnapshot(
+    int SourceIconIndex,
+    ushort SpriteId,
+    IReadOnlyList<EditorHudFrameSnapshot> Frames);
+
+public sealed record EditorHudSnapshot(
+    bool CanRead,
+    bool IsDirty,
+    bool CanReplace,
+    bool CanAppend,
+    string? AuthoringDisabledReason,
+    int PhysicalBankCount,
+    int MinimumAppendBank,
+    ushort MinimumAppendSpriteId,
+    ushort MaximumAppendSpriteId,
+    int MaximumIconCount,
+    IReadOnlyList<EditorHudIconSnapshot> SourceIcons,
+    IReadOnlyList<ProjectHudIconAddition> Additions);
+
+public sealed record EditorFxSourceTextureSnapshot(
+    int SourceIndex,
+    string Label,
+    int Width,
+    int Height,
+    int PaletteOffset,
+    int PixelOffset,
+    bool IsSwizzled,
+    ProjectAssetReference? SourceTexture,
+    ProjectAssetReference? EffectiveTexture,
+    string? Diagnostic);
+
+public sealed record EditorFxSnapshot(
+    bool CanRead,
+    bool IsDirty,
+    bool CanReplace,
+    bool CanAppend,
+    string? AuthoringDisabledReason,
+    int MaximumTextureCount,
+    IReadOnlyList<EditorFxSourceTextureSnapshot> SourceTextures,
+    IReadOnlyList<ProjectFxTextureAddition> Additions);
+
 public sealed record EditorEvent(
     long Sequence,
     long CreatedUnixMilliseconds,
@@ -179,7 +280,10 @@ public sealed record EditorSnapshot(
     ProjectTargetProfile Target,
     ProjectBaseLevel BaseLevel,
     ProjectLevelSettings? LevelSettings,
+    EditorHudSnapshot? Hud,
+    EditorFxSnapshot? Fx,
     IReadOnlyList<EditorEntitySnapshot> Entities,
+    IReadOnlyList<EditorReferenceSnapshot> References,
     IReadOnlyList<EntityId> Selection,
     bool IsDirty,
     bool CanUndo,

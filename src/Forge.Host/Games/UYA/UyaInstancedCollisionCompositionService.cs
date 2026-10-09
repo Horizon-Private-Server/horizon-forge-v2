@@ -215,21 +215,11 @@ internal static class UyaInstancedCollisionCompositionService
         AssetKind kind,
         CancellationToken cancellationToken)
     {
-        var path = workspace.ResolveAssetPath(assetId, catalog)
+        var resolved = workspace.ResolveAsset(new(assetId, kind), catalog)
             ?? throw new FileNotFoundException($"Asset blob {assetId} is missing.");
-        var attached = workspace.Content.Assets.SingleOrDefault(asset => asset.Id == assetId);
-        if (attached is not null)
-        {
-            if (attached.Kind != kind) throw new InvalidDataException($"Asset {assetId} has the wrong kind.");
-            return await AssetCatalogBlobReader.ReadVerifiedAsync(
-                attached.Id, attached.Kind, attached.CanonicalFormatVersion, attached.Size,
-                path, UyaAssetLimits.MaxCanonicalBytes, cancellationToken);
-        }
-        var entry = catalog.Query(new(Id: assetId)).SingleOrDefault()
-            ?? throw new FileNotFoundException($"Asset {assetId} is not present in the catalog.");
-        if (entry.Kind != kind) throw new InvalidDataException($"Asset {assetId} has the wrong kind.");
         return await AssetCatalogBlobReader.ReadVerifiedAsync(
-            entry, path, UyaAssetLimits.MaxCanonicalBytes, cancellationToken);
+            resolved.Effective.Id, resolved.Effective.Kind, resolved.CanonicalFormatVersion, resolved.Size,
+            resolved.Path, ForgeProjectWorkspace.MaxAttachedAssetBytes, cancellationToken);
     }
 
     internal static CollisionInstanceTransform ToCollisionTransform(ProjectTransform transform) => new(

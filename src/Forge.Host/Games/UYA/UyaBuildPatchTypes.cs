@@ -13,13 +13,6 @@ public sealed record UyaBuildPatchRequest(
     IReadOnlySet<BakeLayerId>? IncludedLayers = null,
     bool ForceInPlace = false);
 
-public sealed record UyaBuildLayerStatus(
-    BakeLayerId Layer,
-    BakeLayerState State,
-    bool CanDefer);
-
-public sealed record UyaBuildPlan(IReadOnlyList<UyaBuildLayerStatus> Layers);
-
 public enum UyaBuildPatchPhase
 {
     Preflight,

@@ -16,6 +16,8 @@ internal static class UyaBaseLevelService
     {
         var levelWad = LevelArchiveReader.ExtractPrimary(GameId.UYA, iso, level);
         var package = UyaLevelWadUnpacker.Unpack(levelWad);
+        var hud = UyaHudProjectService.TryRead(package)?.State;
+        var fx = UyaFxProjectService.TryRead(package)?.State;
         var files = package.Files.ToDictionary(file => file.Path, StringComparer.Ordinal);
         var mobyBytes = Required(files, "gameplay/core/moby_instances.bin", level);
         var tieBytes = Required(files, "gameplay/core/tie_instances.bin", level);
@@ -122,7 +124,9 @@ internal static class UyaBaseLevelService
                     [mobyTable.SpawnableMobyCount, mobyTable.Pad8, mobyTable.PadC], mobyTable.TrailingBytes),
             ],
             gameplay,
-            levelSettings is null ? null : ProjectSettings(levelSettings));
+            levelSettings is null ? null : ProjectSettings(levelSettings),
+            hud,
+            fx);
     }
 
     private static void AddCollisionPieces(
@@ -456,11 +460,12 @@ internal static class UyaBaseLevelService
                 Geometry: new(Area: new(
                     bounds,
                     value.LastUpdateTime,
-                    Links(value.SplineIndices, splineIds),
-                    Links(value.CuboidIndices, cuboidIds),
-                    Links(value.SphereIndices, sphereIds),
-                    Links(value.CylinderIndices, cylinderIds),
-                    Links(value.NegativeCuboidIndices, cuboidIds)))));
+                    Links(value.SplineIndices, splineIds, ProjectReferences.AreaSplines, ProjectEntityKind.Spline),
+                    Links(value.CuboidIndices, cuboidIds, ProjectReferences.AreaCuboids, ProjectEntityKind.Cuboid),
+                    Links(value.SphereIndices, sphereIds, ProjectReferences.AreaSpheres, ProjectEntityKind.Sphere),
+                    Links(value.CylinderIndices, cylinderIds, ProjectReferences.AreaCylinders, ProjectEntityKind.Cylinder),
+                    Links(value.NegativeCuboidIndices, cuboidIds,
+                        ProjectReferences.AreaNegativeCuboids, ProjectEntityKind.Cuboid)))));
         }
     }
 
@@ -514,10 +519,11 @@ internal static class UyaBaseLevelService
 
     private static ProjectGeometryLink[] Links(
         IEnumerable<int> sourceIndices,
-        IReadOnlyDictionary<int, EntityId>? entities = null) => sourceIndices
-        .Select(index => new ProjectGeometryLink(
-            index,
-            entities is not null && entities.TryGetValue(index, out var entityId) ? entityId : null))
+        IReadOnlyDictionary<int, EntityId> entities,
+        string fieldKey,
+        ProjectEntityKind targetKind) => sourceIndices
+        .Select(index => new ProjectGeometryLink(index, Reference: ProjectReferences.ImportedEntityReference(
+            fieldKey, targetKind, nullable: true, index, entities)))
         .ToArray();
 
     private static ProjectEntity CreateStaticEntity(
@@ -673,4 +679,6 @@ internal sealed record UyaBaseLevelData(
     IReadOnlyList<UyaBaseLayerPayload> BaseLayers,
     IReadOnlyList<UyaStaticLayerSourceRecord> StaticLayers,
     UyaGameplayBlocks Gameplay,
-    ProjectLevelSettings? LevelSettings);
+    ProjectLevelSettings? LevelSettings,
+    ProjectHudState? Hud,
+    ProjectFxState? Fx);

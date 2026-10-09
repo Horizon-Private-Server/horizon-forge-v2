@@ -1,4 +1,6 @@
-import { Alert, Badge, Button, Group, MantineProvider, Text, Title } from '@mantine/core';
+import { FloppyDiskIcon } from '@phosphor-icons/react/dist/csr/FloppyDisk';
+import { FolderOpenIcon } from '@phosphor-icons/react/dist/csr/FolderOpen';
+import { ActionIcon, Alert, Badge, Group, MantineProvider, Text, Tooltip } from '@mantine/core';
 import { useEffect, useMemo, useState } from 'react';
 
 import type { KeybindingMap } from '../types/Keybindings.js';
@@ -56,6 +58,7 @@ function ForgeApp({ uiSize, onUiSizeChange }: { uiSize: UiSize; onUiSizeChange(v
     hubAction,
     layoutAction,
     handleForgeAction,
+    isSaving,
     openProject,
     setActiveProject,
     clearEditorError,
@@ -101,27 +104,50 @@ function ForgeApp({ uiSize, onUiSizeChange }: { uiSize: UiSize; onUiSizeChange(v
     <main className="app-shell" data-ui-size={uiSize} style={sceneTreeColorVariables(sceneTreeColors)}>
       <ForgeMenuBar keybindings={keybindings} project={activeProject} onAction={handleForgeAction} />
       <header className="app-header">
-        <Group justify="space-between" wrap="nowrap">
-          <div>
-            <Title order={4}>Horizon Forge</Title>
-            <Text c="dimmed" size="xs">Ratchet &amp; Clank map editor</Text>
-          </div>
-          <Group>
-            <NotificationMenu
-              notifications={notificationCenter.notifications}
-              onDismiss={notificationCenter.dismiss}
-              onAction={notificationCenter.runAction}
-            />
-            {activeProject && <>
-              <Text size="sm">{activeProject.projectName}</Text>
-              {activeProject.isDirty && <Badge color="yellow" variant="light">Unsaved</Badge>}
-              <Button onClick={() => handleForgeAction('saveProject')}>Save</Button>
-              <Button variant="default" onClick={() => handleForgeAction('projects')}>Projects</Button>
-            </>}
-            <Badge color={hostStatus ? 'teal' : 'yellow'} variant="light">
-              {hostStatus ? `Host ${hostStatus.hostVersion.split('+')[0]} · ${hostStatus.supportedGames.join(', ')}` : 'Host connecting'}
-            </Badge>
-          </Group>
+        <Group className="app-header-content" wrap="nowrap">
+          {activeProject && <Group className="project-ribbon" wrap="nowrap">
+            <Tooltip label={isSaving ? 'Saving project…' : 'Save project'}>
+              <ActionIcon
+                className="ribbon-action"
+                aria-busy={isSaving}
+                aria-label={isSaving ? 'Saving project' : 'Save project'}
+                disabled={isSaving}
+                onClick={() => handleForgeAction('saveProject')}
+              >
+                <FloppyDiskIcon weight="bold" />
+              </ActionIcon>
+            </Tooltip>
+            <Tooltip label="Return to projects">
+              <ActionIcon
+                className="ribbon-action"
+                aria-label="Return to projects"
+                disabled={isSaving}
+                variant="default"
+                onClick={() => handleForgeAction('projects')}
+              >
+                <FolderOpenIcon weight="bold" />
+              </ActionIcon>
+            </Tooltip>
+            {activeProject.isDirty && <Badge
+              aria-label="Project has unsaved changes"
+              color="yellow"
+              variant="light"
+            >Unsaved</Badge>}
+            <Text
+              className="project-name"
+              aria-label={`Project ${activeProject.projectName}`}
+              fw={600}
+              size="sm"
+              title={activeProject.projectName}
+            >
+              {activeProject.projectName}
+            </Text>
+          </Group>}
+          <NotificationMenu
+            notifications={notificationCenter.notifications}
+            onDismiss={notificationCenter.dismiss}
+            onAction={notificationCenter.runAction}
+          />
         </Group>
       </header>
       <div className="app-content">

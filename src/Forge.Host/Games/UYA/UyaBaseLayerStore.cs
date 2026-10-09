@@ -109,7 +109,7 @@ public static class UyaBaseLayerStore
                         $"{layer.Layer} source {asset.Name} is not a verified target-native UYA asset; restore it from the source ISO.");
                     continue;
                 }
-                var assetPath = workspace.ResolveAssetPath(asset.Asset.Id, catalog);
+                var assetPath = workspace.ResolveAssetPath(asset.Asset, catalog);
                 if (assetPath is null)
                 {
                     blockers[layer.Layer].Add(
@@ -186,10 +186,11 @@ public static class UyaBaseLayerStore
                     inspection.Manifest.DocumentType,
                     inspection.Manifest.Source,
                     [record]));
-            var assetIds = record?.Assets?.Select(value => value.Asset.Id) ?? [];
+            var assetIds = record?.Assets?.Select(value => workspace.ResolveAssetReference(value.Asset).Id) ?? [];
             if (layer == BakeLayerId.Sky)
                 assetIds = assetIds.Concat(EnabledSkyShells(workspace)
-                    .Where(value => value.Asset is not null).Select(value => value.Asset!.Id));
+                    .Where(value => value.Asset is not null)
+                    .Select(value => workspace.ResolveAssetReference(value.Asset!).Id));
             if (layer == BakeLayerId.Collision)
                 assetIds = assetIds.Concat(workspace.Content.InstancedCollisionBindings
                     .SelectMany(value => new[] { value.SourceAssetId, value.ProxyAssetId }));
@@ -316,7 +317,7 @@ public static class UyaBaseLayerStore
                 token);
             foreach (var asset in record.Assets)
             {
-                var source = workspace.ResolveAssetPath(asset.Asset.Id, catalog)
+                var source = workspace.ResolveAssetPath(asset.Asset, catalog)
                     ?? throw new FileNotFoundException($"Base-layer asset {asset.Asset.Id} disappeared during bake.");
                 if (plan.Layer == BakeLayerId.World && workspace.Content.LevelSettings is { } settings)
                 {
@@ -368,7 +369,7 @@ public static class UyaBaseLayerStore
                 ValidatePayload(plan.Layer, asset.Name, bytes);
                 if (plan.Layer == BakeLayerId.World && workspace.Content.LevelSettings is { } settings)
                 {
-                    var source = workspace.ResolveAssetPath(asset.Asset.Id, catalog)
+                    var source = workspace.ResolveAssetPath(asset.Asset, catalog)
                         ?? throw new FileNotFoundException($"Base-layer asset {asset.Asset.Id} disappeared during validation.");
                     var expected = WriteLevelSettings(await File.ReadAllBytesAsync(source, token), settings);
                     if (!bytes.SequenceEqual(expected))
@@ -386,7 +387,7 @@ public static class UyaBaseLayerStore
                 }
                 else if (plan.Layer == BakeLayerId.Lighting && asset.Name == PointLightsAssetName)
                 {
-                    var source = workspace.ResolveAssetPath(asset.Asset.Id, catalog)
+                    var source = workspace.ResolveAssetPath(asset.Asset, catalog)
                         ?? throw new FileNotFoundException($"Base-layer asset {asset.Asset.Id} disappeared during validation.");
                     var expected = WritePointLights(await File.ReadAllBytesAsync(source, token), workspace);
                     if (!bytes.SequenceEqual(expected))
@@ -394,7 +395,7 @@ public static class UyaBaseLayerStore
                 }
                 else if (plan.Layer == BakeLayerId.Lighting && asset.Name == DirectionalLightsAssetName)
                 {
-                    var source = workspace.ResolveAssetPath(asset.Asset.Id, catalog)
+                    var source = workspace.ResolveAssetPath(asset.Asset, catalog)
                         ?? throw new FileNotFoundException($"Base-layer asset {asset.Asset.Id} disappeared during validation.");
                     var expected = WriteDirectionalLights(await File.ReadAllBytesAsync(source, token), workspace);
                     if (!bytes.SequenceEqual(expected))
@@ -402,14 +403,23 @@ public static class UyaBaseLayerStore
                 }
                 else if (plan.Layer == BakeLayerId.Lighting && asset.Name == TieAmbientAssetName)
                 {
-                    var source = workspace.ResolveAssetPath(asset.Asset.Id, catalog)
+                    var source = workspace.ResolveAssetPath(asset.Asset, catalog)
                         ?? throw new FileNotFoundException($"Base-layer asset {asset.Asset.Id} disappeared during validation.");
                     var expected = WriteTieAmbientRgbas(await File.ReadAllBytesAsync(source, token), workspace);
                     if (!bytes.SequenceEqual(expected))
                         throw new InvalidDataException("Lighting staged tie ambient data changed during write.");
                 }
-                else if (AssetId.Compute(asset.Asset.Kind, asset.CanonicalFormatVersion, bytes) != asset.Asset.Id)
-                    throw new InvalidDataException($"{plan.Layer} staged asset {asset.Name} failed identity validation.");
+                else
+                {
+                    var resolved = workspace.ResolveAsset(asset.Asset, catalog)
+                        ?? throw new FileNotFoundException(
+                            $"Base-layer asset {asset.Asset.Id} disappeared during validation.");
+                    if (resolved.CanonicalFormatVersion != asset.CanonicalFormatVersion
+                        || AssetId.Compute(asset.Asset.Kind, resolved.CanonicalFormatVersion, bytes)
+                            != resolved.Effective.Id)
+                        throw new InvalidDataException(
+                            $"{plan.Layer} staged asset {asset.Name} failed identity validation.");
+                }
             }
         }, cancellationToken);
     }
@@ -434,7 +444,7 @@ public static class UyaBaseLayerStore
         foreach (var asset in record.Assets)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var path = workspace.ResolveAssetPath(asset.Asset.Id, catalog)
+            var path = workspace.ResolveAssetPath(asset.Asset, catalog)
                 ?? throw new FileNotFoundException($"Collision source {asset.Asset.Id} is missing.");
             var source = await File.ReadAllBytesAsync(path, cancellationToken);
             var edits = UyaInstancedCollisionCompositionService.CreateEdits(

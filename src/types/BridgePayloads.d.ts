@@ -82,7 +82,7 @@ export interface UyaRenderPackageRequest {
   catalogRootPath: string;
 }
 
-export interface UyaRenderPackageResult {
+export interface RenderPackageResult {
   rootPath: string;
   cacheKey: string;
   terrainPaths: string[];
@@ -113,6 +113,7 @@ export interface UyaRenderPackageResult {
 export interface AssetPreviewRequest {
   cacheRootPath: string;
   catalogRootPath: string;
+  projectPath: string;
   assetId: string;
   kind: AssetPreviewKind;
   targetGame: string;
@@ -139,7 +140,7 @@ export interface UyaBuildPatchRequest {
   forceInPlace: boolean;
 }
 
-export interface UyaBuildPlanRequest {
+export interface BuildPlanRequest {
   projectRoot: string;
   catalogRoot: string;
 }

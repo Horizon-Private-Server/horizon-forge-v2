@@ -27,9 +27,9 @@ import type {
   AssetPreviewRequest,
   AssetPreviewResult,
   UyaBuildPatchRequest,
-  UyaBuildPlanRequest,
+  BuildPlanRequest,
   UyaRenderPackageRequest,
-  UyaRenderPackageResult,
+  RenderPackageResult,
 } from '../../types/BridgePayloads.js';
 import { decodeAssetExplorerPage, encodeAssetExplorerRequest } from './AssetExplorerPayloadCodec.js';
 import {
@@ -80,7 +80,7 @@ import {
 } from './PayloadCodec.js';
 import {
   decodeAssetPreviewResult,
-  decodeUyaRenderPackageResult,
+  decodeRenderPackageResult,
   encodeAssetPreviewRequest,
   encodeUyaRenderPackageRequest,
 } from './RenderPayloadCodec.js';
@@ -430,10 +430,10 @@ export class HostClient {
   async prepareUyaRenderPackage(
     value: UyaRenderPackageRequest,
     onProgress?: (progress: Progress) => void,
-  ): Promise<HostRequest<UyaRenderPackageResult>> {
+  ): Promise<HostRequest<RenderPackageResult>> {
     const request = await this.#request(
       BridgeOpcode.PrepareUyaRenderPackage, encodeUyaRenderPackageRequest(value), onProgress);
-    return { requestId: request.requestId, result: request.result.then(decodeUyaRenderPackageResult) };
+    return { requestId: request.requestId, result: request.result.then(decodeRenderPackageResult) };
   }
 
   async prepareAssetPreview(value: AssetPreviewRequest): Promise<HostRequest<AssetPreviewResult>> {
@@ -455,7 +455,7 @@ export class HostClient {
     return { requestId: request.requestId, result: request.result.then(decodeBuildPatchResult) };
   }
 
-  async getUyaBuildPlan(value: UyaBuildPlanRequest): Promise<HostRequest<BuildPlan>> {
+  async getUyaBuildPlan(value: BuildPlanRequest): Promise<HostRequest<BuildPlan>> {
     const request = await this.#request(BridgeOpcode.GetUyaBuildPlan, encodeBuildPlanRequest(value));
     return { requestId: request.requestId, result: request.result.then(decodeBuildPlan) };
   }

@@ -7,7 +7,7 @@ public static class BridgeFrameCodec
 {
     public const int HeaderSize = 24;
     public const int MaxPayloadLength = 64 * 1024 * 1024;
-    public const ushort ProtocolVersion = 2;
+    public const ushort ProtocolVersion = 4;
 
     private static ReadOnlySpan<byte> Magic => "HFG2"u8;
 

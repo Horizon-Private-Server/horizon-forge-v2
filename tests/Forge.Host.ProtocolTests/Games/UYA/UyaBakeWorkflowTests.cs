@@ -6,6 +6,7 @@ using System.Text.Json;
 using Forge.Host.Domain;
 using RatchetPs2.Core.Games;
 using RatchetPs2.Core.Gameplay;
+using RatchetPs2.Core.Hud;
 using RatchetPs2.Core.IO;
 using RatchetPs2.Core.LevelAssets;
 using RatchetPs2.Core.Skyboxes;
@@ -41,6 +42,7 @@ internal static class UyaBakeWorkflowTests
                 new("UYA", "NTSC-U", "1.00", "uya-ntsc-u"), "translator-1", "baker-1");
             using var isoStream = new MemoryStream(iso, writable: false);
             var sourceLevelWad = UyaLooseLevelWadExtractor.ExtractPrimary(isoStream, 3).Bytes;
+            await VerifyHudBakeAsync(root, catalog, context);
             var proxyBytes = CreateCollisionProxy();
             var selectedTie = UyaCanonicalAssetCodec.Decode(CanonicalAsset(AssetKind.Tie, 0x44));
             var retainedAssets = UyaLevelPackService.IncludeSourceStaticAssets(sourceLevelWad,
@@ -197,7 +199,7 @@ internal static class UyaBakeWorkflowTests
                 ProjectTransform.Identity,
                 new(baseTie.Id, AssetKind.Tie),
                 Source: new(200, insertedRecord),
-                TieLighting: new(0, UyaAssetPlacementService.CreateNeutralTieAmbient(4)));
+                TieLighting: new(0, UyaGameplayInstanceTemplates.CreateNeutralTieAmbient(4)));
             insertBeforeBakeWorkspace.AddEntity(insertedTie);
             await insertBeforeBakeWorkspace.SaveAsync();
             var insertBeforeBake = await UyaBakeService.BakeAsync(insertBeforeBakeProject, catalog, context);
@@ -241,7 +243,7 @@ internal static class UyaBakeWorkflowTests
 
             var first = await UyaBakeService.BakeAsync(project, catalog, context);
             Equal(true, first.Succeeded, "initial bake succeeds");
-            Equal(10, first.WrittenLayers.Count, "initial bake writes every layer");
+            Equal(12, first.WrittenLayers.Count, "initial bake writes every layer");
             Equal(true, first.Validation.Plan.Layers.All(value => value.State == BakeLayerState.Clean),
                 "initial bake validates clean");
             var paletteReport = first.PaletteReport!;
@@ -657,7 +659,7 @@ internal static class UyaBakeWorkflowTests
                     context,
                     progress: value =>
                     {
-                        if (value.Phase == UyaBakePhase.Staging
+                        if (value.Phase == BakePhase.Staging
                             && value.Layer == BakeLayerId.Shrubs
                             && value.CompletedLayers > 0)
                             cancellation.Cancel();
@@ -689,7 +691,7 @@ internal static class UyaBakeWorkflowTests
                 context,
                 progress: value =>
                 {
-                    if (value.Phase == UyaBakePhase.Staging
+                    if (value.Phase == BakePhase.Staging
                         && value.Layer == BakeLayerId.Ties
                         && value.CompletedLayers > 0
                         && File.Exists(lightingPath))
@@ -1386,7 +1388,8 @@ internal static class UyaBakeWorkflowTests
             .Plan.Layers.Single(value => value.Layer == BakeLayerId.Collision);
         var corruptionStaging = await BakeStagingStore.OpenAsync(project);
         var corruptionSafeManifest = ManifestBytes(corruptionStaging.Manifest);
-        var proxyPath = workspace.ResolveAssetPath(corruptionBinding.ProxyAssetId, catalog)
+        var proxyPath = workspace.ResolveAssetPath(
+                new(corruptionBinding.ProxyAssetId, AssetKind.Collision), catalog)
             ?? throw new InvalidOperationException("Collision proxy fixture disappeared.");
         await File.WriteAllBytesAsync(proxyPath, [0]);
         await ThrowsAsync<InvalidDataException>(() => UyaBaseLayerStore.StageAsync(
@@ -1402,7 +1405,7 @@ internal static class UyaBakeWorkflowTests
         Equal(true, corruptionSafeManifest.SequenceEqual(missingProxyManifest),
             "missing proxy data preserves the last good stage");
         await File.WriteAllBytesAsync(proxyPath, proxyBytes);
-        var tiePath = workspace.ResolveAssetPath(proxySourceAssetId, catalog)
+        var tiePath = workspace.ResolveAssetPath(new(proxySourceAssetId, AssetKind.Tie), catalog)
             ?? throw new InvalidOperationException("Parent TIE fixture disappeared.");
         var tieBytes = await File.ReadAllBytesAsync(tiePath);
         File.Delete(tiePath);
@@ -1427,7 +1430,7 @@ internal static class UyaBakeWorkflowTests
                 context,
                 progress: value =>
                 {
-                    if (value is { Phase: UyaBakePhase.Staging, Layer: BakeLayerId.Collision, CompletedLayers: > 0 })
+                    if (value is { Phase: BakePhase.Staging, Layer: BakeLayerId.Collision, CompletedLayers: > 0 })
                         cancellation.Cancel();
                     return ValueTask.CompletedTask;
                 },
@@ -1583,6 +1586,156 @@ internal static class UyaBakeWorkflowTests
         await using var compressed = new GZipStream(output, CompressionLevel.Fastest);
         await using var writer = new StreamWriter(compressed);
         await writer.WriteAsync(text.Replace(oldValue, newValue, StringComparison.Ordinal));
+    }
+
+    private static async Task VerifyHudBakeAsync(
+        string root,
+        AssetCatalogStore catalog,
+        BakeFingerprintContext context)
+    {
+        var iso = CreateHudIso();
+        var project = Path.Combine(root, "hud-bake");
+        await UyaProjectService.CreateValidatedAsync(
+            new MemoryStream(iso, writable: false),
+            catalog,
+            new("synthetic-hud.iso", catalog.RootPath, project, "HUD bake", new string('a', 32), "1.00", 3, true));
+        using var isoStream = new MemoryStream(iso, writable: false);
+        var sourceLevelWad = UyaLooseLevelWadExtractor.ExtractPrimary(isoStream, 3).Bytes;
+
+        var baseline = await UyaBakeService.BakeAsync(project, catalog, context);
+        Equal(true, baseline.Succeeded, "HUD baseline bake succeeds");
+        var baselineHud = baseline.Manifest.Layers.Single(value => value.Layer == BakeLayerId.Hud);
+        var baselineRoot = Path.Combine(project, BakeStagingStore.StagingDirectoryName, baselineHud.RelativePath);
+        var baselineManifest = ForgeProjectPersistence.Deserialize<UyaHudBakeManifest>(
+            await File.ReadAllBytesAsync(Path.Combine(baselineRoot, UyaHudBakeSchema.ManifestFileName)),
+            "HUD baseline manifest");
+        Equal(false, baselineManifest.HeaderChanged, "unedited HUD header remains pass-through");
+        Equal(0, baselineManifest.ChangedBanks.Count, "unedited HUD banks remain pass-through");
+
+        var workspace = await ForgeProjectWorkspace.OpenAsync(project);
+        var source = workspace.Content.Hud!.SourceIcons.Single().Frames.Single().Texture!;
+        var replacementBytes = HudTexture(8, 8, 0x51);
+        var additionBytes = HudTexture(16, 8, 0xa2);
+        var replacement = await workspace.AttachAssetAsync(
+            AssetKind.Texture, ProjectTextureAssetSchema.CanonicalFormatVersion, replacementBytes, source.Id);
+        var addition = await workspace.AttachAssetAsync(
+            AssetKind.Texture, ProjectTextureAssetSchema.CanonicalFormatVersion, additionBytes);
+        workspace.SetHudTextureOverride(source, new(replacement.Id, replacement.Kind));
+        workspace.AddHudIcon(0xE001, 2, 16, 8, new(addition.Id, addition.Kind));
+        await workspace.SaveAsync();
+
+        var edited = await UyaBakeService.BakeAsync(project, catalog, context);
+        Equal(true, edited.Succeeded, "edited HUD bake succeeds");
+        Equal(true, edited.WrittenLayers.Select(value => value.Layer).SequenceEqual([BakeLayerId.Hud]),
+            "HUD-only edit rebuilds only the HUD layer");
+        var editedHud = edited.Manifest.Layers.Single(value => value.Layer == BakeLayerId.Hud);
+        var editedRoot = Path.Combine(project, BakeStagingStore.StagingDirectoryName, editedHud.RelativePath);
+        var editedManifest = ForgeProjectPersistence.Deserialize<UyaHudBakeManifest>(
+            await File.ReadAllBytesAsync(Path.Combine(editedRoot, UyaHudBakeSchema.ManifestFileName)),
+            "edited HUD manifest");
+        Equal(true, editedManifest.HeaderChanged, "HUD edits rebuild the header");
+        Equal(true, editedManifest.ChangedBanks.SequenceEqual([0, 2]),
+            "HUD edits rebuild only the replacement and append banks");
+
+        var rebuilt = await UyaBakeService.BakeAsync(
+            project, catalog, context, rebuildAll: true,
+            includedLayers: new HashSet<BakeLayerId> { BakeLayerId.Hud });
+        Equal(editedHud.OutputFingerprint,
+            rebuilt.Manifest.Layers.Single(value => value.Layer == BakeLayerId.Hud).OutputFingerprint,
+            "clean HUD rebuild is deterministic");
+
+        var packed = await UyaLevelPackService.PackAsync(project, catalog, sourceLevelWad, context);
+        Equal(true, packed.Succeeded, "edited HUD staging packs: "
+            + string.Join(" | ", packed.Diagnostics.Select(value => value.Cause)));
+        var files = UyaLevelWadUnpacker.Unpack(packed.OutputBytes!).Files
+            .ToDictionary(value => value.Path, StringComparer.Ordinal);
+        var header = files["hud/header.bin"].Bytes;
+        var storedBanks = Enumerable.Range(0, ProjectHudSchema.PhysicalBankCount)
+            .Select(index => files.TryGetValue($"hud/bank{index}.bin", out var file) ? file.Bytes : [])
+            .ToArray();
+        var banks = storedBanks.Select(value => BinaryMagic.IsWad(value)
+            ? WadCompression.Decompress(value)
+            : value).ToArray();
+        var hud = HudBankReader.Read(header, banks);
+        Equal((ushort)0x123, hud.Icons[0].IconId, "existing HUD sprite ID remains stable");
+        var replacementFrame = hud.Frames[0];
+        Equal(true, replacementFrame.PaletteIndex != 0 && replacementFrame.TextureIndex != 0,
+            "edited HUD frame resolves isolated replacement records");
+        var replacementPif = PifReader.Read(replacementBytes);
+        Equal(true, hud.Palettes[replacementFrame.PaletteIndex].PaletteBytes.SequenceEqual(replacementPif.PaletteData)
+            && hud.Textures[replacementFrame.TextureIndex].PixelBytes.SequenceEqual(replacementPif.PixelData),
+            "existing HUD sprite resolves the replacement texture");
+        var appended = hud.Icons.Single(value => value.IconId == 0xE001);
+        var appendedFrame = hud.Frames[appended.FirstFrameIndex];
+        var additionPif = PifReader.Read(additionBytes);
+        Equal(2, hud.Palettes[appendedFrame.PaletteIndex].BankIndex,
+            "custom HUD sprite resolves the selected physical bank");
+        Equal(true, hud.Palettes[appendedFrame.PaletteIndex].PaletteBytes.SequenceEqual(additionPif.PaletteData)
+            && hud.Textures[appendedFrame.TextureIndex].PixelBytes.SequenceEqual(additionPif.PixelData),
+            "custom HUD sprite resolves the appended texture");
+
+        var sourceFiles = UyaLevelWadUnpacker.Unpack(sourceLevelWad).Files
+            .ToDictionary(value => value.Path, StringComparer.Ordinal);
+        foreach (var bank in new[] { 1, 3, 4 })
+            Equal(true, (sourceFiles.TryGetValue($"hud/bank{bank}.bin", out var sourceBank) ? sourceBank.Bytes : [])
+                .SequenceEqual(files.TryGetValue($"hud/bank{bank}.bin", out var packedBank) ? packedBank.Bytes : []),
+                $"untouched HUD bank {bank} remains byte-identical");
+
+        var packedAgain = await UyaLevelPackService.PackAsync(project, catalog, sourceLevelWad, context);
+        Equal(packed.OutputSha256, packedAgain.OutputSha256,
+            "repeated HUD pack is deterministic");
+    }
+
+    private static byte[] CreateHudIso()
+    {
+        const int headerSector = 0x500;
+        var iso = UyaProjectTests.CreateIso();
+        var levelData = iso.AsSpan((headerSector + 1) * UyaLevelConstants.SectorSize, UyaLevelConstants.SectorSize);
+        var header = new byte[0xd4];
+        BinaryPrimitives.WriteUInt16LittleEndian(header.AsSpan(0x00), 2);
+        BinaryPrimitives.WriteUInt16LittleEndian(header.AsSpan(0x02), 1);
+        BinaryPrimitives.WriteInt32LittleEndian(header.AsSpan(0x04), 0xb4);
+        BinaryPrimitives.WriteInt32LittleEndian(header.AsSpan(0x08), 0xc0);
+        BinaryPrimitives.WriteInt32LittleEndian(header.AsSpan(0x0c), 0xc4);
+        BinaryPrimitives.WriteInt32LittleEndian(header.AsSpan(0x10), 0xcc);
+        for (var bank = 0; bank < ProjectHudSchema.PhysicalBankCount; bank++)
+        {
+            BinaryPrimitives.WriteInt32LittleEndian(header.AsSpan(0x14 + bank * 4), 1);
+            BinaryPrimitives.WriteInt32LittleEndian(header.AsSpan(0x34 + bank * 4), 1);
+        }
+        BinaryPrimitives.WriteInt32LittleEndian(header.AsSpan(0x54), 0x440);
+        BinaryPrimitives.WriteUInt16LittleEndian(header.AsSpan(0xb4), 0x0123);
+        BinaryPrimitives.WriteUInt16LittleEndian(header.AsSpan(0xb6), 1);
+        BinaryPrimitives.WriteUInt16LittleEndian(header.AsSpan(0xb8), 0);
+        BinaryPrimitives.WriteUInt32LittleEndian(header.AsSpan(0xbc), HudBankReader.IconMappingTerminator);
+        BinaryPrimitives.WriteInt16LittleEndian(header.AsSpan(0xc0), 0);
+        BinaryPrimitives.WriteInt16LittleEndian(header.AsSpan(0xc2), 0);
+        BinaryPrimitives.WriteUInt32LittleEndian(header.AsSpan(0xc4), 0x80000000);
+        BinaryPrimitives.WriteUInt32LittleEndian(header.AsSpan(0xcc), 0x80000400);
+        header[0xd2] = 3;
+        header[0xd3] = 3;
+        var bankBytes = new byte[0x440];
+        bankBytes[0] = 240;
+        bankBytes[1] = 80;
+        bankBytes[2] = 30;
+        bankBytes[3] = 128;
+        var compressedBank = WadCompression.CompressVerified(bankBytes).CompressedBytes;
+        BinaryPrimitives.WriteInt32LittleEndian(levelData[0x18..], 0x400);
+        BinaryPrimitives.WriteInt32LittleEndian(levelData[0x1c..], header.Length);
+        BinaryPrimitives.WriteInt32LittleEndian(levelData[0x20..], 0x500);
+        BinaryPrimitives.WriteInt32LittleEndian(levelData[0x24..], compressedBank.Length);
+        header.CopyTo(levelData[0x400..]);
+        compressedBank.CopyTo(levelData[0x500..]);
+        return iso;
+    }
+
+    private static byte[] HudTexture(int width, int height, byte marker)
+    {
+        var palette = Enumerable.Range(0, HudBankReader.PaletteLength)
+            .Select(index => unchecked((byte)(marker + index))).ToArray();
+        var pixels = Enumerable.Range(0, checked(width * height))
+            .Select(index => unchecked((byte)(marker ^ index))).ToArray();
+        return PifWriter.Write(PifWriter.CreateIndexed8(width, height, palette, pixels));
     }
 
     private static async Task<T> ThrowsAsync<T>(Func<Task> action) where T : Exception

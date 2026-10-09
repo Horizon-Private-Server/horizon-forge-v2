@@ -152,6 +152,31 @@ export class AssetThumbnailRuntime {
     });
   }
 
+  async getTextureSource(assetId: string, signal?: AbortSignal): Promise<string> {
+    const key = `texture-source:${assetId}`;
+    const cached = this.cache.get(key);
+    if (cached) {
+      this.cache.delete(key);
+      this.cache.set(key, cached);
+      return cached;
+    }
+    return this.scheduler.schedule(signal, async () => {
+      this.throwIfCancelled(signal);
+      const requestToken = crypto.randomUUID();
+      const cancel = () => { void forgeApi().cancelAssetPreview(requestToken); };
+      signal?.addEventListener('abort', cancel, { once: true });
+      this.activeRequests.add(requestToken);
+      try {
+        const source = await forgeApi().getAssetPreview(assetId, 'texture', requestToken);
+        this.throwIfCancelled(signal);
+        return this.remember(key, source.url);
+      } finally {
+        signal?.removeEventListener('abort', cancel);
+        this.activeRequests.delete(requestToken);
+      }
+    });
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;

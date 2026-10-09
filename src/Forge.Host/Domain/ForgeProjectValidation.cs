@@ -1,13 +1,13 @@
 namespace Forge.Host.Domain;
 
-internal static class ForgeProjectValidation
+internal static partial class ForgeProjectValidation
 {
     internal const int MaxInstancedCollisionFaceTypeOverrides = 100_000;
 
     public static void Validate(string rootPath, ForgeProjectManifest manifest, ForgeProjectContent content)
     {
         ValidateManifest(rootPath, manifest);
-        ValidateContent(content);
+        ValidateContent(rootPath, content);
     }
 
     public static void ValidateManifest(string rootPath, ForgeProjectManifest manifest)
@@ -24,6 +24,10 @@ internal static class ForgeProjectValidation
         ValidateText(manifest.Target.Region, nameof(manifest.Target.Region));
         ValidateText(manifest.Target.Revision, nameof(manifest.Target.Revision));
         ValidateText(manifest.Target.BakeProfile, nameof(manifest.Target.BakeProfile));
+        if (manifest.Target.PaletteOptimization is not { } paletteOptimization
+            || paletteOptimization.MappingVersion != ProjectPaletteOptimization.CurrentMappingVersion
+            || paletteOptimization.Strength is < 0 or > 100)
+            throw new InvalidDataException("Project palette optimization profile is invalid.");
         ValidateText(manifest.BaseLevel.Game, nameof(manifest.BaseLevel.Game));
         ValidateText(manifest.BaseLevel.Region, nameof(manifest.BaseLevel.Region));
         ValidateText(manifest.BaseLevel.Revision, nameof(manifest.BaseLevel.Revision));
@@ -37,15 +41,18 @@ internal static class ForgeProjectValidation
         _ = ForgeProjectPersistence.ResolveRelativePath(rootPath, manifest.Content);
     }
 
-    private static void ValidateContent(ForgeProjectContent content)
+    private static void ValidateContent(string rootPath, ForgeProjectContent content)
     {
         if (content.SchemaVersion != ProjectSchema.CurrentVersion)
             throw new UnsupportedProjectSchemaException(content.SchemaVersion);
         if (content.DocumentType != ProjectSchema.ContentDocumentType)
             throw new InvalidDataException("Project content document type is invalid.");
-        if (content.Entities is null || content.Assets is null || content.InstancedCollisionBindings is null)
+        if (content.Entities is null || content.Assets is null || content.InstancedCollisionBindings is null
+            || content.AssetOverrides is null)
             throw new InvalidDataException("Project content lists are required.");
         if (content.LevelSettings is not null) ValidateLevelSettings(content.LevelSettings);
+        if (content.Hud is not null) ValidateHud(rootPath, content.Hud, content.Assets);
+        if (content.Fx is not null) ValidateFx(rootPath, content.Fx, content.Assets);
         if (content.Entities.Any(entity => entity is null))
             throw new InvalidDataException("Project entities cannot contain null entries.");
         if (content.Entities.Select(entity => entity.EntityId).Distinct().Count() != content.Entities.Count)
@@ -100,14 +107,43 @@ internal static class ForgeProjectValidation
         foreach (var asset in content.Assets)
         {
             if (asset is null || asset.Id.ToString().Length != AssetId.TextLength
-                || asset.ParentId.ToString().Length != AssetId.TextLength)
+                || asset.ParentId is { } parentId && parentId.ToString().Length != AssetId.TextLength)
                 throw new InvalidDataException("Project asset IDs cannot be empty.");
             if (!Enum.IsDefined(asset.Kind))
                 throw new InvalidDataException($"Project asset {asset.Id} has an unknown kind.");
-            if (asset.Size < 1) throw new InvalidDataException($"Project asset {asset.Id} has an invalid size.");
+            var maximumSize = asset.Kind == AssetKind.Texture
+                ? ProjectTextureAssetSchema.MaximumCanonicalBytes
+                : ForgeProjectWorkspace.MaxAttachedAssetBytes;
+            if (asset.Size is < 1 || asset.Size > maximumSize)
+                throw new InvalidDataException($"Project asset {asset.Id} has an invalid size.");
             if (asset.Id == asset.ParentId)
                 throw new InvalidDataException($"Project asset {asset.Id} cannot derive from itself.");
         }
+        if (content.AssetOverrides.Any(binding => binding is null))
+            throw new InvalidDataException("Project asset overrides cannot contain null entries.");
+        if (content.AssetOverrides.Select(binding => binding.Source).Distinct().Count()
+            != content.AssetOverrides.Count)
+            throw new InvalidDataException("Project contains duplicate asset override sources.");
+        foreach (var binding in content.AssetOverrides)
+        {
+            if (binding.SchemaVersion != ProjectAssetOverrideSchema.CurrentVersion)
+                throw new InvalidDataException($"Unsupported asset override schema {binding.SchemaVersion}.");
+            if (binding.Source is null || binding.Replacement is null
+                || binding.Source.Id.ToString().Length != AssetId.TextLength
+                || binding.Replacement.Id.ToString().Length != AssetId.TextLength
+                || !Enum.IsDefined(binding.Source.Kind) || !Enum.IsDefined(binding.Replacement.Kind))
+                throw new InvalidDataException("Project asset override references are invalid.");
+            if (binding.Source.Kind != binding.Replacement.Kind)
+                throw new InvalidDataException($"Asset override {binding.Source.Id} changes asset kind.");
+            if (binding.Source.Id == binding.Replacement.Id)
+                throw new InvalidDataException($"Asset override {binding.Source.Id} maps to itself.");
+            var replacement = content.Assets.SingleOrDefault(asset => asset.Id == binding.Replacement.Id);
+            if (replacement is null || replacement.Kind != binding.Replacement.Kind)
+                throw new InvalidDataException($"Asset override {binding.Source.Id} has no compatible attached replacement.");
+        }
+        var overrideSources = content.AssetOverrides.Select(binding => binding.Source).ToHashSet();
+        if (content.AssetOverrides.Any(binding => overrideSources.Contains(binding.Replacement)))
+            throw new InvalidDataException("Project asset overrides cannot be chained or cyclic.");
         if (content.InstancedCollisionBindings.Any(binding => binding is null))
             throw new InvalidDataException("Project instanced collision bindings cannot contain null entries.");
         if (content.InstancedCollisionBindings.Select(binding => (binding.SourceAssetId, binding.InstanceEntityId)).Distinct().Count()
@@ -139,6 +175,14 @@ internal static class ForgeProjectValidation
                     && entity.Asset is { } asset && asset.IsInstancedCollisionSource()
                     && asset.Id == binding.SourceAssetId))
                 throw new InvalidDataException($"Instanced collision proxy {binding.ProxyAssetId} has an invalid instance binding.");
+        }
+
+        foreach (var binding in content.AssetOverrides)
+        {
+            var value = binding.Replacement.Id.ToString();
+            var path = Path.Combine(rootPath, "assets", value[..2], $"{value}.blob");
+            if (!File.Exists(path))
+                throw new InvalidDataException($"Asset override {binding.Source.Id} replacement blob is missing.");
         }
     }
 
@@ -293,13 +337,68 @@ internal static class ForgeProjectValidation
                 || new[] { area.BoundingSphere.X, area.BoundingSphere.Y, area.BoundingSphere.Z, area.BoundingSphere.W }
                     .Any(value => !float.IsFinite(value)))
                 throw new InvalidDataException($"Entity {entity.EntityId} area bounds are invalid.");
-            var known = entities.Select(value => value.EntityId).ToHashSet();
-            foreach (var link in area.Splines.Concat(area.Cuboids).Concat(area.Spheres)
-                .Concat(area.Cylinders).Concat(area.NegativeCuboids))
-            {
-                if (link is null || link.EntityId is not null && !known.Contains(link.EntityId.Value))
-                    throw new InvalidDataException($"Entity {entity.EntityId} area link is invalid.");
-            }
+            ValidateAreaLinks(entity, area.Splines, ProjectReferences.AreaSplines, ProjectEntityKind.Spline, entities);
+            ValidateAreaLinks(entity, area.Cuboids, ProjectReferences.AreaCuboids, ProjectEntityKind.Cuboid, entities);
+            ValidateAreaLinks(entity, area.Spheres, ProjectReferences.AreaSpheres, ProjectEntityKind.Sphere, entities);
+            ValidateAreaLinks(entity, area.Cylinders, ProjectReferences.AreaCylinders, ProjectEntityKind.Cylinder, entities);
+            ValidateAreaLinks(entity, area.NegativeCuboids,
+                ProjectReferences.AreaNegativeCuboids, ProjectEntityKind.Cuboid, entities);
+        }
+    }
+
+    private static void ValidateAreaLinks(
+        ProjectEntity owner,
+        IReadOnlyList<ProjectGeometryLink> links,
+        string fieldKey,
+        ProjectEntityKind targetKind,
+        IReadOnlyList<ProjectEntity> entities)
+    {
+        if (links.Any(link => link is null || link.SourceIndex < 0 || link.EntityId is not null)
+            || links.Select(link => link.SourceIndex).Distinct().Count() != links.Count
+            || links.Where(link => link.Reference?.EntityId is not null)
+                .Select(link => link.Reference!.EntityId).Distinct().Count()
+                != links.Count(link => link.Reference?.EntityId is not null))
+            throw new InvalidDataException($"Entity {owner.EntityId} field {fieldKey} contains invalid or duplicate links.");
+        foreach (var link in links)
+        {
+            ValidateReference(link.Reference, fieldKey, ProjectReferenceDomain.Entity, nullable: true);
+            if (link.Reference!.EntityKind != targetKind)
+                throw new InvalidDataException(
+                    $"Entity {owner.EntityId} field {fieldKey} expects {targetKind} targets.");
+            if (link.Reference.EntityId is not { } targetId) continue;
+            var target = entities.SingleOrDefault(entity => entity.EntityId == targetId);
+            if (target is null)
+                throw new InvalidDataException(
+                    $"Entity {owner.EntityId} field {fieldKey} has dangling target {targetId}.");
+            if (ProjectReferences.KindOf(target) != targetKind)
+                throw new InvalidDataException(
+                    $"Entity {owner.EntityId} field {fieldKey} target {targetId} has the wrong kind.");
+        }
+    }
+
+    private static void ValidateReference(
+        ProjectReference? reference,
+        string fieldKey,
+        ProjectReferenceDomain domain,
+        bool nullable)
+    {
+        if (reference is null || !Enum.IsDefined(reference.Domain) || reference.Domain != domain
+            || reference.FieldKey != fieldKey || reference.Nullable != nullable
+            || reference.FieldKey.Length is 0 or > 128 || reference.FieldKey.Any(character =>
+                !(char.IsAsciiLetterOrDigit(character) || character is '.' or '[' or ']' or '-')))
+            throw new InvalidDataException($"Project reference field {fieldKey} is invalid.");
+        if (reference.Domain == ProjectReferenceDomain.Entity)
+        {
+            if (reference.EntityKind is not { } entityKind || !Enum.IsDefined(entityKind)
+                || reference.AssetKind is not null || reference.AssetId is not null
+                || reference.EntityId is null && !reference.Nullable)
+                throw new InvalidDataException($"Project entity reference field {fieldKey} is invalid.");
+        }
+        else if (reference.AssetKind is not { } assetKind || !Enum.IsDefined(assetKind)
+            || reference.EntityKind is not null || reference.EntityId is not null
+            || reference.AssetId is null && !reference.Nullable)
+        {
+            throw new InvalidDataException($"Project asset reference field {fieldKey} is invalid.");
         }
     }
 

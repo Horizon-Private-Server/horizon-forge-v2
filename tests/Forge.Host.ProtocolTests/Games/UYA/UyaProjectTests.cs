@@ -225,11 +225,11 @@ internal static class UyaProjectTests
             Equal(8f, spline.Geometry!.Spline!.Points[1].W, "spline point w");
             Equal(8f, grindPath.Geometry!.GrindPath!.Points[1].W, "grind path point w");
             Equal(11, grindPath.Geometry.GrindPath.Unknown4, "grind path metadata");
-            Equal(spline.EntityId, area.Geometry!.Area!.Splines.Single().EntityId, "area spline stable link");
-            Equal(cuboid.EntityId, area.Geometry.Area.Cuboids.Single().EntityId, "area cuboid stable link");
-            Equal(sphere.EntityId, area.Geometry.Area.Spheres.Single().EntityId, "area sphere stable link");
-            Equal(cylinder.EntityId, area.Geometry.Area.Cylinders.Single().EntityId, "area cylinder stable link");
-            Equal(cuboid.EntityId, area.Geometry.Area.NegativeCuboids.Single().EntityId, "area negative cuboid stable link");
+            Equal(spline.EntityId, area.Geometry!.Area!.Splines.Single().Reference!.EntityId, "area spline stable link");
+            Equal(cuboid.EntityId, area.Geometry.Area.Cuboids.Single().Reference!.EntityId, "area cuboid stable link");
+            Equal(sphere.EntityId, area.Geometry.Area.Spheres.Single().Reference!.EntityId, "area sphere stable link");
+            Equal(cylinder.EntityId, area.Geometry.Area.Cylinders.Single().Reference!.EntityId, "area cylinder stable link");
+            Equal(cuboid.EntityId, area.Geometry.Area.NegativeCuboids.Single().Reference!.EntityId, "area negative cuboid stable link");
             Equal(new ProjectVector3(100, 200, 300), pill.Transform.Position, "pill position");
             var directionalLight = project.Content.Entities.Single(value => value.Lighting?.DirectionalLight is not null);
             var pointLight = project.Content.Entities.Single(value => value.Lighting?.PointLight is not null);

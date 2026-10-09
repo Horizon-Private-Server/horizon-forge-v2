@@ -12,9 +12,9 @@ namespace Forge.Host.Games.UYA;
 
 public static class UyaAssetImportService
 {
-    public const string ImporterVersionPrefix = "forge-uya-v4+";
+    public const string ImporterVersionPrefix = "forge-uya-v5+";
     public const uint CanonicalFormatVersion = 1;
-    public const uint TextureCanonicalFormatVersion = 1;
+    public const uint TextureCanonicalFormatVersion = ProjectTextureAssetSchema.CanonicalFormatVersion;
     private const int StateSchemaVersion = 0;
     private static readonly byte[] MissingTexturePif = CreateMissingTexturePif();
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -199,10 +199,17 @@ public static class UyaAssetImportService
                 request);
             AddTextures(results, kind, asset.ClassId, asset.SourceIndex, asset.Textures, level, request);
         }
-        var sky = UyaBaseLayerService.ExtractSky(UyaLevelWadUnpacker.Unpack(levelWadBytes));
+        var package = UyaLevelWadUnpacker.Unpack(levelWadBytes);
+        var sky = UyaBaseLayerService.ExtractSky(package);
         if (sky is not null)
             results.AddRange(UyaBaseLayerService.CreateCatalogPuts(
                 [sky], new("UYA", "NTSC-U", request.Revision, level, request.Fingerprint), request.ImporterVersion));
+        if (UyaHudProjectService.TryRead(package) is { } hud)
+            results.AddRange(UyaHudProjectService.CreateCatalogPuts(
+                hud, level, request.Revision, request.Fingerprint, request.ImporterVersion));
+        if (UyaFxProjectService.TryRead(package) is { } fx)
+            results.AddRange(UyaFxProjectService.CreateCatalogPuts(
+                fx, level, request.Revision, request.Fingerprint, request.ImporterVersion));
         return new(results, extracted.FailedAssetCount);
     }
 

@@ -48,11 +48,11 @@ export function AssetPreviewPanel() {
         value={item.assetId}
         onChange={(value) => { if (value) setAssetId(value); }}
       />}
-      <Text size="sm" c="dimmed">Sources: {levels.join(', ')}</Text>
+      {levels.length > 0 && <Text size="sm" c="dimmed">Sources: {levels.join(', ')}</Text>}
       <Text size="xs" c="dimmed">Asset ID</Text><Code className="asset-explorer-id">{item.assetId}</Code>
-      <Text size="sm">
+      {!item.tags.includes('project-attached') && <Text size="sm">
         Canonical format {item.canonicalFormatVersion} · {item.byteSize.toLocaleString()} bytes
-      </Text>
+      </Text>}
       {item.classIds.length > 0 && <Text size="sm">
         Class IDs: {item.classIds.map((value) => `0x${value.toString(16).padStart(4, '0')}`).join(', ')}
       </Text>}

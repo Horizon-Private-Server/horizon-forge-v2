@@ -37,6 +37,19 @@ internal static class ForgeProjectTests
             var project = await ForgeProjectWorkspace.CreateAsync(originalPath, "Portable project", target, baseLevel, entities);
             var otherProject = await ForgeProjectWorkspace.CreateAsync(otherPath, "Other project", target, baseLevel, entities);
             Equal(false, project.IsDirty, "new project is clean after creation");
+            Equal(ProjectPaletteOptimization.Default, project.Manifest.Target.PaletteOptimization,
+                "new projects store the default palette optimization profile");
+            var defaultPaletteFingerprint = project.CurrentFingerprint;
+            project.UpdatePaletteOptimization(new(ProjectPaletteOptimization.CurrentMappingVersion, 75));
+            Equal(true, project.IsDirty, "palette optimization changes the project fingerprint");
+            Equal(75, project.Manifest.Target.PaletteOptimization.Strength,
+                "palette optimization strength updates project data");
+            project.UpdatePaletteOptimization(ProjectPaletteOptimization.Default);
+            Equal(defaultPaletteFingerprint, project.CurrentFingerprint,
+                "restoring the palette profile restores the project fingerprint");
+            Throws<ArgumentException>(() => project.UpdatePaletteOptimization(new("paletteOptimization.v2", 50)));
+            Throws<ArgumentOutOfRangeException>(() => project.UpdatePaletteOptimization(
+                new(ProjectPaletteOptimization.CurrentMappingVersion, 101)));
             var summary = await ForgeProjectWorkspace.SummarizeAsync(originalPath);
             Equal("Portable project", summary.Name, "project summary reads the manifest");
             Equal(false, summary.HasRecovery, "clean project summary has no recovery");
@@ -113,6 +126,34 @@ internal static class ForgeProjectTests
             Equal(true, contentBefore.SequenceEqual(contentAfter), "content deterministic round trip");
             Equal(firstId, project.Content.Entities[0].EntityId, "entity ID survives move and reopen");
 
+            var currentVersion = $"\"schemaVersion\":{ProjectSchema.CurrentVersion}";
+            var previousManifest = System.Text.Encoding.UTF8.GetString(manifestAfter)
+                .Replace(currentVersion, $"\"schemaVersion\":{ProjectSchema.OldestSupportedVersion}", StringComparison.Ordinal)
+                .Replace(
+                    $",\"paletteOptimization\":{{\"mappingVersion\":\"{ProjectPaletteOptimization.CurrentMappingVersion}\",\"strength\":{ProjectPaletteOptimization.DefaultStrength}}}",
+                    string.Empty,
+                    StringComparison.Ordinal);
+            var previousContent = System.Text.Encoding.UTF8.GetString(Decompress(contentAfter))
+                .Replace(currentVersion, $"\"schemaVersion\":{ProjectSchema.OldestSupportedVersion}", StringComparison.Ordinal)
+                .Replace("\"assetOverrides\":[],", string.Empty, StringComparison.Ordinal);
+            Equal(false, previousContent.Contains("assetOverrides", StringComparison.Ordinal),
+                "previous schema fixture predates asset overrides");
+            await File.WriteAllTextAsync(Path.Combine(movedPath, ForgeProjectWorkspace.ManifestFileName), previousManifest);
+            await File.WriteAllBytesAsync(Path.Combine(movedPath, ForgeProjectWorkspace.DefaultContentPath),
+                Compress(System.Text.Encoding.UTF8.GetBytes(previousContent)));
+            project = await ForgeProjectWorkspace.OpenAsync(movedPath);
+            Equal(ProjectSchema.CurrentVersion, project.Manifest.SchemaVersion, "previous manifest schema migrates in memory");
+            Equal(ProjectPaletteOptimization.Default, project.Manifest.Target.PaletteOptimization,
+                "previous manifest receives the default palette optimization profile");
+            Equal(ProjectSchema.CurrentVersion, project.Content.SchemaVersion, "previous content schema migrates in memory");
+            Equal(false, project.IsDirty, "in-memory schema migration opens cleanly");
+            Equal(true, (await File.ReadAllTextAsync(Path.Combine(movedPath, ForgeProjectWorkspace.ManifestFileName)))
+                .Contains($"\"schemaVersion\":{ProjectSchema.OldestSupportedVersion}", StringComparison.Ordinal),
+                "migration does not rewrite the project before explicit save");
+            await project.SaveAsync();
+            manifestAfter = await File.ReadAllBytesAsync(Path.Combine(movedPath, ForgeProjectWorkspace.ManifestFileName));
+            contentAfter = await File.ReadAllBytesAsync(Path.Combine(movedPath, ForgeProjectWorkspace.DefaultContentPath));
+
             var contentPath = Path.Combine(movedPath, ForgeProjectWorkspace.DefaultContentPath);
             var futureContent = System.Text.Encoding.UTF8.GetBytes(
                 $"{{\"schemaVersion\":{ProjectSchema.CurrentVersion + 1},\"futureData\":true}}");
@@ -125,13 +166,12 @@ internal static class ForgeProjectTests
             Equal(true, storedFutureContent.SequenceEqual(rejectedContent), "future content remains unchanged");
             await File.WriteAllBytesAsync(contentPath, contentAfter);
             var manifestPath = Path.Combine(movedPath, ForgeProjectWorkspace.ManifestFileName);
-            var currentVersion = $"\"schemaVersion\":{ProjectSchema.CurrentVersion}";
-            var obsoleteManifest = System.Text.Encoding.UTF8.GetString(manifestAfter)
+            var mismatchedManifest = System.Text.Encoding.UTF8.GetString(manifestAfter)
                 .Replace(currentVersion, "\"schemaVersion\":7", StringComparison.Ordinal);
-            Equal(false, obsoleteManifest.Contains(currentVersion, StringComparison.Ordinal),
-                "obsolete schema fixture changes the manifest version");
-            await File.WriteAllTextAsync(manifestPath, obsoleteManifest);
-            await ThrowsAsync<UnsupportedProjectSchemaException>(() => ForgeProjectWorkspace.OpenAsync(movedPath));
+            Equal(false, mismatchedManifest.Contains(currentVersion, StringComparison.Ordinal),
+                "mismatched schema fixture changes the manifest version");
+            await File.WriteAllTextAsync(manifestPath, mismatchedManifest);
+            await ThrowsAsync<InvalidDataException>(() => ForgeProjectWorkspace.OpenAsync(movedPath));
             await File.WriteAllBytesAsync(manifestPath, manifestAfter);
 
             project.UpdateTransform(firstId, ProjectTransform.Identity with { Position = new(9, 8, 7) });
@@ -190,7 +230,8 @@ internal static class ForgeProjectTests
             var sharedEdit = await project.ApplyAssetEditAsync(firstId, "shared edit"u8.ToArray(), catalog);
             Equal(2, sharedEdit.Changes.Count, "default edit updates project references");
             Equal(true, project.Content.Entities.All(entity => entity.Asset!.Id == sharedEdit.DerivedAssetId), "shared references redirected");
-            Equal(true, project.ResolveAssetPath(sharedEdit.DerivedAssetId, catalog)!.StartsWith(movedPath, StringComparison.Ordinal), "project asset resolves before global catalog");
+            Equal(true, project.ResolveAssetPath(new(sharedEdit.DerivedAssetId, AssetKind.Moby), catalog)!
+                .StartsWith(movedPath, StringComparison.Ordinal), "project asset resolves before global catalog");
             currentGlobalHash = SHA256.HashData(await File.ReadAllBytesAsync(globalBlob));
             Equal(true, globalHash.SequenceEqual(currentGlobalHash), "copy-on-write preserves global blob");
 
@@ -210,7 +251,146 @@ internal static class ForgeProjectTests
             await project.SaveAsync();
             var reopened = await ForgeProjectWorkspace.OpenAsync(movedPath);
             Equal(chainedEdit.DerivedAssetId, reopened.Content.Entities.Single(entity => entity.EntityId == firstId).Asset!.Id, "override survives save and reopen");
-            Equal(true, File.Exists(reopened.ResolveAssetPath(chainedEdit.DerivedAssetId, catalog)), "reopened override resolves");
+            Equal(true, File.Exists(reopened.ResolveAssetPath(
+                new(chainedEdit.DerivedAssetId, AssetKind.Moby), catalog)), "reopened override resolves");
+
+            var textureBytes = "standalone HUD texture"u8.ToArray();
+            var texture = await reopened.AttachAssetAsync(AssetKind.Texture, 2, textureBytes);
+            var tfragBytes = "standalone tfrag piece"u8.ToArray();
+            var tfrag = await reopened.AttachAssetAsync(AssetKind.Tfrag, 3, tfragBytes);
+            Equal(null, texture.ParentId, "brand-new attached texture has no invented parent");
+            Equal(null, tfrag.ParentId, "brand-new attached tfrag has no invented parent");
+            var attachedCount = reopened.Content.Assets.Count;
+            Equal(texture, await reopened.AttachAssetAsync(AssetKind.Texture, 2, textureBytes),
+                "equal standalone asset deduplicates");
+            Equal(attachedCount, reopened.Content.Assets.Count, "deduplication does not add metadata");
+            reopened.AddEntity(new(
+                EntityId.New(), "HUD texture fixture", "hud", ProjectTransform.Identity,
+                new(texture.Id, texture.Kind)));
+            reopened.AddEntity(new(
+                EntityId.New(), "Tfrag fixture", "tfrags", ProjectTransform.Identity,
+                new(tfrag.Id, tfrag.Kind)));
+            Equal(0, otherProject.Content.Assets.Count, "standalone attachment does not mutate another project");
+
+            var fingerprintBeforeCancelledAttach = reopened.CurrentFingerprint;
+            await ThrowsAsync<ArgumentException>(() => reopened.AttachAssetAsync(
+                AssetKind.Texture, 2, ReadOnlyMemory<byte>.Empty));
+            await ThrowsAsync<ArgumentOutOfRangeException>(() => reopened.AttachAssetAsync(
+                (AssetKind)ushort.MaxValue, 2, "unknown kind"u8.ToArray()));
+            Equal(fingerprintBeforeCancelledAttach, reopened.CurrentFingerprint,
+                "malformed attachment preserves project metadata");
+            using (var cancellation = new CancellationTokenSource())
+            {
+                cancellation.Cancel();
+                await ThrowsAsync<OperationCanceledException>(() => reopened.AttachAssetAsync(
+                    AssetKind.Texture, 2, "cancelled HUD texture"u8.ToArray(), cancellationToken: cancellation.Token));
+            }
+            Equal(fingerprintBeforeCancelledAttach, reopened.CurrentFingerprint,
+                "cancelled attachment preserves project metadata");
+
+            var texturePath = reopened.ResolveAttachedAssetPath(texture.Id)
+                ?? throw new InvalidOperationException("Attached texture did not resolve");
+            var corruptTexture = textureBytes.ToArray();
+            corruptTexture[0] ^= 0xff;
+            await File.WriteAllBytesAsync(texturePath, corruptTexture);
+            await ThrowsAsync<InvalidDataException>(() => reopened.ReadAttachedAssetVerifiedAsync(
+                new(texture.Id, texture.Kind), ForgeProjectWorkspace.MaxAttachedAssetBytes));
+            await ThrowsAsync<InvalidDataException>(() => reopened.AttachAssetAsync(AssetKind.Texture, 2, textureBytes));
+            Equal(fingerprintBeforeCancelledAttach, reopened.CurrentFingerprint,
+                "failed integrity check preserves project metadata");
+            await File.WriteAllBytesAsync(texturePath, textureBytes);
+
+            var sourceReference = new ProjectAssetReference(global.Id, AssetKind.Moby);
+            var firstOverrideBytes = "first exact moby override"u8.ToArray();
+            var firstOverride = await reopened.AttachAssetAsync(
+                AssetKind.Moby, 0, firstOverrideBytes, global.Id);
+            var secondOverrideBytes = "second exact moby override"u8.ToArray();
+            var secondOverride = await reopened.AttachAssetAsync(
+                AssetKind.Moby, 0, secondOverrideBytes, global.Id);
+            var history = new EditorHistory();
+            var beforeOverride = reopened.CaptureState();
+            var fingerprintBeforeOverride = reopened.CurrentFingerprint;
+            var firstBinding = reopened.SetAssetOverride(
+                sourceReference, new(firstOverride.Id, firstOverride.Kind));
+            var afterFirstOverride = reopened.CaptureState();
+            history.Push(beforeOverride, afterFirstOverride, [], [], [secondId], 512);
+            Equal(global.Id,
+                reopened.Content.Entities.Single(entity => entity.EntityId == secondId).Asset!.Id,
+                "override leaves the source entity reference unchanged");
+            Equal(firstOverride.Id, reopened.ResolveAssetReference(sourceReference).Id,
+                "exact override resolves to its first replacement");
+            Equal(true, reopened.CurrentFingerprint != fingerprintBeforeOverride,
+                "override changes the project fingerprint");
+            Equal(firstOverride.Id, reopened.ResolveAsset(sourceReference, catalog)!.Effective.Id,
+                "resolved metadata uses the effective replacement identity");
+            Equal(true, history.TryUndo(out var overrideState, out _, out _), "override add is undoable");
+            reopened.RestoreState(overrideState);
+            Equal(sourceReference, reopened.ResolveAssetReference(sourceReference),
+                "undo restores vanilla resolution");
+            Equal(true, history.TryRedo(out overrideState, out _, out _), "override add is redoable");
+            reopened.RestoreState(overrideState);
+            Equal(firstBinding, reopened.Content.AssetOverrides.Single(), "redo restores override binding");
+
+            var beforeReplacement = reopened.CaptureState();
+            var secondBinding = reopened.SetAssetOverride(
+                sourceReference, new(secondOverride.Id, secondOverride.Kind));
+            history.Push(beforeReplacement, reopened.CaptureState(), [], [], [secondId], 512);
+            Equal(1, reopened.Content.AssetOverrides.Count, "replacement keeps one exact source binding");
+            Equal(secondOverride.Id, reopened.ResolveAssetReference(sourceReference).Id,
+                "replacement changes effective resolution");
+            Equal(true, history.TryUndo(out overrideState, out _, out _), "override replacement is undoable");
+            reopened.RestoreState(overrideState);
+            Equal(firstOverride.Id, reopened.ResolveAssetReference(sourceReference).Id,
+                "replacement undo restores the prior binding");
+            Equal(true, history.TryRedo(out overrideState, out _, out _), "override replacement is redoable");
+            reopened.RestoreState(overrideState);
+            Equal(secondBinding, reopened.Content.AssetOverrides.Single(), "replacement redo restores the new binding");
+
+            var beforeRemoval = reopened.CaptureState();
+            _ = reopened.RemoveAssetOverride(sourceReference);
+            history.Push(beforeRemoval, reopened.CaptureState(), [], [], [secondId], 512);
+            Equal(sourceReference, reopened.ResolveAssetReference(sourceReference),
+                "removing an override restores vanilla resolution");
+            Equal(true, history.TryUndo(out overrideState, out _, out _), "override removal is undoable");
+            reopened.RestoreState(overrideState);
+            Equal(secondOverride.Id, reopened.ResolveAssetReference(sourceReference).Id,
+                "removal undo restores replacement resolution");
+            Equal(true, history.TryRedo(out overrideState, out _, out _), "override removal is redoable");
+            reopened.RestoreState(overrideState);
+            Equal(sourceReference, reopened.ResolveAssetReference(sourceReference),
+                "removal redo restores vanilla resolution");
+            Equal(true, history.TryUndo(out overrideState, out _, out _),
+                "active replacement can be restored after removal redo");
+            reopened.RestoreState(overrideState);
+
+            var validOverrideState = reopened.CaptureState();
+            await ThrowsAsync<InvalidDataException>(() => RestoreAsync(reopened, validOverrideState with
+            {
+                Content = validOverrideState.Content with
+                {
+                    AssetOverrides = [secondBinding, secondBinding],
+                },
+            }));
+            await ThrowsAsync<InvalidDataException>(() => RestoreAsync(reopened, validOverrideState with
+            {
+                Content = validOverrideState.Content with
+                {
+                    AssetOverrides = [secondBinding with
+                    {
+                        SchemaVersion = ProjectAssetOverrideSchema.CurrentVersion + 1,
+                    }],
+                },
+            }));
+            await ThrowsAsync<InvalidDataException>(() => Task.FromResult(reopened.SetAssetOverride(
+                sourceReference, new(texture.Id, texture.Kind))));
+            await ThrowsAsync<InvalidDataException>(() => Task.FromResult(reopened.SetAssetOverride(
+                sourceReference, sourceReference)));
+            await ThrowsAsync<InvalidDataException>(() => Task.FromResult(reopened.SetAssetOverride(
+                sourceReference, new(AssetId.Parse(new string('e', AssetId.TextLength)), AssetKind.Moby))));
+            await ThrowsAsync<InvalidDataException>(() => Task.FromResult(reopened.SetAssetOverride(
+                new(secondOverride.Id, secondOverride.Kind), new(firstOverride.Id, firstOverride.Kind))));
+            Equal(validOverrideState, reopened.CaptureState(),
+                "invalid override graphs preserve the last known-good project state");
 
             var tie = await catalog.PutAsync(
                 AssetKind.Tie,
@@ -278,6 +458,21 @@ internal static class ForgeProjectTests
             await reopened.SaveAsync();
             reopened = await ForgeProjectWorkspace.OpenAsync(movedPath);
             EqualBinding(binding, reopened.Content.InstancedCollisionBindings.Single(), "proxy binding survives save and reopen");
+            Equal(secondBinding, reopened.Content.AssetOverrides.Single(),
+                "asset override survives save and reopen");
+            var overridePath = reopened.ResolveAttachedAssetPath(secondOverride.Id)
+                ?? throw new InvalidOperationException("Override replacement did not resolve");
+            var missingOverridePath = overridePath + ".missing-test";
+            File.Move(overridePath, missingOverridePath);
+            try
+            {
+                await ThrowsAsync<InvalidDataException>(() => ForgeProjectWorkspace.OpenAsync(movedPath));
+            }
+            finally
+            {
+                File.Move(missingOverridePath, overridePath);
+            }
+            reopened = await ForgeProjectWorkspace.OpenAsync(movedPath);
             reopened.SetInstancedCollisionFaceTypes(
                 tie.Id,
                 binding.ProxyAssetId,
@@ -288,7 +483,8 @@ internal static class ForgeProjectTests
             Equal(true,
                 reopened.Content.Entities.Single(entity => entity.EntityId == secondTieId).InstancedCollisionEnabled,
                 "per-instance shared collision choice survives save and reopen");
-            Equal(true, File.Exists(reopened.ResolveAssetPath(binding.ProxyAssetId, catalog)),
+            Equal(true, File.Exists(reopened.ResolveAssetPath(
+                    new(binding.ProxyAssetId, AssetKind.Collision), catalog)),
                 "reopened proxy resolves from its portable project-relative blob");
 
             var replacementBytes = "replacement proxy geometry"u8.ToArray();
@@ -307,11 +503,34 @@ internal static class ForgeProjectTests
             var proxyRecovery = await reopened.WriteRecoveryAsync()
                 ?? throw new InvalidOperationException("Expected proxy recovery snapshot");
             await reopened.SaveAsync();
+            var rollbackAsset = await reopened.AttachAssetAsync(
+                AssetKind.Texture, 2, "collection rollback fixture"u8.ToArray());
+            await reopened.SaveAsync();
+            var rollbackPath = reopened.ResolveAttachedAssetPath(rollbackAsset.Id)
+                ?? throw new InvalidOperationException("Collection rollback fixture did not resolve");
+            var contentDirectory = Path.GetDirectoryName(reopened.ContentFilePath)!;
+            var contentBackup = $"{contentDirectory}.backup";
+            Directory.Move(contentDirectory, contentBackup);
+            await File.WriteAllBytesAsync(contentDirectory, [0]);
+            try
+            {
+                await ThrowsAsync<InvalidDataException>(() => reopened.CollectUnreferencedAssetsAsync());
+                Equal(true, File.Exists(rollbackPath),
+                    "failed collection preserves attached asset blobs");
+                Equal(true, reopened.Content.Assets.Any(asset => asset.Id == rollbackAsset.Id),
+                    "failed collection restores attached asset metadata");
+            }
+            finally
+            {
+                File.Delete(contentDirectory);
+                Directory.Move(contentBackup, contentDirectory);
+            }
             var originalProxyId = binding.ProxyAssetId.ToString();
             var originalProxyPath = Path.Combine(
                 movedPath, "assets", originalProxyId[..2], $"{originalProxyId}.blob");
             var collected = await reopened.CollectUnreferencedAssetsAsync();
-            Equal(true, collected.ToHashSet().SetEquals([sharedEdit.DerivedAssetId, binding.ProxyAssetId]),
+            Equal(true, collected.ToHashSet().SetEquals(
+                    [sharedEdit.DerivedAssetId, binding.ProxyAssetId, firstOverride.Id, rollbackAsset.Id]),
                 "collection removes every unreferenced attached asset");
             Equal(false, File.Exists(originalProxyPath), "collection deletes the replaced proxy blob");
             Equal(false, reopened.Content.Assets.Any(asset => asset.Id == binding.ProxyAssetId),
@@ -345,9 +564,29 @@ internal static class ForgeProjectTests
             var transferredProxyBytes = await File.ReadAllBytesAsync(transferredProxyPath);
             Equal(true, replacementBytes.SequenceEqual(transferredProxyBytes),
                 "zip transfer preserves the project-relative proxy blob");
+            var transferredTextureBytes = await File.ReadAllBytesAsync(
+                transferred.ResolveAttachedAssetPath(texture.Id)
+                ?? throw new InvalidOperationException("Transferred texture blob did not resolve"));
+            Equal(true, textureBytes.SequenceEqual(transferredTextureBytes),
+                "zip transfer preserves a parentless texture blob");
+            var transferredTfragBytes = await File.ReadAllBytesAsync(
+                transferred.ResolveAttachedAssetPath(tfrag.Id)
+                ?? throw new InvalidOperationException("Transferred tfrag blob did not resolve"));
+            Equal(true, tfragBytes.SequenceEqual(transferredTfragBytes),
+                "zip transfer preserves a parentless tfrag blob");
+            Equal(secondOverride.Id, transferred.ResolveAssetReference(sourceReference).Id,
+                "zip transfer preserves the exact override binding");
+            var transferredOverride = transferred.ResolveAsset(sourceReference, catalog)
+                ?? throw new InvalidOperationException("Transferred override did not resolve");
+            var transferredOverrideBytes = await File.ReadAllBytesAsync(transferredOverride.Path);
+            Equal(true, secondOverrideBytes.SequenceEqual(transferredOverrideBytes),
+                "zip transfer preserves the exact override blob");
 
             var repairedCatalog = await AssetCatalogStore.OpenAsync(Path.Combine(root, "repaired-catalog"));
-            Equal(null, transferred.ResolveAssetPath(tie.Id, repairedCatalog),
+            Equal(secondOverride.Id,
+                transferred.ResolveAsset(sourceReference, repairedCatalog)!.Effective.Id,
+                "portable override resolves without its vanilla source catalog");
+            Equal(null, transferred.ResolveAssetPath(new(tie.Id, AssetKind.Tie), repairedCatalog),
                 "transferred project initially reports its missing source TIE");
             var repairedTie = await repairedCatalog.PutAsync(
                 AssetKind.Tie,
@@ -358,7 +597,7 @@ internal static class ForgeProjectTests
                     new("UYA", "NTSC-U", "1.00", "level03", "level_wad/assets/tie.bin", 8,
                         UyaIsoService.SupportedMd5)));
             Equal(tie.Id, repairedTie.Id, "repair restores the same content-addressed TIE ID");
-            Equal(true, transferred.ResolveAssetPath(tie.Id, repairedCatalog) is not null,
+            Equal(true, transferred.ResolveAssetPath(new(tie.Id, AssetKind.Tie), repairedCatalog) is not null,
                 "repaired source TIE resolves after transfer");
             EqualBinding(replacement, transferred.Content.InstancedCollisionBindings.Single(),
                 "source repair leaves the proxy binding unchanged");
@@ -396,6 +635,12 @@ internal static class ForgeProjectTests
         return output.ToArray();
     }
 
+    private static Task RestoreAsync(ForgeProjectWorkspace workspace, ForgeProjectState state)
+    {
+        workspace.RestoreState(state);
+        return Task.CompletedTask;
+    }
+
     private static void Equal<T>(T expected, T actual, string context)
     {
         if (!EqualityComparer<T>.Default.Equals(expected, actual))
@@ -416,6 +661,13 @@ internal static class ForgeProjectTests
     private static async Task ThrowsAsync<T>(Func<Task> action) where T : Exception
     {
         try { await action(); }
+        catch (T) { return; }
+        throw new InvalidOperationException($"Expected {typeof(T).Name}");
+    }
+
+    private static void Throws<T>(Action action) where T : Exception
+    {
+        try { action(); }
         catch (T) { return; }
         throw new InvalidOperationException($"Expected {typeof(T).Name}");
     }

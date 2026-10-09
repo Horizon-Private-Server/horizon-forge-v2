@@ -4,7 +4,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import type { AssetPreviewKind, AssetPreviewSource, EditorTerrainSource } from '../types/ForgeApi.js';
-import type { AssetPreviewResult, UyaRenderPackageResult } from '../types/BridgePayloads.js';
+import type { AssetPreviewResult, RenderPackageResult } from '../types/BridgePayloads.js';
 import { isPathInside } from '../utils/Security.js';
 import { AssetThumbnailCache } from './AssetThumbnailCache.js';
 
@@ -39,7 +39,7 @@ export class RenderAssetProtocol {
     });
   }
 
-  async addUyaPackage(value: UyaRenderPackageResult): Promise<EditorTerrainSource> {
+  async addUyaPackage(value: RenderPackageResult): Promise<EditorTerrainSource> {
     const url = await this.registerRoot(value.cacheKey, value.rootPath);
     if (this.editorRootKey && this.editorRootKey !== value.cacheKey) this.roots.delete(this.editorRootKey);
     this.editorRootKey = value.cacheKey;

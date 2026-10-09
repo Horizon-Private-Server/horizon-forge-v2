@@ -84,7 +84,7 @@ public static class UyaLevelPackService
                 value.Message,
                 "Correct the staged layer or source WAD and retry packing.")));
             if (!archive.Succeeded || archive.OutputBytes is null) return Failed(diagnostics, archive);
-            ValidateOutput(archive.OutputBytes, replacements, staging, sourcePackage);
+            await ValidateOutputAsync(archive.OutputBytes, replacements, staging, sourcePackage, cancellationToken);
             return new(
                 true,
                 archive.OutputBytes,
@@ -214,7 +214,7 @@ public static class UyaLevelPackService
                 var path = ForgeProjectPersistence.ResolveRelativePath(root, definition.Resource);
                 var canonical = UyaCanonicalAssetCodec.Decode(await File.ReadAllBytesAsync(path, cancellationToken));
                 var input = new StaticAssetInput(
-                    definition.Asset.Id.ToString(),
+                    definition.EffectiveAsset.Id.ToString(),
                     TextureFamily(layer),
                     definition.ClassId,
                     canonical.DefinitionBytes,
@@ -277,12 +277,29 @@ public static class UyaLevelPackService
             replacements.Add("assets/asset_wad_payload.bin", composed.AssetWadBytes);
         }
 
+        var fxHeader = replacements.TryGetValue("assets/asset_header.bin", out var replacedHeader)
+            ? replacedHeader.ToArray()
+            : assets.HeaderBytes;
+        var fxAsset = replacements.TryGetValue("assets/asset_wad_payload.bin", out var replacedAsset)
+            ? replacedAsset.ToArray()
+            : assetWad;
+        var fxComposition = await UyaFxBakeService.ComposeAsync(
+            SnapshotRoot(staging, BakeLayerId.Fx), fxHeader, fxAsset, cancellationToken);
+        if (fxComposition is not null)
+        {
+            replacements["assets/asset_header.bin"] = fxComposition.HeaderBytes;
+            replacements["assets/asset_wad_payload.bin"] = fxComposition.AssetBytes;
+        }
+
         var gameplayRoot = SnapshotRoot(staging, BakeLayerId.Gameplay);
         var gameplay = Read<UyaGameplayBakeManifest>(gameplayRoot, "manifest.json", "staged gameplay layer");
         foreach (var section in gameplay.Sections)
             replacements.Add($"gameplay/core/{section.Name}.bin",
                 await File.ReadAllBytesAsync(
                     ForgeProjectPersistence.ResolveRelativePath(gameplayRoot, section.Path), cancellationToken));
+
+        await UyaHudBakeService.AddReplacementsAsync(
+            SnapshotRoot(staging, BakeLayerId.Hud), replacements, cancellationToken);
 
         ValidateOpaque(SnapshotRoot(staging, BakeLayerId.Opaque), sourceLevelWad, sourcePackage,
             ReplacedOpaqueSections(replacements));
@@ -336,26 +353,33 @@ public static class UyaLevelPackService
             .ToArray();
     }
 
-    private static void ValidateOutput(
+    private static async Task ValidateOutputAsync(
         byte[] output,
         IReadOnlyDictionary<string, ReadOnlyMemory<byte>> replacements,
         BakeStagingStore staging,
-        UyaLevelWadPackage sourcePackage)
+        UyaLevelWadPackage sourcePackage,
+        CancellationToken cancellationToken)
     {
         var inventory = UyaLevelWadInventoryReader.Read(output);
         foreach (var replacement in replacements)
         {
             var slot = inventory.Containers.SelectMany(value => value.Slots)
                 .Single(value => value.LogicalPaths.Contains(replacement.Key, StringComparer.Ordinal));
+            var actual = replacement.Key.StartsWith("hud/bank", StringComparison.Ordinal)
+                && BinaryMagic.IsWad(slot.Bytes.Span)
+                ? WadCompression.Decompress(slot.Bytes.Span)
+                : slot.Bytes.ToArray();
             var equivalent = replacement.Key == "assets/asset_header.bin"
-                ? EquivalentAssetHeader(replacement.Value.Span, slot.Bytes.Span)
-                : EquivalentPayload(replacement.Value.Span, slot.Bytes.Span);
+                ? UyaLevelWadValidator.EquivalentAssetHeader(replacement.Value.Span, actual)
+                : EquivalentPayload(replacement.Value.Span, actual);
             if (!equivalent)
                 throw new InvalidDataException($"Packed output does not contain staged payload {replacement.Key}.");
         }
-        ValidateAssetSizes(inventory);
         var outputPackage = UyaLevelWadUnpacker.Unpack(output);
-        ValidateStaticReferences(outputPackage);
+        UyaLevelWadValidator.Validate(inventory, outputPackage);
+        UyaHudBakeService.ValidatePacked(SnapshotRoot(staging, BakeLayerId.Hud), outputPackage);
+        await UyaFxBakeService.ValidatePackedAsync(
+            SnapshotRoot(staging, BakeLayerId.Fx), outputPackage, cancellationToken);
         ValidateOpaque(SnapshotRoot(staging, BakeLayerId.Opaque), output, outputPackage,
             ReplacedOpaqueSections(replacements), allowAlignmentPadding: true);
 
@@ -374,47 +398,6 @@ public static class UyaLevelPackService
             || expectedBase.Any(value => !actualBase.TryGetValue(value.Key, out var bytes)
                 || !EquivalentPayload(value.Value, bytes)))
             throw new InvalidDataException("Packed output does not semantically match the staged base-layer payloads.");
-    }
-
-    private static void ValidateStaticReferences(UyaLevelWadPackage package)
-    {
-        var files = package.Files.ToDictionary(value => value.Path, StringComparer.Ordinal);
-        if (files.TryGetValue("gameplay/core/tie_instances.bin", out var ties))
-        {
-            var tieInstances = UyaTieInstancesReader.Read(ties.Bytes);
-            var tieCount = tieInstances.Count;
-            var tieClasses = tieInstances.Instances.Select(value => value.ClassId).ToArray();
-            if (!tieClasses.SequenceEqual(tieClasses.Order()))
-                throw new InvalidDataException("Packed tie instances are not in ascending class blocks.");
-            if (files.TryGetValue("gameplay/core/tie_groups.bin", out var groups)
-                && UyaTieGroupsReader.Read(groups.Bytes).Groups.SelectMany(value => value)
-                    .Any(value => value >= tieCount))
-                throw new InvalidDataException("Packed tie groups reference a missing tie instance.");
-            if (files.TryGetValue("gameplay/core/occlusion.bin", out var occlusion))
-            {
-                var tieMappings = UyaOcclusionMappingsReader.Read(occlusion.Bytes).Ties;
-                if (tieMappings.Count != tieCount)
-                    throw new InvalidDataException("Packed tie occlusion mapping count does not match the tie instance count.");
-                var instanceOcclusionIds = tieInstances.Instances.Select(value => BinaryPrimitives.ReadInt32LittleEndian(
-                    value.RawBytes.AsSpan(UyaTieInstancesReader.OcclusionIdOffset))).ToArray();
-                if (!tieMappings.Select(value => value.OcclusionId).Order()
-                        .SequenceEqual(instanceOcclusionIds.Order()))
-                    throw new InvalidDataException("Packed tie occlusion IDs do not match their instances.");
-            }
-        }
-
-        if (files.TryGetValue("gameplay/core/shrub_instances.bin", out var shrubs))
-        {
-            var shrubInstances = UyaShrubInstancesReader.Read(shrubs.Bytes);
-            var shrubCount = shrubInstances.Count;
-            var shrubClasses = shrubInstances.Instances.Select(value => value.ClassId).ToArray();
-            if (!shrubClasses.SequenceEqual(shrubClasses.Order()))
-                throw new InvalidDataException("Packed shrub instances are not in ascending class blocks.");
-            if (files.TryGetValue("gameplay/core/shrub_groups.bin", out var shrubGroups)
-                && UyaTieGroupsReader.Read(shrubGroups.Bytes).Groups.SelectMany(value => value)
-                    .Any(value => value >= shrubCount))
-                throw new InvalidDataException("Packed shrub groups reference a missing shrub instance.");
-        }
     }
 
     private static void ValidateOpaque(
@@ -459,6 +442,10 @@ public static class UyaLevelPackService
                 && value.EndsWith(".bin", StringComparison.Ordinal))
             .Select(value => $"gameplay/{Path.GetFileNameWithoutExtension(value)}")
             .ToHashSet(StringComparer.Ordinal);
+        if (replacements.ContainsKey("hud/header.bin")) sections.Add("level-data/hud-header");
+        for (var index = 0; index < ProjectHudSchema.PhysicalBankCount; index++)
+            if (replacements.ContainsKey($"hud/bank{index}.bin"))
+                sections.Add($"level-data/hud-bank-{index}");
         return sections;
     }
 
@@ -501,25 +488,6 @@ public static class UyaLevelPackService
         actual.Length >= expected.Length
         && actual[..expected.Length].SequenceEqual(expected)
         && actual[expected.Length..].ContainsAnyExcept((byte)0) == false;
-
-    private static bool EquivalentAssetHeader(ReadOnlySpan<byte> expected, ReadOnlySpan<byte> actual) =>
-        expected.Length >= 0x90
-        && actual.Length >= expected.Length
-        && actual[..0x88].SequenceEqual(expected[..0x88])
-        && actual[0x90..expected.Length].SequenceEqual(expected[0x90..])
-        && actual[expected.Length..].ContainsAnyExcept((byte)0) == false;
-
-    private static void ValidateAssetSizes(UyaLevelWadInventory inventory)
-    {
-        var levelData = inventory.Containers.Single(value => value.Path == "level_wad/level_data.wad");
-        var header = levelData.Slots.Single(value => value.Path == "assets/asset_header.bin").Bytes.Span;
-        var encoded = levelData.Slots.Single(value => value.Path == "assets/asset_wad.bin");
-        var decoded = inventory.Containers.Single(value => value.Path == "assets/asset_wad.bin");
-        if (header.Length < 0x90
-            || BinaryPrimitives.ReadInt32LittleEndian(header[0x88..]) != encoded.Length
-            || BinaryPrimitives.ReadInt32LittleEndian(header[0x8c..]) != decoded.Bytes.Length)
-            throw new InvalidDataException("Packed asset header does not match the asset WAD sizes.");
-    }
 
     private static BakeDiagnostic Error(string code, string cause, string action) =>
         new(code, BakeDiagnosticSeverity.Error, null, null, null, cause, action);

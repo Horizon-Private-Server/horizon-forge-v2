@@ -8,11 +8,14 @@ export const EDITOR_PANELS = {
   viewport: { component: 'viewport', title: 'Viewport' },
   sceneTree: { component: 'sceneTree', title: 'Scene' },
   properties: { component: 'properties', title: 'Properties' },
+  references: { component: 'references', title: 'References' },
   levelSettings: { component: 'levelSettings', title: 'Level Settings' },
   diagnostics: { component: 'diagnostics', title: 'Diagnostics' },
   build: { component: 'build', title: 'Build' },
   assetExplorer: { component: 'assetExplorer', title: 'Asset Explorer' },
   assetPreview: { component: 'assetPreview', title: 'Asset Preview' },
+  hudBank: { component: 'hudBank', title: 'HUD Bank' },
+  fxTextures: { component: 'fxTextures', title: 'FX Textures' },
 } as const;
 
 export type EditorPanelId = keyof typeof EDITOR_PANELS;
@@ -36,6 +39,14 @@ export function createDefaultEditorLayout(api: DockviewApi): void {
   api.clear();
   api.addPanel({ id: 'viewport', ...EDITOR_PANELS.viewport });
   api.addPanel({
+    id: 'hudBank', ...EDITOR_PANELS.hudBank,
+    position: { referencePanel: 'viewport', direction: 'within' }, inactive: true,
+  });
+  api.addPanel({
+    id: 'fxTextures', ...EDITOR_PANELS.fxTextures,
+    position: { referencePanel: 'viewport', direction: 'within' }, inactive: true,
+  });
+  api.addPanel({
     id: 'sceneTree', ...EDITOR_PANELS.sceneTree,
     position: { referencePanel: 'viewport', direction: 'left' }, initialWidth: 240,
   });
@@ -49,6 +60,11 @@ export function createDefaultEditorLayout(api: DockviewApi): void {
   });
   api.addPanel({
     id: 'assetPreview', ...EDITOR_PANELS.assetPreview,
+    position: { referencePanel: 'properties', direction: 'within' },
+    inactive: true,
+  });
+  api.addPanel({
+    id: 'references', ...EDITOR_PANELS.references,
     position: { referencePanel: 'properties', direction: 'within' },
     inactive: true,
   });
@@ -73,8 +89,13 @@ export function showEditorPanel(api: DockviewApi, id: EditorPanelId): void {
     return;
   }
   const definition = EDITOR_PANELS[id];
-  const propertyPanel = id === 'assetPreview' ? api.getPanel('properties')
-    : id === 'properties' ? api.getPanel('assetPreview') : undefined;
+  const mainPanel = id === 'hudBank' || id === 'fxTextures' ? api.getPanel('viewport') : undefined;
+  if (mainPanel) {
+    api.addPanel({ id, ...definition, position: { referencePanel: mainPanel.id, direction: 'within' } });
+    return;
+  }
+  const propertyPanel = id === 'assetPreview' || id === 'references' ? api.getPanel('properties')
+    : id === 'properties' ? api.getPanel('references') ?? api.getPanel('assetPreview') : undefined;
   if (propertyPanel) {
     api.addPanel({ id, ...definition, position: { referencePanel: propertyPanel.id, direction: 'within' } });
     return;
@@ -114,19 +135,23 @@ export function panelForLayoutAction(action: Exclude<EditorLayoutAction, 'resetL
     showViewport: 'viewport',
     showSceneTree: 'sceneTree',
     showProperties: 'properties',
+    showReferences: 'references',
     showLevelSettings: 'levelSettings',
     showDiagnostics: 'diagnostics',
     showBuild: 'build',
     showAssetExplorer: 'assetExplorer',
     showAssetPreview: 'assetPreview',
+    showHudBank: 'hudBank',
+    showFxTextures: 'fxTextures',
   };
   return panels[action];
 }
 
 function panelDirection(id: Exclude<EditorPanelId, 'viewport'>): 'left' | 'right' | 'below' {
+  if (id === 'hudBank' || id === 'fxTextures') return 'below';
   if (id === 'sceneTree') return 'left';
   if (id === 'assetExplorer') return 'left';
-  if (id === 'assetPreview') return 'right';
+  if (id === 'assetPreview' || id === 'references') return 'right';
   if (id === 'properties') return 'right';
   return 'below';
 }

@@ -97,8 +97,20 @@ export function LevelSettingsPanel() {
   const { project, terrain, execute, busy, showOcclusionOctants, setShowOcclusionOctants } = useEditor();
   const editable = project.levelSettings;
   const settings = editable ? { ...terrain?.environment, ...editable } : terrain?.environment;
+  const updatePaletteOptimization = (strength: number) => void execute({
+    id: crypto.randomUUID(), kind: 'updatePaletteOptimization', entityIds: [],
+    paletteOptimization: { mappingVersion: 'paletteOptimization.v1', strength },
+  });
+  const paletteControl = <Stack gap={2}>
+    <LevelSlider label="Texture palette optimization" value={project.target.paletteOptimization.strength}
+      max={100} disabled={busy} onCommit={updatePaletteOptimization} />
+    <Group justify="space-between">
+      <Text size="xs" c="dimmed">Visual fidelity</Text>
+      <Text size="xs" c="dimmed">VRAM savings</Text>
+    </Group>
+  </Stack>;
   if (!settings) return <EditorPanel label="Level settings">
-    <EditorEmptyState message="Level settings are unavailable." />
+    <Stack>{paletteControl}<EditorEmptyState message="Level settings are unavailable." /></Stack>
   </EditorPanel>;
   const update = (value: Partial<EditorLevelSettings>) => {
     if (!editable) return;
@@ -113,6 +125,7 @@ export function LevelSettingsPanel() {
   return <EditorPanel label="Level settings">
     <Stack>
       {!editable && <Text size="xs" c="yellow">Migrate this project to edit imported level settings.</Text>}
+      {paletteControl}
       <Checkbox
         checked={showOcclusionOctants}
         label={`Show occlusion octants (${(terrain?.occlusionOctants.length ?? 0).toLocaleString()})`}

@@ -4,7 +4,7 @@ Date: 2026-09-22
 Target: UYA NTSC-U 1.00 (`uya-ntsc-u`)  
 Command: `npm test`
 
-The synthetic end-to-end fixture creates a base-level project, bakes all ten
+The synthetic end-to-end fixture creates a base-level project, bakes all eleven
 declared layers, confirms a no-op bake writes nothing, edits a tie and confirms
 only ties and lighting rebuild, cancels after a shrub write, injects missing
 lighting data after a tie write, repairs from the verified source, and retries.

@@ -10,6 +10,7 @@ export function useForgeActions(
 ) {
   const [activeProject, setActiveProject] = useState<EditorSnapshot>();
   const [editorError, setEditorError] = useState<string>();
+  const [isSaving, setIsSaving] = useState(false);
   const [hubAction, setHubAction] = useState<{ id: number; action: 'newProject' | 'openProject' }>();
   const [layoutAction, setLayoutAction] = useState<{ id: number; action: EditorLayoutAction }>();
 
@@ -18,9 +19,13 @@ export function useForgeActions(
     else if (action === 'settings') setSettingsOpened(true);
     else if (action === 'checkUpdates') setUpdateCheckOpened(true);
     else if (action === 'saveProject') {
-      if (activeProject) void window.forge.saveEditorProject()
-        .then(setActiveProject)
-        .catch((error) => setEditorError(errorMessage(error)));
+      if (activeProject && !isSaving) {
+        setIsSaving(true);
+        void window.forge.saveEditorProject()
+          .then(setActiveProject)
+          .catch((error) => setEditorError(errorMessage(error)))
+          .finally(() => setIsSaving(false));
+      }
     }
     else if (action === 'undoEditor' || action === 'redoEditor') {
       if (activeProject && (action === 'undoEditor' ? activeProject.canUndo : activeProject.canRedo)) {
@@ -62,7 +67,7 @@ export function useForgeActions(
         setHubAction({ id: Date.now(), action });
       }).catch((error) => setEditorError(errorMessage(error)));
     }
-  }, [activeProject, setSettingsOpened, setSetupOpened, setUpdateCheckOpened]);
+  }, [activeProject, isSaving, setSettingsOpened, setSetupOpened, setUpdateCheckOpened]);
 
   const openProject = useCallback((path: string) => {
     void window.forge.openEditorProject(path).then((snapshot) => {
@@ -77,6 +82,7 @@ export function useForgeActions(
     activeProject,
     editorError,
     hubAction,
+    isSaving,
     layoutAction,
     handleForgeAction,
     openProject,
@@ -87,7 +93,8 @@ export function useForgeActions(
 
 function isEditorLayoutAction(action: ForgeAction): action is EditorLayoutAction {
   return ['resetLayout', 'showViewport', 'showSceneTree', 'showProperties', 'showLevelSettings',
-    'showDiagnostics', 'showBuild', 'showAssetExplorer', 'showAssetPreview'].includes(action);
+    'showReferences', 'showDiagnostics', 'showBuild', 'showAssetExplorer', 'showAssetPreview', 'showHudBank',
+    'showFxTextures'].includes(action);
 }
 
 function isEditorEntityAction(action: ForgeAction): action is Extract<ForgeAction,

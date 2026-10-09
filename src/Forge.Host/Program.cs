@@ -27,7 +27,7 @@ return await BridgeHost.RunAsync(
             "uya.assets.import", "uya.assets.import.mobys", "uya.assets.import.ties", "uya.assets.import.shrubs",
             "uya.projects.base.instances", "projects.inspect", "projects.rename", "projects.recovery", "projects.migrate",
             "projects.assets.repair", "assets.catalog.gc", "assets.explorer.query", "editor.runtime", "editor.commands",
-            "editor.events", "editor.autosave", "uya.render.terrain", "uya.render.asset-preview",
+            "editor.events", "editor.autosave", "editor.hud.project-state", "uya.render.terrain", "uya.render.asset-preview",
             "editor.instanced-collision.preview", "editor.instanced-collision.apply",
             "uya.bake.world.target-native", "uya.bake.sky.target-native",
             "uya.bake.tfrags.target-native", "uya.bake.collision.target-native",

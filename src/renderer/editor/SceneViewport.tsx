@@ -414,6 +414,7 @@ export function SceneViewport({
     const deactivateCameraInput = () => {
       cameraInputActive = false;
       movement.clear();
+      currentProjection.setHoveredEntityId(undefined);
       if (!transformTool.isInteracting && document.activeElement !== renderer.domElement) clearSnapModifiers();
     };
     const deactivateWindowInput = () => {
@@ -476,6 +477,7 @@ export function SceneViewport({
     const pointerDown = (event: PointerEvent) => {
       renderer.domElement.focus({ preventScroll: true });
       if (transformTool.isInteracting) return;
+      currentProjection.setHoveredEntityId(undefined);
       if (viewport.current) viewport.current.flight = undefined;
       const paintState = currentInstancedCollisionOverlay.current?.paint;
       const paint = paintState?.active ? paintState : undefined;
@@ -531,6 +533,18 @@ export function SceneViewport({
       if (currentInstancedCollisionOverlay.current?.paint?.active
         && lookPointerId === undefined && !event.altKey) {
         paintAt(event.clientX, event.clientY);
+        return;
+      }
+      if (lookPointerId === undefined) {
+        const bounds = renderer.domElement.getBoundingClientRect();
+        pointer.set(
+          (event.clientX - bounds.left) / bounds.width * 2 - 1,
+          -(event.clientY - bounds.top) / bounds.height * 2 + 1,
+        );
+        raycaster.setFromCamera(pointer, camera);
+        currentProjection.setHoveredEntityId(
+          currentProjection.resolvePick(raycaster.intersectObject(currentProjection.root, true)),
+        );
         return;
       }
       if (event.pointerId !== lookPointerId || !lookPosition) return;
@@ -599,8 +613,9 @@ export function SceneViewport({
     renderer.domElement.addEventListener('auxclick', preventDefault);
 
     const resize = () => {
-      const { clientWidth, clientHeight } = element;
-      camera.aspect = clientWidth / Math.max(clientHeight, 1);
+      const clientWidth = Math.max(element.clientWidth, 1);
+      const clientHeight = Math.max(element.clientHeight, 1);
+      camera.aspect = clientWidth / clientHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(clientWidth, clientHeight, false);
       composer.setSize(clientWidth, clientHeight);
@@ -623,6 +638,7 @@ export function SceneViewport({
       sky.position.copy(camera.position).sub(viewport.current?.skyEye ?? ZERO_VECTOR);
       controls.update();
       transformTool.update();
+      currentProjection.updateBillboards(camera, element.clientHeight);
       renderer.info.reset();
       outlinePass.selectedObjects = currentProjection.getSelectionOutlineObjects();
       composer.render(delta);

@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Forge.Host.Domain;
 
 public sealed record ProjectVector4(float X, float Y, float Z, float W);
@@ -23,7 +25,10 @@ public sealed record ProjectGrindPathGeometry(
     int Inactive,
     IReadOnlyList<ProjectVector4> Points);
 
-public sealed record ProjectGeometryLink(int SourceIndex, EntityId? EntityId);
+public sealed record ProjectGeometryLink(
+    int SourceIndex,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] EntityId? EntityId = null,
+    ProjectReference? Reference = null);
 
 public sealed record ProjectAreaGeometry(
     ProjectVector4 BoundingSphere,

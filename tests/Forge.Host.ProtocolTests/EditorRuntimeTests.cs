@@ -93,6 +93,23 @@ internal static class EditorRuntimeTests
             Equal(null, snapshot.LevelSettings, "undo restores level settings");
             snapshot = await runtime.ExecuteAsync(Command(EditorCommandKind.Redo, []));
             Equal(levelSettings, snapshot.LevelSettings, "redo restores level settings mutation");
+            snapshot = await runtime.ExecuteAsync(new(
+                Guid.NewGuid().ToString("D"), EditorCommandKind.UpdatePaletteOptimization, [],
+                PaletteOptimization: new(ProjectPaletteOptimization.CurrentMappingVersion, 75)));
+            Equal(75, snapshot.Target.PaletteOptimization.Strength,
+                "runtime palette optimization mutation");
+            snapshot = await runtime.ExecuteAsync(Command(EditorCommandKind.Undo, []));
+            Equal(ProjectPaletteOptimization.Default, snapshot.Target.PaletteOptimization,
+                "undo restores palette optimization");
+            snapshot = await runtime.ExecuteAsync(Command(EditorCommandKind.Redo, []));
+            Equal(75, snapshot.Target.PaletteOptimization.Strength,
+                "redo restores palette optimization mutation");
+            await ThrowsAsync<ArgumentException>(() => runtime.ExecuteAsync(new(
+                Guid.NewGuid().ToString("D"), EditorCommandKind.UpdatePaletteOptimization, [],
+                PaletteOptimization: new(ProjectPaletteOptimization.CurrentMappingVersion, 101))));
+            await ThrowsAsync<ArgumentException>(() => runtime.ExecuteAsync(new(
+                Guid.NewGuid().ToString("D"), EditorCommandKind.RenameProject, [], Text: "Invalid profile carrier",
+                PaletteOptimization: ProjectPaletteOptimization.Default)));
             var secondTransform = ProjectTransform.Identity with { Position = new(40, 50, 60) };
             snapshot = await runtime.ExecuteAsync(new(
                 Guid.NewGuid().ToString("D"), EditorCommandKind.UpdateTransforms, [firstId, secondId],

@@ -1,8 +1,6 @@
-using Forge.Host.Domain;
+namespace Forge.Host.Domain;
 
-namespace Forge.Host.Games.UYA;
-
-public enum UyaBakePhase
+public enum BakePhase
 {
     Preflight,
     Staging,
@@ -10,14 +8,14 @@ public enum UyaBakePhase
     Complete,
 }
 
-public sealed record UyaBakeProgress(
-    UyaBakePhase Phase,
+public sealed record BakeProgress(
+    BakePhase Phase,
     BakeLayerId? Layer,
     int CompletedLayers,
     int TotalLayers,
     string Message);
 
-public sealed record UyaBakeResult(
+public sealed record BakeResult(
     bool Succeeded,
     bool IsCurrent,
     BakeValidationResult Validation,

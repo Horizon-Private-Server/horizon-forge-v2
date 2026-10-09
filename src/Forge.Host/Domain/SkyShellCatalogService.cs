@@ -1,13 +1,12 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using Forge.Host.Domain;
 using RatchetPs2.Core.Games;
 using RatchetPs2.Core.Skyboxes;
 
-namespace Forge.Host.Games.UYA;
+namespace Forge.Host.Domain;
 
-public sealed record UyaSkyShellQuery(
+public sealed record SkyShellQuery(
     string? Search,
     string? Game,
     string? Level,
@@ -17,20 +16,21 @@ public sealed record UyaSkyShellQuery(
     string? Cursor,
     int Limit);
 
-public sealed record UyaSkyShellIndexItem(AssetCatalogEntry Entry, int? ShellIndex, bool BlobAvailable);
+public sealed record SkyShellCatalogItem(AssetCatalogEntry Entry, int? ShellIndex, bool BlobAvailable);
 
-public sealed record UyaSkyShellIndexPage(
-    IReadOnlyList<UyaSkyShellIndexItem> Items,
+public sealed record SkyShellCatalogPage(
+    IReadOnlyList<SkyShellCatalogItem> Items,
     AssetCatalogFacets Facets,
     string? NextCursor);
 
-public static class UyaSkyShellIndexService
+public static class SkyShellCatalogService
 {
     private const string AliasPrefix = "sky-shell:";
 
-    public static async Task<UyaSkyShellIndexPage> QueryAsync(
+    public static async Task<SkyShellCatalogPage> QueryAsync(
         AssetCatalogStore catalog,
-        UyaSkyShellQuery query,
+        SkyShellQuery query,
+        GameId game,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(catalog);
@@ -49,18 +49,18 @@ public static class UyaSkyShellIndexService
             Cursor = null,
         };
         var parents = await ReadSkyEntriesAsync(catalog, normalized, cancellationToken);
-        var candidates = new List<UyaSkyShellIndexItem>();
+        var candidates = new List<SkyShellCatalogItem>();
         foreach (var entry in parents)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var path = catalog.ResolveBlobPath(entry.Id);
             var indexes = ShellIndexes(entry).ToArray();
             if (indexes.Length == 0 && path is not null)
-                indexes = await ReadShellIndexesAsync(entry, path, cancellationToken);
+                indexes = await ReadShellIndexesAsync(entry, path, game, cancellationToken);
             if (indexes.Length == 0) indexes = [-1];
             foreach (var index in indexes)
             {
-                var item = new UyaSkyShellIndexItem(entry, index >= 0 ? index : null, path is not null);
+                var item = new SkyShellCatalogItem(entry, index >= 0 ? index : null, path is not null);
                 if (search is null || SearchValues(item).Any(value => value.Contains(search, StringComparison.OrdinalIgnoreCase)))
                     candidates.Add(item);
             }
@@ -82,16 +82,16 @@ public static class UyaSkyShellIndexService
             nextOffset < candidates.Count ? EncodeCursor(catalog.Revision, signature, nextOffset) : null);
     }
 
-    public static IReadOnlyList<string> Aliases(byte[] bytes)
+    public static IReadOnlyList<string> Aliases(byte[] bytes, GameId game)
     {
         using var stream = new MemoryStream(bytes, writable: false);
-        return SkyboxReader.Read(stream, GameId.UYA).Shells
+        return SkyboxReader.Read(stream, game).Shells
             .Select(shell => $"{AliasPrefix}{shell.Index:D2}").ToArray();
     }
 
     private static async Task<List<AssetCatalogEntry>> ReadSkyEntriesAsync(
         AssetCatalogStore catalog,
-        UyaSkyShellQuery query,
+        SkyShellQuery query,
         CancellationToken cancellationToken)
     {
         var result = new List<AssetCatalogEntry>();
@@ -118,16 +118,15 @@ public static class UyaSkyShellIndexService
     private static async Task<int[]> ReadShellIndexesAsync(
         AssetCatalogEntry entry,
         string path,
+        GameId game,
         CancellationToken cancellationToken)
     {
         try
         {
             var bytes = await AssetCatalogBlobReader.ReadVerifiedAsync(
-                entry, path, UyaAssetLimits.MaxCanonicalBytes, cancellationToken);
-            return await Task.Run(() =>
-            {
-                return Aliases(bytes).Select(alias => int.Parse(alias.AsSpan(AliasPrefix.Length))).ToArray();
-            }, cancellationToken);
+                entry, path, ForgeProjectWorkspace.MaxAttachedAssetBytes, cancellationToken);
+            return await Task.Run(() => Aliases(bytes, game)
+                .Select(alias => int.Parse(alias.AsSpan(AliasPrefix.Length))).ToArray(), cancellationToken);
         }
         catch (Exception exception) when (exception is ArgumentException or InvalidDataException or IOException or OverflowException)
         {
@@ -135,7 +134,7 @@ public static class UyaSkyShellIndexService
         }
     }
 
-    private static IEnumerable<string> SearchValues(UyaSkyShellIndexItem item) => item.Entry.Aliases
+    private static IEnumerable<string> SearchValues(SkyShellCatalogItem item) => item.Entry.Aliases
         .Concat(item.Entry.Tags)
         .Append(item.Entry.Id.ToString())
         .Append(item.ShellIndex is { } index ? $"Sky shell {index:00}" : "Sky")
@@ -144,10 +143,10 @@ public static class UyaSkyShellIndexService
             source.Game, source.Region, source.Revision, source.Level, source.Archive,
         }));
 
-    private static string Token(UyaSkyShellIndexItem item) =>
+    private static string Token(SkyShellCatalogItem item) =>
         $"{item.Entry.Id}:{item.ShellIndex?.ToString("D6") ?? "missing"}";
 
-    private static string Signature(UyaSkyShellQuery query) => Convert.ToHexString(SHA256.HashData(
+    private static string Signature(SkyShellQuery query) => Convert.ToHexString(SHA256.HashData(
         JsonSerializer.SerializeToUtf8Bytes(new
         {
             query.Search, query.Game, query.Level, query.Region, query.Revision, query.Tags,

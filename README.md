@@ -25,7 +25,7 @@ Pull requests and pushes run the locked Linux/Windows build matrix in GitHub Act
 ## Project planning
 
 - [Product and technical specification](docs/forge-v2-spec.md)
-- [Binary bridge protocol v1](docs/bridge-protocol-v1.md)
+- [Binary bridge protocol v4](docs/bridge-protocol-v4.md)
 - [Identity and project schema v0](docs/identity-and-schema-v0.md)
 - [UI guidelines](docs/ui-guidelines.md)
 - [Milestones and task registers](docs/planning/README.md)

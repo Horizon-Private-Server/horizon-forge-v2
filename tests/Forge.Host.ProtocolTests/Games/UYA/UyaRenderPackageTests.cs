@@ -2,6 +2,7 @@ using Forge.Host.Games.UYA;
 using Forge.Host.Domain;
 using System.Buffers.Binary;
 using System.Text.Json;
+using RatchetPs2.Core.Games;
 using RatchetPs2.Core.Textures.Pif;
 using RatchetPs2.Core.Textures.Png;
 using RatchetPs2.Core.Wad.Models;
@@ -43,7 +44,7 @@ internal static class UyaRenderPackageTests
                 new("assets/skybox/skybox.buffer.bin", [4, 5, 6], "application/octet-stream"),
                 new("world/ignored.bin", [7], "application/octet-stream"),
             ]);
-            var environment = new UyaRenderEnvironmentResult(57, 65, 50, 40, 50, 40, 10, 175, 255, 0);
+            var environment = new RenderEnvironment(57, 65, 50, 40, 50, 40, 10, 175, 255, 0);
             var written = await UyaRenderPackageService.MaterializeAsync(
                 request, sdkRevision, package, sky, environment);
             Equal(false, written.CacheHit, "first terrain cache write");
@@ -58,7 +59,7 @@ internal static class UyaRenderPackageTests
             Equal(written.CacheKey, cached.CacheKey, "stable terrain cache key");
             Equal(0, cached.Assets.Count, "sky entities bypass the model render-asset list");
 
-            var previewRequest = new UyaAssetPreviewRequest(
+            var previewRequest = new AssetPreviewRequest(
                 cache,
                 catalogPath,
                 AssetId.Compute(AssetKind.Tie, 2, "preview"u8),
@@ -93,6 +94,25 @@ internal static class UyaRenderPackageTests
             var palette = new byte[0x400];
             new byte[] { 255, 0, 0, 64, 0, 255, 0, 128 }.CopyTo(palette, 0);
             var pif = PifWriter.Write(PifWriter.CreateIndexed8(2, 2, palette, [0, 1, 1, 0]));
+            var projectPalette = palette.ToArray();
+            projectPalette[0] = 127;
+            var projectPif = PifWriter.Write(PifWriter.CreateIndexed8(2, 2, projectPalette, [0, 1, 1, 0]));
+            var workspace = await ForgeProjectWorkspace.OpenAsync(projectPath);
+            var projectTexture = await workspace.AttachAssetAsync(
+                AssetKind.Texture, ProjectTextureAssetSchema.CanonicalFormatVersion, projectPif);
+            var projectTextureRequest = new AssetPreviewRequest(
+                cache, catalogPath, projectTexture.Id, AssetKind.Texture, "UYA", "texture-default",
+                ProjectPath: projectPath);
+            var projectTexturePreview = await UyaAssetPreviewService.PrepareAsync(projectTextureRequest, sdkRevision);
+            Equal("texture.png", projectTexturePreview.ModelPath, "project-attached texture preview route");
+            Equal(true, File.Exists(Path.Combine(projectTexturePreview.RootPath, projectTexturePreview.ModelPath)),
+                "project-attached texture preview file");
+
+            var invalidProjectTexture = await workspace.AttachAssetAsync(
+                AssetKind.Texture, ProjectTextureAssetSchema.CanonicalFormatVersion, "not a PIF"u8.ToArray());
+            await ThrowsAsync<InvalidDataException>(() => UyaAssetPreviewService.PrepareAsync(
+                projectTextureRequest with { AssetId = invalidProjectTexture.Id }, sdkRevision));
+
             var catalog = await AssetCatalogStore.OpenAsync(catalogPath);
             var collisionBytes = BuildCollisionFixture();
             var collisionPath = Path.Combine(root, "collision.bin");
@@ -137,7 +157,7 @@ internal static class UyaRenderPackageTests
                 pif,
                 new("test", new("UYA", "NTSC-U", "1.00", "level03", "assets.bin", 0, fingerprint,
                     new(AssetKind.Tie, 1, "material", 0, true))));
-            var textureRequest = new UyaAssetPreviewRequest(
+            var textureRequest = new AssetPreviewRequest(
                 cache, catalogPath, texture.Id, AssetKind.Texture, "UYA", "texture-default");
             var texturePreview = await UyaAssetPreviewService.PrepareAsync(textureRequest, sdkRevision);
             Equal(false, texturePreview.CacheHit, "first texture preview cache write");
@@ -168,8 +188,8 @@ internal static class UyaRenderPackageTests
                 0,
                 skyBytes,
                 new("test", new("UYA", "NTSC-U", "1.00", "level03", "assets.bin", 0, fingerprint),
-                    UyaSkyShellIndexService.Aliases(skyBytes)));
-            var firstSkyRequest = new UyaAssetPreviewRequest(
+                    SkyShellCatalogService.Aliases(skyBytes, GameId.UYA)));
+            var firstSkyRequest = new AssetPreviewRequest(
                 cache, catalogPath, skyEntry.Id, AssetKind.Sky, "UYA", "sky-default", 0);
             var firstSkyPreview = await UyaAssetPreviewService.PrepareAsync(firstSkyRequest, sdkRevision);
             var secondSkyPreview = await UyaAssetPreviewService.PrepareAsync(
@@ -204,7 +224,7 @@ internal static class UyaRenderPackageTests
                 0,
                 emptyShellSkyBytes,
                 new("test", new("UYA", "NTSC-U", "1.00", "level03", "assets.bin", 0, fingerprint),
-                    UyaSkyShellIndexService.Aliases(emptyShellSkyBytes)));
+                    SkyShellCatalogService.Aliases(emptyShellSkyBytes, GameId.UYA)));
             var emptyShellPreview = await UyaAssetPreviewService.PrepareAsync(
                 firstSkyRequest with { AssetId = emptyShellSky.Id }, sdkRevision);
             using (var emptyShellGltf = JsonDocument.Parse(await File.ReadAllBytesAsync(

@@ -3,13 +3,14 @@ import type {
   AssetPreviewRequest,
   AssetPreviewResult,
   UyaRenderPackageRequest,
-  UyaRenderPackageResult,
+  RenderPackageResult,
 } from '../../types/BridgePayloads.js';
 
 export function encodeAssetPreviewRequest(value: AssetPreviewRequest): Buffer {
   const writer = new PayloadWriter();
   writer.writeString(value.cacheRootPath);
   writer.writeString(value.catalogRootPath);
+  writer.writeString(value.projectPath);
   writer.writeString(value.assetId);
   writer.writeString(value.kind);
   writer.writeString(value.targetGame);
@@ -23,6 +24,7 @@ export function decodeAssetPreviewRequest(payload: Uint8Array): AssetPreviewRequ
   const reader = new PayloadReader(payload);
   const cacheRootPath = reader.readString();
   const catalogRootPath = reader.readString();
+  const projectPath = reader.readString();
   const assetId = reader.readString();
   const kind = reader.readString();
   if (kind !== 'moby' && kind !== 'tie' && kind !== 'shrub' && kind !== 'texture' && kind !== 'sky')
@@ -30,6 +32,7 @@ export function decodeAssetPreviewRequest(payload: Uint8Array): AssetPreviewRequ
   const value: AssetPreviewRequest = {
     cacheRootPath,
     catalogRootPath,
+    projectPath,
     assetId,
     kind,
     targetGame: reader.readString(),
@@ -86,7 +89,7 @@ export function decodeUyaRenderPackageRequest(payload: Uint8Array): UyaRenderPac
   return value;
 }
 
-export function encodeUyaRenderPackageResult(value: UyaRenderPackageResult): Buffer {
+export function encodeRenderPackageResult(value: RenderPackageResult): Buffer {
   const writer = new PayloadWriter();
   writer.writeString(value.rootPath);
   writer.writeString(value.cacheKey);
@@ -132,7 +135,7 @@ export function encodeUyaRenderPackageResult(value: UyaRenderPackageResult): Buf
   return writer.toBuffer();
 }
 
-export function decodeUyaRenderPackageResult(payload: Uint8Array): UyaRenderPackageResult {
+export function decodeRenderPackageResult(payload: Uint8Array): RenderPackageResult {
   const reader = new PayloadReader(payload);
   const rootPath = reader.readString();
   const cacheKey = reader.readString();
@@ -163,7 +166,7 @@ export function decodeUyaRenderPackageResult(payload: Uint8Array): UyaRenderPack
     const kind = reader.readString();
     if (kind !== 'moby' && kind !== 'tie' && kind !== 'shrub' && kind !== 'collision')
       malformed('Render asset kind is invalid');
-    const asset: UyaRenderPackageResult['assets'][number] = { assetId, kind };
+    const asset: RenderPackageResult['assets'][number] = { assetId, kind };
     if (reader.readBoolean()) asset.path = reader.readString();
     if (reader.readBoolean()) asset.error = reader.readString();
     return asset;

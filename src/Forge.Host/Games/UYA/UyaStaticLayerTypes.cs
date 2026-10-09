@@ -25,6 +25,7 @@ public sealed record UyaStaticBakeDefinition(
     int TargetIndex,
     int ClassId,
     ProjectAssetReference Asset,
+    ProjectAssetReference EffectiveAsset,
     uint CanonicalFormatVersion,
     string Resource);
 
@@ -46,7 +47,8 @@ public sealed record UyaStaticBakeManifest(
 
 public static class UyaStaticLayerSchema
 {
-    public const int CurrentVersion = 2;
+    public const int CurrentVersion = 3;
+    public const int OldestSourceVersion = 2;
     public const uint CanonicalFormatVersion = UyaAssetImportService.CanonicalFormatVersion;
     public const string SourceDocumentType = "horizon-forge-uya-static-source";
     public const string BakeDocumentType = "horizon-forge-uya-static-bake";

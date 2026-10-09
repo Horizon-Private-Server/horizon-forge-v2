@@ -8,7 +8,7 @@ namespace Forge.Host.Games.UYA;
 
 public static class UyaStaticLayerStore
 {
-    private const long MaxAssetBytes = UyaAssetLimits.MaxCanonicalBytes;
+    private const long MaxAssetBytes = ForgeProjectWorkspace.MaxAttachedAssetBytes;
 
     public static async Task WriteSourceAsync(
         string projectRoot,
@@ -122,7 +122,7 @@ public static class UyaStaticLayerStore
             Directory.CreateDirectory(resourceRoot);
             foreach (var definition in prepared.Manifest!.Definitions)
             {
-                var source = workspace.ResolveAssetPath(definition.Asset.Id, catalog)
+                var source = workspace.ResolveAssetPath(definition.Asset, catalog)
                     ?? throw new FileNotFoundException($"Static asset {definition.Asset.Id} disappeared during bake.");
                 await CopyAsync(source, Path.Combine(output, definition.Resource), token);
             }
@@ -180,8 +180,10 @@ public static class UyaStaticLayerStore
         {
             var bytes = await File.ReadAllBytesAsync(Path.Combine(output, definition.Resource), cancellationToken);
             if (bytes.LongLength is <= 0 or > MaxAssetBytes
-                || !ValidCanonicalAsset(bytes, definition.Asset.Kind)
-                || AssetId.Compute(definition.Asset.Kind, definition.CanonicalFormatVersion, bytes) != definition.Asset.Id)
+                || definition.Asset.Kind != definition.EffectiveAsset.Kind
+                || !ValidCanonicalAsset(bytes, definition.EffectiveAsset.Kind)
+                || AssetId.Compute(definition.EffectiveAsset.Kind, definition.CanonicalFormatVersion, bytes)
+                    != definition.EffectiveAsset.Id)
                 throw new InvalidDataException($"{layer} staged definition {definition.TargetIndex} failed asset validation.");
         }
     }
@@ -233,8 +235,17 @@ public static class UyaStaticLayerStore
                 continue;
             }
             var entry = catalog.Query(new(Id: entity.Asset.Id)).SingleOrDefault();
-            var path = workspace.ResolveAssetPath(entity.Asset.Id, catalog);
-            if (entry is null || path is null)
+            ProjectResolvedAsset? resolvedAsset;
+            try
+            {
+                resolvedAsset = workspace.ResolveAsset(entity.Asset, catalog);
+            }
+            catch (InvalidDataException exception)
+            {
+                blockers.Add($"{entity.Name} ({entity.EntityId}) asset {entity.Asset.Id} is not compatible ({exception.Message}).");
+                continue;
+            }
+            if (entry is null || resolvedAsset is null)
             {
                 blockers.Add($"{entity.Name} ({entity.EntityId}) references missing vanilla asset {entity.Asset.Id}.");
                 continue;
@@ -252,20 +263,21 @@ public static class UyaStaticLayerStore
                 blockers.Add($"{entity.Name} ({entity.EntityId}) asset {entity.Asset.Id} has ambiguous class identity.");
                 continue;
             }
-            var info = new FileInfo(path);
-            if (info.Length is <= 0 or > MaxAssetBytes || info.Length != entry.Size)
+            var info = new FileInfo(resolvedAsset.Path);
+            if (resolvedAsset.CanonicalFormatVersion != UyaStaticLayerSchema.CanonicalFormatVersion
+                || info.Length is <= 0 or > MaxAssetBytes || info.Length != resolvedAsset.Size)
             {
                 blockers.Add($"{entity.Name} ({entity.EntityId}) asset {entity.Asset.Id} has invalid size.");
                 continue;
             }
-            var bytes = await File.ReadAllBytesAsync(path, cancellationToken);
-            if (AssetId.Compute(kind, entry.CanonicalFormatVersion, bytes) != entry.Id
+            var bytes = await File.ReadAllBytesAsync(resolvedAsset.Path, cancellationToken);
+            if (AssetId.Compute(kind, resolvedAsset.CanonicalFormatVersion, bytes) != resolvedAsset.Effective.Id
                 || !ValidCanonicalAsset(bytes, kind))
             {
                 blockers.Add($"{entity.Name} ({entity.EntityId}) asset {entity.Asset.Id} has invalid canonical data.");
                 continue;
             }
-            resolved.Add(new(entity, entry, classId.Value));
+            resolved.Add(new(entity, entry, classId.Value, resolvedAsset));
         }
 
         foreach (var conflict in resolved.Where(value => value.Entry is not null).GroupBy(value => value.ClassId)
@@ -275,7 +287,7 @@ public static class UyaStaticLayerStore
             return new(null, [], ForgeProjectPersistence.Serialize(new { layer }), [], blockers);
 
         var definitions = resolved.Where(value => value.Entry is not null)
-            .Select(value => (value.ClassId, Entry: value.Entry!))
+            .Select(value => (value.ClassId, Entry: value.Entry!, Asset: value.Asset!))
             .DistinctBy(value => (value.ClassId, value.Entry.Id))
             .OrderBy(value => value.ClassId)
             .ThenBy(value => value.Entry.Id.ToString(), StringComparer.Ordinal)
@@ -283,7 +295,8 @@ public static class UyaStaticLayerStore
                 index,
                 value.ClassId,
                 new(value.Entry.Id, kind),
-                value.Entry.CanonicalFormatVersion,
+                value.Asset.Effective,
+                value.Asset.CanonicalFormatVersion,
                 $"resources/{index:D4}-{value.Entry.Id}.hfuya"))
             .ToArray();
         var definitionIndexes = definitions.ToDictionary(value => (value.ClassId, value.Asset.Id), value => value.TargetIndex);
@@ -315,7 +328,8 @@ public static class UyaStaticLayerStore
             definitions,
             instances);
         return new(manifest, instanceBytes, ForgeProjectPersistence.Serialize(manifest),
-            definitions.Select(value => value.Asset.Id).ToArray(), []);
+            resolved.Where(value => value.Asset is not null)
+                .Select(value => value.Asset!.Effective.Id).Distinct().ToArray(), []);
     }
 
     private static UyaStaticInstanceEdit ToStaticEdit(ProjectEntity entity, int classId) => new(
@@ -329,14 +343,7 @@ public static class UyaStaticLayerStore
     private static UyaStaticInstanceEdit ToTieEdit(ProjectEntity entity, int classId)
     {
         var template = entity.Source!.RawRecord;
-        if (entity.Provenance is null
-            && BinaryPrimitives.ReadInt32LittleEndian(template.AsSpan(4))
-                == BitConverter.SingleToInt32Bits(UyaAssetPlacementService.DefaultTieDrawDistance))
-        {
-            template = template.ToArray();
-            BinaryPrimitives.WriteInt32LittleEndian(
-                template.AsSpan(4), UyaAssetPlacementService.DefaultTieDrawDistance);
-        }
+        if (entity.Provenance is null) template = UyaGameplayInstanceTemplates.NormalizePlacedTie(template);
         return ToStaticEdit(entity with { Source = entity.Source with { RawRecord = template } }, classId);
     }
 
@@ -348,19 +355,8 @@ public static class UyaStaticLayerStore
 
     private static byte[] NormalizePlacedShrub(ProjectEntity entity)
     {
-        var template = NormalizePlacedRgb96(entity, 0x50);
-        if (entity.Provenance is not null || template.Length < 0x50)
-            return template;
-        var repairDrawDistance = BinaryPrimitives.ReadSingleLittleEndian(template.AsSpan(4)) == 1_024;
-        var repairHomogeneousScale = BinaryPrimitives.ReadSingleLittleEndian(template.AsSpan(0x4c)) == 0;
-        if (!repairDrawDistance && !repairHomogeneousScale) return template;
-        var repaired = template.ToArray();
-        if (repairDrawDistance)
-            BinaryPrimitives.WriteSingleLittleEndian(
-                repaired.AsSpan(4), UyaAssetPlacementService.DefaultShrubDrawDistance);
-        if (repairHomogeneousScale)
-            BinaryPrimitives.WriteSingleLittleEndian(repaired.AsSpan(0x4c), 0.01f);
-        return repaired;
+        var source = entity.Source!.RawRecord;
+        return entity.Provenance is null ? UyaGameplayInstanceTemplates.NormalizePlacedShrub(source) : source;
     }
 
     private static UyaMobyInstanceEdit ToMobyEdit(ProjectEntity entity, int classId) => new(
@@ -369,20 +365,9 @@ public static class UyaStaticLayerStore
         new(entity.Transform.Rotation.X, entity.Transform.Rotation.Y,
             entity.Transform.Rotation.Z, entity.Transform.Rotation.W),
         entity.Transform.Scale.X,
-        NormalizePlacedRgb96(entity, 0x74));
-
-    private static byte[] NormalizePlacedRgb96(ProjectEntity entity, int offset)
-    {
-        var source = entity.Source!.RawRecord;
-        if (entity.Provenance is not null || source.Length < offset + 12
-            || Enumerable.Range(0, 3).Any(index =>
-                BinaryPrimitives.ReadInt32LittleEndian(source.AsSpan(offset + index * 4)) != 0x3f800000))
-            return source;
-        var repaired = source.ToArray();
-        for (var index = 0; index < 3; index++)
-            BinaryPrimitives.WriteInt32LittleEndian(repaired.AsSpan(offset + index * 4), 255);
-        return repaired;
-    }
+        entity.Provenance is null
+            ? UyaGameplayInstanceTemplates.NormalizePlacedMoby(entity.Source!.RawRecord)
+            : entity.Source!.RawRecord);
 
     internal static ProjectEntity[] OrderedEntities(ForgeProjectWorkspace workspace, BakeLayerId layer)
     {
@@ -435,7 +420,8 @@ public static class UyaStaticLayerStore
 
     private static void ValidateSource(UyaStaticLayerSourceManifest manifest, ForgeProjectWorkspace? workspace)
     {
-        if (manifest.SchemaVersion != UyaStaticLayerSchema.CurrentVersion
+        if (manifest.SchemaVersion is < UyaStaticLayerSchema.OldestSourceVersion
+                or > UyaStaticLayerSchema.CurrentVersion
             || manifest.DocumentType != UyaStaticLayerSchema.SourceDocumentType
             || manifest.Source is null
             || manifest.Layers is null
@@ -502,7 +488,11 @@ public static class UyaStaticLayerStore
         output.Flush(flushToDisk: true);
     }
 
-    private sealed record ResolvedEntity(ProjectEntity Entity, AssetCatalogEntry? Entry, int ClassId);
+    private sealed record ResolvedEntity(
+        ProjectEntity Entity,
+        AssetCatalogEntry? Entry,
+        int ClassId,
+        ProjectResolvedAsset? Asset = null);
 
     private sealed record PreparedLayer(
         UyaStaticBakeManifest? Manifest,

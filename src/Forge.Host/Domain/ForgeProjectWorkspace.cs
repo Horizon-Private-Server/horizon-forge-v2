@@ -7,7 +7,10 @@ public sealed partial class ForgeProjectWorkspace
     public const string RecoveryDirectoryName = ForgeProjectPersistence.RecoveryDirectoryName;
     public const int MaxRecoverySnapshots = ForgeProjectPersistence.MaxRecoverySnapshots;
     public const long MaxRecoveryBytes = ForgeProjectPersistence.MaxRecoveryBytes;
+    public const long MaxAttachedAssetBytes = 256L * 1024 * 1024;
     private string _savedFingerprint;
+    private byte[] _savedHudState;
+    private byte[] _savedFxState;
 
     private ForgeProjectWorkspace(
         string rootPath,
@@ -18,6 +21,8 @@ public sealed partial class ForgeProjectWorkspace
         Manifest = manifest;
         Content = content;
         _savedFingerprint = ForgeProjectPersistence.Fingerprint(manifest, content);
+        _savedHudState = SerializeHudState(content);
+        _savedFxState = SerializeFxState(content);
     }
 
     public string RootPath { get; }
@@ -26,6 +31,8 @@ public sealed partial class ForgeProjectWorkspace
     public string ContentFilePath => ForgeProjectPersistence.ResolveRelativePath(RootPath, Manifest.Content);
     public string CurrentFingerprint => ForgeProjectPersistence.Fingerprint(Manifest, Content);
     public bool IsDirty => CurrentFingerprint != _savedFingerprint;
+    internal bool IsHudDirty => !_savedHudState.AsSpan().SequenceEqual(SerializeHudState(Content));
+    internal bool IsFxDirty => !_savedFxState.AsSpan().SequenceEqual(SerializeFxState(Content));
 
     internal ForgeProjectState CaptureState() => new(Manifest, Content);
 
@@ -64,6 +71,29 @@ public sealed partial class ForgeProjectWorkspace
         ProjectBaseLevel baseLevel,
         IReadOnlyList<ProjectEntity> entities,
         ProjectLevelSettings? levelSettings,
+        CancellationToken cancellationToken = default) => await CreateAsync(
+            rootPath, name, target, baseLevel, entities, levelSettings, null, cancellationToken);
+
+    public static async Task<ForgeProjectWorkspace> CreateAsync(
+        string rootPath,
+        string name,
+        ProjectTargetProfile target,
+        ProjectBaseLevel baseLevel,
+        IReadOnlyList<ProjectEntity> entities,
+        ProjectLevelSettings? levelSettings,
+        ProjectHudState? hud,
+        CancellationToken cancellationToken = default) => await CreateAsync(
+            rootPath, name, target, baseLevel, entities, levelSettings, hud, null, cancellationToken);
+
+    public static async Task<ForgeProjectWorkspace> CreateAsync(
+        string rootPath,
+        string name,
+        ProjectTargetProfile target,
+        ProjectBaseLevel baseLevel,
+        IReadOnlyList<ProjectEntity> entities,
+        ProjectLevelSettings? levelSettings,
+        ProjectHudState? hud,
+        ProjectFxState? fx,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(target);
@@ -75,7 +105,7 @@ public sealed partial class ForgeProjectWorkspace
         var workspace = new ForgeProjectWorkspace(
             root,
             new(ProjectSchema.CurrentVersion, ProjectSchema.ManifestDocumentType, EntityId.New(), name, target, baseLevel, DefaultContentPath),
-            new(ProjectSchema.CurrentVersion, ProjectSchema.ContentDocumentType, entities.ToArray(), [], [], levelSettings));
+            new(ProjectSchema.CurrentVersion, ProjectSchema.ContentDocumentType, entities.ToArray(), [], [], [], levelSettings, hud, fx));
         workspace.Validate();
         await workspace.SaveAsync(cancellationToken);
         return workspace;
@@ -130,8 +160,12 @@ public sealed partial class ForgeProjectWorkspace
             Manifest = Manifest with { SchemaVersion = ProjectSchema.CurrentVersion, Content = DefaultContentPath };
             Content = Content with { SchemaVersion = ProjectSchema.CurrentVersion };
             Validate();
+            var hudState = SerializeHudState(Content);
+            var fxState = SerializeFxState(Content);
             await ForgeProjectPersistence.SaveAsync(RootPath, Manifest, Content, cancellationToken);
             _savedFingerprint = CurrentFingerprint;
+            _savedHudState = hudState;
+            _savedFxState = fxState;
         }
         catch
         {
@@ -139,6 +173,37 @@ public sealed partial class ForgeProjectWorkspace
             Content = previousContent;
             throw;
         }
+    }
+
+    private static byte[] SerializeHudState(ForgeProjectContent content)
+    {
+        var sourceTextures = content.Hud?.SourceIcons
+            .SelectMany(icon => icon.Frames)
+            .Select(frame => frame.Texture)
+            .OfType<ProjectAssetReference>()
+            .ToHashSet() ?? [];
+        return ForgeProjectPersistence.Serialize(new
+        {
+            content.Hud,
+            AssetOverrides = content.AssetOverrides
+                .Where(binding => sourceTextures.Contains(binding.Source))
+                .ToArray(),
+        });
+    }
+
+    private static byte[] SerializeFxState(ForgeProjectContent content)
+    {
+        var sourceTextures = content.Fx?.SourceTextures
+            .Select(value => value.Texture)
+            .OfType<ProjectAssetReference>()
+            .ToHashSet() ?? [];
+        return ForgeProjectPersistence.Serialize(new
+        {
+            content.Fx,
+            AssetOverrides = content.AssetOverrides
+                .Where(binding => sourceTextures.Contains(binding.Source))
+                .ToArray(),
+        });
     }
 
     public async Task<ProjectRecoverySnapshot?> WriteRecoveryAsync(CancellationToken cancellationToken = default)
@@ -277,25 +342,43 @@ public sealed partial class ForgeProjectWorkspace
 
     public ProjectEntity RemoveEntity(EntityId entityId)
     {
-        var index = FindEntityIndex(entityId);
-        var removed = Content.Entities[index];
-        Content = Content with
-        {
-            Entities = Content.Entities.Where(entity => entity.EntityId != entityId).ToArray(),
-            InstancedCollisionBindings = Content.InstancedCollisionBindings
-                .Where(binding => binding.InstanceEntityId != entityId).ToArray(),
-        };
+        var removed = Content.Entities[FindEntityIndex(entityId)];
+        _ = RemoveEntities([entityId]);
         return removed;
+    }
+
+    public ProjectDeleteAnalysis AnalyzeDelete(IReadOnlyList<EntityId> entityIds)
+    {
+        _ = EntityIndexes(entityIds);
+        var requested = entityIds.ToHashSet();
+        var removed = entityIds.ToHashSet();
+        foreach (var collision in Content.Entities.Where(entity =>
+            entity.Collision?.Attachment is { } attachment && removed.Contains(attachment.ParentEntityId)))
+            removed.Add(collision.EntityId);
+        var graph = ProjectReferenceGraph.Create(Content);
+        var inbound = removed.SelectMany(graph.Incoming)
+            .Where(edge => !removed.Contains(edge.OwnerEntityId))
+            .Distinct()
+            .ToArray();
+        return new(
+            entityIds.ToArray(),
+            removed.Where(id => !requested.Contains(id)).ToArray(),
+            inbound.Where(edge => edge.Reference.Nullable).ToArray(),
+            inbound.Where(edge => !edge.Reference.Nullable).ToArray());
     }
 
     public EntityId[] RemoveEntities(IReadOnlyList<EntityId> entityIds)
     {
         var indexes = EntityIndexes(entityIds);
-        var removed = entityIds.ToHashSet();
-        foreach (var collision in Content.Entities.Where(entity =>
-            entity.Collision?.Attachment is { } attachment && removed.Contains(attachment.ParentEntityId)))
-            removed.Add(collision.EntityId);
-        var entities = Content.Entities.Where(entity => !removed.Contains(entity.EntityId)).ToArray();
+        var analysis = AnalyzeDelete(entityIds);
+        if (analysis.BlockingReferences.Count > 0)
+            throw new InvalidOperationException(
+                $"Delete is blocked by {analysis.BlockingReferences.Count} required inbound reference(s).");
+        var removed = entityIds.Concat(analysis.CascadedEntityIds).ToHashSet();
+        var entities = Content.Entities.Where(entity => !removed.Contains(entity.EntityId))
+            .Select(entity => ProjectReferences.ClearNullableEntityReferences(entity, removed))
+            .ToArray();
+        var previous = Content;
         Content = Content with
         {
             Entities = entities,
@@ -303,7 +386,16 @@ public sealed partial class ForgeProjectWorkspace
                 .Where(binding => binding.InstanceEntityId is null || !removed.Contains(binding.InstanceEntityId.Value))
                 .ToArray(),
         };
-        NormalizeSkyShellOrders();
+        try
+        {
+            NormalizeSkyShellOrders();
+            Validate();
+        }
+        catch
+        {
+            Content = previous;
+            throw;
+        }
         if (entities.Length == 0) return [];
         return [entities[Math.Min(indexes.Min(), entities.Length - 1)].EntityId];
     }
@@ -313,6 +405,26 @@ public sealed partial class ForgeProjectWorkspace
         _ = EntityIndexes(entityIds);
         var entities = Content.Entities.ToDictionary(entity => entity.EntityId);
         return entityIds.Select(id => entities[id]).ToArray();
+    }
+
+    public void UpdateEntityReference(
+        EntityId ownerEntityId,
+        string fieldKey,
+        int? sourceValue,
+        EntityId? targetEntityId)
+    {
+        var index = FindEntityIndex(ownerEntityId);
+        var previous = Content;
+        var entities = Content.Entities.ToArray();
+        entities[index] = ProjectReferences.UpdateEntityReference(
+            entities[index], fieldKey, sourceValue, targetEntityId);
+        Content = Content with { Entities = entities };
+        try { Validate(); }
+        catch
+        {
+            Content = previous;
+            throw;
+        }
     }
 
     public ProjectEntity[] AddCopies(IReadOnlyList<ProjectEntity> entities)
@@ -389,6 +501,22 @@ public sealed partial class ForgeProjectWorkspace
         Manifest = Manifest with { Name = name.Trim() };
     }
 
+    public void UpdatePaletteOptimization(ProjectPaletteOptimization paletteOptimization)
+    {
+        ArgumentNullException.ThrowIfNull(paletteOptimization);
+        if (paletteOptimization.MappingVersion != ProjectPaletteOptimization.CurrentMappingVersion)
+            throw new ArgumentException("Palette optimization mapping is unsupported.", nameof(paletteOptimization));
+        if (paletteOptimization.Strength is < 0 or > 100)
+            throw new ArgumentOutOfRangeException(
+                nameof(paletteOptimization), "Palette optimization strength must be from 0 through 100.");
+        var manifest = Manifest with
+        {
+            Target = Manifest.Target with { PaletteOptimization = paletteOptimization },
+        };
+        ForgeProjectValidation.ValidateManifest(RootPath, manifest);
+        Manifest = manifest;
+    }
+
     public async Task<ProjectAssetEdit> ApplyAssetEditAsync(
         EntityId entityId,
         ReadOnlyMemory<byte> canonicalBytes,
@@ -405,15 +533,6 @@ public sealed partial class ForgeProjectWorkspace
         var canonicalFormatVersion = ResolveAssetDetails(source, globalCatalog);
         var derivedId = AssetId.Compute(source.Kind, canonicalFormatVersion, canonicalBytes.Span);
         if (derivedId == source.Id) throw new InvalidOperationException("The edited asset is identical to its source.");
-
-        var attached = new ProjectAttachedAsset(
-            derivedId, source.Kind, canonicalFormatVersion, source.Id, canonicalBytes.Length);
-        var existing = Content.Assets.SingleOrDefault(asset => asset.Id == derivedId);
-        if (existing is not null && (existing.Kind != attached.Kind
-            || existing.CanonicalFormatVersion != attached.CanonicalFormatVersion
-            || existing.ParentId != attached.ParentId
-            || existing.Size != attached.Size))
-            throw new InvalidDataException($"Project asset {derivedId} has inconsistent metadata.");
         var current = new ProjectAssetReference(derivedId, source.Kind);
         var changes = Content.Entities
             .Where(entity => entity.Asset == source && (entity.EntityId == entityId || !makeUnique))
@@ -424,13 +543,13 @@ public sealed partial class ForgeProjectWorkspace
             binding.InstanceEntityId is { } instanceEntityId && changedIds.Contains(instanceEntityId)))
             throw new InvalidOperationException(
                 "Remove the individual collision before editing its source asset.");
-        await EnsureAssetBlobAsync(attached, canonicalBytes, cancellationToken);
+        _ = await AttachAssetAsync(
+            source.Kind, canonicalFormatVersion, canonicalBytes, source.Id, cancellationToken);
         Content = Content with
         {
             Entities = Content.Entities.Select(entity => changedIds.Contains(entity.EntityId)
                 ? entity with { Asset = current }
                 : entity).ToArray(),
-            Assets = existing is null ? Content.Assets.Append(attached).ToArray() : Content.Assets,
         };
         return new(derivedId, changes);
     }
@@ -455,7 +574,10 @@ public sealed partial class ForgeProjectWorkspace
     }
 
     public bool IsAssetReferenced(AssetId id) => Content.Entities.Any(entity => entity.Asset?.Id == id)
-        || Content.InstancedCollisionBindings.Any(binding => binding.ProxyAssetId == id);
+        || Content.InstancedCollisionBindings.Any(binding => binding.ProxyAssetId == id)
+        || Content.AssetOverrides.Any(binding => binding.Replacement.Id == id)
+        || Content.Hud?.Additions.Any(addition => addition.Texture.Id == id) == true
+        || Content.Fx?.Additions.Any(addition => addition.Texture.Id == id) == true;
 
     public async Task<IReadOnlyList<AssetId>> CollectUnreferencedAssetsAsync(
         CancellationToken cancellationToken = default)
@@ -477,17 +599,24 @@ public sealed partial class ForgeProjectWorkspace
             .Select(entity => entity.Asset!.Id)
             .Concat(contents.SelectMany(content => content.InstancedCollisionBindings)
                 .Select(binding => binding.ProxyAssetId))
+            .Concat(contents.SelectMany(content => content.AssetOverrides)
+                .Select(binding => binding.Replacement.Id))
+            .Concat(contents.SelectMany(content => content.Hud?.Additions ?? [])
+                .Select(addition => addition.Texture.Id))
+            .Concat(contents.SelectMany(content => content.Fx?.Additions ?? [])
+                .Select(addition => addition.Texture.Id))
             .ToHashSet();
         var assets = contents.SelectMany(content => content.Assets).ToArray();
         while (assets.Where(asset => referenced.Contains(asset.Id))
             .Select(asset => asset.ParentId)
+            .Where(parent => parent.HasValue)
+            .Select(parent => parent!.Value)
             .Any(referenced.Add)) { }
 
         var candidates = Content.Assets.Where(asset => !referenced.Contains(asset.Id)).ToArray();
         if (candidates.Length == 0) return [];
 
         cancellationToken.ThrowIfCancellationRequested();
-        foreach (var candidate in candidates) File.Delete(AssetBlobPath(candidate.Id));
         var previousContent = Content;
         try
         {
@@ -502,6 +631,7 @@ public sealed partial class ForgeProjectWorkspace
             Content = previousContent;
             throw;
         }
+        foreach (var candidate in candidates) File.Delete(AssetBlobPath(candidate.Id));
         return candidates.Select(asset => asset.Id).ToArray();
     }
 
@@ -512,11 +642,8 @@ public sealed partial class ForgeProjectWorkspace
         return File.Exists(path) ? path : null;
     }
 
-    public string? ResolveAssetPath(AssetId id, AssetCatalogStore globalCatalog)
-    {
-        ArgumentNullException.ThrowIfNull(globalCatalog);
-        return ResolveAttachedAssetPath(id) ?? globalCatalog.ResolveBlobPath(id);
-    }
+    public string? ResolveAssetPath(ProjectAssetReference source, AssetCatalogStore globalCatalog) =>
+        ResolveAsset(source, globalCatalog)?.Path;
 
     private uint ResolveAssetDetails(
         ProjectAssetReference reference,
@@ -553,6 +680,7 @@ public sealed partial class ForgeProjectWorkspace
         try
         {
             await File.WriteAllBytesAsync(temporary, bytes.ToArray(), cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
             File.Move(temporary, path);
         }
         finally

@@ -4,6 +4,7 @@ import { appendFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 
 import type { BuildLayerId } from '../types/ForgeApi.js';
+import { BUILD_LAYERS } from '../utils/BuildLayers.js';
 import { errorMessage } from '../utils/Errors.js';
 import type { SettingsStore } from './Settings.js';
 import type { HostClient } from './bridge/HostClient.js';
@@ -15,9 +16,7 @@ interface BuildIpcHandlersOptions {
   assertSender(senderId: number): void;
 }
 
-const BUILD_LAYERS = new Set<BuildLayerId>([
-  'World', 'Sky', 'Tfrags', 'Collision', 'Ties', 'Shrubs', 'Mobys', 'Gameplay', 'Lighting', 'Opaque',
-]);
+const BUILD_LAYER_SET = new Set<BuildLayerId>(BUILD_LAYERS);
 
 export function registerBuildIpcHandlers(options: BuildIpcHandlersOptions): void {
   const { host, settings, getMainWindow, assertSender } = options;
@@ -35,7 +34,7 @@ export function registerBuildIpcHandlers(options: BuildIpcHandlersOptions): void
   ipcMain.handle('forge:editor-build-patch', async (event, includedLayers: unknown) => {
     assertSender(event.sender.id);
     if (!Array.isArray(includedLayers)
-      || includedLayers.some((value) => typeof value !== 'string' || !BUILD_LAYERS.has(value as BuildLayerId))
+      || includedLayers.some((value) => typeof value !== 'string' || !BUILD_LAYER_SET.has(value as BuildLayerId))
       || new Set(includedLayers).size !== includedLayers.length)
       throw new TypeError('Build layers are invalid.');
     if (activeRequestId !== undefined) throw new Error('A build is already running.');

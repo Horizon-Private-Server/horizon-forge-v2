@@ -1,13 +1,15 @@
 # Horizon Forge planning index
 
-This directory turns the [Forge v2 specification](../forge-v2-spec.md) into
-trackable milestones and issue-ready tasks. The specification defines behavior;
-these documents define delivery order and completion evidence.
+This directory turns the [Forge v2 specification](../forge-v2-spec.md) and the
+[P2 advanced-authoring addendum](P2-next-phase.md) into trackable milestones and
+issue-ready tasks. The specifications define behavior; these documents define
+delivery order and completion evidence.
 
 ## Priority model
 
 - **P0/MVP:** the first usable vanilla NTSC-U UYA editor release.
 - **P1:** custom GLB assets and custom-texture quantization.
+- **P2:** asset-override, texture-bank, semantic, terrain, and update authoring.
 - **Future:** cross-game expansion, collaboration, plugins, macOS, and other work
   explicitly deferred by the specification.
 
@@ -26,6 +28,9 @@ M0 Foundations
                                           └─ M6 Distribution/P0 release
 
 P1 Custom assets starts only after the relevant M3-M5 contracts are stable.
+
+P2 branches after the P0/P1 contracts it consumes; see its dependency graph rather
+than treating M7-M13 as one strictly serial chain.
 ```
 
 M6 workflow scaffolding may begin earlier, but its release gate remains last.
@@ -43,6 +48,7 @@ M6 workflow scaffolding may begin earlier, but its release gate remains last.
 | P0 | M5 — Vanilla texture optimization | [Milestone](milestones/M5-texture-optimization.md) | [Tasks](tasks/M5-tasks.md) |
 | P0 | M6 — Distribution and release | [Milestone](milestones/M6-distribution.md) | [Tasks](tasks/M6-tasks.md) |
 | P1 | P1 — Custom asset pipeline | [Milestone](milestones/P1-custom-assets.md) | [Tasks](tasks/P1-tasks.md) |
+| P2 | M7-M13 — Advanced authoring | [Plan and requirements](P2-next-phase.md) | [Tasks](tasks/P2-tasks.md) |
 
 See [P0/MVP scope](P0-MVP.md) for the release boundary.
 
@@ -56,6 +62,8 @@ them in a milestone-wide task register would split one implementation plan:
 - [Collision Editor v0](../features/collision-editor-v0.md) — M2-031 through M2-035
 - [Instanced TIE Collision v0](../features/instanced-tie-collision-v0.md) — M2-036 through M2-040
 - [Collision Type Painting v0](../features/collision-type-painting-v0.md) — M2-041 through M2-044
+- [HUD bank and sprite-ID contract v0](../features/hud-bank-contract-v0.md) — M8-001 through M8-005
+- [FX texture inventory and label contract v0](../features/fx-texture-contract-v0.md) — M8-006 through M8-008
 
 ## Task conventions
 

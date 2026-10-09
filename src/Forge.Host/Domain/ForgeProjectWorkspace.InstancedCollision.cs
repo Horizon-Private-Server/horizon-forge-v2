@@ -43,25 +43,12 @@ public sealed partial class ForgeProjectWorkspace
             && asset.Id == sourceAssetId))
             throw new InvalidOperationException($"Project has no supported instanced entity for asset {sourceAssetId}.");
 
-        var proxyAssetId = AssetId.Compute(AssetKind.Collision, canonicalFormatVersion, canonicalBytes.Span);
-        var attached = new ProjectAttachedAsset(
-            proxyAssetId,
-            AssetKind.Collision,
-            canonicalFormatVersion,
-            sourceAssetId,
-            canonicalBytes.Length);
-        var existing = Content.Assets.SingleOrDefault(asset => asset.Id == proxyAssetId);
-        if (existing is not null && (existing.Kind != attached.Kind
-            || existing.CanonicalFormatVersion != attached.CanonicalFormatVersion
-            || existing.ParentId != attached.ParentId
-            || existing.Size != attached.Size))
-            throw new InvalidDataException($"Project asset {proxyAssetId} has inconsistent metadata.");
-
-        await EnsureAssetBlobAsync(attached, canonicalBytes, cancellationToken);
+        var attached = await AttachAssetAsync(
+            AssetKind.Collision, canonicalFormatVersion, canonicalBytes, sourceAssetId, cancellationToken);
+        var proxyAssetId = attached.Id;
         var binding = new ProjectInstancedCollisionBinding(sourceAssetId, proxyAssetId, recipe, [], instanceEntityId);
         var content = Content with
         {
-            Assets = existing is null ? Content.Assets.Append(attached).ToArray() : Content.Assets,
             InstancedCollisionBindings = Content.InstancedCollisionBindings
                 .Where(value => value.SourceAssetId != sourceAssetId || value.InstanceEntityId != instanceEntityId)
                 .Append(binding)

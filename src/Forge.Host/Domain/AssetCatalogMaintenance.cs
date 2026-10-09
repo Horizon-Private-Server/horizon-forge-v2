@@ -134,7 +134,18 @@ public static class AssetCatalogMaintenance
         foreach (var asset in workspace.Content.Assets)
         {
             ids.Add(asset.Id);
-            ids.Add(asset.ParentId);
+            if (asset.ParentId is { } parentId) ids.Add(parentId);
+        }
+        foreach (var binding in workspace.Content.AssetOverrides)
+        {
+            ids.Add(binding.Source.Id);
+            ids.Add(binding.Replacement.Id);
+        }
+        if (workspace.Content.Hud is { } hud)
+        {
+            foreach (var frame in hud.SourceIcons.SelectMany(icon => icon.Frames))
+                if (frame.Texture is not null) ids.Add(frame.Texture.Id);
+            foreach (var addition in hud.Additions) ids.Add(addition.Texture.Id);
         }
     }
 

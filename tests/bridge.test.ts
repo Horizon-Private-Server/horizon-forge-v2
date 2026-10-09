@@ -74,11 +74,11 @@ import {
   decodeAssetPreviewRequest,
   decodeAssetPreviewResult,
   decodeUyaRenderPackageRequest,
-  decodeUyaRenderPackageResult,
+  decodeRenderPackageResult,
   encodeAssetPreviewRequest,
   encodeAssetPreviewResult,
   encodeUyaRenderPackageRequest,
-  encodeUyaRenderPackageResult,
+  encodeRenderPackageResult,
 } from '../src/main/bridge/RenderPayloadCodec.ts';
 
 interface GoldenFrame {
@@ -92,7 +92,7 @@ interface GoldenFrame {
 }
 
 const vectors = JSON.parse(
-  readFileSync(new URL('./fixtures/bridge-v2.json', import.meta.url), 'utf8'),
+  readFileSync(new URL('./fixtures/bridge-v4.json', import.meta.url), 'utf8'),
 ) as GoldenFrame[];
 
 function frameFrom(vector: GoldenFrame): BridgeFrame {
@@ -144,6 +144,22 @@ test('level settings commands pass IPC boundary validation', () => {
     entityIds: [],
     levelSettings: { backgroundColor: [999, 0, 0] },
   }), false);
+});
+
+test('palette optimization commands validate the versioned strength', () => {
+  const command = {
+    id: '30000000-0000-4000-8000-00000000001d',
+    kind: 'updatePaletteOptimization',
+    entityIds: [] as [],
+    paletteOptimization: { mappingVersion: 'paletteOptimization.v1', strength: 50 },
+  };
+  assert.equal(isEditorCommand(command), true);
+  assert.equal(isEditorCommand({ ...command, paletteOptimization: {
+    ...command.paletteOptimization, strength: 101,
+  } }), false);
+  assert.equal(isEditorCommand({ ...command, paletteOptimization: {
+    mappingVersion: 'paletteOptimization.v2', strength: 50,
+  } }), false);
 });
 
 test('spline point commands pass IPC boundary validation', () => {
@@ -261,6 +277,76 @@ test('instanced collision binding commands validate instance scope and enabled s
     { faceIndex: 2, rawType: 0x31 }, { faceIndex: 2, rawType: 0xaf },
   ] }), false);
   assert.equal(isEditorCommand({ ...paintCommand, faceTypes: [{ faceIndex: 3, rawType: 256 }] }), false);
+});
+
+test('typed reference commands validate owner fields and stable targets', () => {
+  const command = {
+    id: '30000000-0000-4000-8000-000000000017',
+    kind: 'setEntityReference',
+    entityIds: ['owner'],
+    reference: {
+      fieldKey: 'geometry.area.splines',
+      sourceValue: 7,
+      targetEntityId: 'target',
+    },
+  };
+  assert.equal(isEditorCommand(command), true);
+  assert.equal(isEditorCommand({ ...command, reference: { ...command.reference, fieldKey: '../entity' } }), false);
+  assert.equal(isEditorCommand({ ...command, reference: { ...command.reference, sourceValue: -1 } }), false);
+});
+
+test('HUD commands validate portable image payloads and encode within bridge limits', () => {
+  const replacement = {
+    id: '30000000-0000-4000-8000-000000000018',
+    kind: 'replaceHudTexture' as const,
+    entityIds: [] as [],
+    sourceAssetId: 'a'.repeat(64),
+    imageFormat: 'png' as const,
+    imageBytes: Uint8Array.of(0x89, 0x50, 0x4e, 0x47),
+  };
+  assert.equal(isEditorCommand(replacement), true);
+  assert.equal(isEditorCommand({ ...replacement, sourceAssetId: '../texture' }), false);
+  assert.equal(isEditorCommand({ ...replacement, imageFormat: 'jpeg' }), false);
+  assert.equal(isEditorCommand({ ...replacement, imageBytes: new Uint8Array() }), false);
+
+  const addition = {
+    id: '30000000-0000-4000-8000-000000000019',
+    kind: 'addHudIcon' as const,
+    entityIds: [] as [],
+    spriteId: 0xe001,
+    bankIndex: 2,
+    imageFormat: 'pif' as const,
+    imageBytes: Uint8Array.of(1),
+  };
+  assert.equal(isEditorCommand(addition), true);
+  assert.equal(isEditorCommand({ ...addition, bankIndex: 5 }), false);
+  assert.equal(isEditorCommand({ ...addition, spriteId: 0x1_0000 }), false);
+});
+
+test('FX commands validate portable replacements and stable appended indexes', () => {
+  const replacement = {
+    id: '30000000-0000-4000-8000-000000000020',
+    kind: 'replaceFxTexture' as const,
+    entityIds: [] as [],
+    sourceAssetId: 'b'.repeat(64),
+    imageFormat: 'png' as const,
+    imageBytes: Uint8Array.of(0x89, 0x50, 0x4e, 0x47),
+  };
+  assert.equal(isEditorCommand(replacement), true);
+  assert.equal(isEditorCommand({ ...replacement, sourceAssetId: 'invalid' }), false);
+  assert.equal(isEditorCommand({ ...replacement, imageBytes: new Uint8Array() }), false);
+  assert.equal(isEditorCommand({
+    id: '30000000-0000-4000-8000-000000000021',
+    kind: 'removeFxTexture',
+    entityIds: [],
+    index: 125,
+  }), true);
+  assert.equal(isEditorCommand({
+    id: '30000000-0000-4000-8000-000000000022',
+    kind: 'removeFxTexture',
+    entityIds: [],
+    index: -1,
+  }), false);
 });
 
 test('fragmented and coalesced reads retain frame boundaries', () => {
@@ -468,10 +554,11 @@ test('operation payloads round trip and reject trailing data', () => {
     occlusionOctants: [{ x: 1, y: 2, z: 3, maskIndex: 4 }],
     cacheHit: true,
   };
-  assert.deepEqual(decodeUyaRenderPackageResult(encodeUyaRenderPackageResult(renderResult)), renderResult);
+  assert.deepEqual(decodeRenderPackageResult(encodeRenderPackageResult(renderResult)), renderResult);
   const assetPreviewRequest = {
     cacheRootPath: '/cache',
     catalogRootPath: '/assets',
+    projectPath: '/project',
     assetId: 'c'.repeat(64),
     kind: 'sky' as const,
     targetGame: 'UYA',

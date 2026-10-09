@@ -9,6 +9,9 @@ import {
   assetExplorerFilterCount,
   assetExplorerQueryKey,
   assetGridWindow,
+  buildHudBankItems,
+  buildFxTextureItems,
+  buildReferenceIndex,
   buildAssetFamilies,
   buildSceneEntityGroups,
   buildSkyTreeItems,
@@ -16,20 +19,30 @@ import {
   entityStateLabel,
   entityTreeKind,
   entityTreeText,
+  compatibleReferenceTargets,
   isStaleAssetExplorerCursor,
   retainAssetExplorerPageDepth,
   nextTreeSelection,
   nextViewportSelection,
+  referencePage,
+  referenceNavigationTarget,
+  formatHudSpriteId,
+  hudThumbnailDimensions,
+  nextHudSpriteId,
+  validateHudPng,
+  validateFxPng,
+  virtualGridWindow,
 } from '../src/renderer/editor/EditorPanelState.ts';
 import type { AssetExplorerItem } from '../src/types/AssetExplorer.js';
-import type { EditorEntity, EditorInstancedCollisionCandidate } from '../src/types/EditorRuntime.js';
+import type { EditorEntity, EditorFx, EditorHud, EditorInstancedCollisionCandidate, EditorReference } from '../src/types/EditorRuntime.js';
 import { createAssetPlacementCommand, createSkyShellAddCommand } from '../src/utils/AssetPlacement.ts';
+import { BUILD_LAYERS } from '../src/utils/BuildLayers.ts';
 import {
   collisionTypeId, collisionTypeIdOptions, defaultCollisionType, formatCollisionType,
   formatUyaCollisionTypeId, packCollisionType, soundTypeId,
 } from '../src/utils/CollisionFormat.ts';
 import { parseSplinePointId, removeSplinePoints, splinePointId } from '../src/utils/SplinePoints.ts';
-import { applyTextureChannel } from '../src/utils/TexturePreview.ts';
+import { applyTextureChannel, formatTextureDimensions } from '../src/utils/TexturePreview.ts';
 import { recommendInstancedCollisionCandidate } from '../src/utils/InstancedCollision.ts';
 
 function entity(index: number): EditorEntity {
@@ -56,6 +69,10 @@ function entity(index: number): EditorEntity {
   };
 }
 
+test('shared build-layer allowlist includes FX textures', () => {
+  assert.ok(BUILD_LAYERS.includes('Fx'));
+});
+
 test('asset grid keeps DOM work bounded around visible rows', () => {
   const first = assetGridWindow(10_000, 680, 440, 0);
   assert.equal(first.columns, 4);
@@ -67,6 +84,170 @@ test('asset grid keeps DOM work bounded around visible rows', () => {
   assert.equal(middle.totalHeight, first.totalHeight);
 });
 
+test('HUD bank state exposes native placement, change, issue, and search metadata', () => {
+  const sourceId = 'a'.repeat(64);
+  const replacementId = 'b'.repeat(64);
+  const hud: EditorHud = {
+    canRead: true,
+    isDirty: false,
+    canReplace: true,
+    canAppend: true,
+    physicalBankCount: 5,
+    minimumAppendBank: 3,
+    minimumAppendSpriteId: 0xe000,
+    maximumAppendSpriteId: 0xefff,
+    maximumIconCount: 1_024,
+    sourceIcons: [{
+      sourceIconIndex: 4,
+      spriteId: 0x1234,
+      frames: [{
+        sourceFrameIndex: 7,
+        sourcePaletteIndex: 8,
+        sourceTextureIndex: 9,
+        paletteBankIndex: 1,
+        textureBankIndex: 2,
+        width: 32,
+        height: 64,
+        sourceTexture: { id: sourceId, kind: 'Texture' },
+        effectiveTexture: { id: replacementId, kind: 'Texture' },
+      }, {
+        sourceFrameIndex: 10,
+        sourcePaletteIndex: -1,
+        sourceTextureIndex: 11,
+        paletteBankIndex: -1,
+        textureBankIndex: 2,
+        width: 0,
+        height: 0,
+        diagnostic: 'Palette is missing.',
+      }],
+    }],
+    additions: [{ spriteId: 0xe001, bankIndex: 4, width: 16, height: 16,
+      texture: { id: 'c'.repeat(64), kind: 'Texture' } }],
+  };
+  assert.equal(buildHudBankItems(hud, '', 'all').length, 3);
+  assert.equal(buildHudBankItems(hud, '1234', 'all')[0].state, 'override');
+  assert.equal(buildHudBankItems(hud, '', 'changed').length, 2);
+  assert.equal(buildHudBankItems(hud, 'palette', 'issues')[0].state, 'invalid');
+  assert.equal(nextHudSpriteId(hud, 0xe000, 0xefff), 0xe000);
+  assert.equal(formatHudSpriteId(0xe001), 'E001');
+  assert.deepEqual(hudThumbnailDimensions(16, 16), { width: 32, height: 32 });
+  assert.deepEqual(hudThumbnailDimensions(32, 32), { width: 64, height: 64 });
+  assert.deepEqual(hudThumbnailDimensions(64, 64), { width: 128, height: 128 });
+  assert.deepEqual(hudThumbnailDimensions(256, 64), { width: 300, height: 75 });
+
+  const large = virtualGridWindow(1_024, 1_200, 650, 80_000, 280, 284);
+  assert.ok(large.endIndex - large.startIndex <= 32);
+});
+
+test('HUD PNG preflight rejects decode limits before a project command', () => {
+  const png = new Uint8Array(24);
+  png.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  new DataView(png.buffer).setUint32(16, 64);
+  new DataView(png.buffer).setUint32(20, 32);
+  assert.deepEqual(validateHudPng(png), { valid: true, width: 64, height: 32 });
+  new DataView(png.buffer).setUint32(16, 63);
+  assert.match(validateHudPng(png).diagnostic ?? '', /powers of two/);
+  assert.match(validateHudPng(new Uint8Array([1, 2, 3])).diagnostic ?? '', /valid PNG/);
+});
+
+test('FX texture state preserves source indexes and filters changes and issues', () => {
+  const fx: EditorFx = {
+    canRead: true,
+    isDirty: true,
+    canReplace: true,
+    canAppend: true,
+    maximumTextureCount: 4_096,
+    sourceTextures: [{
+      sourceIndex: 0,
+      label: 'FX_LAME_SHADOW',
+      width: 64,
+      height: 32,
+      paletteOffset: 0,
+      pixelOffset: 0x400,
+      isSwizzled: false,
+      sourceTexture: { id: 'a'.repeat(64), kind: 'Texture' },
+      effectiveTexture: { id: 'b'.repeat(64), kind: 'Texture' },
+    }, {
+      sourceIndex: 1,
+      label: 'FX_CLOUDY_CIRCLE_1',
+      width: 0,
+      height: 0,
+      paletteOffset: -1,
+      pixelOffset: -1,
+      isSwizzled: false,
+      diagnostic: 'FX texture 1 is invalid.',
+    }],
+    additions: [{ width: 16, height: 16, texture: { id: 'c'.repeat(64), kind: 'Texture' } }],
+  };
+  assert.deepEqual(buildFxTextureItems(fx, '', 'all').map((value) => value.index), [0, 1, 2]);
+  assert.equal(buildFxTextureItems(fx, '', 'changed').length, 2);
+  assert.equal(buildFxTextureItems(fx, 'cloudy', 'issues')[0].index, 1);
+  assert.equal(buildFxTextureItems(fx, 'FX_TEXTURE_2', 'all')[0].kind, 'addition');
+});
+
+test('FX PNG preflight accepts the native limit and rejects non-power-of-two dimensions', () => {
+  const png = new Uint8Array(24);
+  png.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const view = new DataView(png.buffer);
+  view.setUint32(16, 4_096);
+  view.setUint32(20, 2);
+  assert.deepEqual(validateFxPng(png), { valid: true, width: 4_096, height: 2 });
+  view.setUint32(16, 3);
+  assert.match(validateFxPng(png).diagnostic ?? '', /powers of two/);
+});
+
+test('reference indexes and pages keep large graph work bounded', () => {
+  const references: EditorReference[] = Array.from({ length: 25_000 }, (_, index) => ({
+    ownerEntityId: `owner-${index % 5}`,
+    domain: 'entity',
+    fieldKey: 'geometry.area.splines',
+    nullable: true,
+    targetKind: 'spline',
+    targetEntityId: `target-${index}`,
+    sourceValue: index,
+    missing: false,
+  }));
+  const index = buildReferenceIndex(references);
+  assert.equal(index.outgoing.get('owner-0')?.length, 5_000);
+  assert.equal(index.incoming.get('target-24999')?.[0].ownerEntityId, 'owner-4');
+  const last = referencePage(index.outgoing.get('owner-0') ?? [], 49);
+  assert.equal(last.values.length, 100);
+  assert.equal(last.pageCount, 50);
+});
+
+test('reference target filtering uses typed kinds and collision source rules', () => {
+  const entities = [
+    { ...entity(1), asset: { id: 'tie', kind: 'Tie' } },
+    { ...entity(2), asset: { id: 'shrub', kind: 'Shrub' } },
+    { ...entity(3), asset: undefined, geometry: { kind: 'spline', points: [] } },
+  ] satisfies EditorEntity[];
+  assert.deepEqual(compatibleReferenceTargets({
+    ownerEntityId: 'area', domain: 'entity', fieldKey: 'geometry.area.splines', nullable: true,
+    targetKind: 'spline', sourceValue: 0, missing: false,
+  }, entities).map((value) => value.id), ['3']);
+  assert.deepEqual(compatibleReferenceTargets({
+    ownerEntityId: 'collision', domain: 'entity', fieldKey: 'collision.attachment', nullable: false,
+    targetKind: 'entity', missing: false,
+  }, entities).map((value) => value.id), ['1', '2']);
+});
+
+test('reference navigation routes entities to the scene and assets to preview', () => {
+  const entityReference: EditorReference = {
+    ownerEntityId: 'owner', domain: 'entity', fieldKey: 'geometry.area.splines', nullable: true,
+    targetKind: 'spline', targetEntityId: 'target', sourceValue: 7, missing: false,
+  };
+  const assetReference: EditorReference = {
+    ownerEntityId: 'owner', domain: 'asset', fieldKey: 'entity.asset', nullable: true,
+    targetKind: 'Moby', targetAssetId: 'asset', missing: false,
+  };
+  assert.deepEqual(referenceNavigationTarget(entityReference, 'outgoing'),
+    { domain: 'entity', id: 'target', kind: 'spline' });
+  assert.deepEqual(referenceNavigationTarget(entityReference, 'incoming'),
+    { domain: 'entity', id: 'owner' });
+  assert.deepEqual(referenceNavigationTarget(assetReference, 'outgoing'),
+    { domain: 'asset', id: 'asset', kind: 'Moby' });
+});
+
 test('texture preview channels expose opaque color and alpha values', () => {
   const rgb = new Uint8ClampedArray([10, 20, 30, 40]);
   applyTextureChannel(rgb, 'rgb');
@@ -74,6 +255,8 @@ test('texture preview channels expose opaque color and alpha values', () => {
   const alpha = new Uint8ClampedArray([10, 20, 30, 40]);
   applyTextureChannel(alpha, 'alpha');
   assert.deepEqual([...alpha], [40, 40, 40, 255]);
+  assert.equal(formatTextureDimensions(64, 64, { width: 32, height: 32 }), '64 × 64 → 32 × 32');
+  assert.equal(formatTextureDimensions(64, 64, { width: 64, height: 64 }), '64 × 64');
 });
 
 test('instanced collision recommendation respects hard failures and measured deviation', () => {

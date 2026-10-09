@@ -22,8 +22,10 @@ public static class UyaBakeValidationService
         var baseInputs = await UyaBaseLayerStore.CreateBakeInputsAsync(projectRoot, catalog, cancellationToken);
         var staticInputs = await UyaStaticLayerStore.CreateBakeInputsAsync(projectRoot, catalog, cancellationToken);
         var gameplay = await UyaGameplayLayerStore.CreateBakeInputAsync(projectRoot, cancellationToken);
+        var hud = await UyaHudBakeService.CreateBakeInputAsync(projectRoot, cancellationToken);
+        var fx = await UyaFxBakeService.CreateBakeInputAsync(projectRoot, cancellationToken);
         var opaque = await OpaqueContentStore.CreateBakeInputAsync(projectRoot, cancellationToken);
-        var inputs = baseInputs.Concat(staticInputs).Append(gameplay).Append(opaque).ToArray();
+        var inputs = baseInputs.Concat(staticInputs).Append(gameplay).Append(opaque).Append(hud).Append(fx).ToArray();
         var target = workspace.Manifest.Target;
         var plan = BakeLayerGraph.CreatePlan(context with { Target = target }, inputs, staging.Manifest, rebuildAll);
         var warnings = new List<BakeDiagnostic>();

@@ -43,6 +43,9 @@ export interface EditorContextValue {
   setShowPlayerBarriers(value: boolean): void;
   assetPreview?: AssetExplorerFamily;
   inspectAsset(family: AssetExplorerFamily, activate?: boolean): void;
+  inspectReferencedAsset(assetId: string, assetKind: string): Promise<void>;
+  navigateToEntity(entityId: string, action: 'select' | 'reveal' | 'focus'): Promise<void>;
+  showReferences(): void;
   busy: boolean;
   hostAvailable: boolean;
   buildProgress?: BuildPatchProgress;

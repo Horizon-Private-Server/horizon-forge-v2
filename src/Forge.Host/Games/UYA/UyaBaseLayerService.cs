@@ -88,7 +88,8 @@ internal static class UyaBaseLayerService
             {
                 $"base:{payload.Layer.ToString().ToLowerInvariant()}:{Path.GetFileNameWithoutExtension(payload.Name)}",
             };
-            if (payload.Kind == AssetKind.Sky) aliases.AddRange(UyaSkyShellIndexService.Aliases(payload.Bytes));
+            if (payload.Kind == AssetKind.Sky)
+                aliases.AddRange(SkyShellCatalogService.Aliases(payload.Bytes, GameId.UYA));
             return new AssetCatalogPut(
                 payload.Kind,
                 UyaBaseLayerSchema.CanonicalFormatVersion,

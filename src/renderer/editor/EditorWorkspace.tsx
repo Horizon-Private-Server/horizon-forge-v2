@@ -3,7 +3,7 @@ import type { DockviewApi, DockviewReadyEvent } from 'dockview-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { KeybindingMap } from '../../types/Keybindings.js';
-import type { AssetExplorerFamily } from '../../types/AssetExplorer.js';
+import type { AssetExplorerCategory, AssetExplorerFamily } from '../../types/AssetExplorer.js';
 import type {
   EditorCommand, EditorSnapshot, EditorInstancedCollisionGenerationSettings, ProjectVector4,
 } from '../../types/EditorRuntime.js';
@@ -22,6 +22,7 @@ import { isTextInput } from '../../utils/Dom.ts';
 import { errorMessage } from '../../utils/Errors.ts';
 import { findKeybindingCommand, forgeActionForKeybinding } from '../../utils/Keybindings.ts';
 import { parseSplinePointId, removeSplinePoints, splinePointId } from '../../utils/SplinePoints.ts';
+import { buildAssetFamilies } from './EditorPanelState.ts';
 import { EditorContext, type InstancedCollisionOverlay } from './EditorContext.ts';
 import { BuildPanel } from './BuildPanel.tsx';
 import { AssetExplorerPanel } from './AssetExplorerPanel.tsx';
@@ -42,6 +43,9 @@ import {
 } from './EditorPanels.tsx';
 import { EditorErrorState } from './EditorPrimitives.tsx';
 import { EditorStatusBar } from './EditorStatusBar.tsx';
+import { ReferencesPanel } from './ReferencesPanel.tsx';
+import { HudBankPanel } from './HudBankPanel.tsx';
+import { FxTexturePanel } from './FxTexturePanel.tsx';
 
 interface EditorWorkspaceProps {
   project: EditorSnapshot;
@@ -59,11 +63,14 @@ const components = {
   viewport: ViewportPanel,
   sceneTree: SceneTreePanel,
   properties: PropertiesPanel,
+  references: ReferencesPanel,
   levelSettings: LevelSettingsPanel,
   diagnostics: DiagnosticsPanel,
   build: BuildPanel,
   assetExplorer: AssetExplorerPanel,
   assetPreview: AssetPreviewPanel,
+  hudBank: HudBankPanel,
+  fxTextures: FxTexturePanel,
 };
 
 export function EditorWorkspace({
@@ -244,6 +251,63 @@ export function EditorWorkspace({
     }
   }, [onProjectChange]);
 
+  const navigateToEntity = useCallback(async (
+    entityId: string,
+    action: 'select' | 'reveal' | 'focus',
+  ) => {
+    setSplinePointSelection([]);
+    setSkyCompositionSelected(false);
+    if (!await execute({ id: crypto.randomUUID(), kind: 'setSelection', entityIds: [entityId] })) return;
+    if (action !== 'select' && api) showEditorPanel(api, 'sceneTree');
+    if (action === 'focus') setCameraFocus({ entityId });
+  }, [api, execute]);
+
+  const inspectReferencedAsset = useCallback(async (assetId: string, assetKind: string) => {
+    const category = referenceAssetCategory(assetKind);
+    if (!category) {
+      setError(`${assetKind} assets do not have an interactive preview.`);
+      return;
+    }
+    setError(undefined);
+    try {
+      const page = await window.forge.queryAssetExplorer({ category, search: assetId, limit: 128 });
+      const item = page.items.find((candidate) => candidate.assetId === assetId);
+      const family = item ? buildAssetFamilies([item], {
+        game: project.target.game,
+        region: project.target.region,
+        revision: project.target.revision,
+        level: project.baseLevel.level,
+      })[0] : assetKind === 'Texture' && projectTextureIds(project).has(assetId) ? {
+        familyId: `project-texture:${assetId}`,
+        category: 'textures' as const,
+        displayLabel: `Project texture ${assetId.slice(0, 12)}`,
+        variants: [{
+          assetId,
+          category: 'textures' as const,
+          displayLabel: `Project texture ${assetId.slice(0, 12)}`,
+          canonicalFormatVersion: 1,
+          byteSize: 0,
+          aliases: [],
+          tags: ['texture', 'project-attached'],
+          sources: [],
+          classIds: [],
+          previewState: 'notCached' as const,
+          canPlace: false,
+          placementDisabledReason: 'Project-attached texture.',
+        }],
+        representativeAssetId: assetId,
+      } : undefined;
+      if (!family) throw new Error(`Asset ${assetId} has no previewable catalog entry.`);
+      inspectAsset(family);
+    } catch (cause) {
+      setError(errorMessage(cause));
+    }
+  }, [inspectAsset, project.baseLevel.level, project.target]);
+
+  const showReferences = useCallback(() => {
+    if (api) showEditorPanel(api, 'references');
+  }, [api]);
+
   const previewInstancedCollision = useCallback(async (
     entityId: string,
     settings?: EditorInstancedCollisionGenerationSettings,
@@ -364,6 +428,9 @@ export function EditorWorkspace({
     setShowPlayerBarriers,
     assetPreview,
     inspectAsset,
+    inspectReferencedAsset,
+    navigateToEntity,
+    showReferences,
     busy,
     hostAvailable: Boolean(hostStatus),
     buildProgress,
@@ -388,7 +455,7 @@ export function EditorWorkspace({
     },
   }), [applyInstancedCollisionPreview, assetPreview, buildAndPatch, buildProgress, buildResult, busy, cameraFocus,
     cancelInstancedCollisionPreview, execute,
-    hostStatus, inspectAsset, keybindings,
+    hostStatus, inspectAsset, inspectReferencedAsset, navigateToEntity, showReferences, keybindings,
     collisionVisualization, project, sceneLoad, sceneTreeColors, showOcclusionOctants, showPlayerBarriers, showSolidCollision,
     selectionColor, showTerrain,
     showViewportStats, skyCompositionSelected,
@@ -417,4 +484,24 @@ export function EditorWorkspace({
       />
     </div>
   </EditorContext.Provider>;
+}
+
+function referenceAssetCategory(kind: string): AssetExplorerCategory | undefined {
+  const categories: Partial<Record<string, AssetExplorerCategory>> = {
+    Tie: 'ties', Shrub: 'shrubs', Moby: 'mobys', Sky: 'skyShells', Texture: 'textures',
+  };
+  return categories[kind];
+}
+
+function projectTextureIds(project: EditorSnapshot): Set<string> {
+  return new Set([
+    ...(project.hud?.sourceIcons.flatMap((icon) => icon.frames.flatMap((frame) => [
+      frame.sourceTexture?.id, frame.effectiveTexture?.id,
+    ])) ?? []),
+    ...(project.hud?.additions.map((addition) => addition.texture.id) ?? []),
+    ...(project.fx?.sourceTextures.flatMap((texture) => [
+      texture.sourceTexture?.id, texture.effectiveTexture?.id,
+    ]) ?? []),
+    ...(project.fx?.additions.map((addition) => addition.texture.id) ?? []),
+  ].filter((value): value is string => value !== undefined));
 }

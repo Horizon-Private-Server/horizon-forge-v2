@@ -1,6 +1,6 @@
 import { Buffer } from 'node:buffer';
 
-import type { UyaBuildPatchRequest, UyaBuildPlanRequest } from '../../types/BridgePayloads.js';
+import type { BuildPlanRequest, UyaBuildPatchRequest } from '../../types/BridgePayloads.js';
 import type { BuildLayerId, BuildPatchProgress, BuildPatchResult, BuildPlan } from '../../types/ForgeApi.js';
 import { PayloadReader, PayloadWriter } from './PayloadIO.js';
 
@@ -18,7 +18,7 @@ export function encodeBuildPatchRequest(value: UyaBuildPatchRequest): Buffer {
   return writer.toBuffer();
 }
 
-export function encodeBuildPlanRequest(value: UyaBuildPlanRequest): Buffer {
+export function encodeBuildPlanRequest(value: BuildPlanRequest): Buffer {
   const writer = new PayloadWriter();
   writer.writeString(value.projectRoot);
   writer.writeString(value.catalogRoot);

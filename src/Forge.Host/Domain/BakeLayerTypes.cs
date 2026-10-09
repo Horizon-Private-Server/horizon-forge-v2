@@ -12,6 +12,8 @@ public enum BakeLayerId
     Gameplay,
     Lighting,
     Opaque,
+    Hud,
+    Fx,
 }
 
 public enum BakeLayerState

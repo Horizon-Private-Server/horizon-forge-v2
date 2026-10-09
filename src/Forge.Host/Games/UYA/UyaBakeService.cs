@@ -4,17 +4,17 @@ namespace Forge.Host.Games.UYA;
 
 public static class UyaBakeService
 {
-    public static async Task<UyaBakeResult> BakeAsync(
+    public static async Task<BakeResult> BakeAsync(
         string projectRoot,
         AssetCatalogStore catalog,
         BakeFingerprintContext context,
         IReadOnlySet<string>? acknowledgedWarnings = null,
         bool rebuildAll = false,
         IReadOnlySet<BakeLayerId>? includedLayers = null,
-        Func<UyaBakeProgress, ValueTask>? progress = null,
+        Func<BakeProgress, ValueTask>? progress = null,
         CancellationToken cancellationToken = default)
     {
-        await ReportAsync(progress, new(UyaBakePhase.Preflight, null, 0, 0, "Validating bake inputs."));
+        await ReportAsync(progress, new(BakePhase.Preflight, null, 0, 0, "Validating bake inputs."));
         var validation = await UyaBakeValidationService.PreflightAsync(
             projectRoot, catalog, context, acknowledgedWarnings, rebuildAll, cancellationToken);
         var staging = await BakeStagingStore.OpenAsync(projectRoot, cancellationToken);
@@ -27,7 +27,7 @@ public static class UyaBakeService
             .ToArray();
         var before = staging.Manifest;
         var written = new List<BakeLayerSnapshot>(pending.Length);
-        UyaBakeResult result;
+        BakeResult result;
         try
         {
             for (var index = 0; index < pending.Length; index++)
@@ -35,10 +35,10 @@ public static class UyaBakeService
                 cancellationToken.ThrowIfCancellationRequested();
                 var layer = pending[index];
                 await ReportAsync(progress, new(
-                    UyaBakePhase.Staging, layer.Layer, index, pending.Length, $"Baking {layer.Layer}."));
+                    BakePhase.Staging, layer.Layer, index, pending.Length, $"Baking {layer.Layer}."));
                 written.Add(await StageAsync(projectRoot, catalog, staging, layer, cancellationToken));
                 await ReportAsync(progress, new(
-                    UyaBakePhase.Staging, layer.Layer, index + 1, pending.Length, $"Baked {layer.Layer}."));
+                    BakePhase.Staging, layer.Layer, index + 1, pending.Length, $"Baked {layer.Layer}."));
             }
 
             var inventory = await UyaTextureInventoryService.BuildAsync(projectRoot, catalog, cancellationToken);
@@ -49,7 +49,7 @@ public static class UyaBakeService
                 await staging.SetPaletteReportAsync(paletteReport, cancellationToken);
 
             await ReportAsync(progress, new(
-                UyaBakePhase.Validate, null, pending.Length, pending.Length, "Validating staged bake."));
+                BakePhase.Validate, null, pending.Length, pending.Length, "Validating staged bake."));
             var finalStore = await BakeStagingStore.OpenAsync(projectRoot, cancellationToken);
             var finalValidation = await UyaBakeValidationService.PreflightAsync(
                 projectRoot, catalog, context, acknowledgedWarnings, cancellationToken: cancellationToken);
@@ -60,7 +60,7 @@ public static class UyaBakeService
                 throw new InvalidDataException("The completed UYA bake did not validate as current.");
             var allCurrent = finalValidation.Plan.Layers.All(value => value.State == BakeLayerState.Clean);
             await ReportAsync(progress, new(
-                UyaBakePhase.Complete, null, pending.Length, pending.Length,
+                BakePhase.Complete, null, pending.Length, pending.Length,
                 pending.Length > 0 ? "Bake complete."
                     : allCurrent ? "Staging is current." : "Selected layers are current; unchecked changes remain deferred."));
             result = new(
@@ -94,10 +94,12 @@ public static class UyaBakeService
             UyaStaticLayerStore.StageAsync(projectRoot, catalog, staging, plan, cancellationToken),
         BakeLayerId.Gameplay => UyaGameplayLayerStore.StageAsync(projectRoot, staging, plan, cancellationToken),
         BakeLayerId.Opaque => OpaqueContentStore.StageAsync(projectRoot, staging, plan, cancellationToken),
+        BakeLayerId.Hud => UyaHudBakeService.StageAsync(projectRoot, staging, plan, cancellationToken),
+        BakeLayerId.Fx => UyaFxBakeService.StageAsync(projectRoot, staging, plan, cancellationToken),
         _ => throw new ArgumentOutOfRangeException(nameof(plan)),
     };
 
     private static ValueTask ReportAsync(
-        Func<UyaBakeProgress, ValueTask>? progress,
-        UyaBakeProgress value) => progress?.Invoke(value) ?? ValueTask.CompletedTask;
+        Func<BakeProgress, ValueTask>? progress,
+        BakeProgress value) => progress?.Invoke(value) ?? ValueTask.CompletedTask;
 }

@@ -1,8 +1,10 @@
 import { Button, Code, Fieldset, Group, NumberInput, Stack, Text } from '@mantine/core';
 import type { ReactNode } from 'react';
-import { useLayoutEffect, useState } from 'react';
+import { useLayoutEffect, useMemo, useState } from 'react';
 
-import type { EditorEntity, ProjectQuaternion, ProjectTransform, ProjectVector3 } from '../../types/EditorRuntime.js';
+import type {
+  EditorEntity, EditorReference, ProjectQuaternion, ProjectTransform, ProjectVector3,
+} from '../../types/EditorRuntime.js';
 import { formatCollisionType } from '../../utils/CollisionFormat.ts';
 import { useEditor } from './EditorContext.ts';
 import { EditorProperty, EditorPropertyGrid } from './EditorPrimitives.tsx';
@@ -10,17 +12,49 @@ import { EntityStateControls, EntityTextEditor } from './EntityPropertyControls.
 import { SkyShellProperties } from './SkyShellProperties.tsx';
 import { SplineProperties } from './SplineProperties.tsx';
 import { InstancedCollisionProperties } from './InstancedCollisionProperties.tsx';
+import { compatibleReferenceTargets } from './EditorPanelState.ts';
+import { ReferenceField } from './ReferenceField.tsx';
 
 export function EntityProperties({ entity }: { entity: EditorEntity }) {
-  const { busy } = useEditor();
+  const { busy, execute, navigateToEntity, project, showReferences } = useEditor();
+  const references = useMemo(() => project.references.filter(
+    (reference): reference is Extract<EditorReference, { domain: 'entity' }> =>
+      reference.ownerEntityId === entity.id && reference.domain === 'entity',
+  ), [entity.id, project.references]);
+  const entityById = useMemo(() => new Map(project.entities.map((value) => [value.id, value])), [project.entities]);
   if (entity.skyShell) return <SkyShellProperties entity={entity} />;
   const disabled = busy || entity.state.locked || entity.state.readOnly;
+  const fields = references.slice(0, 50);
   return <BaseEntityProperties entity={entity} disabled={disabled}>
     {entity.collision && <CollisionProperties entity={entity} />}
     {(entity.asset?.kind === 'Tie' || entity.asset?.kind === 'Shrub')
       && <InstancedCollisionProperties entity={entity} disabled={disabled} />}
     {(entity.geometry?.kind === 'spline' || entity.geometry?.kind === 'grindPath')
       && <SplineProperties entity={entity} disabled={disabled} />}
+    {fields.length > 0 && <Fieldset legend="References">
+      <Stack gap="sm">
+        {fields.map((reference) => <ReferenceField
+          key={`${reference.fieldKey}:${reference.sourceValue ?? ''}`}
+          candidates={disabled
+            ? currentReferenceTarget(reference.targetEntityId, entityById)
+            : compatibleReferenceTargets(reference, project.entities)}
+          disabled={disabled}
+          reference={reference}
+          onChange={(targetEntityId) => void execute({
+            id: crypto.randomUUID(),
+            kind: 'setEntityReference',
+            entityIds: [entity.id],
+            reference: { fieldKey: reference.fieldKey, sourceValue: reference.sourceValue, targetEntityId },
+          })}
+          onNavigate={(entityId, action) => void navigateToEntity(entityId, action)}
+        />)}
+        <Text c="dimmed" size="xs">Only understood references are shown.</Text>
+        {references.length > fields.length && <Text size="xs">
+          Showing {fields.length} of {references.length}; open References for the complete paged list.
+        </Text>}
+        <Button variant="default" onClick={showReferences}>Open References</Button>
+      </Stack>
+    </Fieldset>}
   </BaseEntityProperties>;
 }
 
@@ -168,4 +202,12 @@ function QuaternionInputs({ value, disabled, onChange }: {
 
 function cloneTransform(value: ProjectTransform): ProjectTransform {
   return { position: { ...value.position }, rotation: { ...value.rotation }, scale: { ...value.scale } };
+}
+
+function currentReferenceTarget(
+  entityId: string | undefined,
+  entities: ReadonlyMap<string, EditorEntity>,
+): EditorEntity[] {
+  const entity = entityId ? entities.get(entityId) : undefined;
+  return entity ? [entity] : [];
 }

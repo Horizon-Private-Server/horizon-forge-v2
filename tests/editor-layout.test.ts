@@ -36,6 +36,10 @@ test('default editor layout groups properties and asset tools with their section
     { referencePanel: 'diagnostics', direction: 'within' });
   assert.deepEqual(panels.find((panel) => panel.id === 'assetPreview')?.position,
     { referencePanel: 'properties', direction: 'within' });
+  assert.deepEqual(panels.find((panel) => panel.id === 'references')?.position,
+    { referencePanel: 'properties', direction: 'within' });
+  assert.deepEqual(panels.find((panel) => panel.id === 'hudBank')?.position,
+    { referencePanel: 'viewport', direction: 'within' });
 });
 
 test('reopened Asset Explorer rejoins the Diagnostics group', () => {
@@ -54,4 +58,22 @@ test('reopened Asset Preview rejoins the Properties group', () => {
     addPanel: (panel: Record<string, unknown>) => { added = panel; },
   } as never, 'assetPreview');
   assert.deepEqual(added?.position, { referencePanel: 'properties', direction: 'within' });
+});
+
+test('reopened References rejoins the Properties group', () => {
+  let added: Record<string, unknown> | undefined;
+  showEditorPanel({
+    getPanel: (id: string) => id === 'properties' ? { id } : undefined,
+    addPanel: (panel: Record<string, unknown>) => { added = panel; },
+  } as never, 'references');
+  assert.deepEqual(added?.position, { referencePanel: 'properties', direction: 'within' });
+});
+
+test('reopened HUD Bank rejoins the main viewport group', () => {
+  let added: Record<string, unknown> | undefined;
+  showEditorPanel({
+    getPanel: (id: string) => id === 'viewport' ? { id } : undefined,
+    addPanel: (panel: Record<string, unknown>) => { added = panel; },
+  } as never, 'hudBank');
+  assert.deepEqual(added?.position, { referencePanel: 'viewport', direction: 'within' });
 });

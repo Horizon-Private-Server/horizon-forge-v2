@@ -20,7 +20,11 @@ public static class BridgeHost
             UyaSkyShellEditorService.ExecuteAsync,
             UyaInstancedCollisionPreviewService.GenerateAsync,
             UyaInstancedCollisionPreviewService.InspectAsync,
-            UyaInstancedCollisionPreviewService.CountProxyFacesAsync);
+            UyaInstancedCollisionPreviewService.CountProxyFacesAsync,
+            UyaHudProjectService.ExecuteAsync,
+            0xE000,
+            0xEFFF,
+            UyaFxProjectService.ExecuteAsync);
         var requests = new ConcurrentDictionary<uint, CancellationTokenSource>();
         var tasks = new ConcurrentDictionary<uint, Task>();
 

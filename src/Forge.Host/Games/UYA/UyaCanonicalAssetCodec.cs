@@ -1,6 +1,6 @@
-using Forge.Host.Domain;
 using System.Buffers.Binary;
 using RatchetPs2.Core.LevelAssets;
+using RatchetPs2.Games.UYA.Level;
 
 namespace Forge.Host.Games.UYA;
 
@@ -19,15 +19,8 @@ internal static class UyaCanonicalAssetCodec
         ReadOnlySpan<byte> modelBytes,
         IReadOnlyList<FrontendAssetTexture> textures)
     {
-        if (definitionBytes.Length is not 0x20 and not 0x30)
-            throw new ArgumentException("Canonical UYA definition must be 0x20 or 0x30 bytes.", nameof(definitionBytes));
-        if (modelBytes.IsEmpty) throw new ArgumentException("Canonical UYA model cannot be empty.", nameof(modelBytes));
-        ArgumentNullException.ThrowIfNull(textures);
-        if (textures.Count > 4_096 || textures.Any(value => value is null || value.Role > 1 || value.PifBytes.Length == 0))
-            throw new ArgumentException("Canonical UYA textures are invalid.", nameof(textures));
-        var definition = definitionBytes.ToArray();
-        definition.AsSpan(0, 8).Clear();
-        definition.AsSpan(0x10).Fill(byte.MaxValue);
+        UyaLevelAssetCanonicalizer.Validate(definitionBytes, modelBytes, textures);
+        var definition = UyaLevelAssetCanonicalizer.NormalizeDefinition(definitionBytes);
         using var stream = new MemoryStream();
         stream.Write(Magic);
         WriteLength(stream, definition.Length);
@@ -79,6 +72,7 @@ internal static class UyaCanonicalAssetCodec
             offset += length;
         }
         if (offset != bytes.Length) throw new InvalidDataException("Asset blob contains trailing data.");
+        if (!legacy) UyaLevelAssetCanonicalizer.Validate(definition, model, textures);
         return new(definition, model, textures);
     }
 

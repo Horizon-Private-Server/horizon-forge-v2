@@ -1,5 +1,6 @@
 using Forge.Host.Domain;
 using Forge.Host.Games.UYA;
+using RatchetPs2.Core.Games;
 using RatchetPs2.Core.Skyboxes;
 
 namespace Forge.Host.Bridge;
@@ -52,7 +53,7 @@ internal static class ProjectBridgeHandlers
         var request = BuildPayloadCodec.DecodePlanRequest(payload);
         var result = await UyaBuildPatchService.PlanAsync(
             request.ProjectRoot, request.CatalogRoot, hostVersion, sdkRevision, cancellationToken);
-        return BuildPayloadCodec.EncodePlan(new(result.Layers.Select(value => new UyaBuildLayerStatusPayload(
+        return BuildPayloadCodec.EncodePlan(new(result.Layers.Select(value => new BuildLayerStatusPayload(
             value.Layer.ToString(), value.State.ToString(), value.CanDefer)).ToArray()));
     }
 
@@ -216,9 +217,12 @@ internal static class ProjectBridgeHandlers
         var catalog = await AssetCatalogStore.OpenAsync(request.CatalogRootPath, cancellationToken);
         if (request.Category == AssetExplorerCategoryPayload.SkyShells)
         {
-            var shells = await UyaSkyShellIndexService.QueryAsync(catalog, new(
+            if (!Enum.TryParse<GameId>(request.Game ?? request.TargetGame, ignoreCase: true, out var catalogGame)
+                || !Enum.IsDefined(catalogGame))
+                throw new NotSupportedException($"Sky shell catalog game '{request.Game ?? request.TargetGame}' is not supported.");
+            var shells = await SkyShellCatalogService.QueryAsync(catalog, new(
                 request.Search, request.Game, request.Level, request.Region, request.Revision,
-                request.Tags, request.Cursor, checked((int)request.Limit)), cancellationToken);
+                request.Tags, request.Cursor, checked((int)request.Limit)), catalogGame, cancellationToken);
             return AssetExplorerPayloadCodec.EncodePage(new(
                 shells.Items.Select(item => ToSkyShellExplorerItem(request, item)).ToArray(),
                 new(shells.Facets.Games, shells.Facets.Levels, shells.Facets.Regions,
@@ -252,7 +256,7 @@ internal static class ProjectBridgeHandlers
 
     private static AssetExplorerItemPayload ToSkyShellExplorerItem(
         AssetExplorerRequestPayload request,
-        UyaSkyShellIndexItem item)
+        SkyShellCatalogItem item)
     {
         var entry = item.Entry;
         var (canPlace, disabledReason) = SkyShellPlacementCompatibility(entry, request, item);
@@ -277,7 +281,7 @@ internal static class ProjectBridgeHandlers
     private static (bool CanPlace, string? DisabledReason) SkyShellPlacementCompatibility(
         AssetCatalogEntry entry,
         AssetExplorerRequestPayload request,
-        UyaSkyShellIndexItem item)
+        SkyShellCatalogItem item)
     {
         if (!item.BlobAvailable) return (false, "The catalog blob is missing.");
         if (item.ShellIndex is null) return (false, "The source shell index is unavailable.");

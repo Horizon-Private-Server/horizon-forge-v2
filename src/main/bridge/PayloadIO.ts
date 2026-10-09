@@ -50,6 +50,12 @@ export class PayloadWriter {
     values.forEach((value) => this.writeString(value));
   }
 
+  writeBytes(value: Uint8Array, maximumLength: number): void {
+    if (value.byteLength > maximumLength) malformed('Byte field exceeds limit');
+    this.writeUInt32(value.byteLength);
+    this.#parts.push(Buffer.from(value.buffer, value.byteOffset, value.byteLength));
+  }
+
   writeUInt32s(values: number[]): void {
     if (values.length > MAX_LIST_ITEMS) malformed('List exceeds item limit');
     this.writeUInt32(values.length);
@@ -117,6 +123,15 @@ export class PayloadReader {
     } catch {
       malformed('Text field is not valid UTF-8');
     }
+  }
+
+  readBytes(maximumLength: number): Uint8Array {
+    const length = this.readUInt32();
+    if (length > maximumLength) malformed('Byte field exceeds limit');
+    this.#require(length);
+    const value = this.#bytes.subarray(this.#offset, this.#offset + length);
+    this.#offset += length;
+    return Uint8Array.from(value);
   }
 
   readStrings(): string[] {

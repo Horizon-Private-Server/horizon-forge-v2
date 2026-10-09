@@ -116,7 +116,7 @@ export interface BuildPatchResult {
 }
 
 export type BuildLayerId = 'World' | 'Sky' | 'Tfrags' | 'Collision' | 'Ties'
-  | 'Shrubs' | 'Mobys' | 'Gameplay' | 'Lighting' | 'Opaque';
+  | 'Shrubs' | 'Mobys' | 'Gameplay' | 'Lighting' | 'Opaque' | 'Hud' | 'Fx';
 
 export interface BuildLayerStatus {
   layer: BuildLayerId;
@@ -294,8 +294,8 @@ export interface EditorTerrainSource {
 export type ForgeDialog = 'setup' | 'settings';
 
 export type EditorLayoutAction = 'resetLayout' | 'showViewport' | 'showSceneTree'
-  | 'showProperties' | 'showLevelSettings' | 'showDiagnostics' | 'showBuild'
-  | 'showAssetExplorer' | 'showAssetPreview';
+  | 'showProperties' | 'showReferences' | 'showLevelSettings' | 'showDiagnostics' | 'showBuild'
+  | 'showAssetExplorer' | 'showAssetPreview' | 'showHudBank' | 'showFxTextures';
 
 export type ForgeAction = ForgeDialog | EditorLayoutAction
   | 'projects' | 'newProject' | 'openProject' | 'saveProject' | 'undoEditor' | 'redoEditor'

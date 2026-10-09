@@ -6,6 +6,7 @@ import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 
 import { SceneProjection } from '../src/renderer/editor/SceneProjection.ts';
+import { SceneBillboardResources } from '../src/renderer/editor/SceneBillboardGizmo.ts';
 import { verticalDragScale } from '../src/renderer/editor/TransformTool.ts';
 import { AssetPreviewScheduler, collectSkyShellObjects } from '../src/renderer/editor/AssetThumbnailRuntime.ts';
 import {
@@ -72,6 +73,92 @@ test('vertical gizmo drags provide stable scale control', () => {
   assert.equal(verticalDragScale(1, 200, null), 2);
   assert.equal(verticalDragScale(1, -200, null), 0.5);
   assert.equal(verticalDragScale(1, 30, 0.1), 1.1);
+});
+
+test('billboard gizmos share resources, bound screen size, and dispose synchronously', () => {
+  const resources = new SceneBillboardResources();
+  const options = {
+    entityId: 'first',
+    label: 'First meshless object',
+    worldPosition: { x: 0, y: 0, z: 0 },
+    color: '#ff00ff',
+    glyph: 'object' as const,
+    depthPolicy: 'occluded' as const,
+    selected: false,
+    hovered: false,
+    worldSize: 20,
+    minScreenSize: 16,
+    maxScreenSize: 40,
+  };
+  const first = resources.create(options);
+  const second = resources.create({ ...options, entityId: 'second', label: 'Second meshless object' });
+  assert.equal(first.geometry, second.geometry);
+  assert.equal(first.material, second.material);
+  assert.deepEqual(resources.counts(), { geometries: 1, materials: 1, textures: 1 });
+  assert.equal(first.userData.forgeAccessibleLabel, options.label);
+
+  const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 1_000);
+  camera.position.set(0, 0, 100);
+  camera.lookAt(0, 0, 0);
+  camera.updateMatrixWorld();
+  first.updateForCamera(camera, 1_000);
+  const projectedPixels = first.scale.y
+    / (2 * camera.position.distanceTo(first.position) * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) / 1_000);
+  assert.ok(Math.abs(projectedPixels - options.maxScreenSize) < 1e-6);
+  camera.position.z = 100_000;
+  camera.updateMatrixWorld();
+  first.updateForCamera(camera, 1_000);
+  const distantPixels = first.scale.y
+    / (2 * camera.position.distanceTo(first.position) * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) / 1_000);
+  assert.ok(Math.abs(distantPixels - options.minScreenSize) < 1e-6);
+  assert.ok(first.quaternion.angleTo(camera.quaternion) < 1e-6);
+
+  first.setState(true, false);
+  assert.notEqual(first.material, second.material);
+  assert.deepEqual(resources.counts(), { geometries: 1, materials: 2, textures: 2 });
+  first.configure({
+    ...options,
+    glyph: 'ship',
+    depthPolicy: 'overlay',
+    selected: true,
+  });
+  assert.equal(first.material.depthTest, false);
+  assert.equal(first.renderOrder, 1_000);
+  assert.deepEqual(resources.counts(), { geometries: 1, materials: 2, textures: 2 });
+  first.dispose();
+  second.dispose();
+  assert.deepEqual(resources.counts(), { geometries: 1, materials: 0, textures: 0 });
+  resources.dispose();
+  assert.deepEqual(resources.counts(), { geometries: 0, materials: 0, textures: 0 });
+});
+
+test('meshless projections use pickable billboards but never placement geometry', () => {
+  const projection = new SceneProjection();
+  const meshless = entity('meshless', 4, false);
+  projection.sync([meshless]);
+  const billboard = projection.getObject(meshless.id)! as THREE.Mesh;
+  const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 1_000);
+  camera.position.set(4, 3, 100);
+  camera.lookAt(4, 3, -2);
+  camera.updateMatrixWorld();
+  projection.updateBillboards(camera, 800);
+
+  assert.equal(billboard.userData.forgeBillboardGizmo, true);
+  assert.equal(billboard.userData.forgeBillboardGlyph, 'robot');
+  assert.equal(projection.resolvePick([{ object: billboard }] as unknown as THREE.Intersection[]), meshless.id);
+  assert.equal(projection.isPlacementSurface({ object: billboard } as unknown as THREE.Intersection), false);
+  assert.deepEqual(projection.getWorldVertices([meshless.id]), []);
+  assert.deepEqual(projection.getBillboardResourceCounts(), { geometries: 1, materials: 1, textures: 1 });
+
+  projection.setHoveredEntityId(meshless.id);
+  projection.sync([meshless], [meshless.id]);
+  assert.deepEqual(projection.getBillboardResourceCounts(), { geometries: 1, materials: 1, textures: 1 });
+  projection.sync([{ ...meshless, state: { ...meshless.state, locked: true } }]);
+  assert.equal(projection.resolvePick([{ object: billboard }] as unknown as THREE.Intersection[]), undefined);
+  projection.sync([{ ...meshless, state: { ...meshless.state, hidden: true } }]);
+  assert.equal(billboard.visible, false);
+  projection.dispose();
+  assert.deepEqual(projection.getBillboardResourceCounts(), { geometries: 0, materials: 0, textures: 0 });
 });
 
 test('asset preview scheduler caps work at four and cancels queued jobs', async () => {

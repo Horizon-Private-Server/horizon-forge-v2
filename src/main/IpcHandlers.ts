@@ -77,6 +77,7 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
     settings,
     renderAssets,
     getEditorTargetGame: () => getActiveEditorSnapshot()?.target.game,
+    getEditorProjectPath: () => getActiveEditorSnapshot()?.projectPath,
     assertSender,
   });
   registerBuildIpcHandlers({ host, settings, getMainWindow, assertSender });

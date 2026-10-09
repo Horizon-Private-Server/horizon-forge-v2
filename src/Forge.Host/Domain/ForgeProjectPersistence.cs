@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.IO.Compression;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 
 namespace Forge.Host.Domain;
@@ -33,7 +34,12 @@ internal static class ForgeProjectPersistence
 
     public static async Task<ForgeProjectManifest> LoadManifestAsync(
         string rootPath,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        (await LoadManifestWithVersionAsync(rootPath, cancellationToken)).Manifest;
+
+    private static async Task<(ForgeProjectManifest Manifest, int StoredVersion)> LoadManifestWithVersionAsync(
+        string rootPath,
+        CancellationToken cancellationToken)
     {
         var root = Path.GetFullPath(rootPath);
         var manifestPath = Path.Combine(root, ForgeProjectWorkspace.ManifestFileName);
@@ -41,10 +47,13 @@ internal static class ForgeProjectPersistence
             throw new InvalidDataException("Project manifest exceeds the size limit.");
         var manifestBytes = await File.ReadAllBytesAsync(manifestPath, cancellationToken);
         var version = ReadVersion(manifestBytes);
-        if (version != ProjectSchema.CurrentVersion) throw new UnsupportedProjectSchemaException(version);
-        var manifest = Deserialize<ForgeProjectManifest>(manifestBytes, "Project manifest");
+        if (version < ProjectSchema.OldestSupportedVersion)
+            throw new UnsupportedProjectSchemaException(version);
+        var manifest = version < ProjectSchema.CurrentVersion
+            ? MigrateManifest(manifestBytes)
+            : Deserialize<ForgeProjectManifest>(manifestBytes, "Project manifest");
         ForgeProjectValidation.ValidateManifest(root, manifest);
-        return manifest;
+        return (manifest, version);
     }
 
     public static async Task SaveAsync(
@@ -196,14 +205,18 @@ internal static class ForgeProjectPersistence
 
     private static async Task<LoadedProject> LoadDirectoryAsync(string root, CancellationToken cancellationToken)
     {
-        var manifest = await LoadManifestAsync(root, cancellationToken);
+        var (manifest, manifestVersion) = await LoadManifestWithVersionAsync(root, cancellationToken);
         var storedContentBytes = await ReadContentFileAsync(
             ResolveRelativePath(root, manifest.Content), cancellationToken);
-        var contentBytes = Decompress(storedContentBytes);
+        var contentBytes = IsGzip(storedContentBytes) ? Decompress(storedContentBytes) : storedContentBytes;
         var contentVersion = ReadVersion(contentBytes);
-        if (contentVersion != ProjectSchema.CurrentVersion)
+        if (manifestVersion != contentVersion)
+            throw new InvalidDataException("Project manifest and content schema versions do not match.");
+        if (contentVersion < ProjectSchema.OldestSupportedVersion)
             throw new UnsupportedProjectSchemaException(contentVersion);
-        var content = Deserialize<ForgeProjectContent>(contentBytes, "Project content");
+        var content = contentVersion < ProjectSchema.CurrentVersion
+            ? ProjectReferences.Migrate(MigrateContent(contentBytes))
+            : Deserialize<ForgeProjectContent>(contentBytes, "Project content");
         return new(manifest, content);
     }
 
@@ -212,6 +225,66 @@ internal static class ForgeProjectPersistence
         using var document = ProjectSchema.Parse(bytes);
         return document.RootElement.GetProperty("schemaVersion").GetInt32();
     }
+
+    private static ForgeProjectManifest MigrateManifest(byte[] bytes)
+    {
+        var root = ParseObject(bytes, "Project manifest");
+        root["schemaVersion"] = ProjectSchema.CurrentVersion;
+        root["documentType"] ??= ProjectSchema.ManifestDocumentType;
+        if (root["baseLevel"] is JsonObject baseLevel) baseLevel.Remove("entityVersion");
+        if (root["target"] is JsonObject target)
+            target["paletteOptimization"] ??= new JsonObject
+            {
+                ["mappingVersion"] = ProjectPaletteOptimization.CurrentMappingVersion,
+                ["strength"] = ProjectPaletteOptimization.DefaultStrength,
+            };
+        return DeserializeNode<ForgeProjectManifest>(root, "Project manifest");
+    }
+
+    private static ForgeProjectContent MigrateContent(byte[] bytes)
+    {
+        var root = ParseObject(bytes, "Project content");
+        root["schemaVersion"] = ProjectSchema.CurrentVersion;
+        root["documentType"] ??= ProjectSchema.ContentDocumentType;
+        root["entities"] ??= new JsonArray();
+        root["assets"] ??= new JsonArray();
+        root["assetOverrides"] ??= new JsonArray();
+        if (root.Remove("tieCollisionBindings", out var legacyBindings))
+            root["instancedCollisionBindings"] = legacyBindings;
+        root["instancedCollisionBindings"] ??= new JsonArray();
+        if (root["instancedCollisionBindings"] is JsonArray bindings)
+        {
+            foreach (var binding in bindings.OfType<JsonObject>())
+            {
+                if (binding.Remove("tieAssetId", out var sourceId)) binding["sourceAssetId"] = sourceId;
+                binding["faceTypeOverrides"] ??= new JsonArray();
+            }
+        }
+        if (root["entities"] is JsonArray entities)
+        {
+            foreach (var entity in entities.OfType<JsonObject>())
+            {
+                if (entity.Remove("tieCollisionEnabled", out var enabled))
+                    entity["instancedCollisionEnabled"] = enabled;
+                if (entity["collision"] is JsonObject collision
+                    && collision["attachment"] is JsonObject attachment
+                    && attachment.Remove("tieEntityId", out var parentId))
+                    attachment["parentEntityId"] = parentId;
+            }
+        }
+        return DeserializeNode<ForgeProjectContent>(root, "Project content");
+    }
+
+    private static JsonObject ParseObject(byte[] bytes, string description) =>
+        JsonNode.Parse(bytes, documentOptions: new()
+        {
+            AllowTrailingCommas = false,
+            CommentHandling = JsonCommentHandling.Disallow,
+            MaxDepth = 64,
+        }) as JsonObject ?? throw new InvalidDataException($"{description} root must be an object.");
+
+    private static T DeserializeNode<T>(JsonNode node, string description) =>
+        node.Deserialize<T>(JsonOptions) ?? throw new InvalidDataException($"{description} is empty.");
 
     internal static T Deserialize<T>(byte[] bytes, string description) =>
         JsonSerializer.Deserialize<T>(bytes, JsonOptions)
@@ -230,6 +303,8 @@ internal static class ForgeProjectPersistence
         using (var gzip = new GZipStream(output, CompressionLevel.Fastest, leaveOpen: true)) gzip.Write(bytes);
         return output.ToArray();
     }
+
+    private static bool IsGzip(byte[] bytes) => bytes is [0x1f, 0x8b, ..];
 
     private static byte[] Decompress(byte[] bytes)
     {

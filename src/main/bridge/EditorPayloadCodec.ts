@@ -14,8 +14,11 @@ import type {
 import { PayloadReader, PayloadWriter, malformed } from './PayloadIO.js';
 
 const MAX_ENTITIES = 100_000;
+const MAX_REFERENCES = 1_000_000;
 const MAX_EVENTS = 1_024;
 const MAX_OCTANTS = 1_000_000;
+const MAX_HUD_IMAGE_BYTES = 16 * 1024 * 1024;
+const MAX_FX_IMAGE_BYTES = 16 * 1024 * 1024;
 const commandKinds = {
   setSelection: 1,
   renameProject: 2,
@@ -40,6 +43,16 @@ const commandKinds = {
   setInstancedCollisionEnabled: 21,
   setInstancedCollisionRawType: 22,
   setInstancedCollisionFaceTypes: 23,
+  setEntityReference: 24,
+  updatePaletteOptimization: 25,
+  replaceHudTexture: 26,
+  removeHudTextureOverride: 27,
+  addHudIcon: 28,
+  removeHudIcon: 29,
+  replaceFxTexture: 30,
+  removeFxTextureOverride: 31,
+  addFxTexture: 32,
+  removeFxTexture: 33,
 } as const;
 const eventKinds: Record<number, EditorEvent['kind']> = {
   1: 'projectOpened', 2: 'projectChanged', 3: 'selectionChanged', 4: 'projectSaved',
@@ -53,6 +66,12 @@ const geometryKinds: Record<number, NonNullable<EditorEntity['geometry']>['kind'
   8: 'directionalLight', 9: 'pointLight', 10: 'environmentSample', 11: 'environmentTransition',
   12: 'camera', 13: 'ambientSound',
 };
+const entityKinds = {
+  1: 'entity', 2: 'moby', 3: 'tie', 4: 'shrub', 5: 'tfrag', 6: 'cuboid', 7: 'sphere',
+  8: 'cylinder', 9: 'pill', 10: 'spline', 11: 'grindPath', 12: 'area', 13: 'collision',
+  14: 'skyShell', 15: 'directionalLight', 16: 'pointLight', 17: 'environmentSample',
+  18: 'environmentTransition', 19: 'camera', 20: 'ambientSound',
+} as const;
 
 export function encodeEditorOpenRequest(projectPath: string, catalogRootPath: string, autosaveSeconds: number): Buffer {
   const writer = new PayloadWriter();
@@ -130,6 +149,52 @@ export function encodeEditorCommand(value: EditorCommand): Buffer {
       writer.writeUInt32(faceType.faceIndex);
       writer.writeUInt32(faceType.rawType);
     });
+  }
+  writer.writeBoolean(value.kind === 'setEntityReference');
+  if (value.kind === 'setEntityReference') {
+    writer.writeString(value.reference.fieldKey);
+    writer.writeBoolean(value.reference.sourceValue !== undefined);
+    if (value.reference.sourceValue !== undefined) writer.writeUInt32(value.reference.sourceValue);
+    writer.writeBoolean(value.reference.targetEntityId !== undefined);
+    if (value.reference.targetEntityId !== undefined) writer.writeString(value.reference.targetEntityId);
+  }
+  writer.writeBoolean(value.kind === 'updatePaletteOptimization');
+  if (value.kind === 'updatePaletteOptimization') {
+    writer.writeString(value.paletteOptimization.mappingVersion);
+    writer.writeUInt32(value.paletteOptimization.strength);
+  }
+  const isHud = value.kind === 'replaceHudTexture' || value.kind === 'removeHudTextureOverride'
+    || value.kind === 'addHudIcon' || value.kind === 'removeHudIcon';
+  writer.writeBoolean(isHud);
+  if (isHud) {
+    const hasSource = value.kind === 'replaceHudTexture' || value.kind === 'removeHudTextureOverride';
+    writer.writeBoolean(hasSource);
+    if (hasSource) writer.writeString(value.sourceAssetId);
+    const hasSprite = value.kind === 'addHudIcon' || value.kind === 'removeHudIcon';
+    writer.writeBoolean(hasSprite);
+    if (hasSprite) writer.writeUInt32(value.spriteId);
+    writer.writeBoolean(value.kind === 'addHudIcon');
+    if (value.kind === 'addHudIcon') writer.writeUInt32(value.bankIndex);
+    const hasImage = value.kind === 'replaceHudTexture' || value.kind === 'addHudIcon';
+    writer.writeBoolean(hasImage);
+    if (hasImage) writer.writeString(value.imageFormat);
+    writer.writeBoolean(hasImage);
+    if (hasImage) writer.writeBytes(value.imageBytes, MAX_HUD_IMAGE_BYTES);
+  }
+  const isFx = value.kind === 'replaceFxTexture' || value.kind === 'removeFxTextureOverride'
+    || value.kind === 'addFxTexture' || value.kind === 'removeFxTexture';
+  writer.writeBoolean(isFx);
+  if (isFx) {
+    const hasSource = value.kind === 'replaceFxTexture' || value.kind === 'removeFxTextureOverride';
+    writer.writeBoolean(hasSource);
+    if (hasSource) writer.writeString(value.sourceAssetId);
+    writer.writeBoolean(value.kind === 'removeFxTexture');
+    if (value.kind === 'removeFxTexture') writer.writeUInt32(value.index);
+    const hasImage = value.kind === 'replaceFxTexture' || value.kind === 'addFxTexture';
+    writer.writeBoolean(hasImage);
+    if (hasImage) writer.writeString(value.imageFormat);
+    writer.writeBoolean(hasImage);
+    if (hasImage) writer.writeBytes(value.imageBytes, MAX_FX_IMAGE_BYTES);
   }
   return writer.toBuffer();
 }
@@ -232,16 +297,27 @@ export function decodeEditorSnapshot(payload: Uint8Array): EditorSnapshot {
   const projectPath = reader.readString();
   const projectId = reader.readString();
   const projectName = reader.readString();
+  const targetGame = reader.readString();
+  const targetRegion = reader.readString();
+  const targetRevision = reader.readString();
+  const bakeProfile = reader.readString();
+  const mappingVersion = reader.readString();
+  if (mappingVersion !== 'paletteOptimization.v1') malformed('Unsupported palette optimization mapping');
+  const paletteStrength = reader.readUInt32();
+  if (paletteStrength > 100) malformed('Invalid palette optimization strength');
   const target = {
-    game: reader.readString(), region: reader.readString(),
-    revision: reader.readString(), bakeProfile: reader.readString(),
+    game: targetGame, region: targetRegion, revision: targetRevision, bakeProfile,
+    paletteOptimization: { mappingVersion: 'paletteOptimization.v1' as const, strength: paletteStrength },
   };
   const baseLevel = {
     game: reader.readString(), region: reader.readString(), revision: reader.readString(),
     level: reader.readUInt32(), sourceFingerprint: reader.readString(), missingAssetCount: reader.readUInt32(),
   };
   const levelSettings = reader.readBoolean() ? readLevelSettings(reader) : undefined;
+  const hud = reader.readBoolean() ? readHud(reader) : undefined;
+  const fx = reader.readBoolean() ? readFx(reader) : undefined;
   const entities = readList(reader, MAX_ENTITIES, () => readEntity(reader));
+  const references = readList(reader, MAX_REFERENCES, () => readReference(reader));
   const selection = readStrings(reader, MAX_ENTITIES);
   const isDirty = reader.readBoolean();
   const canUndo = reader.readBoolean();
@@ -258,9 +334,123 @@ export function decodeEditorSnapshot(payload: Uint8Array): EditorSnapshot {
   }));
   reader.complete();
   return {
-    projectPath, projectId, projectName, target, baseLevel, levelSettings, entities, selection, isDirty,
+    projectPath, projectId, projectName, target, baseLevel, levelSettings, hud, fx, entities, references, selection, isDirty,
     canUndo, canRedo, canPaste, lastEventSequence, capabilities, tools, diagnostics,
   };
+}
+
+function readFx(reader: PayloadReader): NonNullable<EditorSnapshot['fx']> {
+  const canRead = reader.readBoolean();
+  const isDirty = reader.readBoolean();
+  const canReplace = reader.readBoolean();
+  const canAppend = reader.readBoolean();
+  const authoringDisabledReason = optionalString(reader.readString());
+  const maximumTextureCount = reader.readUInt32();
+  const sourceTextures = readList(reader, 4_096, () => ({
+    sourceIndex: reader.readUInt32(),
+    label: reader.readString(),
+    width: reader.readInt32(),
+    height: reader.readInt32(),
+    paletteOffset: reader.readInt32(),
+    pixelOffset: reader.readInt32(),
+    isSwizzled: reader.readBoolean(),
+    sourceTexture: readTextureReference(reader),
+    effectiveTexture: readTextureReference(reader),
+    diagnostic: optionalString(reader.readString()),
+  }));
+  const additions = readList(reader, 4_096, () => ({
+    width: reader.readUInt32(),
+    height: reader.readUInt32(),
+    texture: readTextureReference(reader) ?? malformed('FX addition texture is missing'),
+  }));
+  return {
+    canRead, isDirty, canReplace, canAppend, authoringDisabledReason,
+    maximumTextureCount, sourceTextures, additions,
+  };
+}
+
+function readHud(reader: PayloadReader): NonNullable<EditorSnapshot['hud']> {
+  const canRead = reader.readBoolean();
+  const isDirty = reader.readBoolean();
+  const canReplace = reader.readBoolean();
+  const canAppend = reader.readBoolean();
+  const disabledReason = reader.readString();
+  const physicalBankCount = reader.readUInt32();
+  const minimumAppendBank = reader.readUInt32();
+  const minimumAppendSpriteId = reader.readUInt32();
+  const maximumAppendSpriteId = reader.readUInt32();
+  const maximumIconCount = reader.readUInt32();
+  const sourceIcons = readList(reader, 1_024, () => ({
+    sourceIconIndex: reader.readUInt32(),
+    spriteId: reader.readUInt32(),
+    frames: readList(reader, 65_535, () => ({
+      sourceFrameIndex: reader.readUInt32(),
+      sourcePaletteIndex: reader.readInt32(),
+      sourceTextureIndex: reader.readInt32(),
+      paletteBankIndex: reader.readInt32(),
+      textureBankIndex: reader.readInt32(),
+      width: reader.readInt32(),
+      height: reader.readInt32(),
+      sourceTexture: readTextureReference(reader),
+      effectiveTexture: readTextureReference(reader),
+      diagnostic: optionalString(reader.readString()),
+    })),
+  }));
+  const additions = readList(reader, 1_024, () => ({
+    spriteId: reader.readUInt32(),
+    bankIndex: reader.readUInt32(),
+    width: reader.readUInt32(),
+    height: reader.readUInt32(),
+    texture: readTextureReference(reader) ?? malformed('HUD addition texture is missing'),
+  }));
+  return {
+    canRead,
+    isDirty,
+    canReplace,
+    canAppend,
+    authoringDisabledReason: optionalString(disabledReason),
+    physicalBankCount,
+    minimumAppendBank,
+    minimumAppendSpriteId,
+    maximumAppendSpriteId,
+    maximumIconCount,
+    sourceIcons,
+    additions,
+  };
+}
+
+function optionalString(value: string): string | undefined {
+  return value.length === 0 ? undefined : value;
+}
+
+function readTextureReference(reader: PayloadReader): { id: string; kind: 'Texture' } | undefined {
+  if (!reader.readBoolean()) return undefined;
+  const id = reader.readString();
+  const kind = reader.readString();
+  if (kind !== 'Texture') malformed('Editor asset reference is not a texture');
+  return { id, kind: 'Texture' };
+}
+
+function readReference(reader: PayloadReader): EditorSnapshot['references'][number] {
+  const ownerEntityId = reader.readString();
+  const domain = reader.readUInt32();
+  const fieldKey = reader.readString();
+  const nullable = reader.readBoolean();
+  if (domain === 1) {
+    const targetKind = enumValue(entityKinds, reader.readUInt32(), 'reference entity kind');
+    const targetEntityId = reader.readBoolean() ? reader.readString() : undefined;
+    const sourceValue = reader.readBoolean() ? reader.readUInt32() : undefined;
+    const missing = reader.readBoolean();
+    return { ownerEntityId, domain: 'entity', fieldKey, nullable, targetKind, targetEntityId, sourceValue, missing };
+  }
+  if (domain === 2) {
+    const targetKind = reader.readString();
+    const targetAssetId = reader.readBoolean() ? reader.readString() : undefined;
+    const sourceValue = reader.readBoolean() ? reader.readUInt32() : undefined;
+    const missing = reader.readBoolean();
+    return { ownerEntityId, domain: 'asset', fieldKey, nullable, targetKind, targetAssetId, sourceValue, missing };
+  }
+  throw malformed(`Unknown reference domain ${domain}`);
 }
 
 export function decodeEditorEvents(payload: Uint8Array): EditorEvent[] {

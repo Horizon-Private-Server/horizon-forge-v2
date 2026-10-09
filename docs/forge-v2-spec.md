@@ -1,8 +1,8 @@
 # Horizon Forge v2 product and technical specification
 
-Status: Draft 0.8
+Status: Draft 0.9
 
-Last updated: 2026-10-01
+Last updated: 2026-10-07
 
 Primary target: Linux desktop
 
@@ -535,7 +535,7 @@ UI MUST show project dirty state, target, host connection, selection, task
 progress, layer bake state, warnings/errors, and detailed-log location. Known
 errors offer corrective actions.
 
-#### FR-UI-006: Reference enrichment (Future)
+#### FR-UI-006: Reference enrichment (P2)
 
 An enrichment or **References** view should explain how selected objects relate to
 the rest of the level. It should show incoming and outgoing references, the
@@ -543,10 +543,11 @@ referencing entity and field path, the referenced entity, and the decoded meanin
 for example, a moby pvar field referencing a cuboid index. Entries should navigate
 to and select either side of the relationship.
 
-This is Future because useful coverage requires versioned knowledge of pvar and
-other game-specific structures. Partial decoders MUST disclose coverage and
-unknown fields rather than imply that the reference graph is complete. Stable
-Entity IDs and typed reference fields in P0 provide the foundation.
+This is delivered by the [P2 advanced-authoring addendum](planning/P2-next-phase.md)
+because useful coverage requires versioned knowledge of pvar and other game-specific
+structures. Partial decoders MUST disclose coverage and unknown fields rather than
+imply that the reference graph is complete. Stable Entity IDs in P0 provide the
+foundation.
 
 #### FR-UI-007: Asset explorer
 
@@ -1570,6 +1571,22 @@ contract.
 
 Exit: a constrained documented GLB imports, bakes, patches, and appears in-game
 with every conversion compromise reported.
+
+### P2: Advanced authoring
+
+- Typed entity/asset references and exact project-local asset overrides.
+- HUD/FX texture-bank authoring as the first override-system integration.
+- MobyDex-backed moby instance/PVar editing and semantic groups.
+- Semantic level-setting gizmos.
+- Native-piece tfrag transforms and collision association.
+- Verified full-package self-updates for supported install layouts.
+
+Detailed requirements, dependencies, milestone exits, and deferrals are defined by
+the [P2 advanced-authoring addendum](planning/P2-next-phase.md).
+
+Exit: the addendum's portable UYA qualification project completes its deterministic
+edit/build/test workflow on packaged Linux and Windows applications, and both project
+and application update interruption retain a known-good state.
 
 ### Future
 

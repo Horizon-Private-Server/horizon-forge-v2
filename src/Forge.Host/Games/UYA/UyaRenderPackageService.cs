@@ -17,7 +17,7 @@ public static class UyaRenderPackageService
     private const string MarkerName = ".forge-render-package.json";
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
-    public static async Task<UyaRenderPackageResult> PrepareAsync(
+    public static async Task<RenderPackageResult> PrepareAsync(
         UyaRenderPackageRequest request,
         string sdkRevision,
         Func<IsoProgress, ValueTask>? progress = null,
@@ -25,7 +25,8 @@ public static class UyaRenderPackageService
     {
         Validate(request, sdkRevision);
         var assets = await ResolveAssetsAsync(request, cancellationToken);
-        var cacheKey = CreateCacheKey(request, sdkRevision, assets.Select(asset => asset.Id));
+        var cacheKey = CreateCacheKey(request, sdkRevision,
+            assets.Select(asset => $"{asset.Id}:{asset.BlobId}"));
         var target = Path.Combine(Path.GetFullPath(request.CacheRootPath), cacheKey);
         var cached = await TryOpenAsync(target, request, sdkRevision, cancellationToken);
         if (cached is not null)
@@ -56,14 +57,14 @@ public static class UyaRenderPackageService
         var packages = await Task.Run(() =>
         {
             var octants = UyaOcclusionGridReader.ReadLevelWad(levelWad).Octants.Select(value =>
-                new UyaRenderOcclusionOctant(value.X, value.Y, value.Z, value.MaskIndex)).ToArray();
+                new RenderOcclusionOctant(value.X, value.Y, value.Z, value.MaskIndex)).ToArray();
             return (
                 Terrain: FrontendMapPackageBuilder.BuildLevelWadPart(
                     levelWad, GameId.UYA, FrontendMapAssetGroup.Terrain),
                 Sky: FrontendMapPackageBuilder.BuildLevelWadPart(
                     levelWad, GameId.UYA, FrontendMapAssetGroup.Common),
                 Environment: UyaRenderEnvironmentReader.Read(levelWad),
-                Octants: (IReadOnlyList<UyaRenderOcclusionOctant>)octants);
+                Octants: (IReadOnlyList<RenderOcclusionOctant>)octants);
         }, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         await ReportAsync(progress, 5_000, 10_000);
@@ -73,7 +74,7 @@ public static class UyaRenderPackageService
             renderedAssets, progress, cancellationToken);
     }
 
-    public static async Task<UyaRenderPackageResult> MaterializeAsync(
+    public static async Task<RenderPackageResult> MaterializeAsync(
         UyaRenderPackageRequest request,
         string sdkRevision,
         PackedFilePackage package,
@@ -87,12 +88,12 @@ public static class UyaRenderPackageService
             request, sdkRevision, cacheKey, package, null, null, [], [], progress, cancellationToken);
     }
 
-    public static async Task<UyaRenderPackageResult> MaterializeAsync(
+    public static async Task<RenderPackageResult> MaterializeAsync(
         UyaRenderPackageRequest request,
         string sdkRevision,
         PackedFilePackage terrainPackage,
         PackedFilePackage skyPackage,
-        UyaRenderEnvironmentResult environment,
+        RenderEnvironment environment,
         Func<IsoProgress, ValueTask>? progress = null,
         CancellationToken cancellationToken = default)
     {
@@ -106,14 +107,14 @@ public static class UyaRenderPackageService
             progress, cancellationToken);
     }
 
-    private static async Task<UyaRenderPackageResult> MaterializeAsync(
+    private static async Task<RenderPackageResult> MaterializeAsync(
         UyaRenderPackageRequest request,
         string sdkRevision,
         string cacheKey,
         PackedFilePackage terrainPackage,
         PackedFilePackage? skyPackage,
-        UyaRenderEnvironmentResult? environment,
-        IReadOnlyList<UyaRenderOcclusionOctant> octants,
+        RenderEnvironment? environment,
+        IReadOnlyList<RenderOcclusionOctant> octants,
         IReadOnlyList<BuiltAsset> assets,
         Func<IsoProgress, ValueTask>? progress,
         CancellationToken cancellationToken)
@@ -149,7 +150,7 @@ public static class UyaRenderPackageService
             if (skyPaths.Length > 1) throw new InvalidDataException("The SDK render package contains multiple sky glTF files.");
             skyPath = skyPaths.SingleOrDefault();
         }
-        var assetResults = new List<UyaRenderAssetResult>(assets.Count);
+        var assetResults = new List<RenderAssetResult>(assets.Count);
         foreach (var asset in assets)
         {
             var kind = asset.Kind.ToString().ToLowerInvariant();
@@ -224,17 +225,17 @@ public static class UyaRenderPackageService
     private static string CreateCacheKey(
         UyaRenderPackageRequest request,
         string sdkRevision,
-        IEnumerable<AssetId> assetIds)
+        IEnumerable<string> assetKeys)
     {
         Validate(request, sdkRevision);
         var identity = string.Join('\n', new[] { sdkRevision }
-            .Concat(assetIds.Select(id => id.ToString()).Order(StringComparer.Ordinal)));
+            .Concat(assetKeys.Order(StringComparer.Ordinal)));
         var revisionKey = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity)))
             .ToLowerInvariant()[..16];
         return $"uya-{request.Fingerprint.ToLowerInvariant()}-l{request.Level:D2}-p{SchemaVersion}-r{revisionKey}";
     }
 
-    private static async Task<UyaRenderPackageResult?> TryOpenAsync(
+    private static async Task<RenderPackageResult?> TryOpenAsync(
         string root,
         UyaRenderPackageRequest request,
         string sdkRevision,
@@ -319,7 +320,6 @@ public static class UyaRenderPackageService
             || !workspace.Manifest.BaseLevel.SourceFingerprint.Equals(request.Fingerprint, StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("The active project does not match the requested UYA render package.");
         var catalog = await AssetCatalogStore.OpenAsync(request.CatalogRootPath, cancellationToken);
-        var attached = workspace.Content.Assets.ToDictionary(asset => asset.Id);
         var result = new List<AssetSource>();
         foreach (var reference in workspace.Content.Entities
                      .Select(entity => entity.Asset)
@@ -329,27 +329,11 @@ public static class UyaRenderPackageService
                      .Distinct()
                      .OrderBy(reference => reference.Id.ToString(), StringComparer.Ordinal))
         {
-            if (attached.TryGetValue(reference.Id, out var projectAsset))
-            {
-                result.Add(new(
-                    reference.Id,
-                    reference.Kind,
-                    projectAsset.CanonicalFormatVersion,
-                    projectAsset.Size,
-                    workspace.ResolveAssetPath(reference.Id, catalog),
-                    projectAsset.Kind == reference.Kind ? null : "Project asset kind does not match its entity reference."));
-                continue;
-            }
-            var global = catalog.Query(new(Id: reference.Id)).SingleOrDefault();
-            result.Add(global is null
-                ? new(reference.Id, reference.Kind, 0, 0, null, "Asset blob is missing from the global catalog.")
-                : new(
-                    reference.Id,
-                    reference.Kind,
-                    global.CanonicalFormatVersion,
-                    global.Size,
-                    catalog.ResolveBlobPath(reference.Id),
-                    global.Kind == reference.Kind ? null : "Catalog asset kind does not match its entity reference."));
+            var resolved = workspace.ResolveAsset(reference, catalog);
+            result.Add(resolved is null
+                ? new(reference.Id, reference.Id, reference.Kind, 0, 0, null, "Asset blob is missing.")
+                : new(reference.Id, resolved.Effective.Id, reference.Kind, resolved.CanonicalFormatVersion,
+                    resolved.Size, resolved.Path, null));
         }
         return result;
     }
@@ -369,7 +353,7 @@ public static class UyaRenderPackageService
                 if (asset.Error is not null) throw new InvalidDataException(asset.Error);
                 if (asset.Path is null) throw new FileNotFoundException("Asset blob is missing.");
                 var package = await BuildAssetPackageAsync(
-                    asset.Id, asset.Kind, asset.CanonicalFormatVersion, asset.Size, asset.Path, cancellationToken);
+                    asset.BlobId, asset.Kind, asset.CanonicalFormatVersion, asset.Size, asset.Path, cancellationToken);
                 result.Add(new(asset.Id, asset.Kind, package, null));
             }
             catch (Exception exception) when (exception is ArgumentException
@@ -397,7 +381,7 @@ public static class UyaRenderPackageService
             && canonicalFormatVersion != UyaAssetImportService.CanonicalFormatVersion)
             throw new InvalidDataException($"Unsupported canonical asset format {canonicalFormatVersion}.");
         var bytes = await AssetCatalogBlobReader.ReadVerifiedAsync(
-            id, kind, canonicalFormatVersion, size, path, UyaAssetLimits.MaxCanonicalBytes, cancellationToken);
+            id, kind, canonicalFormatVersion, size, path, ForgeProjectWorkspace.MaxAttachedAssetBytes, cancellationToken);
         if (kind == AssetKind.Collision)
         {
             if (canonicalFormatVersion != UyaBaseLayerSchema.CanonicalFormatVersion)
@@ -481,14 +465,15 @@ public static class UyaRenderPackageService
         IReadOnlyList<CacheFile> Files,
         IReadOnlyList<string> TerrainPaths,
         string? SkyPath,
-        UyaRenderEnvironmentResult? Environment,
-        IReadOnlyList<UyaRenderAssetResult> Assets,
-        IReadOnlyList<UyaRenderOcclusionOctant>? OcclusionOctants = null);
+        RenderEnvironment? Environment,
+        IReadOnlyList<RenderAssetResult> Assets,
+        IReadOnlyList<RenderOcclusionOctant>? OcclusionOctants = null);
 
     private sealed record CacheFile(string Path, long Length);
     private sealed record MaterialFile(string Path, ReadOnlyMemory<byte> Bytes);
     private sealed record AssetSource(
         AssetId Id,
+        AssetId BlobId,
         AssetKind Kind,
         uint CanonicalFormatVersion,
         long Size,

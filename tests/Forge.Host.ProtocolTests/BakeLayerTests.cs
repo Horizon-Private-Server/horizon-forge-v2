@@ -21,7 +21,7 @@ internal static class BakeLayerTests
         var first = BakeLayerGraph.CreatePlan(context, inputs);
 
         Equal(true, Enum.GetValues<BakeLayerId>().SequenceEqual(BakeLayerGraph.Definitions.Select(value => value.Id)),
-            "all P0 layers declared once");
+            "all bake layers declared once");
         Equal(true, first.Layers.All(value => value.State == BakeLayerState.Dirty), "initial plan is dirty");
 
         var successful = SuccessfulManifest(first);
@@ -53,6 +53,26 @@ internal static class BakeLayerTests
 
         var newVersion = BakeLayerGraph.CreatePlan(context with { BakerVersion = "baker-2" }, inputs, successful);
         Equal(true, newVersion.Layers.All(value => value.State == BakeLayerState.Dirty), "baker version invalidates layers");
+
+        var changedPaletteContext = context with
+        {
+            Target = context.Target with
+            {
+                PaletteOptimization = new(ProjectPaletteOptimization.CurrentMappingVersion, 75),
+            },
+        };
+        var changedPalette = BakeLayerGraph.CreatePlan(changedPaletteContext, inputs, successful);
+        Equal(true, new[] { BakeLayerId.Ties, BakeLayerId.Shrubs, BakeLayerId.Mobys }
+                .All(layer => Layer(changedPalette, layer).State == BakeLayerState.Dirty),
+            "palette profile invalidates shared-palette layers");
+        Equal(true, new[] { BakeLayerId.World, BakeLayerId.Sky, BakeLayerId.Tfrags,
+                BakeLayerId.Collision, BakeLayerId.Opaque, BakeLayerId.Hud, BakeLayerId.Fx }
+                .All(layer => Layer(changedPalette, layer).State == BakeLayerState.Clean),
+            "palette profile preserves unrelated bake layers");
+        Equal(BakeLayerState.DependencyInvalidated, Layer(changedPalette, BakeLayerId.Gameplay).State,
+            "moby-dependent gameplay follows palette invalidation");
+        Equal(BakeLayerState.DependencyInvalidated, Layer(changedPalette, BakeLayerId.Lighting).State,
+            "palette-dependent lighting follows model invalidation");
     }
 
     private static async Task VerifyTransactionalStagingAsync()

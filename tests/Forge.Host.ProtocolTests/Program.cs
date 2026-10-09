@@ -5,6 +5,8 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using Forge.Host.Bridge;
 using Forge.Host.Domain;
+using RatchetPs2.Core.Games;
+using RatchetPs2.Sdk;
 
 internal static class Program
 {
@@ -12,7 +14,7 @@ internal static class Program
     {
         try
         {
-            var json = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "fixtures", "bridge-v2.json"));
+            var json = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "fixtures", "bridge-v4.json"));
             var vectors = JsonSerializer.Deserialize<List<GoldenFrame>>(json, new JsonSerializerOptions
             {
                 PropertyNameCaseInsensitive = true,
@@ -28,6 +30,10 @@ internal static class Program
             await AssetMaintenanceTests.RunAsync();
             await UyaAssetImportTests.RunAsync();
             await ForgeProjectTests.RunAsync();
+            await ProjectReferenceTests.RunAsync();
+            await AuthoringFoundationQualificationTests.RunAsync();
+            await HudProjectTests.RunAsync();
+            await FxProjectTests.RunAsync();
             await BakeLayerTests.RunAsync();
             await EditorRuntimeTests.RunAsync();
             await UyaProjectTests.RunAsync();
@@ -116,6 +122,25 @@ internal static class Program
         Equal(new EchoRequest("hello", 50), BridgePayloadCodec.DecodeEchoRequest(
             BridgePayloadCodec.EncodeEchoRequest("hello", 50)), "echo payload");
         Equal("result", BridgePayloadCodec.DecodeText(BridgePayloadCodec.EncodeText("result")), "text payload");
+        var fxCanonical = "canonical FX texture"u8.ToArray();
+        var fxInventory = new FxTextureInventory(
+            GameId.UYA,
+            new(true, false, false, "writer pending"),
+            [
+                new(0, "FX_LAME_SHADOW", 32, 32, "Indexed8", "Rgba32", 0, 0x400, 0x400, 0x400,
+                    false, true, null, fxCanonical),
+                new(1, "FX_CLOUDY_CIRCLE_1", 3, 32, "Indexed8", "Rgba32", 0x800, 0x400, 0xc00, 0,
+                    false, false, "FX texture 1 dimensions are invalid.", []),
+            ]);
+        var fxPayload = BridgePayloadCodec.ToPayload(fxInventory);
+        Equal(AssetId.Compute(
+                AssetKind.Texture, ProjectTextureAssetSchema.CanonicalFormatVersion, fxCanonical).ToString(),
+            fxPayload.Entries[0].SourceAssetId, "FX bridge payload exact source texture identity");
+        Equal(null, fxPayload.Entries[1].SourceAssetId, "invalid FX bridge entry has no source identity");
+        var decodedFxPayload = BridgePayloadCodec.DecodeFxTextureInventory(
+            BridgePayloadCodec.EncodeFxTextureInventory(fxPayload));
+        Equal(fxPayload with { Entries = decodedFxPayload.Entries }, decodedFxPayload,
+            "FX inventory bridge payload");
         Equal(new BridgeProgress(2, 10), BridgePayloadCodec.DecodeProgress(
             BridgePayloadCodec.EncodeProgress(2, 10)), "progress payload");
         var iso = new UyaIsoValidationPayload(true, "UYA", "NTSC-U", "1.00", "SCUS-97353", 4_379_377_664,
@@ -244,7 +269,7 @@ internal static class Program
         var decodedRenderRequest = BridgePayloadCodec.DecodeUyaRenderPackageRequest(
             BridgePayloadCodec.EncodeUyaRenderPackageRequest(renderRequest));
         Equal(renderRequest, decodedRenderRequest, "render-package request payload");
-        var renderResult = new UyaRenderPackageResultPayload(
+        var renderResult = new RenderPackageResultPayload(
             "render-cache/key", "key", ["tfrag/tfrag.gltf", "tfrag/chunks/chunk1/tfrag.gltf"],
             "assets/skybox/skybox.gltf",
             new(57, 65, 50, 40, 50, 40, 10, 175, 255, 0,
@@ -255,8 +280,8 @@ internal static class Program
             ],
             true,
             [new(1, 2, 3, 4)]);
-        var decodedRenderResult = BridgePayloadCodec.DecodeUyaRenderPackageResult(
-            BridgePayloadCodec.EncodeUyaRenderPackageResult(renderResult));
+        var decodedRenderResult = BridgePayloadCodec.DecodeRenderPackageResult(
+            BridgePayloadCodec.EncodeRenderPackageResult(renderResult));
         Equal(renderResult with
             {
                 TerrainPaths = decodedRenderResult.TerrainPaths,
@@ -272,7 +297,7 @@ internal static class Program
             "render-package occlusion octants");
 
         var assetPreviewRequest = new AssetPreviewRequestPayload(
-            "render-cache", "catalog", new string('c', 64), "sky", "UYA", "sky-default", 2);
+            "render-cache", "catalog", "project", new string('c', 64), "sky", "UYA", "sky-default", 2);
         Equal(assetPreviewRequest, BridgePayloadCodec.DecodeAssetPreviewRequest(
             BridgePayloadCodec.EncodeAssetPreviewRequest(assetPreviewRequest)), "asset-preview request payload");
         var assetPreviewResult = new AssetPreviewResultPayload(
@@ -290,7 +315,7 @@ internal static class Program
             IncludedLayers = decodedBuildRequest.IncludedLayers,
         },
             decodedBuildRequest, "build request payload");
-        var buildPlan = new UyaBuildPlanPayload([
+        var buildPlan = new BuildPlanPayload([
             new("Ties", "Dirty", true),
             new("Lighting", "DependencyInvalidated", false),
         ]);
@@ -338,6 +363,10 @@ internal static class Program
         collisionFaceCommandWriter.WriteUInt32(0xaf);
         collisionFaceCommandWriter.WriteUInt32(2);
         collisionFaceCommandWriter.WriteUInt32(0x31);
+        collisionFaceCommandWriter.WriteBoolean(false);
+        collisionFaceCommandWriter.WriteBoolean(false);
+        collisionFaceCommandWriter.WriteBoolean(false);
+        collisionFaceCommandWriter.WriteBoolean(false);
         var collisionFaceCommand = EditorPayloadCodec.DecodeCommand(collisionFaceCommandWriter.ToArray());
         Equal(collisionFaceCommandId, collisionFaceCommand.Id, "collision face command ID payload");
         Equal(EditorCommandKind.SetInstancedCollisionFaceTypes, collisionFaceCommand.Kind,
@@ -346,6 +375,50 @@ internal static class Program
             "collision face command proxy payload");
         Equal(true, collisionFaceCommand.InstancedCollisionFaceTypes!.SequenceEqual([new(7, 0xaf), new(2, 0x31)]),
             "collision face command assignment payload");
+        var referenceCommandWriter = new PayloadWriter();
+        referenceCommandWriter.WriteString(Guid.NewGuid().ToString("D"));
+        referenceCommandWriter.WriteUInt32((uint)EditorCommandKind.SetEntityReference);
+        referenceCommandWriter.WriteUInt32(1);
+        referenceCommandWriter.WriteString(parentEntityId.ToString());
+        referenceCommandWriter.WriteBoolean(false);
+        referenceCommandWriter.WriteUInt32(0);
+        for (var index = 0; index < 11; index++) referenceCommandWriter.WriteBoolean(false);
+        referenceCommandWriter.WriteBoolean(true);
+        referenceCommandWriter.WriteString(ProjectReferences.AreaSplines);
+        referenceCommandWriter.WriteBoolean(true);
+        referenceCommandWriter.WriteUInt32(7);
+        referenceCommandWriter.WriteBoolean(true);
+        referenceCommandWriter.WriteString(parentEntityId.ToString());
+        referenceCommandWriter.WriteBoolean(false);
+        referenceCommandWriter.WriteBoolean(false);
+        referenceCommandWriter.WriteBoolean(false);
+        var referenceCommand = EditorPayloadCodec.DecodeCommand(referenceCommandWriter.ToArray());
+        Equal(EditorCommandKind.SetEntityReference, referenceCommand.Kind, "reference command kind payload");
+        Equal(new EditorReferenceUpdate(ProjectReferences.AreaSplines, 7, parentEntityId),
+            referenceCommand.ReferenceUpdate, "reference command payload");
+        var hudSourceId = new string('e', AssetId.TextLength);
+        var hudImage = new byte[] { 0x89, 0x50, 0x4e, 0x47 };
+        var hudCommandWriter = new PayloadWriter();
+        hudCommandWriter.WriteString(Guid.NewGuid().ToString("D"));
+        hudCommandWriter.WriteUInt32((uint)EditorCommandKind.ReplaceHudTexture);
+        hudCommandWriter.WriteUInt32(0);
+        hudCommandWriter.WriteBoolean(false);
+        hudCommandWriter.WriteUInt32(0);
+        for (var index = 0; index < 13; index++) hudCommandWriter.WriteBoolean(false);
+        hudCommandWriter.WriteBoolean(true);
+        hudCommandWriter.WriteBoolean(true);
+        hudCommandWriter.WriteString(hudSourceId);
+        hudCommandWriter.WriteBoolean(false);
+        hudCommandWriter.WriteBoolean(false);
+        hudCommandWriter.WriteBoolean(true);
+        hudCommandWriter.WriteString("png");
+        hudCommandWriter.WriteBoolean(true);
+        hudCommandWriter.WriteBytes(hudImage, 16 * 1024 * 1024);
+        hudCommandWriter.WriteBoolean(false);
+        var hudCommand = EditorPayloadCodec.DecodeCommand(hudCommandWriter.ToArray());
+        Equal(EditorCommandKind.ReplaceHudTexture, hudCommand.Kind, "HUD command kind payload");
+        Equal(AssetId.Parse(hudSourceId), hudCommand.HudEdit!.SourceAssetId, "HUD command source payload");
+        Equal(true, hudImage.SequenceEqual(hudCommand.HudEdit.ImageBytes!), "HUD command image payload");
         var buildResult = new UyaBuildPatchResultPayload(
             true, false, [], ["diagnostic"], "Patched", "Reload", "development.iso", "InPlace",
             new string('b', 64), 2, false);

@@ -62,6 +62,13 @@ internal sealed class PayloadWriter
         foreach (var value in values) WriteString(value);
     }
 
+    public void WriteBytes(ReadOnlySpan<byte> value, int maximumLength)
+    {
+        if (value.Length > maximumLength) PayloadFormat.Malformed("Byte field exceeds limit");
+        WriteUInt32((uint)value.Length);
+        _stream.Write(value);
+    }
+
     public void WriteUInt32s(IReadOnlyList<uint> values)
     {
         if (values.Count > PayloadFormat.MaxListItems) PayloadFormat.Malformed("List exceeds item limit");
@@ -145,6 +152,16 @@ internal ref struct PayloadReader(ReadOnlySpan<byte> payload)
         var values = new string[count];
         for (var index = 0; index < values.Length; index++) values[index] = ReadString();
         return values;
+    }
+
+    public byte[] ReadBytes(int maximumLength)
+    {
+        var length = ReadUInt32();
+        if (length > maximumLength) PayloadFormat.Malformed("Byte field exceeds limit");
+        Require((int)length);
+        var value = _payload.Slice(_offset, (int)length).ToArray();
+        _offset += (int)length;
+        return value;
     }
 
     public uint[] ReadUInt32s()

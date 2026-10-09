@@ -1,6 +1,7 @@
 using Forge.Host.Games.UYA;
 using Forge.Host.Domain;
 using Forge.Host.Bridge;
+using RatchetPs2.Core.Games;
 
 internal static class AssetCatalogTests
 {
@@ -62,7 +63,7 @@ internal static class AssetCatalogTests
             0,
             skyBytes,
             Metadata("level03", 0,
-                ["base:sky:sky", .. UyaSkyShellIndexService.Aliases(skyBytes)], ["vanilla", "base-layer"]));
+                ["base:sky:sky", .. SkyShellCatalogService.Aliases(skyBytes, GameId.UYA)], ["vanilla", "base-layer"]));
         var skyRequest = request with
         {
             Category = AssetExplorerCategoryPayload.SkyShells,

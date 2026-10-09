@@ -11,11 +11,11 @@ public sealed record UyaBuildPatchRequestPayload(
     IReadOnlyList<string> IncludedLayers,
     bool ForceInPlace);
 
-public sealed record UyaBuildPlanRequestPayload(string ProjectRoot, string CatalogRoot);
+public sealed record BuildPlanRequestPayload(string ProjectRoot, string CatalogRoot);
 
-public sealed record UyaBuildLayerStatusPayload(string Layer, string State, bool CanDefer);
+public sealed record BuildLayerStatusPayload(string Layer, string State, bool CanDefer);
 
-public sealed record UyaBuildPlanPayload(IReadOnlyList<UyaBuildLayerStatusPayload> Layers);
+public sealed record BuildPlanPayload(IReadOnlyList<BuildLayerStatusPayload> Layers);
 
 public sealed record UyaBuildPatchProgressPayload(
     string Phase,

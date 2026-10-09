@@ -11,6 +11,9 @@ public sealed partial class EditorRuntime : IAsyncDisposable
         "editor.entity.duplicate", "editor.level-settings.update", "editor.clipboard", "editor.history",
         "editor.save", "editor.recovery",
         "editor.asset.create", "editor.sky-shell.add", "editor.sky-shell.update", "editor.sky-shell.reorder",
+        "editor.palette-optimization.update",
+        "editor.hud.replace", "editor.hud.append", "editor.hud.remove",
+        "editor.reference.update",
         "editor.instanced-collision.inspect", "editor.instanced-collision.preview", "editor.instanced-collision.apply", "editor.instanced-collision.remove",
         "editor.instanced-collision.toggle", "editor.instanced-collision.raw-type", "editor.instanced-collision.face-types",
     ];
@@ -29,6 +32,10 @@ public sealed partial class EditorRuntime : IAsyncDisposable
     private readonly EditorAssetPlacementResolver? _placementResolver;
     private readonly EditorTransformCapabilityResolver? _transformCapabilityResolver;
     private readonly EditorSkyShellCommandExecutor? _skyShellCommandExecutor;
+    private readonly EditorHudCommandExecutor? _hudCommandExecutor;
+    private readonly EditorFxCommandExecutor? _fxCommandExecutor;
+    private readonly ushort _hudMinimumAppendSpriteId;
+    private readonly ushort _hudMaximumAppendSpriteId;
     private ForgeProjectWorkspace? _workspace;
     private HashSet<AssetId> _missingAssets = [];
     private Dictionary<EntityId, ProjectEntity> _savedEntities = [];
@@ -47,7 +54,11 @@ public sealed partial class EditorRuntime : IAsyncDisposable
         EditorSkyShellCommandExecutor? skyShellCommandExecutor = null,
         EditorInstancedCollisionPreviewExecutor? instancedCollisionPreviewExecutor = null,
         EditorInstancedCollisionSourceInspector? instancedCollisionSourceInspector = null,
-        EditorInstancedCollisionFaceCountResolver? instancedCollisionFaceCountResolver = null)
+        EditorInstancedCollisionFaceCountResolver? instancedCollisionFaceCountResolver = null,
+        EditorHudCommandExecutor? hudCommandExecutor = null,
+        ushort hudMinimumAppendSpriteId = 0,
+        ushort hudMaximumAppendSpriteId = 0,
+        EditorFxCommandExecutor? fxCommandExecutor = null)
     {
         _placementResolver = placementResolver;
         _transformCapabilityResolver = transformCapabilityResolver;
@@ -55,6 +66,10 @@ public sealed partial class EditorRuntime : IAsyncDisposable
         _instancedCollisionPreviewExecutor = instancedCollisionPreviewExecutor;
         _instancedCollisionSourceInspector = instancedCollisionSourceInspector;
         _instancedCollisionFaceCountResolver = instancedCollisionFaceCountResolver;
+        _hudCommandExecutor = hudCommandExecutor;
+        _hudMinimumAppendSpriteId = hudMinimumAppendSpriteId;
+        _hudMaximumAppendSpriteId = hudMaximumAppendSpriteId;
+        _fxCommandExecutor = fxCommandExecutor;
     }
 
     public bool HasCapability(string capability) => RuntimeCapabilities.Contains(capability, StringComparer.Ordinal);
@@ -225,6 +240,11 @@ public sealed partial class EditorRuntime : IAsyncDisposable
                     AddEvent(EditorEventKind.ProjectChanged, command.Id, [], "Level settings updated");
                     ScheduleAutosave();
                     break;
+                case EditorCommandKind.UpdatePaletteOptimization:
+                    workspace.UpdatePaletteOptimization(command.PaletteOptimization!);
+                    AddEvent(EditorEventKind.ProjectChanged, command.Id, [], "Palette optimization updated");
+                    ScheduleAutosave();
+                    break;
                 case EditorCommandKind.UpdateSplinePoints:
                     workspace.UpdateSplinePoints(command.EntityIds[0], command.Points!);
                     AddEvent(EditorEventKind.ProjectChanged, command.Id, command.EntityIds, "Spline points updated");
@@ -266,6 +286,47 @@ public sealed partial class EditorRuntime : IAsyncDisposable
                 case EditorCommandKind.SetInstancedCollisionFaceTypes:
                     historyEntityIds = await ExecuteInstancedCollisionCommandAsync(
                         workspace, command, cancellationToken);
+                    break;
+                case EditorCommandKind.SetEntityReference:
+                    workspace.UpdateEntityReference(
+                        command.EntityIds[0],
+                        command.ReferenceUpdate!.FieldKey,
+                        command.ReferenceUpdate.SourceValue,
+                        command.ReferenceUpdate.TargetEntityId);
+                    AddEvent(EditorEventKind.ProjectChanged, command.Id, command.EntityIds, "Reference updated");
+                    ScheduleAutosave();
+                    break;
+                case EditorCommandKind.ReplaceHudTexture:
+                case EditorCommandKind.RemoveHudTextureOverride:
+                case EditorCommandKind.AddHudIcon:
+                case EditorCommandKind.RemoveHudIcon:
+                    if (_hudCommandExecutor is null)
+                        throw new InvalidOperationException("HUD editing is unavailable.");
+                    await _hudCommandExecutor(workspace, command, cancellationToken);
+                    AddEvent(EditorEventKind.ProjectChanged, command.Id, [], command.Kind switch
+                    {
+                        EditorCommandKind.ReplaceHudTexture => "HUD texture replaced",
+                        EditorCommandKind.RemoveHudTextureOverride => "HUD texture override removed",
+                        EditorCommandKind.AddHudIcon => "HUD icon added",
+                        _ => "HUD icon removed",
+                    });
+                    ScheduleAutosave();
+                    break;
+                case EditorCommandKind.ReplaceFxTexture:
+                case EditorCommandKind.RemoveFxTextureOverride:
+                case EditorCommandKind.AddFxTexture:
+                case EditorCommandKind.RemoveFxTexture:
+                    if (_fxCommandExecutor is null)
+                        throw new InvalidOperationException("FX texture editing is unavailable.");
+                    await _fxCommandExecutor(workspace, command, cancellationToken);
+                    AddEvent(EditorEventKind.ProjectChanged, command.Id, [], command.Kind switch
+                    {
+                        EditorCommandKind.ReplaceFxTexture => "FX texture replaced",
+                        EditorCommandKind.RemoveFxTextureOverride => "FX texture override removed",
+                        EditorCommandKind.AddFxTexture => "FX texture added",
+                        _ => "FX texture removed",
+                    });
+                    ScheduleAutosave();
                     break;
                 default:
                     throw new ArgumentOutOfRangeException(nameof(command), command.Kind, "Unknown editor command");
@@ -467,6 +528,7 @@ public sealed partial class EditorRuntime : IAsyncDisposable
     private EditorSnapshot Snapshot()
     {
         var workspace = RequireWorkspace();
+        var references = ReferenceSnapshots(workspace);
         var bindings = workspace.Content.InstancedCollisionBindings.ToDictionary(
             binding => (binding.SourceAssetId, binding.InstanceEntityId));
         return new(
@@ -476,6 +538,8 @@ public sealed partial class EditorRuntime : IAsyncDisposable
             workspace.Manifest.Target,
             workspace.Manifest.BaseLevel,
             workspace.Content.LevelSettings,
+            HudSnapshot(workspace),
+            FxSnapshot(workspace),
             workspace.Content.Entities.Select(entity =>
             {
                 var state = entity.State ?? new();
@@ -518,6 +582,7 @@ public sealed partial class EditorRuntime : IAsyncDisposable
                         ? entity.InstancedCollisionEnabled
                         : null);
             }).ToArray(),
+            references,
             _selection.ToArray(),
             workspace.IsDirty,
             _history.CanUndo,
@@ -585,7 +650,8 @@ public sealed partial class EditorRuntime : IAsyncDisposable
     {
         var area = entity.Geometry?.Area;
         return area is not null && area.Splines.Concat(area.Cuboids).Concat(area.Spheres)
-            .Concat(area.Cylinders).Concat(area.NegativeCuboids).Any(link => link.EntityId is null);
+            .Concat(area.Cylinders).Concat(area.NegativeCuboids)
+            .Any(link => link.Reference?.EntityId is null);
     }
 
     private void ValidateCommand(EditorCommand command, ForgeProjectWorkspace workspace)
@@ -617,6 +683,23 @@ public sealed partial class EditorRuntime : IAsyncDisposable
         if (command.Kind != EditorCommandKind.SetInstancedCollisionFaceTypes
             && (command.InstancedCollisionProxyAssetId is not null || command.InstancedCollisionFaceTypes is not null))
             throw new ArgumentException("Only instanced collision face commands can contain face assignments.", nameof(command));
+        if (command.Kind != EditorCommandKind.SetEntityReference && command.ReferenceUpdate is not null)
+            throw new ArgumentException("Only reference commands can contain a reference update.", nameof(command));
+        if (command.Kind != EditorCommandKind.UpdatePaletteOptimization && command.PaletteOptimization is not null)
+            throw new ArgumentException(
+                "Only palette optimization commands can contain a palette profile.", nameof(command));
+        if (command.Kind is not (EditorCommandKind.ReplaceHudTexture
+                or EditorCommandKind.RemoveHudTextureOverride
+                or EditorCommandKind.AddHudIcon
+                or EditorCommandKind.RemoveHudIcon)
+            && command.HudEdit is not null)
+            throw new ArgumentException("Only HUD commands can contain a HUD edit.", nameof(command));
+        if (command.Kind is not (EditorCommandKind.ReplaceFxTexture
+                or EditorCommandKind.RemoveFxTextureOverride
+                or EditorCommandKind.AddFxTexture
+                or EditorCommandKind.RemoveFxTexture)
+            && command.FxEdit is not null)
+            throw new ArgumentException("Only FX commands can contain an FX edit.", nameof(command));
         var locked = workspace.Content.Entities
             .Where(entity => entity.State?.Locked == true)
             .Select(entity => entity.EntityId)
@@ -663,7 +746,8 @@ public sealed partial class EditorRuntime : IAsyncDisposable
                 or EditorCommandKind.RemoveInstancedCollisionProxy
                 or EditorCommandKind.SetInstancedCollisionEnabled
                 or EditorCommandKind.SetInstancedCollisionRawType
-                or EditorCommandKind.SetInstancedCollisionFaceTypes)
+                or EditorCommandKind.SetInstancedCollisionFaceTypes
+                or EditorCommandKind.SetEntityReference)
             throw new ArgumentException("Locked entities cannot be modified.", nameof(command));
         if (command.EntityIds.Any(locked.Contains)
             && command.Kind == EditorCommandKind.SetEntityState
@@ -709,6 +793,11 @@ public sealed partial class EditorRuntime : IAsyncDisposable
                 || command.Text is not null || command.State is not null || command.Transforms?.Count > 0
                 || command.LevelSettings is null:
                 throw new ArgumentException("Level setting commands require only level settings.", nameof(command));
+            case EditorCommandKind.UpdatePaletteOptimization when command.EntityIds.Count != 0
+                || command.Transform is not null || command.Text is not null || command.State is not null
+                || command.Transforms?.Count > 0 || command.PaletteOptimization is null:
+                throw new ArgumentException(
+                    "Palette optimization commands require only a palette profile.", nameof(command));
             case EditorCommandKind.UpdateSplinePoints when command.EntityIds.Count != 1 || command.Transform is not null
                 || command.Text is not null || command.State is not null || command.Transforms?.Count > 0
                 || command.LevelSettings is not null || command.Points is null
@@ -770,10 +859,132 @@ public sealed partial class EditorRuntime : IAsyncDisposable
                 throw new ArgumentException(
                     "Collision face commands require one TIE or shrub, its current proxy, and unique face assignments.",
                     nameof(command));
+            case EditorCommandKind.SetEntityReference when command.EntityIds.Count != 1
+                || command.Transform is not null || command.Text is not null || command.State is not null
+                || command.Transforms?.Count > 0
+                || command.ReferenceUpdate is not { } reference
+                || reference.FieldKey.Length is 0 or > 128
+                || reference.FieldKey.Any(character =>
+                    !(char.IsAsciiLetterOrDigit(character) || character is '.' or '[' or ']' or '-'))
+                || reference.SourceValue is < 0
+                || reference.TargetEntityId is { } target && !known.Contains(target):
+                throw new ArgumentException(
+                    "Reference commands require one owner, a valid field key, and a known target.",
+                    nameof(command));
+            case EditorCommandKind.ReplaceHudTexture when command.EntityIds.Count != 0
+                || HasNonHudCommandData(command)
+                || command.HudEdit is not
+                {
+                    SourceAssetId: not null,
+                    SpriteId: null,
+                    BankIndex: null,
+                    ImageFormat: not null,
+                    ImageBytes.Length: > 0,
+                }:
+                throw new ArgumentException(
+                    "HUD replacement commands require a source texture and image.", nameof(command));
+            case EditorCommandKind.RemoveHudTextureOverride when command.EntityIds.Count != 0
+                || HasNonHudCommandData(command)
+                || command.HudEdit is not
+                {
+                    SourceAssetId: not null,
+                    SpriteId: null,
+                    BankIndex: null,
+                    ImageFormat: null,
+                    ImageBytes: null,
+                }:
+                throw new ArgumentException(
+                    "HUD override removal commands require only a source texture.", nameof(command));
+            case EditorCommandKind.AddHudIcon when command.EntityIds.Count != 0
+                || HasNonHudCommandData(command)
+                || command.HudEdit is not
+                {
+                    SourceAssetId: null,
+                    SpriteId: not null,
+                    BankIndex: >= 0,
+                    ImageFormat: not null,
+                    ImageBytes.Length: > 0,
+                }:
+                throw new ArgumentException(
+                    "HUD add commands require a sprite ID, bank, and image.", nameof(command));
+            case EditorCommandKind.RemoveHudIcon when command.EntityIds.Count != 0
+                || HasNonHudCommandData(command)
+                || command.HudEdit is not
+                {
+                    SourceAssetId: null,
+                    SpriteId: not null,
+                    BankIndex: null,
+                    ImageFormat: null,
+                    ImageBytes: null,
+                }:
+                throw new ArgumentException(
+                    "HUD removal commands require only a sprite ID.", nameof(command));
+            case EditorCommandKind.ReplaceFxTexture when command.EntityIds.Count != 0
+                || HasNonFxCommandData(command)
+                || command.FxEdit is not
+                {
+                    SourceAssetId: not null,
+                    Index: null,
+                    ImageFormat: not null,
+                    ImageBytes.Length: > 0,
+                }:
+                throw new ArgumentException(
+                    "FX replacement commands require a source texture and image.", nameof(command));
+            case EditorCommandKind.RemoveFxTextureOverride when command.EntityIds.Count != 0
+                || HasNonFxCommandData(command)
+                || command.FxEdit is not
+                {
+                    SourceAssetId: not null,
+                    Index: null,
+                    ImageFormat: null,
+                    ImageBytes: null,
+                }:
+                throw new ArgumentException(
+                    "FX override removal commands require only a source texture.", nameof(command));
+            case EditorCommandKind.AddFxTexture when command.EntityIds.Count != 0
+                || HasNonFxCommandData(command)
+                || command.FxEdit is not
+                {
+                    SourceAssetId: null,
+                    Index: null,
+                    ImageFormat: not null,
+                    ImageBytes.Length: > 0,
+                }:
+                throw new ArgumentException(
+                    "FX add commands require only an image.", nameof(command));
+            case EditorCommandKind.RemoveFxTexture when command.EntityIds.Count != 0
+                || HasNonFxCommandData(command)
+                || command.FxEdit is not
+                {
+                    SourceAssetId: null,
+                    Index: >= 0,
+                    ImageFormat: null,
+                    ImageBytes: null,
+                }:
+                throw new ArgumentException(
+                    "FX removal commands require only an appended index.", nameof(command));
         }
         if (command.Kind is EditorCommandKind.UpdateTransform or EditorCommandKind.UpdateTransforms)
             ValidateTransformCapabilities(command, workspace);
     }
+
+    private static bool HasNonHudCommandData(EditorCommand command) =>
+        command.Transform is not null || command.Text is not null || command.State is not null
+        || command.Transforms?.Count > 0 || command.LevelSettings is not null || command.Points is not null
+        || command.Placement is not null || command.SkyShellSource is not null || command.SkyShellUpdate is not null
+        || command.DestinationOrder is not null || command.InstancedCollisionEnabled is not null
+        || command.InstancedCollisionRawType is not null || command.InstancedCollisionProxyAssetId is not null
+        || command.InstancedCollisionFaceTypes is not null || command.ReferenceUpdate is not null
+        || command.PaletteOptimization is not null || command.FxEdit is not null;
+
+    private static bool HasNonFxCommandData(EditorCommand command) =>
+        command.Transform is not null || command.Text is not null || command.State is not null
+        || command.Transforms?.Count > 0 || command.LevelSettings is not null || command.Points is not null
+        || command.Placement is not null || command.SkyShellSource is not null || command.SkyShellUpdate is not null
+        || command.DestinationOrder is not null || command.InstancedCollisionEnabled is not null
+        || command.InstancedCollisionRawType is not null || command.InstancedCollisionProxyAssetId is not null
+        || command.InstancedCollisionFaceTypes is not null || command.ReferenceUpdate is not null
+        || command.PaletteOptimization is not null || command.HudEdit is not null;
 
     private static void ValidateCommandId(string commandId)
     {
@@ -877,14 +1088,16 @@ public sealed partial class EditorRuntime : IAsyncDisposable
         + (long)(command.Transforms?.Count ?? 0) * 64
         + (long)(command.Points?.Count ?? 0) * 16
         + (long)(command.InstancedCollisionFaceTypes?.Count ?? 0) * 8
+        + (command.HudEdit?.ImageBytes?.LongLength ?? 0)
+        + (command.FxEdit?.ImageBytes?.LongLength ?? 0)
         + (command.Text?.Length ?? 0) * sizeof(char);
 
     private static HashSet<AssetId> FindMissingAssets(ForgeProjectWorkspace workspace, AssetCatalogStore catalog) =>
         workspace.Content.Entities
             .Where(entity => entity.Asset is not null)
-            .GroupBy(entity => entity.Asset!.Id)
-            .Where(group => workspace.ResolveAssetPath(group.Key, catalog) is null)
-            .Select(group => group.Key)
+            .GroupBy(entity => entity.Asset!)
+            .Where(group => workspace.ResolveAsset(group.Key, catalog) is null)
+            .Select(group => group.Key.Id)
             .ToHashSet();
 
 

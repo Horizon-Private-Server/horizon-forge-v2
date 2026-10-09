@@ -17,8 +17,8 @@ export function NotificationMenu({ notifications, onDismiss, onAction }: Notific
   return <Menu position="bottom-end" width={380} withinPortal={false} closeOnItemClick={false}>
     <Menu.Target>
       <span className="notification-trigger">
-        <ActionIcon variant="subtle" color="gray" aria-label="Notifications">
-          <BellIcon size={17} weight={notifications.length ? 'fill' : 'regular'} />
+        <ActionIcon className="notification-action" variant="subtle" color="gray" aria-label="Notifications">
+          <BellIcon weight={notifications.length ? 'fill' : 'regular'} />
         </ActionIcon>
         {notifications.length > 0 && <span className="notification-dot" aria-hidden="true" />}
       </span>

@@ -8,7 +8,7 @@ internal static class UyaRenderEnvironmentReader
 {
     private const float DistanceScale = 1f / 1024f;
 
-    public static UyaRenderEnvironmentResult? Read(byte[] levelWad)
+    public static RenderEnvironment? Read(byte[] levelWad)
     {
         var file = UyaLevelWadUnpacker.Unpack(levelWad).Files
             .SingleOrDefault(value => value.Path == "gameplay/core/level_settings.bin");

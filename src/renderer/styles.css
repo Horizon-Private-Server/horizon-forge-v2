@@ -115,14 +115,53 @@ body {
 
 .app-header {
   z-index: 1;
-  padding: var(--mantine-spacing-sm) var(--mantine-spacing-md);
+  min-width: 0;
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-md);
   border-bottom: 1px solid #2c3038;
   background: #191d24;
+}
+
+.app-header-content {
+  width: 100%;
+  min-width: 0;
+}
+
+.project-ribbon {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.ribbon-action,
+.notification-action {
+  width: var(--forge-ui-compact-height);
+  min-width: var(--forge-ui-compact-height);
+  height: var(--forge-ui-compact-height);
+}
+
+.ribbon-action svg {
+  width: 72%;
+  height: 72%;
+}
+
+.project-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .notification-trigger {
   position: relative;
   display: inline-flex;
+  flex: none;
+  margin-left: auto;
+}
+
+.notification-action svg {
+  width: 84%;
+  height: 84%;
 }
 
 .notification-dot {
@@ -571,6 +610,129 @@ body {
   text-align: center;
 }
 
+.hud-bank-panel {
+  display: flex;
+  min-width: 0;
+  overflow: hidden;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+}
+
+.hud-bank-controls {
+  display: grid;
+  flex: 0 0 auto;
+  gap: var(--mantine-spacing-xs);
+}
+
+.hud-bank-filter-row {
+  display: grid;
+  gap: var(--mantine-spacing-xs);
+  grid-template-columns: minmax(14rem, 1fr) auto;
+}
+
+.hud-bank-grid-scroll {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: auto;
+}
+
+.hud-bank-grid {
+  position: relative;
+  min-width: 280px;
+}
+
+.hud-bank-card-position {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 276px;
+}
+
+.hud-bank-card {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  padding: var(--mantine-spacing-xs);
+  border: 1px solid var(--mantine-color-dark-4);
+  border-radius: var(--mantine-radius-sm);
+  background: var(--mantine-color-dark-7);
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hud-bank-card[data-state="invalid"] {
+  border-color: var(--mantine-color-red-7);
+}
+
+.hud-bank-thumbnail-wrap {
+  position: relative;
+  height: 150px;
+  flex: 0 0 150px;
+}
+
+.hud-bank-thumbnail {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  overflow: hidden;
+  place-items: center;
+  border: 0;
+  color: var(--mantine-color-dimmed);
+  cursor: pointer;
+  font-size: var(--mantine-font-size-xs);
+}
+
+.hud-bank-thumbnail:focus-visible {
+  outline: 2px solid var(--mantine-primary-color-filled);
+  outline-offset: -2px;
+}
+
+.hud-bank-thumbnail:disabled {
+  cursor: default;
+}
+
+.hud-bank-thumbnail img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
+.hud-bank-edit {
+  position: absolute;
+  z-index: 1;
+  top: 6px;
+  right: 6px;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 55%);
+}
+
+.hud-image-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
+.hud-image-preview {
+  height: min(40vh, 320px);
+  padding: var(--mantine-spacing-xs);
+  background-color: #151922;
+  background-image:
+    linear-gradient(45deg, #252a34 25%, transparent 25%),
+    linear-gradient(-45deg, #252a34 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #252a34 75%),
+    linear-gradient(-45deg, transparent 75%, #252a34 75%);
+  background-position: 0 0, 0 6px, 6px -6px, -6px 0;
+  background-size: 12px 12px;
+}
+
+@media (max-width: 680px) {
+  .hud-bank-filter-row {
+    grid-template-columns: 1fr;
+  }
+}
+
 .asset-explorer-id {
   overflow-wrap: anywhere;
 }
@@ -779,6 +941,51 @@ button.editor-tree-chevron:focus-visible {
   padding: var(--mantine-spacing-xs);
   overflow-wrap: anywhere;
   background: #151922;
+}
+
+.reference-field {
+  padding: var(--mantine-spacing-xs);
+  border: 1px solid var(--mantine-color-dark-4);
+  border-radius: var(--mantine-radius-sm);
+  background: #151922;
+}
+
+.reference-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.reference-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--mantine-spacing-xs);
+  align-items: center;
+  padding: var(--mantine-spacing-xs);
+  border: 1px solid var(--mantine-color-dark-4);
+  border-radius: var(--mantine-radius-sm);
+  background: #151922;
+}
+
+.reference-row-target {
+  min-width: 0;
+  padding: 2px;
+  text-align: left;
+}
+
+.reference-row-target:focus-visible {
+  outline: 2px solid var(--mantine-primary-color-filled);
+  outline-offset: 2px;
+}
+
+.reference-row-actions {
+  flex-wrap: nowrap;
+}
+
+@media (max-width: 700px) {
+  .reference-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .editor-diagnostics {
