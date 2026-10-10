@@ -35,6 +35,17 @@ public enum EditorCommandKind : byte
     RemoveFxTextureOverride = 31,
     AddFxTexture = 32,
     RemoveFxTexture = 33,
+    SetMobyInstanceProperty = 34,
+    ImportMobyDexEntry = 35,
+    RemoveMobyDexEntry = 36,
+    InitializeMobyPVar = 37,
+    SetMobyPVarField = 38,
+    CreateGroup = 39,
+    RenameGroup = 40,
+    DeleteGroup = 41,
+    ReorderGroup = 42,
+    AddGroupMembers = 43,
+    RemoveGroupMembers = 44,
 }
 
 public enum EditorEventKind : byte
@@ -76,7 +87,171 @@ public sealed record EditorCommand(
     EditorReferenceUpdate? ReferenceUpdate = null,
     ProjectPaletteOptimization? PaletteOptimization = null,
     EditorHudEdit? HudEdit = null,
-    EditorFxEdit? FxEdit = null);
+    EditorFxEdit? FxEdit = null,
+    EditorMobyPropertyEdit? MobyPropertyEdit = null,
+    EditorMobyDexEdit? MobyDexEdit = null,
+    EditorMobyPVarEdit? MobyPVarEdit = null,
+    EditorGroupEdit? GroupEdit = null);
+
+public sealed record EditorGroupEdit(
+    GroupId? GroupId = null,
+    int? DestinationOrder = null);
+
+public sealed record EditorMobyDexEdit(
+    byte[]? EntryJson = null,
+    string? Game = null,
+    int? OClass = null);
+
+public enum EditorMobyPropertyValueKind : byte
+{
+    Integer = 1,
+    Float = 2,
+    Boolean = 3,
+    Color = 4,
+}
+
+public sealed record EditorMobyColor(int R, int G, int B);
+
+public sealed record EditorMobyPropertyValue(
+    EditorMobyPropertyValueKind Kind,
+    int? Integer = null,
+    float? Float = null,
+    bool? Boolean = null,
+    EditorMobyColor? Color = null);
+
+public sealed record EditorMobyPropertyDescriptor(
+    string Key,
+    string Label,
+    EditorMobyPropertyValue Value,
+    bool Editable,
+    int? IntegerMinimum = null,
+    int? IntegerMaximum = null,
+    float? FloatMinimum = null,
+    float? FloatMaximum = null,
+    string? Unit = null,
+    string? Help = null,
+    string? ReadOnlyReason = null);
+
+public sealed record EditorMobyPropertyEdit(
+    string FieldKey,
+    int ExpectedClassId,
+    EditorMobyPropertyValue Value);
+
+public delegate IReadOnlyList<EditorMobyPropertyDescriptor>? EditorMobyPropertyResolver(ProjectEntity entity);
+
+public delegate Task EditorMobyPropertyCommandExecutor(
+    ForgeProjectWorkspace workspace,
+    EditorCommand command,
+    CancellationToken cancellationToken);
+
+public delegate Task EditorMobyPVarCommandExecutor(
+    ForgeProjectWorkspace workspace,
+    EditorCommand command,
+    CancellationToken cancellationToken);
+
+public delegate Task<EditorDiagnostic?> EditorProjectOpenHydrator(
+    ForgeProjectWorkspace workspace,
+    CancellationToken cancellationToken);
+
+public delegate Task<EditorMapGroupCatalog> EditorMapGroupResolver(
+    ForgeProjectWorkspace workspace,
+    CancellationToken cancellationToken);
+
+public enum EditorMobyPVarFieldKind : byte
+{
+    Group = 1,
+    Integer = 2,
+    Float = 3,
+    Boolean = 4,
+    Color = 5,
+    Vector = 6,
+    Choice = 7,
+    Flags = 8,
+    Reference = 9,
+    Bytes = 10,
+    Unknown = 11,
+}
+
+public enum EditorMobyPVarValueKind : byte
+{
+    Integer = 1,
+    Float = 2,
+    Boolean = 3,
+    Color = 4,
+    Vector = 5,
+    Bytes = 6,
+    Reference = 7,
+}
+
+public sealed record EditorMobyPVarValue(
+    EditorMobyPVarValueKind Kind,
+    string? Integer = null,
+    double? Float = null,
+    bool? Boolean = null,
+    IReadOnlyList<byte>? Color = null,
+    IReadOnlyList<double>? Vector = null,
+    string? Bytes = null,
+    EntityId? Reference = null);
+
+public sealed record EditorMobyPVarOption(string Key, string Label, string Value);
+
+public sealed record EditorMobyPVarReference(
+    ProjectEntityKind TargetKind,
+    EntityId? TargetEntityId,
+    bool Nullable,
+    int SourceValue,
+    bool Missing);
+
+public sealed record EditorMobyPVarFieldDescriptor(
+    string Path,
+    string Label,
+    int Offset,
+    int Length,
+    EditorMobyPVarFieldKind Kind,
+    EditorMobyPVarValue? Value,
+    bool Editable,
+    bool Invalid,
+    string? Help = null,
+    string? Minimum = null,
+    string? Maximum = null,
+    IReadOnlyList<EditorMobyPVarOption>? Options = null,
+    EditorMobyPVarReference? Reference = null,
+    IReadOnlyList<EditorMobyPVarFieldDescriptor>? Children = null);
+
+public sealed record EditorMobyPVarDescriptor(
+    string DatasetId,
+    int DatasetVersion,
+    int SchemaVersion,
+    string SchemaSource,
+    string SchemaFingerprint,
+    string StateFingerprint,
+    int Length,
+    bool HasData,
+    bool CanInitialize,
+    string? Diagnostic,
+    byte[]? RawData,
+    byte[]? ModifiedByteMask,
+    IReadOnlyList<EditorMobyPVarFieldDescriptor> Fields);
+
+public sealed record EditorMobyPVarEdit(
+    string FieldPath,
+    int ExpectedClassId,
+    string ExpectedDatasetId,
+    int ExpectedDatasetVersion,
+    int ExpectedSchemaVersion,
+    string ExpectedSchemaFingerprint,
+    string ExpectedStateFingerprint,
+    EditorMobyPVarValue Value);
+
+public delegate EditorMobyPVarDescriptor? EditorMobyPVarResolver(
+    ForgeProjectWorkspace workspace,
+    ProjectEntity entity,
+    EditorMobyPVarResolutionIndex index,
+    bool includeRawData);
+
+public sealed record EditorMobyPVarResolutionIndex(
+    IReadOnlyDictionary<EntityId, ProjectMobyPVar> PVars,
+    IReadOnlyDictionary<(ProjectEntityKind Kind, int SourceIndex), EntityId?> EntitiesBySourceIndex);
 
 public sealed record EditorHudEdit(
     AssetId? SourceAssetId = null,
@@ -179,6 +354,8 @@ public enum EditorTransformCapabilities : byte
 
 public delegate EditorTransformCapabilities EditorTransformCapabilityResolver(ProjectEntity entity);
 
+public delegate string? EditorSourceClassNameResolver(ForgeProjectWorkspace workspace, ProjectEntity entity);
+
 public sealed record EditorEntitySnapshot(
     EntityId EntityId,
     string Name,
@@ -194,13 +371,17 @@ public sealed record EditorEntitySnapshot(
     ProjectCollisionPiece? Collision,
     EditorInstancedCollisionBindingSnapshot? InstancedCollision,
     EditorInstancedCollisionBindingSnapshot? IndividualInstancedCollision,
-    bool? InstancedCollisionEnabled);
+    bool? InstancedCollisionEnabled,
+    IReadOnlyList<EditorMobyPropertyDescriptor>? MobyProperties,
+    EditorMobyPVarDescriptor? MobyPVar,
+    string? SourceClassName = null);
 
 public sealed record EditorReferenceSnapshot(
     EntityId OwnerEntityId,
     ProjectReference Reference,
     int? SourceValue,
-    bool Missing);
+    bool Missing,
+    string? DatasetSource = null);
 
 public sealed record EditorHudFrameSnapshot(
     int SourceFrameIndex,
@@ -273,6 +454,35 @@ public sealed record EditorTool(
     string Label,
     string Capability);
 
+public sealed record EditorGroupSnapshot(
+    GroupId GroupId,
+    string Name,
+    IReadOnlyList<EntityId> Members,
+    IReadOnlyList<EntityId> MissingMembers);
+
+public enum EditorMapGroupKind : byte
+{
+    Moby = 1,
+    Tie = 2,
+    Shrub = 3,
+}
+
+public sealed record EditorMapGroupSource(
+    EditorMapGroupKind Kind,
+    int SourceIndex,
+    string MemberSection,
+    IReadOnlyList<int> MemberSourceIndices);
+
+public sealed record EditorMapGroupCatalog(
+    IReadOnlyList<EditorMapGroupSource> Groups,
+    IReadOnlyList<EditorDiagnostic> Diagnostics);
+
+public sealed record EditorMapGroupSnapshot(
+    EditorMapGroupKind Kind,
+    int SourceIndex,
+    IReadOnlyList<EntityId> Members,
+    IReadOnlyList<int> MissingSourceIndices);
+
 public sealed record EditorSnapshot(
     string ProjectPath,
     EntityId ProjectId,
@@ -284,6 +494,8 @@ public sealed record EditorSnapshot(
     EditorFxSnapshot? Fx,
     IReadOnlyList<EditorEntitySnapshot> Entities,
     IReadOnlyList<EditorReferenceSnapshot> References,
+    IReadOnlyList<EditorGroupSnapshot> Groups,
+    IReadOnlyList<EditorMapGroupSnapshot> MapGroups,
     IReadOnlyList<EntityId> Selection,
     bool IsDirty,
     bool CanUndo,

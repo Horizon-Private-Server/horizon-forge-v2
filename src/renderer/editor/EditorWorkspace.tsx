@@ -18,11 +18,11 @@ import type {
   EditorTerrainSource,
   ForgeHostStatus,
 } from '../../types/ForgeApi.js';
+import { buildAssetFamilies } from '../../utils/AssetExplorer.ts';
 import { isTextInput } from '../../utils/Dom.ts';
 import { errorMessage } from '../../utils/Errors.ts';
 import { findKeybindingCommand, forgeActionForKeybinding } from '../../utils/Keybindings.ts';
 import { parseSplinePointId, removeSplinePoints, splinePointId } from '../../utils/SplinePoints.ts';
-import { buildAssetFamilies } from './EditorPanelState.ts';
 import { EditorContext, type InstancedCollisionOverlay } from './EditorContext.ts';
 import { BuildPanel } from './BuildPanel.tsx';
 import { AssetExplorerPanel } from './AssetExplorerPanel.tsx';
@@ -41,6 +41,7 @@ import {
   SceneTreePanel,
   ViewportPanel,
 } from './EditorPanels.tsx';
+import { GroupsPanel } from './GroupsPanel.tsx';
 import { EditorErrorState } from './EditorPrimitives.tsx';
 import { EditorStatusBar } from './EditorStatusBar.tsx';
 import { ReferencesPanel } from './ReferencesPanel.tsx';
@@ -62,6 +63,7 @@ interface EditorWorkspaceProps {
 const components = {
   viewport: ViewportPanel,
   sceneTree: SceneTreePanel,
+  groups: GroupsPanel,
   properties: PropertiesPanel,
   references: ReferencesPanel,
   levelSettings: LevelSettingsPanel,
@@ -164,6 +166,7 @@ export function EditorWorkspace({
       try {
         if (layout) api.fromJSON(layout);
         else createDefaultEditorLayout(api);
+        if (!api.getPanel('groups')) showEditorPanel(api, 'groups');
         if (!api.getPanel('levelSettings')) showEditorPanel(api, 'levelSettings');
         if (!api.getPanel('build')) showEditorPanel(api, 'build');
         const levelSettings = api.getPanel('levelSettings');

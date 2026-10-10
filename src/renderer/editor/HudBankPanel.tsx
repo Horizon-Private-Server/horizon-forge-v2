@@ -8,11 +8,11 @@ import { useCallback, useEffect, useState } from 'react';
 import type { EditorHud } from '../../types/EditorRuntime.js';
 import { errorMessage } from '../../utils/Errors.ts';
 import { formatTextureDimensions, prepareTextureImage } from '../../utils/TexturePreview.ts';
-import type { AssetThumbnailRuntime } from './AssetThumbnailRuntime.ts';
 import {
   buildHudBankItems, formatHudSpriteId, hudThumbnailDimensions, nextHudSpriteId, validateHudPng,
-  virtualGridWindow,
-} from './EditorPanelState.ts';
+} from '../../utils/TextureInventory.ts';
+import { virtualGridWindow } from '../../utils/VirtualGrid.ts';
+import type { AssetThumbnailRuntime } from './AssetThumbnailRuntime.ts';
 import { useEditor } from './EditorContext.ts';
 import { EditorEmptyState } from './EditorPrimitives.tsx';
 import {

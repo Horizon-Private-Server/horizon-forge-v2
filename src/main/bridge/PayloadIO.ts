@@ -33,6 +33,12 @@ export class PayloadWriter {
     this.#parts.push(bytes);
   }
 
+  writeFloat64(value: number): void {
+    const bytes = Buffer.allocUnsafe(8);
+    bytes.writeDoubleLE(value);
+    this.#parts.push(bytes);
+  }
+
   writeBoolean(value: boolean): void {
     this.#parts.push(Buffer.of(value ? 1 : 0));
   }
@@ -101,6 +107,13 @@ export class PayloadReader {
     this.#require(4);
     const value = this.#bytes.readFloatLE(this.#offset);
     this.#offset += 4;
+    return value;
+  }
+
+  readFloat64(): number {
+    this.#require(8);
+    const value = this.#bytes.readDoubleLE(this.#offset);
+    this.#offset += 8;
     return value;
   }
 

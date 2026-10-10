@@ -38,6 +38,10 @@ internal static class EditorPayloadCodec
     private const uint MaxEvents = 1_024;
     private const int MaxHudImageBytes = 16 * 1024 * 1024;
     private const int MaxFxImageBytes = 16 * 1024 * 1024;
+    private const uint MaxMobyProperties = 32;
+    private const uint MaxMobyPVarFields = MobyDexSchema.MaximumArrayCount;
+    private const uint MaxMobyPVarValues = 16;
+    private const int MaxMobyPVarMaskBytes = (MobyDexSchema.MaximumPVarBytes + 7) / 8;
 
     public static EditorOpenRequest DecodeOpenRequest(ReadOnlySpan<byte> payload)
     {
@@ -219,7 +223,7 @@ internal static class EditorPayloadCodec
         if (reader.ReadBoolean())
         {
             var fieldKey = reader.ReadString();
-            int? sourceValue = reader.ReadBoolean() ? checked((int)reader.ReadUInt32()) : null;
+            int? sourceValue = reader.ReadBoolean() ? reader.ReadInt32() : null;
             EntityId? targetEntityId = reader.ReadBoolean() ? EntityId.Parse(reader.ReadString()) : null;
             referenceUpdate = new(fieldKey, sourceValue, targetEntityId);
         }
@@ -251,12 +255,57 @@ internal static class EditorPayloadCodec
             var imageBytes = reader.ReadBoolean() ? reader.ReadBytes(MaxFxImageBytes) : null;
             fxEdit = new(sourceAssetId, index, imageFormat, imageBytes);
         }
+        EditorMobyPropertyEdit? mobyPropertyEdit = null;
+        if (reader.ReadBoolean())
+        {
+            var fieldKey = reader.ReadString();
+            var expectedClassId = reader.ReadUInt32();
+            if (expectedClassId > int.MaxValue) PayloadFormat.Malformed("Invalid expected moby OClass");
+            mobyPropertyEdit = new(fieldKey, (int)expectedClassId, ReadMobyPropertyValue(ref reader));
+        }
+        EditorMobyDexEdit? mobyDexEdit = null;
+        if (reader.ReadBoolean())
+        {
+            var entryJson = reader.ReadBoolean() ? reader.ReadBytes(MobyDexSchema.MaximumJsonBytes) : null;
+            var game = reader.ReadBoolean() ? reader.ReadString() : null;
+            int? oClass = null;
+            if (reader.ReadBoolean())
+            {
+                var value = reader.ReadUInt32();
+                if (value > ushort.MaxValue) PayloadFormat.Malformed("Invalid MobyDex OClass");
+                oClass = (int)value;
+            }
+            mobyDexEdit = new(entryJson, game, oClass);
+        }
+        EditorMobyPVarEdit? mobyPVarEdit = null;
+        if (reader.ReadBoolean())
+        {
+            var fieldPath = reader.ReadString();
+            var expectedClassId = reader.ReadUInt32();
+            if (expectedClassId > ushort.MaxValue) PayloadFormat.Malformed("Invalid expected PVar moby OClass");
+            mobyPVarEdit = new(
+                fieldPath,
+                (int)expectedClassId,
+                reader.ReadString(),
+                checked((int)reader.ReadUInt32()),
+                checked((int)reader.ReadUInt32()),
+                reader.ReadString(),
+                reader.ReadString(),
+                ReadMobyPVarValue(ref reader));
+        }
+        EditorGroupEdit? groupEdit = null;
+        if (reader.ReadBoolean())
+        {
+            var groupId = reader.ReadBoolean() ? GroupId.Parse(reader.ReadString()) : (GroupId?)null;
+            int? groupOrder = reader.ReadBoolean() ? checked((int)reader.ReadUInt32()) : null;
+            groupEdit = new(groupId, groupOrder);
+        }
         reader.Complete();
         return new(
             id, kind, entities, transform, text, state, transforms, levelSettings, points, placement,
             skyShellSource, skyShellUpdate, destinationOrder, instancedCollisionEnabled, instancedCollisionRawType,
             instancedCollisionProxyAssetId, instancedCollisionFaceTypes, referenceUpdate, paletteOptimization, hudEdit,
-            fxEdit);
+            fxEdit, mobyPropertyEdit, mobyDexEdit, mobyPVarEdit, groupEdit);
     }
 
     public static byte[] EncodeSnapshot(EditorSnapshot value)
@@ -279,6 +328,36 @@ internal static class EditorPayloadCodec
         if (value.References.Count > MaxReferences) PayloadFormat.Malformed("Reference list exceeds item limit");
         writer.WriteUInt32((uint)value.References.Count);
         foreach (var reference in value.References) WriteReference(writer, reference);
+        if (value.Groups.Count > ProjectGroupSchema.MaximumGroupCount)
+            PayloadFormat.Malformed("Group list exceeds item limit");
+        if (value.Groups.Sum(group => (long)group.Members.Count) > ProjectGroupSchema.MaximumTotalMemberships)
+            PayloadFormat.Malformed("Group memberships exceed item limit");
+        writer.WriteUInt32((uint)value.Groups.Count);
+        foreach (var group in value.Groups)
+        {
+            writer.WriteString(group.GroupId.ToString());
+            writer.WriteString(group.Name);
+            WriteEntityIds(writer, group.Members);
+            WriteEntityIds(writer, group.MissingMembers);
+        }
+        if (value.MapGroups.Count > ProjectGroupSchema.MaximumGroupCount)
+            PayloadFormat.Malformed("Map group list exceeds item limit");
+        if (value.MapGroups.Any(group => group.Members.Count + (long)group.MissingSourceIndices.Count
+            > ProjectGroupSchema.MaximumMembersPerGroup))
+            PayloadFormat.Malformed("Map group exceeds membership limit");
+        if (value.MapGroups.Sum(group => (long)group.Members.Count + group.MissingSourceIndices.Count)
+            > ProjectGroupSchema.MaximumTotalMemberships)
+            PayloadFormat.Malformed("Map group memberships exceed item limit");
+        writer.WriteUInt32((uint)value.MapGroups.Count);
+        foreach (var group in value.MapGroups)
+        {
+            writer.WriteUInt32((uint)group.Kind);
+            writer.WriteUInt32(checked((uint)group.SourceIndex));
+            WriteEntityIds(writer, group.Members);
+            writer.WriteUInt32((uint)group.MissingSourceIndices.Count);
+            foreach (var sourceIndex in group.MissingSourceIndices)
+                writer.WriteUInt32(checked((uint)sourceIndex));
+        }
         WriteEntityIds(writer, value.Selection);
         writer.WriteBoolean(value.IsDirty);
         writer.WriteBoolean(value.CanUndo);
@@ -408,8 +487,10 @@ internal static class EditorPayloadCodec
                 break;
         }
         writer.WriteBoolean(value.SourceValue is not null);
-        if (value.SourceValue is { } sourceValue) writer.WriteUInt32(checked((uint)sourceValue));
+        if (value.SourceValue is { } sourceValue) writer.WriteInt32(sourceValue);
         writer.WriteBoolean(value.Missing);
+        writer.WriteBoolean(value.DatasetSource is not null);
+        if (value.DatasetSource is { } datasetSource) writer.WriteString(datasetSource);
     }
 
     public static byte[] EncodeEvents(IReadOnlyList<EditorEvent> values)
@@ -473,6 +554,8 @@ internal static class EditorPayloadCodec
         }
         writer.WriteBoolean(value.SourceClassId is not null);
         if (value.SourceClassId is not null) writer.WriteUInt32(checked((uint)value.SourceClassId));
+        writer.WriteBoolean(value.SourceClassName is not null);
+        if (value.SourceClassName is not null) writer.WriteString(value.SourceClassName);
         writer.WriteBoolean(value.Geometry is not null);
         if (value.Geometry is not null)
         {
@@ -542,6 +625,32 @@ internal static class EditorPayloadCodec
         }
         writer.WriteBoolean(value.InstancedCollisionEnabled is not null);
         if (value.InstancedCollisionEnabled is not null) writer.WriteBoolean(value.InstancedCollisionEnabled.Value);
+        writer.WriteBoolean(value.MobyProperties is not null);
+        if (value.MobyProperties is { } properties)
+        {
+            if (properties.Count > MaxMobyProperties) PayloadFormat.Malformed("Moby property list exceeds item limit");
+            writer.WriteUInt32(checked((uint)properties.Count));
+            foreach (var property in properties)
+            {
+                writer.WriteString(property.Key);
+                writer.WriteString(property.Label);
+                WriteMobyPropertyValue(writer, property.Value);
+                writer.WriteBoolean(property.Editable);
+                writer.WriteBoolean(property.IntegerMinimum is not null);
+                if (property.IntegerMinimum is { } integerMinimum) writer.WriteInt32(integerMinimum);
+                writer.WriteBoolean(property.IntegerMaximum is not null);
+                if (property.IntegerMaximum is { } integerMaximum) writer.WriteInt32(integerMaximum);
+                writer.WriteBoolean(property.FloatMinimum is not null);
+                if (property.FloatMinimum is { } floatMinimum) writer.WriteSingle(floatMinimum);
+                writer.WriteBoolean(property.FloatMaximum is not null);
+                if (property.FloatMaximum is { } floatMaximum) writer.WriteSingle(floatMaximum);
+                writer.WriteString(property.Unit ?? string.Empty);
+                writer.WriteString(property.Help ?? string.Empty);
+                writer.WriteString(property.ReadOnlyReason ?? string.Empty);
+            }
+        }
+        writer.WriteBoolean(value.MobyPVar is not null);
+        if (value.MobyPVar is { } pvar) WriteMobyPVar(writer, pvar);
         writer.WriteUInt32((uint)value.TransformCapabilities);
         writer.WriteBoolean(value.State.Dirty);
         writer.WriteBoolean(value.State.Hidden);
@@ -564,6 +673,191 @@ internal static class EditorPayloadCodec
         writer.WriteSingle(value.SurfaceOffset);
         writer.WriteBoolean(value.OpenBase);
         writer.WriteUInt32(checked((uint)value.ProfileSections));
+    }
+
+    private static EditorMobyPropertyValue ReadMobyPropertyValue(ref PayloadReader reader)
+    {
+        var kind = (EditorMobyPropertyValueKind)reader.ReadUInt32();
+        return kind switch
+        {
+            EditorMobyPropertyValueKind.Integer => new(kind, Integer: reader.ReadInt32()),
+            EditorMobyPropertyValueKind.Float => new(kind, Float: reader.ReadSingle()),
+            EditorMobyPropertyValueKind.Boolean => new(kind, Boolean: reader.ReadBoolean()),
+            EditorMobyPropertyValueKind.Color => new(kind, Color: new(
+                reader.ReadInt32(),
+                reader.ReadInt32(),
+                reader.ReadInt32())),
+            _ => throw new InvalidDataException("Unknown moby property value kind."),
+        };
+    }
+
+    private static void WriteMobyPropertyValue(PayloadWriter writer, EditorMobyPropertyValue value)
+    {
+        writer.WriteUInt32((uint)value.Kind);
+        switch (value.Kind)
+        {
+            case EditorMobyPropertyValueKind.Integer when value is { Integer: { } integer, Float: null, Boolean: null, Color: null }:
+                writer.WriteInt32(integer);
+                break;
+            case EditorMobyPropertyValueKind.Float when value is { Integer: null, Float: { } number, Boolean: null, Color: null }:
+                writer.WriteSingle(number);
+                break;
+            case EditorMobyPropertyValueKind.Boolean when value is { Integer: null, Float: null, Boolean: { } boolean, Color: null }:
+                writer.WriteBoolean(boolean);
+                break;
+            case EditorMobyPropertyValueKind.Color when value is { Integer: null, Float: null, Boolean: null, Color: { } color }:
+                writer.WriteInt32(color.R);
+                writer.WriteInt32(color.G);
+                writer.WriteInt32(color.B);
+                break;
+            default:
+                PayloadFormat.Malformed("Moby property value does not match its declared kind");
+                break;
+        }
+    }
+
+    private static void WriteMobyPVar(PayloadWriter writer, EditorMobyPVarDescriptor value)
+    {
+        writer.WriteString(value.DatasetId);
+        writer.WriteUInt32(checked((uint)value.DatasetVersion));
+        writer.WriteUInt32(checked((uint)value.SchemaVersion));
+        writer.WriteString(value.SchemaSource);
+        writer.WriteString(value.SchemaFingerprint);
+        writer.WriteString(value.StateFingerprint);
+        writer.WriteUInt32(checked((uint)value.Length));
+        writer.WriteBoolean(value.HasData);
+        writer.WriteBoolean(value.CanInitialize);
+        writer.WriteString(value.Diagnostic ?? string.Empty);
+        writer.WriteBoolean(value.RawData is not null);
+        if (value.RawData is { } rawData) writer.WriteBytes(rawData, MobyDexSchema.MaximumPVarBytes);
+        writer.WriteBoolean(value.ModifiedByteMask is not null);
+        if (value.ModifiedByteMask is { } modifiedByteMask)
+            writer.WriteBytes(modifiedByteMask, MaxMobyPVarMaskBytes);
+        WriteMobyPVarFields(writer, value.Fields, 0);
+    }
+
+    private static void WriteMobyPVarFields(
+        PayloadWriter writer,
+        IReadOnlyList<EditorMobyPVarFieldDescriptor> fields,
+        int depth)
+    {
+        if (depth > MobyDexSchema.MaximumNestingDepth || fields.Count > MaxMobyPVarFields)
+            PayloadFormat.Malformed("PVar field hierarchy exceeds its limit");
+        writer.WriteUInt32(checked((uint)fields.Count));
+        foreach (var field in fields)
+        {
+            writer.WriteString(field.Path);
+            writer.WriteString(field.Label);
+            writer.WriteUInt32(checked((uint)field.Offset));
+            writer.WriteUInt32(checked((uint)field.Length));
+            writer.WriteUInt32((uint)field.Kind);
+            writer.WriteBoolean(field.Value is not null);
+            if (field.Value is { } value) WriteMobyPVarValue(writer, value);
+            writer.WriteBoolean(field.Editable);
+            writer.WriteBoolean(field.Invalid);
+            writer.WriteString(field.Help ?? string.Empty);
+            writer.WriteString(field.Minimum ?? string.Empty);
+            writer.WriteString(field.Maximum ?? string.Empty);
+            var options = field.Options ?? [];
+            if (options.Count > MaxMobyPVarFields) PayloadFormat.Malformed("PVar option list exceeds its limit");
+            writer.WriteUInt32(checked((uint)options.Count));
+            foreach (var option in options)
+            {
+                writer.WriteString(option.Key);
+                writer.WriteString(option.Label);
+                writer.WriteString(option.Value);
+            }
+            writer.WriteBoolean(field.Reference is not null);
+            if (field.Reference is { } reference)
+            {
+                writer.WriteUInt32((uint)reference.TargetKind);
+                writer.WriteBoolean(reference.TargetEntityId is not null);
+                if (reference.TargetEntityId is { } target) writer.WriteString(target.ToString());
+                writer.WriteBoolean(reference.Nullable);
+                writer.WriteInt32(reference.SourceValue);
+                writer.WriteBoolean(reference.Missing);
+            }
+            WriteMobyPVarFields(writer, field.Children ?? [], depth + 1);
+        }
+    }
+
+    private static EditorMobyPVarValue ReadMobyPVarValue(ref PayloadReader reader)
+    {
+        var kind = (EditorMobyPVarValueKind)reader.ReadUInt32();
+        return kind switch
+        {
+            EditorMobyPVarValueKind.Integer => new(kind, Integer: reader.ReadString()),
+            EditorMobyPVarValueKind.Float => new(kind, Float: reader.ReadDouble()),
+            EditorMobyPVarValueKind.Boolean => new(kind, Boolean: reader.ReadBoolean()),
+            EditorMobyPVarValueKind.Color => new(kind, Color: ReadBytes(ref reader)),
+            EditorMobyPVarValueKind.Vector => new(kind, Vector: ReadDoubles(ref reader)),
+            EditorMobyPVarValueKind.Bytes => new(kind, Bytes: reader.ReadString()),
+            EditorMobyPVarValueKind.Reference => new(kind,
+                Reference: reader.ReadBoolean() ? EntityId.Parse(reader.ReadString()) : null),
+            _ => throw new InvalidDataException("Unknown PVar value kind."),
+        };
+    }
+
+    private static void WriteMobyPVarValue(PayloadWriter writer, EditorMobyPVarValue value)
+    {
+        writer.WriteUInt32((uint)value.Kind);
+        switch (value.Kind)
+        {
+            case EditorMobyPVarValueKind.Integer when value.Integer is not null:
+                writer.WriteString(value.Integer); break;
+            case EditorMobyPVarValueKind.Float when value.Float is { } number:
+                writer.WriteDouble(number); break;
+            case EditorMobyPVarValueKind.Boolean when value.Boolean is { } boolean:
+                writer.WriteBoolean(boolean); break;
+            case EditorMobyPVarValueKind.Color when value.Color is { } color:
+                WriteBytes(writer, color); break;
+            case EditorMobyPVarValueKind.Vector when value.Vector is { } vector:
+                WriteDoubles(writer, vector); break;
+            case EditorMobyPVarValueKind.Bytes when value.Bytes is not null:
+                writer.WriteString(value.Bytes); break;
+            case EditorMobyPVarValueKind.Reference:
+                writer.WriteBoolean(value.Reference is not null);
+                if (value.Reference is { } target) writer.WriteString(target.ToString());
+                break;
+            default: PayloadFormat.Malformed("PVar value does not match its declared kind"); break;
+        }
+    }
+
+    private static byte[] ReadBytes(ref PayloadReader reader)
+    {
+        var count = reader.ReadUInt32();
+        if (count > MaxMobyPVarValues) PayloadFormat.Malformed("PVar byte value exceeds its limit");
+        var values = new byte[count];
+        for (var index = 0; index < values.Length; index++)
+        {
+            var value = reader.ReadUInt32();
+            if (value > byte.MaxValue) PayloadFormat.Malformed("Invalid PVar byte value");
+            values[index] = (byte)value;
+        }
+        return values;
+    }
+
+    private static void WriteBytes(PayloadWriter writer, IReadOnlyList<byte> values)
+    {
+        if (values.Count > MaxMobyPVarValues) PayloadFormat.Malformed("PVar byte value exceeds its limit");
+        writer.WriteUInt32(checked((uint)values.Count));
+        foreach (var value in values) writer.WriteUInt32(value);
+    }
+
+    private static double[] ReadDoubles(ref PayloadReader reader)
+    {
+        var count = reader.ReadUInt32();
+        if (count > MaxMobyPVarValues) PayloadFormat.Malformed("PVar vector exceeds its limit");
+        var values = new double[count];
+        for (var index = 0; index < values.Length; index++) values[index] = reader.ReadDouble();
+        return values;
+    }
+
+    private static void WriteDoubles(PayloadWriter writer, IReadOnlyList<double> values)
+    {
+        if (values.Count > MaxMobyPVarValues) PayloadFormat.Malformed("PVar vector exceeds its limit");
+        writer.WriteUInt32(checked((uint)values.Count));
+        foreach (var value in values) writer.WriteDouble(value);
     }
 
     private static void WriteCollisionOctants(

@@ -13,6 +13,7 @@ import {
 import type { KnownSettings, SettingEntry, SettingsSnapshot, SettingValue } from '../types/ForgeApi.js';
 import type { ApplicationPaths, RawSettings, SettingDefinition } from '../types/Settings.js';
 import type { UpdateChannel } from '../types/Updates.js';
+import { DEFAULT_HIDE_EMPTY_GROUPS, HIDE_EMPTY_GROUPS_KEY } from '../utils/GroupVisibility.ts';
 import { isUiSize } from '../utils/UiSize.ts';
 import { DEFAULT_SELECTION_COLOR, SELECTION_COLOR_KEY } from '../utils/SelectionVisualization.ts';
 import {
@@ -188,6 +189,12 @@ function createDefinitions(paths: ApplicationPaths, defaultUpdateChannel: Update
       key: 'ui.showViewportStats', group: 'Editor', label: 'Viewport statistics', type: 'boolean',
       description: 'Show rendering performance in the viewport.', defaultValue: true, restartRequired: false,
       machineSpecific: false, editable: true,
+      validate: (value): value is boolean => typeof value === 'boolean',
+    },
+    {
+      key: HIDE_EMPTY_GROUPS_KEY, group: 'Editor', label: 'Hide empty groups', type: 'boolean',
+      description: 'Hide baked area and map groups that have no members.',
+      defaultValue: DEFAULT_HIDE_EMPTY_GROUPS, restartRequired: false, machineSpecific: false, editable: true,
       validate: (value): value is boolean => typeof value === 'boolean',
     },
     {

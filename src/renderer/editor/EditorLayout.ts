@@ -7,6 +7,7 @@ import type { EditorLayoutAction } from '../../types/ForgeApi.js';
 export const EDITOR_PANELS = {
   viewport: { component: 'viewport', title: 'Viewport' },
   sceneTree: { component: 'sceneTree', title: 'Scene' },
+  groups: { component: 'groups', title: 'Groups' },
   properties: { component: 'properties', title: 'Properties' },
   references: { component: 'references', title: 'References' },
   levelSettings: { component: 'levelSettings', title: 'Level Settings' },
@@ -36,8 +37,40 @@ export function decodeEditorLayout(value: string): SerializedDockview | undefine
 }
 
 export function createDefaultEditorLayout(api: DockviewApi): void {
+  const width = api.width || 2560;
+  const height = api.height || 1285;
   api.clear();
-  api.addPanel({ id: 'viewport', ...EDITOR_PANELS.viewport });
+  api.addPanel({ id: 'sceneTree', ...EDITOR_PANELS.sceneTree });
+  api.addPanel({
+    id: 'viewport', ...EDITOR_PANELS.viewport,
+    position: { referencePanel: 'sceneTree', direction: 'right' },
+    initialWidth: Math.round(width * (1 - 366 / 2560)),
+  });
+  api.addPanel({
+    id: 'build', ...EDITOR_PANELS.build,
+    position: { referencePanel: 'viewport', direction: 'right' },
+    initialWidth: Math.round(width * 536 / 2560),
+  });
+  api.addPanel({
+    id: 'levelSettings', ...EDITOR_PANELS.levelSettings,
+    position: { referencePanel: 'sceneTree', direction: 'below' },
+    initialHeight: Math.round(height * 544 / 1285),
+  });
+  api.addPanel({
+    id: 'diagnostics', ...EDITOR_PANELS.diagnostics,
+    position: { referencePanel: 'viewport', direction: 'below' },
+    initialHeight: Math.round(height * 485 / 1285),
+  });
+  api.addPanel({
+    id: 'groups', ...EDITOR_PANELS.groups,
+    position: { referencePanel: 'viewport', direction: 'left' },
+    initialWidth: Math.round(width * 283 / 2560),
+  });
+  api.addPanel({
+    id: 'properties', ...EDITOR_PANELS.properties,
+    position: { referencePanel: 'build', direction: 'below' },
+    initialHeight: Math.round(height * 669 / 1285),
+  });
   api.addPanel({
     id: 'hudBank', ...EDITOR_PANELS.hudBank,
     position: { referencePanel: 'viewport', direction: 'within' }, inactive: true,
@@ -47,34 +80,12 @@ export function createDefaultEditorLayout(api: DockviewApi): void {
     position: { referencePanel: 'viewport', direction: 'within' }, inactive: true,
   });
   api.addPanel({
-    id: 'sceneTree', ...EDITOR_PANELS.sceneTree,
-    position: { referencePanel: 'viewport', direction: 'left' }, initialWidth: 240,
-  });
-  api.addPanel({
-    id: 'build', ...EDITOR_PANELS.build,
-    position: { referencePanel: 'viewport', direction: 'right' }, initialWidth: 280,
-  });
-  api.addPanel({
-    id: 'properties', ...EDITOR_PANELS.properties,
-    position: { referencePanel: 'build', direction: 'below' }, initialHeight: 280,
-  });
-  api.addPanel({
     id: 'assetPreview', ...EDITOR_PANELS.assetPreview,
-    position: { referencePanel: 'properties', direction: 'within' },
-    inactive: true,
+    position: { referencePanel: 'properties', direction: 'within' }, inactive: true,
   });
   api.addPanel({
     id: 'references', ...EDITOR_PANELS.references,
-    position: { referencePanel: 'properties', direction: 'within' },
-    inactive: true,
-  });
-  api.addPanel({
-    id: 'diagnostics', ...EDITOR_PANELS.diagnostics,
-    position: { referencePanel: 'viewport', direction: 'below' }, initialHeight: 180,
-  });
-  api.addPanel({
-    id: 'levelSettings', ...EDITOR_PANELS.levelSettings,
-    position: { referencePanel: 'sceneTree', direction: 'below' }, initialHeight: 280,
+    position: { referencePanel: 'properties', direction: 'within' }, inactive: true,
   });
   api.addPanel({
     id: 'assetExplorer', ...EDITOR_PANELS.assetExplorer,
@@ -121,6 +132,15 @@ export function showEditorPanel(api: DockviewApi, id: EditorPanelId): void {
     api.addPanel({ id, ...definition, position: { referencePanel: sceneTree.id, direction: 'below' } });
     return;
   }
+  const treeNeighbor = id === 'groups' ? api.getPanel('sceneTree')
+    : id === 'sceneTree' ? api.getPanel('groups') : undefined;
+  if (treeNeighbor) {
+    api.addPanel({
+      id, ...definition,
+      position: { referencePanel: treeNeighbor.id, direction: id === 'groups' ? 'right' : 'left' },
+    });
+    return;
+  }
   api.addPanel(api.getPanel('viewport') && id !== 'viewport'
     ? { id, ...definition, position: { referencePanel: 'viewport', direction: panelDirection(id) } }
     : { id, ...definition });
@@ -134,6 +154,7 @@ export function panelForLayoutAction(action: Exclude<EditorLayoutAction, 'resetL
   const panels: Record<Exclude<EditorLayoutAction, 'resetLayout'>, EditorPanelId> = {
     showViewport: 'viewport',
     showSceneTree: 'sceneTree',
+    showGroups: 'groups',
     showProperties: 'properties',
     showReferences: 'references',
     showLevelSettings: 'levelSettings',
@@ -149,7 +170,7 @@ export function panelForLayoutAction(action: Exclude<EditorLayoutAction, 'resetL
 
 function panelDirection(id: Exclude<EditorPanelId, 'viewport'>): 'left' | 'right' | 'below' {
   if (id === 'hudBank' || id === 'fxTextures') return 'below';
-  if (id === 'sceneTree') return 'left';
+  if (id === 'sceneTree' || id === 'groups') return 'left';
   if (id === 'assetExplorer') return 'left';
   if (id === 'assetPreview' || id === 'references') return 'right';
   if (id === 'properties') return 'right';

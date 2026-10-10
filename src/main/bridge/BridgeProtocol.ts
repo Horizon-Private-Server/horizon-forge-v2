@@ -40,6 +40,7 @@ export const BridgeOpcode = {
   PrepareInstancedCollisionPreview: 29,
   InspectInstancedCollisionSource: 30,
   PrepareAppliedInstancedCollision: 31,
+  ReloadMobyDexDataset: 32,
 } as const;
 
 export const BridgeErrorCode = {

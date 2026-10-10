@@ -2,7 +2,7 @@ import { Badge, Button, Group, Stack, Tabs, Text, UnstyledButton } from '@mantin
 import { useEffect, useMemo, useState } from 'react';
 
 import type { EditorEntity, EditorReference } from '../../types/EditorRuntime.js';
-import { buildReferenceIndex, referenceNavigationTarget, referencePage } from './EditorPanelState.ts';
+import { buildReferenceIndex, referenceNavigationTarget, referencePage } from '../../utils/EditorReferences.ts';
 import { useEditor } from './EditorContext.ts';
 import { EditorEmptyState, EditorFilter, EditorPanel } from './EditorPrimitives.tsx';
 
@@ -68,13 +68,14 @@ function ReferenceList({ direction, entities, filter, page, references, onPageCh
 }) {
   const query = filter.trim().toLocaleLowerCase();
   const filtered = useMemo(() => references.filter((reference) => {
-    const entityId = direction === 'incoming' ? reference.ownerEntityId
-      : reference.domain === 'entity' ? reference.targetEntityId : undefined;
-    const entity = entityId ? entities.get(entityId) : undefined;
+    const owner = entities.get(reference.ownerEntityId);
+    const targetEntity = reference.domain === 'entity' && reference.targetEntityId
+      ? entities.get(reference.targetEntityId) : undefined;
     const target = reference.domain === 'asset'
       ? `${reference.targetKind} ${reference.targetAssetId ?? ''}`
       : `${reference.targetKind} ${reference.targetEntityId ?? ''}`;
-    return !query || `${reference.fieldKey} ${target} ${entity?.name ?? ''}`.toLocaleLowerCase().includes(query);
+    return !query || [reference.fieldKey, reference.sourceValue, reference.datasetSource,
+      owner?.name, targetEntity?.name, target].join(' ').toLocaleLowerCase().includes(query);
   }), [direction, entities, query, references]);
   const result = referencePage(filtered, page);
   if (!result.values.length) return <EditorEmptyState message={`No ${direction} understood references.`} />;
@@ -102,38 +103,49 @@ function ReferenceRow({ direction, entities, reference }: {
   reference: EditorReference;
 }) {
   const { inspectReferencedAsset, navigateToEntity } = useEditor();
+  const owner = entities.get(reference.ownerEntityId);
+  const targetEntityId = reference.domain === 'entity' ? reference.targetEntityId : undefined;
+  const targetEntity = targetEntityId ? entities.get(targetEntityId) : undefined;
+  const targetAssetId = reference.domain === 'asset' ? reference.targetAssetId : undefined;
   const navigation = referenceNavigationTarget(reference, direction);
-  const entityId = navigation.domain === 'entity' ? navigation.id : undefined;
-  const entity = entityId ? entities.get(entityId) : undefined;
-  const assetId = navigation.domain === 'asset' ? navigation.id : undefined;
-  const missing = reference.missing || Boolean(entityId && !entity);
-  const activate = () => entityId
-    ? void navigateToEntity(entityId, 'reveal')
-    : assetId && void inspectReferencedAsset(assetId, navigation.kind ?? '');
+  const navigationEntityId = navigation.domain === 'entity' ? navigation.id : undefined;
+  const navigationAssetId = navigation.domain === 'asset' ? navigation.id : undefined;
+  const missing = reference.missing || Boolean(targetEntityId && !targetEntity);
+  const nullTarget = !missing && !targetEntityId && !targetAssetId;
+  const targetLabel = targetEntity?.name
+    ?? (targetAssetId ? `${reference.targetKind} asset`
+      : nullTarget ? 'None'
+        : `Missing ${reference.targetKind}`);
+  const activate = () => navigationEntityId
+    ? void navigateToEntity(navigationEntityId, 'reveal')
+    : navigationAssetId && void inspectReferencedAsset(navigationAssetId, navigation.kind ?? '');
   return <li className="reference-row">
     <UnstyledButton
       aria-label={`${direction} ${reference.fieldKey} reference`}
       className="reference-row-target"
-      disabled={!entityId && !assetId}
+      disabled={!navigationEntityId && !navigationAssetId}
       onClick={(event) => event.detail === 1 && activate()}
-      onDoubleClick={() => entityId && !missing && void navigateToEntity(entityId, 'focus')}
+      onDoubleClick={() => navigationEntityId && !missing && void navigateToEntity(navigationEntityId, 'focus')}
     >
-      <Text fw={500} size="sm">{entity?.name ?? (assetId ? `${reference.targetKind} asset` : 'Missing target')}</Text>
+      <Text fw={500} size="sm">{owner?.name ?? 'Missing owner'} → {targetLabel}</Text>
       <Text c="dimmed" size="xs">{reference.fieldKey}{reference.sourceValue === undefined
-        ? '' : ` · source ${reference.sourceValue}`}</Text>
+        ? '' : ` · encoded ${reference.sourceValue}`}</Text>
+      {reference.datasetSource && <Text c="dimmed" size="xs">{reference.datasetSource}</Text>}
       <Group gap={4} mt={4}>
-        <Badge color={missing ? 'red' : 'gray'} variant="light">{missing ? 'Missing' : reference.domain}</Badge>
+        <Badge color={missing ? 'red' : 'gray'} variant="light">
+          {missing ? 'Missing' : nullTarget ? 'None' : reference.domain}
+        </Badge>
         <Badge variant="light">{reference.targetKind}</Badge>
+        {reference.datasetSource && <Badge color="blue" variant="light">MobyDex</Badge>}
       </Group>
     </UnstyledButton>
-    {entityId && <Group className="reference-row-actions" gap={4}>
-      <Button disabled={missing} variant="default" onClick={() => void navigateToEntity(entityId, 'select')}>Select</Button>
-      <Button disabled={missing} variant="default" onClick={() => void navigateToEntity(entityId, 'reveal')}>Reveal</Button>
-      <Button disabled={missing} variant="default" onClick={() => void navigateToEntity(entityId, 'focus')}>Focus</Button>
-    </Group>}
-    {assetId && <Button className="reference-row-actions" disabled={missing} variant="default"
-      onClick={() => void inspectReferencedAsset(assetId, navigation.kind ?? '')}>
-      Open preview
-    </Button>}
+    <Group className="reference-row-actions" gap={4}>
+      <Button disabled={!owner} variant="default"
+        onClick={() => void navigateToEntity(reference.ownerEntityId, 'select')}>Owner</Button>
+      {reference.domain === 'entity' && <Button disabled={missing || !targetEntityId} variant="default"
+        onClick={() => targetEntityId && void navigateToEntity(targetEntityId, 'select')}>Target</Button>}
+      {targetAssetId && <Button disabled={missing} variant="default"
+        onClick={() => void inspectReferencedAsset(targetAssetId, reference.targetKind)}>Open preview</Button>}
+    </Group>
   </li>;
 }

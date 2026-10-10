@@ -8,6 +8,7 @@ import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { SceneProjection } from '../src/renderer/editor/SceneProjection.ts';
 import { SceneBillboardResources } from '../src/renderer/editor/SceneBillboardGizmo.ts';
 import { verticalDragScale } from '../src/renderer/editor/TransformTool.ts';
+import { inspectTransformSelection } from '../src/utils/TransformSelection.ts';
 import { AssetPreviewScheduler, collectSkyShellObjects } from '../src/renderer/editor/AssetThumbnailRuntime.ts';
 import {
   buildGroundPlacement, createGroundSurfaceRaycast,
@@ -69,10 +70,65 @@ function entity(id: string, x = 0, asset = true, state: Partial<EditorEntity['st
   };
 }
 
+function textureAlpha(
+  image: { data: Uint8Array; width: number; height: number },
+  x: number,
+  y: number,
+): number {
+  const pixelX = Math.max(0, Math.min(image.width - 1, Math.floor((x + 1) * image.width / 2)));
+  const pixelY = Math.max(0, Math.min(image.height - 1, Math.floor((y + 1) * image.height / 2)));
+  return image.data[(pixelY * image.width + pixelX) * 4 + 3];
+}
+
+function textureRgb(
+  image: { data: Uint8Array; width: number; height: number },
+  x: number,
+  y: number,
+): number[] {
+  const pixelX = Math.max(0, Math.min(image.width - 1, Math.floor((x + 1) * image.width / 2)));
+  const pixelY = Math.max(0, Math.min(image.height - 1, Math.floor((y + 1) * image.height / 2)));
+  const offset = (pixelY * image.width + pixelX) * 4;
+  return Array.from(image.data.slice(offset, offset + 3));
+}
+
 test('vertical gizmo drags provide stable scale control', () => {
   assert.equal(verticalDragScale(1, 200, null), 2);
   assert.equal(verticalDragScale(1, -200, null), 0.5);
   assert.equal(verticalDragScale(1, 30, 0.1), 1.1);
+});
+
+test('group transform eligibility is atomic and deduplicated', () => {
+  const first = entity('first');
+  const second = entity('second');
+  assert.deepEqual(
+    inspectTransformSelection([first, second], ['first', 'second', 'first'], 'translate').entities
+      .map((value) => value.id),
+    ['first', 'second'],
+  );
+
+  const locked = { ...second, state: { ...second.state, locked: true } };
+  const lockedResult = inspectTransformSelection([first, locked], ['first', 'second'], 'translate');
+  assert.deepEqual(lockedResult.entities, []);
+  assert.match(lockedResult.message ?? '', /1 locked/);
+
+  const translateOnly = { ...second, transformModes: ['translate'] as EditorEntity['transformModes'] };
+  const incompatible = inspectTransformSelection([first, translateOnly], ['first', 'second'], 'rotate');
+  assert.deepEqual(incompatible.entities, []);
+  assert.match(incompatible.message ?? '', /1 without rotation support/);
+});
+
+test('group transform eligibility blocks unresolved and collision-linked members', () => {
+  const first = entity('first');
+  const collision = entity('collision');
+  collision.collision = {
+    kind: 'solid', sourcePayloadIndex: 0, sourcePieceIndex: 0,
+    faceCount: 1, vertexCount: 3, types: [],
+    attachment: { parentEntityId: first.id, bindTransform: first.transform },
+  };
+  const result = inspectTransformSelection([first, collision], ['first', 'collision'], 'translate', 2);
+  assert.deepEqual(result.entities, []);
+  assert.match(result.message ?? '', /2 missing/);
+  assert.match(result.message ?? '', /1 collision-linked/);
 });
 
 test('billboard gizmos share resources, bound screen size, and dispose synchronously', () => {
@@ -386,17 +442,28 @@ test('scene projection renders decoded geometry and lighting markers', () => {
   assert.equal((grindLine.material as LineMaterial).color.getHexString(), 'aabbcc');
   assert.equal((grindLine.material as LineMaterial).linewidth, 5);
   assert.deepEqual(Array.from(grindLine.geometry.getAttribute('instanceStart').array), [9, 11, -10, 13, 15, -14]);
-  const areaObject = projection.getObject('area') as THREE.Mesh;
-  assert.ok(areaObject instanceof THREE.Mesh);
-  assert.equal((areaObject.material as THREE.MeshBasicMaterial).color.getHexString(), '778899');
-  assert.equal((areaObject.material as THREE.MeshBasicMaterial).fog, false);
-  assert.deepEqual(areaObject.position.toArray(), [40, 60, -50]);
+  assert.equal(projection.getObject('area'), undefined);
   assert.equal(projection.resolvePick([{ object: line }] as unknown as THREE.Intersection[]), 'spline');
   const directionalObject = projection.getObject('directional-light') as THREE.Line;
   assert.equal((directionalObject.material as THREE.LineBasicMaterial).color.getHexString(), '123456');
   assert.deepEqual(Array.from(directionalObject.geometry.getAttribute('position').array), [0, 0, 0, 1, 3, -2]);
-  assert.equal(((projection.getObject('point-light') as THREE.Mesh).material as THREE.MeshBasicMaterial)
-    .color.getHexString(), '654321');
+  const pointLightObject = projection.getObject('point-light') as THREE.Mesh;
+  assert.equal(pointLightObject.userData.forgeBillboardGizmo, true);
+  assert.equal(pointLightObject.userData.forgeBillboardGlyph, 'lightbulb-filament');
+  assert.equal(pointLightObject.children.length, 0);
+  const pointLightMaterial = pointLightObject.material as THREE.MeshBasicMaterial;
+  assert.equal(pointLightMaterial.color.getHexString(), '654321');
+  const pointLightTexture = pointLightMaterial.map!.image as {
+    data: Uint8Array;
+    width: number;
+    height: number;
+  };
+  assert.equal(pointLightTexture.width, 128);
+  assert.equal(textureAlpha(pointLightTexture, 0, 0.57), 255, 'bulb outline is opaque inside the well');
+  assert.equal(textureAlpha(pointLightTexture, 0, 0.18), 255, 'bulb filament is opaque inside the well');
+  assert.equal(textureAlpha(pointLightTexture, 0.32, 0.25), 255, 'well is opaque around the glyph');
+  assert.deepEqual(textureRgb(pointLightTexture, 0.32, 0.25), [0, 0, 0], 'well is black');
+  assert.equal(textureAlpha(pointLightTexture, 0.45, 0.25), 255, 'pin remains opaque outside the well');
   assert.equal(((projection.getObject('environment-sample') as THREE.Mesh).material as THREE.MeshBasicMaterial)
     .color.getHexString(), 'abcdef');
   assert.equal(((projection.getObject('environment-transition') as THREE.Mesh).material as THREE.MeshBasicMaterial)
@@ -420,15 +487,7 @@ test('scene projection renders decoded geometry and lighting markers', () => {
   ) as THREE.Points;
   assert.deepEqual(Array.from(selectedSplineNodes.geometry.getAttribute('position').array), [5, 7, -6]);
   projection.sync(entities, ['area']);
-  assert.equal((areaObject.material as THREE.MeshBasicMaterial).fog, false);
-  projection.root.updateMatrixWorld(true);
-  const insideCamera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
-  insideCamera.position.copy(areaObject.position);
-  insideCamera.lookAt(areaObject.position.clone().add(new THREE.Vector3(1, 0, 0)));
-  insideCamera.updateMatrixWorld();
-  const insideArea = new THREE.Raycaster();
-  insideArea.setFromCamera(new THREE.Vector2(), insideCamera);
-  assert.equal(projection.resolvePick(insideArea.intersectObject(areaObject)), 'area');
+  assert.equal(projection.getObject('area'), undefined);
   projection.dispose();
 });
 
@@ -1139,6 +1198,29 @@ test('Page Down placement preserves group offsets and ignores selected meshes', 
     result.updates[1].transform.position.z - result.updates[0].transform.position.z,
     upper.transform.position.z - lower.transform.position.z,
   );
+  projection.dispose();
+  disposeObject(template);
+  disposeObject(ground);
+});
+
+test('Page Down rejects a partly ineligible selection atomically', () => {
+  const projection = new SceneProjection();
+  const template = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), new THREE.MeshBasicMaterial());
+  projection.setAssetTemplates(new Map([['asset', template]]));
+  const movable = entity('movable');
+  movable.transform.position.z = 10;
+  const locked = entity('locked', 4, true, { locked: true });
+  locked.transform.position.z = 12;
+  projection.sync([movable, locked]);
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), new THREE.MeshBasicMaterial());
+  ground.rotateX(-Math.PI / 2);
+
+  const result = buildGroundPlacement(
+    [movable, locked], [movable.id, locked.id], projection, [ground, projection.root],
+  );
+  assert.deepEqual(result.updates, []);
+  assert.match(result.message, /1 locked/);
+
   projection.dispose();
   disposeObject(template);
   disposeObject(ground);

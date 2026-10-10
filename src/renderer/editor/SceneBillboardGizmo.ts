@@ -8,7 +8,8 @@ const BILLBOARD_KEY = 'forgeBillboardGizmo';
 const ENTITY_ID_KEY = 'forgeEntityId';
 const GLYPH_KEY = 'forgeBillboardGlyph';
 const LABEL_KEY = 'forgeAccessibleLabel';
-const TEXTURE_SIZE = 64;
+const TEXTURE_SIZE = 128;
+const PHOSPHOR_LIGHTBULB_FILAMENT_PATH = 'M176,232a8,8,0,0,1-8,8H88a8,8,0,0,1,0-16h80A8,8,0,0,1,176,232Zm40-128a87.55,87.55,0,0,1-33.64,69.21A16.24,16.24,0,0,0,176,186v6a16,16,0,0,1-16,16H96a16,16,0,0,1-16-16v-6a16,16,0,0,0-6.23-12.66A87.59,87.59,0,0,1,40,104.5C39.74,56.83,78.26,17.15,125.88,16A88,88,0,0,1,216,104Zm-16,0a72,72,0,0,0-73.74-72c-39,.92-70.47,33.39-70.26,72.39a71.64,71.64,0,0,0,27.64,56.3h0A32,32,0,0,1,96,186v6h24V147.31L90.34,117.66a8,8,0,0,1,11.32-11.32L128,132.69l26.34-26.35a8,8,0,0,1,11.32,11.32L136,147.31V192h24v-6a32.12,32.12,0,0,1,12.47-25.35A71.65,71.65,0,0,0,200,104Z';
 
 interface Resource<T> {
   value: T;
@@ -208,6 +209,7 @@ function createBillboardTexture(
   hovered: boolean,
 ): THREE.DataTexture {
   const data = new Uint8Array(TEXTURE_SIZE * TEXTURE_SIZE * 4);
+  const glyphMask = createPhosphorGlyphMask(glyph);
   for (let y = 0; y < TEXTURE_SIZE; y += 1) {
     for (let x = 0; x < TEXTURE_SIZE; x += 1) {
       const nx = (x + 0.5) / TEXTURE_SIZE * 2 - 1;
@@ -217,9 +219,14 @@ function createBillboardTexture(
         || ny >= -0.9 && ny <= 0.12 && Math.abs(nx) <= (ny + 0.9) * 0.34;
       const halo = (selected || hovered) && circleDistance >= 0.62
         && circleDistance <= (selected ? 0.78 : 0.72);
-      const alpha = glyphCutout(glyph, nx, ny) ? 0 : pin ? 255 : halo ? selected ? 255 : 150 : 0;
+      const glyphWell = Math.hypot(nx, ny - 0.25) <= 0.36;
+      const glyphAlpha = glyphMask?.[(y * TEXTURE_SIZE) + x]
+        ?? (glyphShape(glyph, nx, ny) ? 255 : 0);
+      const alpha = pin
+        ? 255
+        : halo ? selected ? 255 : 150 : 0;
       const offset = (y * TEXTURE_SIZE + x) * 4;
-      data[offset] = data[offset + 1] = data[offset + 2] = 255;
+      data[offset] = data[offset + 1] = data[offset + 2] = pin && glyphWell ? glyphAlpha : 255;
       data[offset + 3] = alpha;
     }
   }
@@ -232,7 +239,29 @@ function createBillboardTexture(
   return texture;
 }
 
-function glyphCutout(glyph: SceneBillboardGlyph, x: number, y: number): boolean {
+function createPhosphorGlyphMask(glyph: SceneBillboardGlyph): Uint8ClampedArray | undefined {
+  if (glyph !== 'lightbulb-filament'
+    || typeof document === 'undefined'
+    || typeof Path2D === 'undefined') return undefined;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = TEXTURE_SIZE;
+  const context = canvas.getContext('2d');
+  if (!context) return undefined;
+  const scale = TEXTURE_SIZE / 640;
+  context.setTransform(
+    scale,
+    0,
+    0,
+    -scale,
+    TEXTURE_SIZE / 2 - 128 * scale,
+    TEXTURE_SIZE * 0.625 + 128 * scale,
+  );
+  context.fillStyle = '#fff';
+  context.fill(new Path2D(PHOSPHOR_LIGHTBULB_FILAMENT_PATH));
+  return context.getImageData(0, 0, TEXTURE_SIZE, TEXTURE_SIZE).data.filter((_, index) => index % 4 === 3);
+}
+
+function glyphShape(glyph: SceneBillboardGlyph, x: number, y: number): boolean {
   const localY = y - 0.25;
   if (glyph === 'robot') {
     const headBorder = Math.abs(x) < 0.25 && Math.abs(localY) < 0.18
@@ -252,5 +281,32 @@ function glyphCutout(glyph: SceneBillboardGlyph, x: number, y: number): boolean 
   }
   if (glyph === 'settings') return Math.abs(x) < 0.055 && Math.abs(localY) < 0.22
     || Math.abs(localY) < 0.055 && Math.abs(x) < 0.22;
+  if (glyph === 'lightbulb-filament') {
+    const bulbOutline = Math.abs(Math.hypot(x, localY - 0.08) - 0.24) < 0.035
+      && localY >= -0.04;
+    const shoulders = segmentDistance(x, localY, -0.21, -0.04, -0.11, -0.16) < 0.035
+      || segmentDistance(x, localY, 0.21, -0.04, 0.11, -0.16) < 0.035;
+    const neck = segmentDistance(x, localY, -0.11, -0.16, 0.11, -0.16) < 0.035;
+    const base = segmentDistance(x, localY, -0.14, -0.29, 0.14, -0.29) < 0.035;
+    const filament = segmentDistance(x, localY, -0.11, 0.04, 0, -0.07) < 0.025
+      || segmentDistance(x, localY, 0.11, 0.04, 0, -0.07) < 0.025
+      || segmentDistance(x, localY, 0, -0.07, 0, -0.16) < 0.025;
+    return bulbOutline || shoulders || neck || base || filament;
+  }
   return Math.abs(x) < 0.18 && Math.abs(localY) < 0.18;
+}
+
+function segmentDistance(
+  x: number,
+  y: number,
+  startX: number,
+  startY: number,
+  endX: number,
+  endY: number,
+): number {
+  const dx = endX - startX;
+  const dy = endY - startY;
+  const lengthSquared = dx * dx + dy * dy;
+  const t = Math.max(0, Math.min(1, ((x - startX) * dx + (y - startY) * dy) / lengthSquared));
+  return Math.hypot(x - (startX + t * dx), y - (startY + t * dy));
 }

@@ -24,6 +24,7 @@ internal static class Program
             VerifyFragmentation(vectors);
             VerifyInvalidInput(vectors);
             VerifyPayloads();
+            EditorPayloadCodecTests.Run();
             VerifyIdentityAndSchema();
             await UyaIsoSetupTests.RunAsync();
             await AssetCatalogTests.RunAsync();
@@ -31,9 +32,15 @@ internal static class Program
             await UyaAssetImportTests.RunAsync();
             await ForgeProjectTests.RunAsync();
             await ProjectReferenceTests.RunAsync();
+            await ProjectGroupTests.RunAsync();
             await AuthoringFoundationQualificationTests.RunAsync();
             await HudProjectTests.RunAsync();
             await FxProjectTests.RunAsync();
+            await UyaMobyPropertyTests.RunAsync();
+            await UyaMobyPVarTests.RunAsync();
+            await UyaMapGroupTests.RunAsync();
+            MobyDexSchemaTests.Run();
+            await MobyDexProjectTests.RunAsync();
             await BakeLayerTests.RunAsync();
             await EditorRuntimeTests.RunAsync();
             await UyaProjectTests.RunAsync();
@@ -367,6 +374,10 @@ internal static class Program
         collisionFaceCommandWriter.WriteBoolean(false);
         collisionFaceCommandWriter.WriteBoolean(false);
         collisionFaceCommandWriter.WriteBoolean(false);
+        collisionFaceCommandWriter.WriteBoolean(false);
+        collisionFaceCommandWriter.WriteBoolean(false);
+        collisionFaceCommandWriter.WriteBoolean(false);
+        collisionFaceCommandWriter.WriteBoolean(false);
         var collisionFaceCommand = EditorPayloadCodec.DecodeCommand(collisionFaceCommandWriter.ToArray());
         Equal(collisionFaceCommandId, collisionFaceCommand.Id, "collision face command ID payload");
         Equal(EditorCommandKind.SetInstancedCollisionFaceTypes, collisionFaceCommand.Kind,
@@ -386,15 +397,19 @@ internal static class Program
         referenceCommandWriter.WriteBoolean(true);
         referenceCommandWriter.WriteString(ProjectReferences.AreaSplines);
         referenceCommandWriter.WriteBoolean(true);
-        referenceCommandWriter.WriteUInt32(7);
+        referenceCommandWriter.WriteInt32(-1);
         referenceCommandWriter.WriteBoolean(true);
         referenceCommandWriter.WriteString(parentEntityId.ToString());
         referenceCommandWriter.WriteBoolean(false);
         referenceCommandWriter.WriteBoolean(false);
         referenceCommandWriter.WriteBoolean(false);
+        referenceCommandWriter.WriteBoolean(false);
+        referenceCommandWriter.WriteBoolean(false);
+        referenceCommandWriter.WriteBoolean(false);
+        referenceCommandWriter.WriteBoolean(false);
         var referenceCommand = EditorPayloadCodec.DecodeCommand(referenceCommandWriter.ToArray());
         Equal(EditorCommandKind.SetEntityReference, referenceCommand.Kind, "reference command kind payload");
-        Equal(new EditorReferenceUpdate(ProjectReferences.AreaSplines, 7, parentEntityId),
+        Equal(new EditorReferenceUpdate(ProjectReferences.AreaSplines, -1, parentEntityId),
             referenceCommand.ReferenceUpdate, "reference command payload");
         var hudSourceId = new string('e', AssetId.TextLength);
         var hudImage = new byte[] { 0x89, 0x50, 0x4e, 0x47 };
@@ -415,10 +430,60 @@ internal static class Program
         hudCommandWriter.WriteBoolean(true);
         hudCommandWriter.WriteBytes(hudImage, 16 * 1024 * 1024);
         hudCommandWriter.WriteBoolean(false);
+        hudCommandWriter.WriteBoolean(false);
+        hudCommandWriter.WriteBoolean(false);
+        hudCommandWriter.WriteBoolean(false);
+        hudCommandWriter.WriteBoolean(false);
         var hudCommand = EditorPayloadCodec.DecodeCommand(hudCommandWriter.ToArray());
         Equal(EditorCommandKind.ReplaceHudTexture, hudCommand.Kind, "HUD command kind payload");
         Equal(AssetId.Parse(hudSourceId), hudCommand.HudEdit!.SourceAssetId, "HUD command source payload");
         Equal(true, hudImage.SequenceEqual(hudCommand.HudEdit.ImageBytes!), "HUD command image payload");
+        var mobyPropertyCommandWriter = new PayloadWriter();
+        mobyPropertyCommandWriter.WriteString(Guid.NewGuid().ToString("D"));
+        mobyPropertyCommandWriter.WriteUInt32((uint)EditorCommandKind.SetMobyInstanceProperty);
+        mobyPropertyCommandWriter.WriteUInt32(1);
+        mobyPropertyCommandWriter.WriteString(parentEntityId.ToString());
+        mobyPropertyCommandWriter.WriteBoolean(false);
+        mobyPropertyCommandWriter.WriteUInt32(0);
+        for (var index = 0; index < 15; index++) mobyPropertyCommandWriter.WriteBoolean(false);
+        mobyPropertyCommandWriter.WriteBoolean(true);
+        mobyPropertyCommandWriter.WriteString("instance.bolts");
+        mobyPropertyCommandWriter.WriteUInt32(0x400);
+        mobyPropertyCommandWriter.WriteUInt32((uint)EditorMobyPropertyValueKind.Integer);
+        mobyPropertyCommandWriter.WriteInt32(42);
+        mobyPropertyCommandWriter.WriteBoolean(false);
+        mobyPropertyCommandWriter.WriteBoolean(false);
+        mobyPropertyCommandWriter.WriteBoolean(false);
+        var mobyPropertyBytes = mobyPropertyCommandWriter.ToArray();
+        var mobyPropertyCommand = EditorPayloadCodec.DecodeCommand(mobyPropertyBytes);
+        Equal(EditorCommandKind.SetMobyInstanceProperty, mobyPropertyCommand.Kind,
+            "moby property command kind payload");
+        Equal(new EditorMobyPropertyEdit(
+                "instance.bolts", 0x400,
+                new(EditorMobyPropertyValueKind.Integer, Integer: 42)),
+            mobyPropertyCommand.MobyPropertyEdit,
+            "moby property command closed value payload");
+        Expect(BridgeErrorCode.MalformedPayload, () => EditorPayloadCodec.DecodeCommand(
+            mobyPropertyBytes.Append((byte)0).ToArray()));
+        var mobyDexJson = "{}"u8.ToArray();
+        var mobyDexCommandWriter = new PayloadWriter();
+        mobyDexCommandWriter.WriteString(Guid.NewGuid().ToString("D"));
+        mobyDexCommandWriter.WriteUInt32((uint)EditorCommandKind.ImportMobyDexEntry);
+        mobyDexCommandWriter.WriteUInt32(0);
+        mobyDexCommandWriter.WriteBoolean(false);
+        mobyDexCommandWriter.WriteUInt32(0);
+        for (var index = 0; index < 16; index++) mobyDexCommandWriter.WriteBoolean(false);
+        mobyDexCommandWriter.WriteBoolean(true);
+        mobyDexCommandWriter.WriteBoolean(true);
+        mobyDexCommandWriter.WriteBytes(mobyDexJson, MobyDexSchema.MaximumJsonBytes);
+        mobyDexCommandWriter.WriteBoolean(false);
+        mobyDexCommandWriter.WriteBoolean(false);
+        mobyDexCommandWriter.WriteBoolean(false);
+        mobyDexCommandWriter.WriteBoolean(false);
+        var mobyDexCommand = EditorPayloadCodec.DecodeCommand(mobyDexCommandWriter.ToArray());
+        Equal(EditorCommandKind.ImportMobyDexEntry, mobyDexCommand.Kind, "MobyDex command kind payload");
+        Equal(true, mobyDexJson.SequenceEqual(mobyDexCommand.MobyDexEdit!.EntryJson!),
+            "MobyDex command JSON payload");
         var buildResult = new UyaBuildPatchResultPayload(
             true, false, [], ["diagnostic"], "Patched", "Reload", "development.iso", "InPlace",
             new string('b', 64), 2, false);

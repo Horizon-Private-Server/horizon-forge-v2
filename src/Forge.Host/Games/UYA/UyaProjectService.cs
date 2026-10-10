@@ -51,7 +51,8 @@ public static class UyaProjectService
     public static async Task<ForgeProjectDescriptor> CreateAsync(
         UyaProjectCreationRequest request,
         Func<IsoProgress, ValueTask>? progress = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        MobyDexCatalog? mobyDex = null)
     {
         ValidateRequest(request);
 
@@ -69,7 +70,8 @@ public static class UyaProjectService
             catalog,
             request,
             progress is null ? null : value => ReportScaledAsync(progress, value, 3_000, 10_000),
-            cancellationToken);
+            cancellationToken,
+            mobyDex);
     }
 
     public static async Task<ForgeProjectDescriptor> CreateValidatedAsync(
@@ -77,7 +79,8 @@ public static class UyaProjectService
         AssetCatalogStore catalog,
         UyaProjectCreationRequest request,
         Func<IsoProgress, ValueTask>? progress = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        MobyDexCatalog? mobyDex = null)
     {
         ValidateRequest(request);
         ArgumentNullException.ThrowIfNull(iso);
@@ -88,7 +91,7 @@ public static class UyaProjectService
 
         await ReportAsync(progress, 1, 4);
         cancellationToken.ThrowIfCancellationRequested();
-        var baseData = ReadBase(iso, catalog, request.Level);
+        var baseData = ReadBase(iso, catalog, request.Level, mobyDex);
         var warnings = CreateWarnings(baseData);
         if (!request.AllowPartial && warnings.Count > 0) throw new InvalidDataException(string.Join(' ', warnings));
         await ReportAsync(progress, 2, 4);
@@ -106,6 +109,7 @@ public static class UyaProjectService
             baseData.LevelSettings,
             baseData.Hud,
             baseData.Fx,
+            baseData.MobyPVars,
             cancellationToken);
         await OpaqueContentStore.WriteAsync(
             workspace.RootPath,
@@ -345,12 +349,16 @@ public static class UyaProjectService
             .ToArray();
     }
 
-    private static UyaBaseLevelData ReadBase(Stream iso, AssetCatalogStore catalog, int level)
+    private static UyaBaseLevelData ReadBase(
+        Stream iso,
+        AssetCatalogStore catalog,
+        int level,
+        MobyDexCatalog? mobyDex = null)
     {
         if (!iso.CanRead || !iso.CanSeek) throw new ArgumentException("The UYA ISO stream must be readable and seekable.", nameof(iso));
         if (!LevelCatalogReader.FindAvailable(GameId.UYA, iso).Contains(level))
             throw new InvalidDataException($"UYA level {level} is not present in the source ISO.");
-        return UyaBaseLevelService.Read(iso, catalog, level);
+        return UyaBaseLevelService.Read(iso, catalog, level, mobyDex);
     }
 
     private static OpaqueContentSource OpaqueSource(string revision, int level, string fingerprint) =>

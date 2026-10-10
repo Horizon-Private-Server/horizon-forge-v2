@@ -94,6 +94,19 @@ public sealed partial class ForgeProjectWorkspace
         ProjectLevelSettings? levelSettings,
         ProjectHudState? hud,
         ProjectFxState? fx,
+        CancellationToken cancellationToken = default) => await CreateAsync(
+            rootPath, name, target, baseLevel, entities, levelSettings, hud, fx, null, cancellationToken);
+
+    public static async Task<ForgeProjectWorkspace> CreateAsync(
+        string rootPath,
+        string name,
+        ProjectTargetProfile target,
+        ProjectBaseLevel baseLevel,
+        IReadOnlyList<ProjectEntity> entities,
+        ProjectLevelSettings? levelSettings,
+        ProjectHudState? hud,
+        ProjectFxState? fx,
+        ProjectMobyPVarState? mobyPVars,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(target);
@@ -105,7 +118,8 @@ public sealed partial class ForgeProjectWorkspace
         var workspace = new ForgeProjectWorkspace(
             root,
             new(ProjectSchema.CurrentVersion, ProjectSchema.ManifestDocumentType, EntityId.New(), name, target, baseLevel, DefaultContentPath),
-            new(ProjectSchema.CurrentVersion, ProjectSchema.ContentDocumentType, entities.ToArray(), [], [], [], levelSettings, hud, fx));
+            new(ProjectSchema.CurrentVersion, ProjectSchema.ContentDocumentType, entities.ToArray(), [], [], [],
+                levelSettings, hud, fx, MobyPVars: mobyPVars));
         workspace.Validate();
         await workspace.SaveAsync(cancellationToken);
         return workspace;
@@ -385,6 +399,11 @@ public sealed partial class ForgeProjectWorkspace
             InstancedCollisionBindings = Content.InstancedCollisionBindings
                 .Where(binding => binding.InstanceEntityId is null || !removed.Contains(binding.InstanceEntityId.Value))
                 .ToArray(),
+            MobyPVars = ProjectMobyPVars.RemoveAndClear(Content.MobyPVars, removed),
+            Groups = Content.Groups.Select(group => group with
+            {
+                Members = group.Members.Where(member => !removed.Contains(member)).ToArray(),
+            }).ToArray(),
         };
         try
         {
@@ -415,10 +434,17 @@ public sealed partial class ForgeProjectWorkspace
     {
         var index = FindEntityIndex(ownerEntityId);
         var previous = Content;
-        var entities = Content.Entities.ToArray();
-        entities[index] = ProjectReferences.UpdateEntityReference(
-            entities[index], fieldKey, sourceValue, targetEntityId);
-        Content = Content with { Entities = entities };
+        var pvars = ProjectMobyPVars.UpdateReference(
+            Content.MobyPVars, ownerEntityId, fieldKey, sourceValue, targetEntityId);
+        if (!ReferenceEquals(pvars, Content.MobyPVars))
+            Content = Content with { MobyPVars = pvars };
+        else
+        {
+            var entities = Content.Entities.ToArray();
+            entities[index] = ProjectReferences.UpdateEntityReference(
+                entities[index], fieldKey, sourceValue, targetEntityId);
+            Content = Content with { Entities = entities };
+        }
         try { Validate(); }
         catch
         {
@@ -446,7 +472,11 @@ public sealed partial class ForgeProjectWorkspace
                 ? null
                 : entity.SkyShell with { Order = nextSkyOrder++ },
         }).ToArray();
-        Content = Content with { Entities = Content.Entities.Concat(copies).ToArray() };
+        Content = Content with
+        {
+            Entities = Content.Entities.Concat(copies).ToArray(),
+            MobyPVars = ProjectMobyPVars.AddCopies(Content.MobyPVars, entities, copies),
+        };
         return copies;
     }
 

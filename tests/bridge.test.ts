@@ -292,7 +292,7 @@ test('typed reference commands validate owner fields and stable targets', () => 
   };
   assert.equal(isEditorCommand(command), true);
   assert.equal(isEditorCommand({ ...command, reference: { ...command.reference, fieldKey: '../entity' } }), false);
-  assert.equal(isEditorCommand({ ...command, reference: { ...command.reference, sourceValue: -1 } }), false);
+  assert.equal(isEditorCommand({ ...command, reference: { ...command.reference, sourceValue: -1 } }), true);
 });
 
 test('HUD commands validate portable image payloads and encode within bridge limits', () => {
@@ -347,6 +347,113 @@ test('FX commands validate portable replacements and stable appended indexes', (
     entityIds: [],
     index: -1,
   }), false);
+});
+
+test('moby property commands accept only the closed typed value union', () => {
+  const command = {
+    id: '30000000-0000-4000-8000-000000000023',
+    kind: 'setMobyInstanceProperty',
+    entityIds: ['moby'],
+    property: { fieldKey: 'instance.bolts', expectedClassId: 0x400, value: { kind: 'integer', value: 42 } },
+  };
+  assert.equal(isEditorCommand(command), true);
+  assert.equal(isEditorCommand({ ...command, entityIds: ['moby-a', 'moby-b'] }), true);
+  assert.equal(isEditorCommand({ ...command, entityIds: ['moby', 'moby'] }), false);
+  assert.equal(isEditorCommand({ ...command, property: { ...command.property, offset: 0x14 } }), false);
+  assert.equal(isEditorCommand({ ...command, property: {
+    ...command.property, value: { kind: 'float', value: Number.NaN },
+  } }), false);
+  assert.equal(isEditorCommand({ ...command, property: {
+    ...command.property, value: { kind: 'color', value: [0, 128, 256] },
+  } }), false);
+  assert.equal(isEditorCommand({ ...command, property: {
+    ...command.property, value: { kind: 'integer', value: 42, minimum: 0 },
+  } }), false);
+});
+
+test('group commands validate stable IDs, names, order, and unique membership', () => {
+  const groupId = '40000000-0000-4000-8000-000000000001';
+  assert.equal(isEditorCommand({
+    id: '40000000-0000-4000-8000-000000000002',
+    kind: 'createGroup',
+    entityIds: [],
+    text: 'Gameplay set',
+  }), true);
+  assert.equal(isEditorCommand({
+    id: '40000000-0000-4000-8000-000000000003',
+    kind: 'renameGroup',
+    entityIds: [],
+    groupId,
+    text: 'Renamed set',
+  }), true);
+  assert.equal(isEditorCommand({
+    id: '40000000-0000-4000-8000-000000000004',
+    kind: 'renameGroup',
+    entityIds: [],
+    groupId: '../group',
+    text: 'Renamed set',
+  }), false);
+  assert.equal(isEditorCommand({
+    id: '40000000-0000-4000-8000-000000000005',
+    kind: 'reorderGroup',
+    entityIds: [],
+    groupId,
+    destinationOrder: -1,
+  }), false);
+  assert.equal(isEditorCommand({
+    id: '40000000-0000-4000-8000-000000000006',
+    kind: 'addGroupMembers',
+    entityIds: ['first', 'second'],
+    groupId,
+  }), true);
+  assert.equal(isEditorCommand({
+    id: '40000000-0000-4000-8000-000000000007',
+    kind: 'removeGroupMembers',
+    entityIds: ['same', 'same'],
+    groupId,
+  }), false);
+});
+
+test('MobyDex commands validate bounded portable entry data', () => {
+  const imported = {
+    id: '30000000-0000-4000-8000-000000000024',
+    kind: 'importMobyDexEntry',
+    entityIds: [],
+    entryJson: Uint8Array.of(0x7b, 0x7d),
+  };
+  assert.equal(isEditorCommand(imported), true);
+  assert.equal(isEditorCommand({ ...imported, entryJson: new Uint8Array() }), false);
+  assert.equal(isEditorCommand({
+    id: '30000000-0000-4000-8000-000000000025',
+    kind: 'removeMobyDexEntry',
+    entityIds: [],
+    game: 'UYA',
+    oClass: 6300,
+  }), true);
+  assert.equal(isEditorCommand({ ...imported, kind: 'removeMobyDexEntry', game: '../UYA', oClass: 6300 }), false);
+  assert.equal(isEditorCommand({
+    id: '30000000-0000-4000-8000-000000000026', kind: 'initializeMobyPVar', entityIds: ['moby'],
+  }), true);
+  assert.equal(isEditorCommand({
+    id: '30000000-0000-4000-8000-000000000026', kind: 'initializeMobyPVar', entityIds: [],
+  }), false);
+  const fieldEdit = {
+    id: '30000000-0000-4000-8000-000000000027', kind: 'setMobyPVarField', entityIds: ['moby'],
+    pvar: {
+      fieldPath: 'settings.count', expectedClassId: 0x402, expectedDatasetId: 'tests',
+      expectedDatasetVersion: 1, expectedSchemaVersion: 1, expectedSchemaFingerprint: 'b'.repeat(64),
+      expectedStateFingerprint: 'a'.repeat(64),
+      value: { kind: 'integer', value: '42' },
+    },
+  };
+  assert.equal(isEditorCommand(fieldEdit), true);
+  assert.equal(isEditorCommand({ ...fieldEdit, pvar: {
+    ...fieldEdit.pvar, value: { kind: 'reference' },
+  } }), true);
+  assert.equal(isEditorCommand({ ...fieldEdit, pvar: { ...fieldEdit.pvar, offset: 8 } }), false);
+  assert.equal(isEditorCommand({ ...fieldEdit, pvar: {
+    ...fieldEdit.pvar, expectedStateFingerprint: 'stale',
+  } }), false);
 });
 
 test('fragmented and coalesced reads retain frame boundaries', () => {

@@ -22,24 +22,39 @@ test('editor layout restore accepts hidden panels and rejects stale or malformed
   assert.equal(decodeEditorLayout('x'.repeat(1024 * 1024 + 1)), undefined);
 });
 
-test('default editor layout groups properties and asset tools with their sections', () => {
+test('default editor layout matches the established three-column workspace', () => {
   const panels: Array<Record<string, unknown>> = [];
   createDefaultEditorLayout({
+    width: 2560,
+    height: 1285,
     clear: () => panels.splice(0),
     addPanel: (panel: Record<string, unknown>) => panels.push(panel),
   } as never);
+  assert.deepEqual(panels.map((panel) => panel.id), [
+    'sceneTree', 'viewport', 'build', 'levelSettings', 'diagnostics', 'groups',
+    'properties', 'hudBank', 'fxTextures', 'assetPreview', 'references', 'assetExplorer',
+  ]);
+  assert.deepEqual(panels.find((panel) => panel.id === 'viewport'), {
+    id: 'viewport', component: 'viewport', title: 'Viewport', initialWidth: 2194,
+    position: { referencePanel: 'sceneTree', direction: 'right' },
+  });
   assert.deepEqual(panels.find((panel) => panel.id === 'build')?.position,
     { referencePanel: 'viewport', direction: 'right' });
+  assert.equal(panels.find((panel) => panel.id === 'build')?.initialWidth, 536);
+  assert.deepEqual(panels.find((panel) => panel.id === 'levelSettings')?.position,
+    { referencePanel: 'sceneTree', direction: 'below' });
+  assert.equal(panels.find((panel) => panel.id === 'levelSettings')?.initialHeight, 544);
+  assert.deepEqual(panels.find((panel) => panel.id === 'diagnostics')?.position,
+    { referencePanel: 'viewport', direction: 'below' });
+  assert.equal(panels.find((panel) => panel.id === 'diagnostics')?.initialHeight, 485);
+  assert.deepEqual(panels.find((panel) => panel.id === 'groups')?.position,
+    { referencePanel: 'viewport', direction: 'left' });
+  assert.equal(panels.find((panel) => panel.id === 'groups')?.initialWidth, 283);
   assert.deepEqual(panels.find((panel) => panel.id === 'properties')?.position,
     { referencePanel: 'build', direction: 'below' });
+  assert.equal(panels.find((panel) => panel.id === 'properties')?.initialHeight, 669);
   assert.deepEqual(panels.find((panel) => panel.id === 'assetExplorer')?.position,
     { referencePanel: 'diagnostics', direction: 'within' });
-  assert.deepEqual(panels.find((panel) => panel.id === 'assetPreview')?.position,
-    { referencePanel: 'properties', direction: 'within' });
-  assert.deepEqual(panels.find((panel) => panel.id === 'references')?.position,
-    { referencePanel: 'properties', direction: 'within' });
-  assert.deepEqual(panels.find((panel) => panel.id === 'hudBank')?.position,
-    { referencePanel: 'viewport', direction: 'within' });
 });
 
 test('reopened Asset Explorer rejoins the Diagnostics group', () => {
@@ -76,4 +91,22 @@ test('reopened HUD Bank rejoins the main viewport group', () => {
     addPanel: (panel: Record<string, unknown>) => { added = panel; },
   } as never, 'hudBank');
   assert.deepEqual(added?.position, { referencePanel: 'viewport', direction: 'within' });
+});
+
+test('reopened Groups panel sits beside Scene for cross-tree drag and drop', () => {
+  let added: Record<string, unknown> | undefined;
+  showEditorPanel({
+    getPanel: (id: string) => id === 'sceneTree' ? { id } : undefined,
+    addPanel: (panel: Record<string, unknown>) => { added = panel; },
+  } as never, 'groups');
+  assert.deepEqual(added?.position, { referencePanel: 'sceneTree', direction: 'right' });
+});
+
+test('reopened Scene panel sits beside Groups for cross-tree drag and drop', () => {
+  let added: Record<string, unknown> | undefined;
+  showEditorPanel({
+    getPanel: (id: string) => id === 'groups' ? { id } : undefined,
+    addPanel: (panel: Record<string, unknown>) => { added = panel; },
+  } as never, 'sceneTree');
+  assert.deepEqual(added?.position, { referencePanel: 'groups', direction: 'left' });
 });

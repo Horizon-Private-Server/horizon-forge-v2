@@ -117,6 +117,14 @@ internal static class EditorRuntimeTests
             Equal(secondTransform.Position,
                 snapshot.Entities.Single(entity => entity.EntityId == secondId).Transform.Position,
                 "runtime batch transform mutation");
+            snapshot = await runtime.ExecuteAsync(Command(EditorCommandKind.Undo, []));
+            Equal(ProjectTransform.Identity.Position,
+                snapshot.Entities.Single(entity => entity.EntityId == secondId).Transform.Position,
+                "one undo restores the entire batch transform");
+            snapshot = await runtime.ExecuteAsync(Command(EditorCommandKind.Redo, []));
+            Equal(secondTransform.Position,
+                snapshot.Entities.Single(entity => entity.EntityId == secondId).Transform.Position,
+                "one redo restores the entire batch transform");
             snapshot = await runtime.ExecuteAsync(Command(EditorCommandKind.CopyEntities, [firstId]));
             Equal(true, snapshot.CanPaste, "copy enables same-project paste");
             snapshot = await runtime.ExecuteAsync(Command(EditorCommandKind.PasteEntities, []));

@@ -44,6 +44,7 @@ public enum BridgeOpcode : ushort
     PrepareInstancedCollisionPreview = 29,
     InspectInstancedCollisionSource = 30,
     PrepareAppliedInstancedCollision = 31,
+    ReloadMobyDexDataset = 32,
 }
 
 public enum BridgeErrorCode : ushort

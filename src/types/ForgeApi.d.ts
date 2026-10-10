@@ -41,6 +41,7 @@ export interface KnownSettings {
   'targets.uya.developmentIso': string;
   'ui.editorLayout': string;
   'ui.componentSize': UiSize;
+  'ui.hideEmptyGroups': boolean;
   'ui.selectionColor': string;
   'ui.sceneTreeColors.moby': string;
   'ui.sceneTreeColors.cuboid': string;
@@ -293,13 +294,14 @@ export interface EditorTerrainSource {
 
 export type ForgeDialog = 'setup' | 'settings';
 
-export type EditorLayoutAction = 'resetLayout' | 'showViewport' | 'showSceneTree'
+export type EditorLayoutAction = 'resetLayout' | 'showViewport' | 'showSceneTree' | 'showGroups'
   | 'showProperties' | 'showReferences' | 'showLevelSettings' | 'showDiagnostics' | 'showBuild'
   | 'showAssetExplorer' | 'showAssetPreview' | 'showHudBank' | 'showFxTextures';
 
 export type ForgeAction = ForgeDialog | EditorLayoutAction
   | 'projects' | 'newProject' | 'openProject' | 'saveProject' | 'undoEditor' | 'redoEditor'
-  | 'deleteEntities' | 'duplicateEntities' | 'copyEntities' | 'pasteEntities' | 'checkUpdates';
+  | 'deleteEntities' | 'duplicateEntities' | 'copyEntities' | 'pasteEntities' | 'checkUpdates'
+  | 'reloadMobyDex';
 
 export type ForgeWindowAction = 'quit' | 'minimize' | 'toggleMaximize'
   | 'resetZoom' | 'zoomIn' | 'zoomOut' | 'toggleFullscreen' | 'toggleDevTools';
@@ -312,6 +314,7 @@ export interface ForgeApi {
   resetSettings(key?: string): Promise<SettingsSnapshot>;
   exportSettings(includeMachinePaths: boolean): Promise<boolean>;
   clearRenderCache(): Promise<boolean>;
+  reloadMobyDexDataset(): Promise<string | undefined>;
   checkForUpdates(): Promise<UpdateCheckResult>;
   getNotifications(): Promise<ForgeNotification[]>;
   dismissNotification(id: string): Promise<void>;

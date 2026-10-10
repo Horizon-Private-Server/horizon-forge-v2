@@ -6,26 +6,35 @@ import type {
   EditorEntity, EditorReference, ProjectQuaternion, ProjectTransform, ProjectVector3,
 } from '../../types/EditorRuntime.js';
 import { formatCollisionType } from '../../utils/CollisionFormat.ts';
+import { editorEntityDisplayName } from '../../utils/EntityDisplay.ts';
+import { flattenPVarFields } from '../../utils/PVarHex.ts';
 import { useEditor } from './EditorContext.ts';
 import { EditorProperty, EditorPropertyGrid } from './EditorPrimitives.tsx';
 import { EntityStateControls, EntityTextEditor } from './EntityPropertyControls.tsx';
 import { SkyShellProperties } from './SkyShellProperties.tsx';
 import { SplineProperties } from './SplineProperties.tsx';
 import { InstancedCollisionProperties } from './InstancedCollisionProperties.tsx';
-import { compatibleReferenceTargets } from './EditorPanelState.ts';
+import { MobyInstanceProperties } from './MobyInstanceProperties.tsx';
+import { MobyPVarProperties } from './MobyPVarProperties.tsx';
+import { compatibleReferenceTargets } from '../../utils/EditorReferences.ts';
 import { ReferenceField } from './ReferenceField.tsx';
 
 export function EntityProperties({ entity }: { entity: EditorEntity }) {
   const { busy, execute, navigateToEntity, project, showReferences } = useEditor();
+  const pvarReferenceKeys = useMemo(() => new Set(flattenPVarFields(entity.mobyPVar?.fields ?? [])
+    .filter((field) => field.kind === 'reference').map((field) => field.path)), [entity.mobyPVar?.fields]);
   const references = useMemo(() => project.references.filter(
     (reference): reference is Extract<EditorReference, { domain: 'entity' }> =>
-      reference.ownerEntityId === entity.id && reference.domain === 'entity',
-  ), [entity.id, project.references]);
+      reference.ownerEntityId === entity.id && reference.domain === 'entity'
+      && !pvarReferenceKeys.has(reference.fieldKey),
+  ), [entity.id, project.references, pvarReferenceKeys]);
   const entityById = useMemo(() => new Map(project.entities.map((value) => [value.id, value])), [project.entities]);
   if (entity.skyShell) return <SkyShellProperties entity={entity} />;
   const disabled = busy || entity.state.locked || entity.state.readOnly;
   const fields = references.slice(0, 50);
   return <BaseEntityProperties entity={entity} disabled={disabled}>
+    {entity.mobyProperties && <MobyInstanceProperties entities={[entity]} disabled={disabled} />}
+    {entity.mobyPVar && <MobyPVarProperties entity={entity} disabled={disabled} />}
     {entity.collision && <CollisionProperties entity={entity} />}
     {(entity.asset?.kind === 'Tie' || entity.asset?.kind === 'Shrub')
       && <InstancedCollisionProperties entity={entity} disabled={disabled} />}
@@ -70,7 +79,7 @@ function BaseEntityProperties({ entity, disabled, children }: {
         <EntityTextEditor
           identity={entity.id}
           label="Name"
-          value={entity.name}
+          value={editorEntityDisplayName(entity)}
           disabled={disabled}
           onApply={(text) => execute({ id: crypto.randomUUID(), kind: 'renameEntity', entityIds: [entity.id], text })}
         />
@@ -93,6 +102,9 @@ function BaseEntityProperties({ entity, disabled, children }: {
       <EditorPropertyGrid>
         <EditorProperty label="Entity ID"><Code>{entity.id}</Code></EditorProperty>
         <EditorProperty label="Type">{entity.geometry?.kind ?? entity.asset?.kind ?? 'model-less moby'}</EditorProperty>
+        {entity.sourceClassName && <EditorProperty label="Moby class">
+          {entity.sourceClassName}{entity.sourceClassId === undefined ? '' : ` (0x${entity.sourceClassId.toString(16).toUpperCase().padStart(4, '0')})`}
+        </EditorProperty>}
         <EditorProperty label="Asset">{entity.asset ? <Code>{entity.asset.id}</Code> : 'None'}</EditorProperty>
         <EditorProperty label="Source">{entity.provenance
           ? `${entity.provenance.game} level ${entity.provenance.level}, ${entity.provenance.section} #${entity.provenance.sourceIndex}`
@@ -108,22 +120,26 @@ export function MultiEntityProperties({ entities }: { entities: EditorEntity[] }
   const locked = readOnly || entities.some((entity) => entity.state.locked);
   const layer = entities.every((entity) => entity.layer === entities[0].layer) ? entities[0].layer : '';
   const ids = entities.map((entity) => entity.id);
-  return <Fieldset legend={`${entities.length} selected`}>
-    <Stack gap="xs">
-      <EntityTextEditor
-        identity={ids.join()}
-        label="Shared layer"
-        value={layer}
-        placeholder={layer ? undefined : 'Multiple values'}
-        disabled={busy || locked || entities.some((entity) => entity.collision)}
-        onApply={(text) => execute({ id: crypto.randomUUID(), kind: 'setEntityLayer', entityIds: ids, text })}
-      />
-      <EntityStateControls entities={entities} disabled={busy || readOnly} />
-      {readOnly
-        ? <Text size="xs" c="yellow">One or more selected source types have no native writer yet.</Text>
-        : locked && <Text size="xs" c="yellow">Unlock all selected entities before changing their shared layer.</Text>}
-    </Stack>
-  </Fieldset>;
+  return <Stack gap="sm">
+    <Fieldset legend={`${entities.length} selected`}>
+      <Stack gap="xs">
+        <EntityTextEditor
+          identity={ids.join()}
+          label="Shared layer"
+          value={layer}
+          placeholder={layer ? undefined : 'Multiple values'}
+          disabled={busy || locked || entities.some((entity) => entity.collision)}
+          onApply={(text) => execute({ id: crypto.randomUUID(), kind: 'setEntityLayer', entityIds: ids, text })}
+        />
+        <EntityStateControls entities={entities} disabled={busy || readOnly} />
+        {readOnly
+          ? <Text size="xs" c="yellow">One or more selected source types have no native writer yet.</Text>
+          : locked && <Text size="xs" c="yellow">Unlock all selected entities before changing their shared layer.</Text>}
+      </Stack>
+    </Fieldset>
+    {entities.every((entity) => entity.mobyProperties)
+      && <MobyInstanceProperties entities={entities} disabled={busy || locked} />}
+  </Stack>;
 }
 
 function CollisionProperties({ entity }: { entity: EditorEntity }) {

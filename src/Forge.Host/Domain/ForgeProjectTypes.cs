@@ -180,6 +180,18 @@ public sealed record ProjectResolvedAsset(
     string Path,
     bool ProjectAttached);
 
+public static class ProjectGroupSchema
+{
+    public const int MaximumGroupCount = 4_096;
+    public const int MaximumMembersPerGroup = 100_000;
+    public const int MaximumTotalMemberships = 1_000_000;
+}
+
+public sealed record ProjectGroup(
+    GroupId GroupId,
+    string Name,
+    IReadOnlyList<EntityId> Members);
+
 public sealed record ForgeProjectManifest(
     int SchemaVersion,
     string DocumentType,
@@ -198,7 +210,12 @@ public sealed record ForgeProjectContent(
     IReadOnlyList<ProjectAssetOverride> AssetOverrides,
     ProjectLevelSettings? LevelSettings = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ProjectHudState? Hud = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ProjectFxState? Fx = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ProjectFxState? Fx = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ProjectMobyDexState? MobyDex = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ProjectMobyPVarState? MobyPVars = null)
+{
+    public IReadOnlyList<ProjectGroup> Groups { get; init; } = [];
+}
 
 public sealed record ProjectRecoverySnapshot(
     string Id,

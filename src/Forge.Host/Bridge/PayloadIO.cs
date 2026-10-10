@@ -44,6 +44,13 @@ internal sealed class PayloadWriter
         _stream.Write(bytes);
     }
 
+    public void WriteDouble(double value)
+    {
+        Span<byte> bytes = stackalloc byte[8];
+        BinaryPrimitives.WriteDoubleLittleEndian(bytes, value);
+        _stream.Write(bytes);
+    }
+
     public void WriteBoolean(bool value) => _stream.WriteByte(value ? (byte)1 : (byte)0);
 
     public void WriteString(string value)
@@ -114,6 +121,14 @@ internal ref struct PayloadReader(ReadOnlySpan<byte> payload)
         Require(4);
         var value = BinaryPrimitives.ReadSingleLittleEndian(_payload[_offset..]);
         _offset += 4;
+        return value;
+    }
+
+    public double ReadDouble()
+    {
+        Require(8);
+        var value = BinaryPrimitives.ReadDoubleLittleEndian(_payload[_offset..]);
+        _offset += 8;
         return value;
     }
 

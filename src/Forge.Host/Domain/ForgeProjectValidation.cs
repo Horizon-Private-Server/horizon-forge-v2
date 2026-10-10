@@ -48,11 +48,14 @@ internal static partial class ForgeProjectValidation
         if (content.DocumentType != ProjectSchema.ContentDocumentType)
             throw new InvalidDataException("Project content document type is invalid.");
         if (content.Entities is null || content.Assets is null || content.InstancedCollisionBindings is null
-            || content.AssetOverrides is null)
+            || content.AssetOverrides is null || content.Groups is null)
             throw new InvalidDataException("Project content lists are required.");
+        ValidateGroups(content.Groups);
         if (content.LevelSettings is not null) ValidateLevelSettings(content.LevelSettings);
         if (content.Hud is not null) ValidateHud(rootPath, content.Hud, content.Assets);
         if (content.Fx is not null) ValidateFx(rootPath, content.Fx, content.Assets);
+        if (content.MobyDex is not null) MobyDexCatalog.ValidateProjectState(content.MobyDex);
+        ValidateMobyPVars(content);
         if (content.Entities.Any(entity => entity is null))
             throw new InvalidDataException("Project entities cannot contain null entries.");
         if (content.Entities.Select(entity => entity.EntityId).Distinct().Count() != content.Entities.Count)
@@ -183,6 +186,32 @@ internal static partial class ForgeProjectValidation
             var path = Path.Combine(rootPath, "assets", value[..2], $"{value}.blob");
             if (!File.Exists(path))
                 throw new InvalidDataException($"Asset override {binding.Source.Id} replacement blob is missing.");
+        }
+    }
+
+    private static void ValidateGroups(IReadOnlyList<ProjectGroup> groups)
+    {
+        if (groups.Count > ProjectGroupSchema.MaximumGroupCount)
+            throw new InvalidDataException("Project group count exceeds the supported limit.");
+        if (groups.Any(group => group is null))
+            throw new InvalidDataException("Project groups cannot contain null entries.");
+        if (groups.Select(group => group.GroupId).Distinct().Count() != groups.Count)
+            throw new InvalidDataException("Project contains duplicate Group IDs.");
+        if (groups.Sum(group => (long)(group.Members?.Count ?? 0)) > ProjectGroupSchema.MaximumTotalMemberships)
+            throw new InvalidDataException("Project group memberships exceed the supported limit.");
+        foreach (var group in groups)
+        {
+            if (group.GroupId.Value == Guid.Empty)
+                throw new InvalidDataException("Project group ID cannot be empty.");
+            ValidateText(group.Name, nameof(group.Name));
+            if (group.Members is null)
+                throw new InvalidDataException($"Project group {group.GroupId} members are required.");
+            if (group.Members.Count > ProjectGroupSchema.MaximumMembersPerGroup)
+                throw new InvalidDataException($"Project group {group.GroupId} exceeds the member limit.");
+            if (group.Members.Distinct().Count() != group.Members.Count)
+                throw new InvalidDataException($"Project group {group.GroupId} contains duplicate members.");
+            if (group.Members.Any(member => member.Value == Guid.Empty))
+                throw new InvalidDataException($"Project group {group.GroupId} contains an empty Entity ID.");
         }
     }
 

@@ -1,4 +1,5 @@
-export type SceneBillboardGlyph = 'object' | 'robot' | 'area' | 'ship' | 'sphere' | 'settings';
+export type SceneBillboardGlyph = 'object' | 'robot' | 'area' | 'ship' | 'sphere' | 'settings'
+  | 'lightbulb-filament';
 
 export interface SceneBillboardOptions {
   entityId: string;

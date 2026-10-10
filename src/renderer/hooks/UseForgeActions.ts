@@ -18,6 +18,15 @@ export function useForgeActions(
     if (action === 'setup') setSetupOpened(true);
     else if (action === 'settings') setSettingsOpened(true);
     else if (action === 'checkUpdates') setUpdateCheckOpened(true);
+    else if (action === 'reloadMobyDex') {
+      void window.forge.reloadMobyDexDataset()
+        .then(async (result) => {
+          if (!result) return;
+          setEditorError(undefined);
+          if (activeProject) setActiveProject(await window.forge.getEditorSnapshot());
+        })
+        .catch((error) => setEditorError(errorMessage(error)));
+    }
     else if (action === 'saveProject') {
       if (activeProject && !isSaving) {
         setIsSaving(true);
@@ -92,7 +101,7 @@ export function useForgeActions(
 }
 
 function isEditorLayoutAction(action: ForgeAction): action is EditorLayoutAction {
-  return ['resetLayout', 'showViewport', 'showSceneTree', 'showProperties', 'showLevelSettings',
+  return ['resetLayout', 'showViewport', 'showSceneTree', 'showGroups', 'showProperties', 'showLevelSettings',
     'showReferences', 'showDiagnostics', 'showBuild', 'showAssetExplorer', 'showAssetPreview', 'showHudBank',
     'showFxTextures'].includes(action);
 }

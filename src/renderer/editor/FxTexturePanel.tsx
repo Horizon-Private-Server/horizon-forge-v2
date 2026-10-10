@@ -6,10 +6,11 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { errorMessage } from '../../utils/Errors.ts';
 import { formatTextureDimensions, prepareTextureImage } from '../../utils/TexturePreview.ts';
-import type { AssetThumbnailRuntime } from './AssetThumbnailRuntime.ts';
 import {
-  buildFxTextureItems, hudThumbnailDimensions, validateFxPng, virtualGridWindow,
-} from './EditorPanelState.ts';
+  buildFxTextureItems, hudThumbnailDimensions, validateFxPng,
+} from '../../utils/TextureInventory.ts';
+import { virtualGridWindow } from '../../utils/VirtualGrid.ts';
+import type { AssetThumbnailRuntime } from './AssetThumbnailRuntime.ts';
 import { useEditor } from './EditorContext.ts';
 import { EditorEmptyState } from './EditorPrimitives.tsx';
 import {

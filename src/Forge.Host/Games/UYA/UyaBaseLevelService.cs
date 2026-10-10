@@ -12,7 +12,11 @@ namespace Forge.Host.Games.UYA;
 
 internal static class UyaBaseLevelService
 {
-    public static UyaBaseLevelData Read(Stream iso, AssetCatalogStore catalog, int level)
+    public static UyaBaseLevelData Read(
+        Stream iso,
+        AssetCatalogStore catalog,
+        int level,
+        MobyDexCatalog? mobyDex = null)
     {
         var levelWad = LevelArchiveReader.ExtractPrimary(GameId.UYA, iso, level);
         var package = UyaLevelWadUnpacker.Unpack(levelWad);
@@ -98,6 +102,10 @@ internal static class UyaBaseLevelService
         AddSkyShells(entities, baseLayers, level);
         AddCollisionPieces(entities, baseLayers, level);
         UyaInstancedCollisionLinkRecoveryService.Recover(entities, baseLayers, catalog);
+        var mobyPVars = UyaMobyPVarService.Import(
+            entities,
+            gameplay.PvarTables,
+            mobyDex ?? new MobyDexCatalog(UyaMobyDexDataset.Create()));
 
         var missing = CountMissing(mobys.Select(value => value.ClassId), mobyClasses, mobyAssets)
             + CountMissing(ties.Select(value => value.ClassId), tieClasses, tieAssets)
@@ -126,7 +134,8 @@ internal static class UyaBaseLevelService
             gameplay,
             levelSettings is null ? null : ProjectSettings(levelSettings),
             hud,
-            fx);
+            fx,
+            mobyPVars);
     }
 
     private static void AddCollisionPieces(
@@ -681,4 +690,5 @@ internal sealed record UyaBaseLevelData(
     UyaGameplayBlocks Gameplay,
     ProjectLevelSettings? LevelSettings,
     ProjectHudState? Hud,
-    ProjectFxState? Fx);
+    ProjectFxState? Fx,
+    ProjectMobyPVarState? MobyPVars);

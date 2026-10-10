@@ -206,8 +206,10 @@ editor are stable; P2 does not require a general visual schema programming syste
 
 #### FR-PVAR-001: Lossless structured editing
 
-For a documented moby PVar, Forge reads the original fixed-length blob, decodes only
-declared fields, and writes edits back into a copy of that blob. Unknown gaps and
+Forge retains every source moby's original fixed-length PVar blob independently of
+MobyDex coverage. For a documented PVar, the active MobyDex schema is evaluated when
+the map is loaded or the dataset changes, decodes only declared fields, and writes edits
+back into a copy of that blob. Unknown gaps and
 unsupported fields remain byte-identical. Creating a missing PVar requires a valid
 MobyDex default of the declared length. Editing, reference changes, save/recovery,
 undo/redo, PVar table/relative-pointer updates, bake fingerprints, and native write
@@ -240,10 +242,11 @@ save/recovery/undo/redo, and do not change scene hierarchy or bake output.
 
 #### FR-GROUP-002: Parallel group view
 
-The scene panel can switch between the raw layer/entity tree and a semantic group tree.
-Selection remains one Entity-ID set in both views. Filtering, missing/locked/hidden
-states, keyboard navigation, and context actions behave consistently. Ungrouped
-entities remain discoverable.
+Separate dockable Scene and Groups panels expose the raw layer/entity tree and semantic
+group tree together. Selection remains one Entity-ID set in both views. Filtering,
+missing/locked/hidden states, keyboard navigation, and context actions behave
+consistently. Ungrouped entities remain discoverable, and scene rows can be dragged
+onto any visible part of a highlighted group.
 
 #### FR-GROUP-003: Group manipulation
 

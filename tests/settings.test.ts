@@ -12,6 +12,7 @@ import {
   DEFAULT_UYA_COLLISION_VISUALIZATION,
   serializeUyaCollisionVisualization,
 } from '../src/utils/UyaCollisionVisualization.ts';
+import { readHideEmptyGroups } from '../src/utils/GroupVisibility.ts';
 
 test('settings validate defaults and preserve unknown keys', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'forge-settings-'));
@@ -34,6 +35,7 @@ test('settings validate defaults and preserve unknown keys', async () => {
     assert.equal(invalid.entries.find((entry) => entry.key === 'build.uya.forceOversizedInPlace')?.value, false);
     assert.equal(invalid.entries.find((entry) => entry.key === 'editor.autosaveSeconds')?.value, 30);
     assert.equal(invalid.entries.find((entry) => entry.key === 'ui.showViewportStats')?.value, true);
+    assert.equal(readHideEmptyGroups(invalid.entries), true);
     assert.equal(invalid.entries.find((entry) => entry.key === 'ui.componentSize')?.value, 'xs');
     assert.equal(invalid.entries.find((entry) => entry.key === 'ui.selectionColor')?.value, '#22d3ee');
     assert.equal(invalid.entries.find((entry) => entry.key === 'ui.sceneTreeColors.tie')?.value, '#ffd8b1');
@@ -50,6 +52,7 @@ test('settings validate defaults and preserve unknown keys', async () => {
     await store.set('paths.projects', '/maps/projects');
     await store.set('ui.editorLayout', '{"panels":{}}');
     await store.set('ui.showViewportStats', true);
+    await store.set('ui.hideEmptyGroups', false);
     await store.set('ui.componentSize', 'lg');
     await store.set('ui.selectionColor', '#123456');
     await store.set('ui.sceneTreeColors.tie', '#00ffff');
@@ -59,6 +62,7 @@ test('settings validate defaults and preserve unknown keys', async () => {
     assert.equal(persisted['paths.projects'], '/maps/projects');
     assert.equal(persisted['ui.editorLayout'], '{"panels":{}}');
     assert.equal(persisted['ui.showViewportStats'], true);
+    assert.equal(persisted['ui.hideEmptyGroups'], false);
     assert.equal(persisted['ui.componentSize'], 'lg');
     assert.equal(persisted['ui.selectionColor'], '#123456');
     assert.equal(persisted['ui.sceneTreeColors.tie'], '#00ffff');
@@ -98,6 +102,7 @@ test('settings validate defaults and preserve unknown keys', async () => {
       'ui.sceneTreeColors.tfrag': '#aaffc3',
       'ui.sceneTreeColors.tie': '#ffd8b1',
       'ui.componentSize': 'lg',
+      'ui.hideEmptyGroups': false,
       'ui.selectionColor': '#123456',
       'ui.showViewportStats': true,
       'updates.automaticChecks': true,

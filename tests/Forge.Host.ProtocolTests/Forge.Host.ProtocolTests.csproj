@@ -12,5 +12,7 @@
     <None Include="../fixtures/bridge-v4.json" Link="fixtures/bridge-v4.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../fixtures/identity-v0.json" Link="fixtures/identity-v0.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../fixtures/project-v0.json" Link="fixtures/project-v0.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../fixtures/mobydex-v1.json" Link="fixtures/mobydex-v1.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../docs/schemas/mobydex-v1.schema.json" Link="fixtures/mobydex-v1.schema.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

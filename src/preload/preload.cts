@@ -22,6 +22,7 @@ const forgeApi = Object.freeze({
   resetSettings: (key?: string) => ipcRenderer.invoke('forge:settings-reset', key),
   exportSettings: (includeMachinePaths: boolean) => ipcRenderer.invoke('forge:settings-export', includeMachinePaths),
   clearRenderCache: () => ipcRenderer.invoke('forge:render-cache-clear'),
+  reloadMobyDexDataset: () => ipcRenderer.invoke('forge:mobydex-reload'),
   checkForUpdates: () => ipcRenderer.invoke('forge:updates-check'),
   getNotifications: () => ipcRenderer.invoke('forge:notifications-get'),
   dismissNotification: (id: string) => ipcRenderer.invoke('forge:notifications-dismiss', id),

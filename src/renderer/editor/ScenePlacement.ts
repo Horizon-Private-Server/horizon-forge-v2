@@ -2,6 +2,7 @@ import * as THREE from 'three';
 
 import type { EditorEntity, EditorTransformUpdate } from '../../types/EditorRuntime.js';
 import { cloneProjectTransform } from '../../utils/Transforms.ts';
+import { inspectTransformSelection } from '../../utils/TransformSelection.ts';
 import type { SceneProjection } from './SceneProjection.ts';
 
 export interface GroundPlacementResult {
@@ -44,10 +45,17 @@ export function buildGroundPlacement(
   selection: readonly string[],
   projection: SceneProjection,
   targets: THREE.Object3D[],
+  missingSelectionMembers = 0,
 ): GroundPlacementResult {
   const selectedIds = new Set(selection);
-  const selected = entities.filter((entity) => selectedIds.has(entity.id)
-    && !entity.state.locked && !entity.state.readOnly && !entity.state.hidden && !entity.state.disabled);
+  const eligibility = inspectTransformSelection(
+    entities,
+    selection,
+    'translate',
+    missingSelectionMembers,
+  );
+  if (eligibility.message) return { message: eligibility.message, updates: [] };
+  const selected = eligibility.entities;
   if (!selected.length) return { message: 'Select an unlocked object to place.', updates: [] };
 
   bounds.makeEmpty();

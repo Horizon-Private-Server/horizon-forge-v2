@@ -14,6 +14,7 @@ public static class BridgeHost
         CancellationToken cancellationToken = default)
     {
         var writer = new FrameWriter(output);
+        var mobyDex = new MobyDexCatalog(UyaMobyDexDataset.Create());
         await using var editor = new EditorRuntime(
             UyaAssetPlacementService.CreateAsync,
             UyaEditorCapabilities.ResolveTransformCapabilities,
@@ -24,7 +25,20 @@ public static class BridgeHost
             UyaHudProjectService.ExecuteAsync,
             0xE000,
             0xEFFF,
-            UyaFxProjectService.ExecuteAsync);
+            UyaFxProjectService.ExecuteAsync,
+            UyaMobyPropertyService.Describe,
+            UyaMobyPropertyService.ExecuteAsync,
+            (workspace, entity, index, includeRawData) =>
+                UyaMobyPVarEditorService.Describe(workspace, mobyDex, entity, index, includeRawData),
+            (workspace, command, token) =>
+                UyaMobyPVarEditorService.ExecuteAsync(workspace, command, mobyDex, token),
+            projectOpenHydrator: (workspace, token) =>
+                UyaMobyPVarService.HydrateFromSourceAsync(workspace, mobyDex, token),
+            mapGroupResolver: UyaMapGroupService.ReadAsync,
+            sourceClassNameResolver: (workspace, entity) =>
+                entity.Source is { } source && ProjectReferences.KindOf(entity) == ProjectEntityKind.Moby
+                    ? workspace.ResolveMobyDexEntry(mobyDex, "UYA", source.ClassId)?.Entry.Name
+                    : null);
         var requests = new ConcurrentDictionary<uint, CancellationTokenSource>();
         var tasks = new ConcurrentDictionary<uint, Task>();
 
@@ -68,7 +82,8 @@ public static class BridgeHost
                     }
 
                     var task = HandleRequestAsync(
-                        frame, writer, requests, requestCancellation, diagnostics, handshake, editor, cancellationToken);
+                        frame, writer, requests, requestCancellation, diagnostics, handshake,
+                        editor, mobyDex, cancellationToken);
                     tasks[frame.RequestId] = task;
                     _ = task.ContinueWith(
                         _completed => tasks.TryRemove(frame.RequestId, out _),
@@ -111,6 +126,7 @@ public static class BridgeHost
         TextWriter diagnostics,
         HostHandshake handshake,
         EditorRuntime editor,
+        MobyDexCatalog mobyDex,
         CancellationToken hostCancellation)
     {
         try
@@ -147,6 +163,7 @@ public static class BridgeHost
                         await ProjectBridgeHandlers.HandleAsync(
                             frame, handshake.SdkRevision,
                             CreateProgressReporter(frame, writer, hostCancellation),
+                            mobyDex,
                             requestCancellation.Token)), hostCancellation);
                     break;
                 case BridgeOpcode.OpenEditorProject:
@@ -197,6 +214,14 @@ public static class BridgeHost
                             editor,
                             requestCancellation.Token)), hostCancellation);
                     break;
+                case BridgeOpcode.ReloadMobyDexDataset:
+                    var dataset = UyaMobyDexDataset.Parse(frame.Payload);
+                    mobyDex.Reload(dataset);
+                    await writer.WriteAsync(new(
+                        BridgeMessageKind.Result, frame.Opcode, BridgeErrorCode.None, frame.RequestId,
+                        BridgePayloadCodec.EncodeText(
+                            $"{dataset.Id} v{dataset.Version} ({dataset.Entries.Count} entries)")), hostCancellation);
+                    break;
                 case BridgeOpcode.BuildAndPatchUyaProject:
                     await writer.WriteAsync(new(
                         BridgeMessageKind.Result, frame.Opcode, BridgeErrorCode.None, frame.RequestId,
@@ -233,6 +258,10 @@ public static class BridgeHost
             await WriteErrorAsync(writer, frame.RequestId, exception.Code, exception.Message, hostCancellation);
         }
         catch (ArgumentException exception)
+        {
+            await WriteErrorAsync(writer, frame.RequestId, BridgeErrorCode.InvalidInput, exception.Message, hostCancellation);
+        }
+        catch (MobyDexValidationException exception)
         {
             await WriteErrorAsync(writer, frame.RequestId, BridgeErrorCode.InvalidInput, exception.Message, hostCancellation);
         }

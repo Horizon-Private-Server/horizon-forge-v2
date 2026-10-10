@@ -73,10 +73,22 @@ internal static class ProjectBridgeHandlers
         BridgeFrame frame,
         string sdkRevision,
         Func<IsoProgress, ValueTask> progress,
+        CancellationToken cancellationToken) => await HandleAsync(
+            frame,
+            sdkRevision,
+            progress,
+            new MobyDexCatalog(UyaMobyDexDataset.Create()),
+            cancellationToken);
+
+    public static async Task<byte[]> HandleAsync(
+        BridgeFrame frame,
+        string sdkRevision,
+        Func<IsoProgress, ValueTask> progress,
+        MobyDexCatalog mobyDex,
         CancellationToken cancellationToken) => frame.Opcode switch
     {
         BridgeOpcode.ListUyaProjectLevels => await ListLevelsAsync(frame.Payload, cancellationToken),
-        BridgeOpcode.CreateUyaProject => await CreateProjectAsync(frame.Payload, progress, cancellationToken),
+        BridgeOpcode.CreateUyaProject => await CreateProjectAsync(frame.Payload, progress, mobyDex, cancellationToken),
         BridgeOpcode.PreflightUyaProject => await PreflightAsync(frame.Payload, cancellationToken),
         BridgeOpcode.InspectForgeProject => await InspectAsync(frame.Payload, cancellationToken),
         BridgeOpcode.InspectForgeProjectSummary => await InspectSummaryAsync(frame.Payload, cancellationToken),
@@ -102,6 +114,7 @@ internal static class ProjectBridgeHandlers
     private static async Task<byte[]> CreateProjectAsync(
         byte[] payload,
         Func<IsoProgress, ValueTask> progress,
+        MobyDexCatalog mobyDex,
         CancellationToken cancellationToken)
     {
         var request = BridgePayloadCodec.DecodeUyaProjectCreationRequest(payload);
@@ -113,7 +126,7 @@ internal static class ProjectBridgeHandlers
             request.Fingerprint,
             request.Revision,
             checked((int)request.Level),
-            request.AllowPartial), progress, cancellationToken);
+            request.AllowPartial), progress, cancellationToken, mobyDex);
         return EncodeProject(result);
     }
 

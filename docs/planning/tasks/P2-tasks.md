@@ -404,6 +404,8 @@ Verification: incremental/determinism matrix and packaged-app/PCSX2 qualificatio
 
 ### M9-001 — Inventory and freeze UYA moby instance ownership
 
+Status: ✅ Complete
+
 Requirements: FR-MOBY-001, FR-SDK-002, NFR-MAINT-001
 Depends on: M3-005
 
@@ -423,7 +425,18 @@ Acceptance:
 Verification: checked-in synthetic/golden record fixtures and SDK semantic/no-edit
 round-trip tests.
 
+Contract: [UYA moby instance contract v0](../../features/uya-moby-instance-contract-v0.md).
+
+Implementation: the UYA game library owns the bounded 0x10-byte table header and
+0x88-byte record parser/writer. Parsed records retain all source bytes; the no-edit
+writer reproduces representative and boundary fixtures byte-for-byte, while the
+existing transform writer patches only OClass, position, native ZYX rotation, and
+uniform scale. The contract classifies every range as typed, derived, or opaque and
+reserves neutral field keys without exposing native offsets outside the adapter.
+
 ### M9-002 — Expose game-neutral moby instance descriptors and commands
+
+Status: ✅ Complete
 
 Requirements: FR-MOBY-001, FR-MOBY-002, NFR-SEC-003
 Depends on: M9-001, M2-001
@@ -445,7 +458,17 @@ Acceptance:
 Verification: descriptor codec, command/history, malicious payload, field boundary,
 and per-field semantic round-trip tests.
 
+Implementation: the UYA SDK library owns a native field enum, validation bounds,
+semantic parsing, and byte-range writes. Forge's UYA adapter owns stable bridge keys,
+labels, editability, and read-only explanations, mapping them to a closed game-neutral
+bridge union that accepts only field key, expected OClass, and typed value from clients.
+Runtime edits participate in the existing atomic history, dirty/recovery, event, save,
+and bake-fingerprint paths; SDK tests cover every writable field and prove all
+non-owned record bytes remain unchanged.
+
 ### M9-003 — Build the moby instance properties UI
+
+Status: ✅ Complete
 
 Requirements: FR-MOBY-002, FR-UI-004, FR-UI-002, NFR-UX-001
 Depends on: M9-002, M7-005
@@ -466,7 +489,18 @@ Acceptance:
 
 Verification: component/state tests and representative single/multi-moby walkthrough.
 
+Implementation: the Properties dock renders adapter descriptors with bounded integer
+and finite-float inputs, boolean and RGB controls, units/help, and visible explanations
+for preserved read-only fields. OClass is formatted alongside its numeric value and
+the stable Entity ID remains in Source. Same-OClass multi-selection intersects complete
+descriptor metadata and sends one batch command; the host stages every native record
+before one workspace replacement, so failure changes none of the selection and one undo
+restores all of it. Existing shared transform and reference controls continue to render
+those semantic field families without introducing UYA layout knowledge in React.
+
 ### M9-004 — Define and validate MobyDex schema v1
+
+Status: ✅ Complete
 
 Requirements: FR-MDEX-001, FR-MDEX-002, NFR-P2-004, NFR-P2-005
 Depends on: M7-004
@@ -489,7 +523,21 @@ Acceptance:
 Verification: schema corpus, malformed/fuzz corpus, deterministic snapshots, and
 legacy-concept conversion fixtures.
 
+Schema: [MobyDex entry schema v1](../../features/mobydex-v1.md) and its
+[machine-readable JSON Schema](../../schemas/mobydex-v1.schema.json).
+
+Implementation: game-neutral Domain records represent fixed PVar entry metadata and
+recursive declarative field definitions. A 4 MiB bounded parser rejects unknown or
+duplicate JSON properties before validation; stable code/path diagnostics cover
+identity, exact defaults, spans/overlaps, arrays, options, references, relocations,
+and aggregate complexity. The canonical formatter fixes property ordering, casing,
+UTF-8/LF output, tag/relocation ordering, and final newline while retaining authored
+field/option order. A synthetic snapshot translates representative Forge v1 concepts,
+and deterministic malformed-byte fuzzing exercises the untrusted parser boundary.
+
 ### M9-005 — Resolve built-in and project MobyDex entries
+
+Status: ✅ Complete
 
 Requirements: FR-MDEX-001, FR-MDEX-003, NFR-PORT-001, NFR-P2-001
 Depends on: M9-004, M7-002
@@ -510,13 +558,27 @@ Acceptance:
 
 Verification: precedence/conflict/import rollback/ZIP tests and documentation dry run.
 
+Implementation: a game-neutral catalog resolves exact `(game, OClass)` keys and reports
+built-in/project source plus dataset and entry-schema versions. The versioned UYA
+dataset contains the 75 unique, default-free UYA entries translated from the Forge v1
+overlay; duplicate rows are collapsed and DL rows are excluded by source game version. Project content
+stores complete validated custom entries; canonical bounded import, export, and removal
+participate in editor history, recovery, deterministic save, project migration, and ZIP
+portability. Invalid replacement data is rejected before mutation, duplicate keys are
+invalid within either source, and missing definitions leave source moby bytes unchanged.
+The bundled dataset can be replaced for the current host session from a local JSON file;
+validation and target-game checks complete before the active catalog is swapped.
+
 ### M9-006 — Add lossless PVar storage and SDK write integration
+
+Status: ✅ Complete
 
 Requirements: FR-PVAR-001, FR-PVAR-003, FR-REF-002, NFR-REL-001
 Depends on: M9-004, M9-005, M7-004, M3-005
 
-Promote each understood moby's PVar blob and relocation metadata into authoritative
-project state while retaining opaque bytes and native table ownership in the SDK.
+Promote every source moby's raw PVar blob and relocation metadata into authoritative
+project state independently of MobyDex coverage, while retaining native table ownership
+in the SDK.
 
 Acceptance:
 
@@ -532,7 +594,20 @@ Acceptance:
 Verification: no-PVar/default, shared/independent blob, relocation, reorder/delete,
 unknown-byte mask, malformed table, and native round-trip tests.
 
+Implementation: project content owns fixed-length raw PVar blobs by moby Entity ID while
+retaining the original native table slot, relocation offsets, moby-link offsets, and
+schema-resolved stable references. All source blobs import independently of the active
+MobyDex; older projects hydrate missing blobs from their retained gameplay source when
+opened, and the active schema is evaluated as an editor overlay. Shared source slots import as independent blobs;
+copies and verified defaults receive deterministic appended slots. The SDK validates,
+reads, and writes native PVar tables and both fixup tables, and UYA bake regenerates
+them together with patched moby instance indices. Nullable deletion, opaque-link
+blockers, fixed-length replacement, initialization history, save/recovery state, and
+legacy projects without semantic PVar state all preserve last-known-good data.
+
 ### M9-007 — Build the structured PVar editor
+
+Status: ✅ Complete
 
 Requirements: FR-PVAR-001, FR-PVAR-003, FR-UI-002, NFR-UX-001
 Depends on: M9-006, M9-003, M7-005
@@ -553,7 +628,19 @@ Acceptance:
 
 Verification: component/command/stale-schema tests and nested/array/reference fixtures.
 
+Implementation: entity snapshots expose recursive, typed PVar descriptors from the
+active MobyDex entry, including byte ranges, source and schema fingerprints, help,
+invalid values, resolved references, and explicit read-only unknown gaps. The renderer
+provides searchable/collapsible struct and array controls, bounded opaque previews,
+reference navigation, and local numeric drafts that commit once. Field commands carry
+only a stable path, typed value, and dataset/schema/blob guards; the UYA adapter
+re-resolves the current definition and patches its bounded span atomically. Schema or
+blob changes reject without mutation, while successful edits participate in normal
+undo/redo/save behavior. Missing schemas degrade to a read-only raw PVar descriptor.
+
 ### M9-008 — Add the windowed highlighted PVar hex view
+
+Status: ✅ Complete
 
 Requirements: FR-PVAR-002, NFR-P2-003, NFR-UX-001
 Depends on: M9-006, M9-007
@@ -574,7 +661,19 @@ Acceptance:
 Verification: layout/hit/highlight signature tests, accessibility check, and large-blob
 scroll/heap profile against the ratchet-companion baseline.
 
+Implementation: selected moby snapshots expose the current fixed-length PVar bytes and
+a bounded one-bit-per-byte mask derived from the project-owned import/default baseline.
+The read-only view renders address, little-endian grouped hex, ASCII, schema highlights,
+hover/focus details, explicit color-plus-dot modified-byte markers, and bidirectional
+field navigation. Rows are windowed to the 320-pixel viewport plus overscan; tests cover
+row bounds, group alignment, overlapping fields, mask tail bounds, and a maximum-size
+1 MiB PVar without allocating per-byte DOM state. Baselines participate in normal
+save/recovery/history state, while legacy draft PVar state safely adopts its current
+bytes as the initial baseline.
+
 ### M9-009 — Integrate moby/PVar reference enrichment and qualify M9
+
+Status: 🚧 In progress
 
 Requirements: FR-UI-006, FR-PVAR-003, M9 exit gate, NFR-P2-005
 Depends on: M9-002, M9-003, M9-004, M9-005, M9-006, M9-007, M9-008, M7-007
@@ -595,9 +694,24 @@ Acceptance:
 Verification: synthetic automated matrix plus local proprietary-data-free qualification
 record and a maintainer PCSX2 result reference.
 
+Implementation: PVar references use the existing project reference graph and now carry
+their active MobyDex provenance through the editor snapshot. The shared view identifies
+owner and resolved target, stable field path, signed encoded native index, null/missing
+state, and source, with endpoint navigation in either direction. Raw hex field details
+show the same encoded index and resolved target. Synthetic qualification covers stable
+Entity-ID remapping, primitives, nested fields, arrays, RGB color, references,
+relocations, unknown-byte preservation, failure atomicity, and staged native-table
+semantic re-read.
+
+Qualification: [M9 MobyDex and moby editing](../../qualification/M9-moby-editing.md).
+The automated gate passes; real-level pack/patch, packaged Windows, and maintainer
+PCSX2 evidence remain pending, so this task and the M9 exit gate are not complete.
+
 ## M10 — Group engine
 
 ### M10-001 — Add manual group project state and commands
+
+Status: ✅ Complete
 
 Requirements: FR-GROUP-001, NFR-P2-001, NFR-PORT-001
 Depends on: M7-004, M2-008
@@ -618,27 +732,59 @@ Acceptance:
 Verification: schema migration, command/history, duplicate/missing, portability, and
 before/after bake-fingerprint tests.
 
+Implementation: project schema v16 stores ordered manual groups with independent UUIDs
+and ordered Entity-ID membership. The shared editor protocol exposes group snapshots,
+missing-member diagnostics, capabilities, and atomic create/rename/delete/reorder/add/
+remove commands through the existing history, recovery, and save paths. Entities may
+belong to multiple groups; duplicate membership is rejected without mutation, normal
+entity deletion removes membership, and unresolved imported members remain visible and
+removable. Automated qualification covers migration, undo/redo, autosave recovery, ZIP
+transfer, deterministic ordering, and identical HUD bake input/output fingerprints
+before and after group-only edits.
+
+Forge-only groups remain project metadata and are labeled as Custom groups separately
+from the read-only moby, tie, and shrub Map groups parsed from the preserved level data.
+
 ### M10-002 — Build the parallel semantic group tree
+
+Status: ✅ Complete
 
 Requirements: FR-GROUP-002, FR-UI-003, NFR-UX-001, NFR-P2-003
 Depends on: M10-001, M2-004
 
-Add a raw/group view switch to the scene dock using existing tree primitives and the
-same selection state.
+Add separate dockable Scene and Groups panels using existing tree primitives and the
+same selection state, allowing both trees to remain open for cross-panel drag/drop.
 
 Acceptance:
 
 - Groups expand to members with consistent hidden/disabled/locked/invalid/missing
   states; an entity selected in either view is selected in viewport/properties/other
   view without duplicated authority.
-- Search covers group and member labels and exposes ungrouped entities.
+- Search covers group and member labels.
 - Keyboard navigation, multi-selection, rename/context actions, and focus restoration
   match the raw tree.
 - Representative large projects remain interactive without rendering all rows.
 
 Verification: tree state/accessibility tests and large-fixture interaction profile.
 
+Implementation: separate Scene and Groups docks can remain open side by side without
+introducing another selection authority. Group and member rows share the project
+Entity-ID selection, including entities present in more than one group; group-row
+selection resolves to all known members. Search matches group names, entity
+labels/IDs/state, and missing IDs. Scene entities can be
+dragged across docks onto any visible part of a group, with the full group highlighted
+as the drop target. Rows reuse the raw tree's keyboard, range-selection, visibility,
+disabled-state, focus, and camera-focus behavior, with accessible group
+create/rename/reorder/delete and membership actions. Missing members remain labeled and
+removable. Large branches page at 250 rows, and the automated interaction profile covers
+25,000 entities without constructing every member row at once.
+
+Map groups share the authoritative entity selection and can be expanded, filtered,
+focused, and used as drag sources, while only Custom groups accept membership edits.
+
 ### M10-003 — Transform groups atomically
+
+Status: ✅ Complete
 
 Requirements: FR-GROUP-003, FR-SCENE-008, FR-EDIT-001
 Depends on: M10-002, M2-006
@@ -657,6 +803,16 @@ Acceptance:
   ordinary multi-selection.
 
 Verification: transform math/capability/cancel/history tests and mixed-kind walkthrough.
+
+Implementation: group rows continue to resolve into the authoritative Entity-ID
+selection, so the existing bounds-center multi-transform path preserves member offsets,
+snapping, preview/cancel behavior, and one-command history semantics. A shared transform
+eligibility preflight now deduplicates nested selections and rejects the whole selection
+when any member is locked, read-only, hidden, disabled, invalid, missing an asset,
+collision-linked, or incompatible with the active transform mode. Unresolved Custom and
+Map group members participate in the same preflight, and the persistent viewport notice
+summarizes every blocking category before the gizmo is attached. Page Down uses the same
+atomic preflight instead of silently placing only the eligible subset.
 
 ### M10-004 — Implement deterministic group-template evaluation
 

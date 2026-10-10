@@ -305,6 +305,9 @@ public static class UyaStaticLayerStore
             value.Entity.EntityId,
             value.Entry is null ? -1 : definitionIndexes[(value.ClassId, value.Entry.Id)],
             value.ClassId)).ToArray();
+        var pvarIndexes = layer == BakeLayerId.Mobys
+            ? UyaMobyPVarService.NativeIndexes(workspace.Content)
+            : new Dictionary<EntityId, int>();
         var instanceBytes = layer switch
         {
             BakeLayerId.Ties => UyaTieInstancesWriter.Write(
@@ -315,7 +318,12 @@ public static class UyaStaticLayerStore
                 resolved.Select(value => ToShrubEdit(value.Entity, value.ClassId)).ToArray()),
             BakeLayerId.Mobys => UyaMobyInstancesWriter.Write(
                 new(0, source.HeaderWords[0], source.HeaderWords[1], source.HeaderWords[2], [], source.TrailingBytes),
-                resolved.Select(value => ToMobyEdit(value.Entity, value.ClassId)).ToArray()),
+                resolved.Select(value => ToMobyEdit(
+                    value.Entity,
+                    value.ClassId,
+                    pvarIndexes.TryGetValue(value.Entity.EntityId, out var pvarIndex)
+                        ? pvarIndex
+                        : UyaMobyInstancesReader.ReadInstance(value.Entity.Source!.RawRecord).PvarIndex)).ToArray()),
             _ => throw new ArgumentOutOfRangeException(nameof(layer)),
         };
         var manifest = new UyaStaticBakeManifest(
@@ -359,15 +367,20 @@ public static class UyaStaticLayerStore
         return entity.Provenance is null ? UyaGameplayInstanceTemplates.NormalizePlacedShrub(source) : source;
     }
 
-    private static UyaMobyInstanceEdit ToMobyEdit(ProjectEntity entity, int classId) => new(
-        classId,
-        new(entity.Transform.Position.X, entity.Transform.Position.Y, entity.Transform.Position.Z),
-        new(entity.Transform.Rotation.X, entity.Transform.Rotation.Y,
-            entity.Transform.Rotation.Z, entity.Transform.Rotation.W),
-        entity.Transform.Scale.X,
-        entity.Provenance is null
+    private static UyaMobyInstanceEdit ToMobyEdit(ProjectEntity entity, int classId, int pvarIndex)
+    {
+        var template = (entity.Provenance is null
             ? UyaGameplayInstanceTemplates.NormalizePlacedMoby(entity.Source!.RawRecord)
-            : entity.Source!.RawRecord);
+            : entity.Source!.RawRecord).ToArray();
+        BinaryPrimitives.WriteInt32LittleEndian(template.AsSpan(0x68), pvarIndex);
+        return new(
+            classId,
+            new(entity.Transform.Position.X, entity.Transform.Position.Y, entity.Transform.Position.Z),
+            new(entity.Transform.Rotation.X, entity.Transform.Rotation.Y,
+                entity.Transform.Rotation.Z, entity.Transform.Rotation.W),
+            entity.Transform.Scale.X,
+            template);
+    }
 
     internal static ProjectEntity[] OrderedEntities(ForgeProjectWorkspace workspace, BakeLayerId layer)
     {

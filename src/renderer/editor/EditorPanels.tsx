@@ -1,28 +1,26 @@
 import { EyeIcon } from '@phosphor-icons/react/dist/csr/Eye';
 import { EyeSlashIcon } from '@phosphor-icons/react/dist/csr/EyeSlash';
-import { PowerIcon } from '@phosphor-icons/react/dist/csr/Power';
 import {
-  ActionIcon, Alert, Badge, Button, Checkbox, Code, Group, Slider, Stack, Text,
+  ActionIcon, Alert, Button, Checkbox, Code, Group, Slider, Stack, Text,
 } from '@mantine/core';
 import type { TreeNodeData } from '@mantine/core';
-import type { ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 
 import type { EditorEntity, EditorLevelSettings } from '../../types/EditorRuntime.js';
-import type { SceneTreeKind } from '../../types/SceneTree.js';
 import { createAssetPlacementCommand, createSkyShellAddCommand } from '../../utils/AssetPlacement.ts';
+import { parseRgb } from '../../utils/Color.ts';
 import { formatCollisionType } from '../../utils/CollisionFormat.ts';
-import { DEFAULT_SCENE_TREE_COLORS, SCENE_TREE_LABELS } from '../../utils/SceneTreeColors.ts';
-import { parseSplinePointId, splinePointId } from '../../utils/SplinePoints.ts';
-import { ColorPickerInput } from '../ColorPickerInput.tsx';
-import { EntityProperties, MultiEntityProperties } from './EntityProperties.tsx';
-import { useEditor } from './EditorContext.ts';
+import { selectedMissingGroupMemberCount } from '../../utils/SceneGroups.ts';
 import {
   buildSceneEntityGroups,
   buildTerrainTreeItems,
   entityTreeKind,
   entityTreeText,
-} from './EditorPanelState.ts';
+} from '../../utils/SceneSelection.ts';
+import { parseSplinePointId, splinePointId } from '../../utils/SplinePoints.ts';
+import { ColorPickerInput } from '../ColorPickerInput.tsx';
+import { EntityProperties, MultiEntityProperties } from './EntityProperties.tsx';
+import { useEditor } from './EditorContext.ts';
 import {
   EditorEmptyState,
   EditorFilter,
@@ -33,6 +31,7 @@ import {
   EditorTree,
 } from './EditorPrimitives.tsx';
 import { SceneViewport } from './SceneViewport.tsx';
+import { groupTreeKind, SceneTreeLabel, SceneTreeNode } from './SceneTreeNodes.tsx';
 import { SkyCompositionProperties } from './SkyCompositionProperties.tsx';
 
 export function ViewportPanel() {
@@ -47,6 +46,13 @@ export function ViewportPanel() {
   const environment = useMemo(() => project.levelSettings
     ? { ...terrain?.environment, ...project.levelSettings }
     : terrain?.environment, [levelSettingsSignature, terrain?.environment]);
+  const missingSelectionMembers = useMemo(() => selectedMissingGroupMemberCount(
+    project.selection,
+    project.entities,
+    project.groups,
+    project.mapGroups,
+    project.references,
+  ), [project.entities, project.groups, project.mapGroups, project.references, project.selection]);
   return <SceneViewport
     disabled={busy}
     entities={project.entities}
@@ -56,6 +62,7 @@ export function ViewportPanel() {
     collisionVisualization={collisionVisualization}
     focusEntityId={cameraFocus?.entityId}
     selection={splinePointSelection.length ? splinePointSelection : project.selection}
+    missingSelectionMembers={splinePointSelection.length ? 0 : missingSelectionMembers}
     showStats={showViewportStats}
     showOcclusionOctants={showOcclusionOctants}
     showTerrain={showTerrain}
@@ -191,12 +198,6 @@ function LevelSlider({ label, value, max, precision = 0, disabled, onCommit }: {
   </Stack>;
 }
 
-function parseRgb(value: string): [number, number, number] {
-  const channels = value.match(/\d+/g)?.slice(0, 3).map(Number);
-  return channels?.length === 3 ? channels.map((channel) => Math.min(255, channel)) as [number, number, number]
-    : [0, 0, 0];
-}
-
 export function SceneTreePanel() {
   const {
     project, terrain, setCameraFocus, execute, busy,
@@ -206,7 +207,8 @@ export function SceneTreePanel() {
   } = useEditor();
   const [filter, setFilter] = useState('');
   const model = useMemo(() => buildSceneEntityGroups(
-    project.entities.filter((entity) => !entity.skyShell && !entity.collision), filter,
+    project.entities.filter((entity) => !entity.skyShell && !entity.collision
+      && entity.geometry?.kind !== 'area'), filter,
   ), [filter, project.entities]);
   const tfrags = useMemo(() => buildTerrainTreeItems(terrain?.urls ?? [], filter), [filter, terrain]);
   const sky = useMemo(() => {
@@ -337,6 +339,7 @@ export function SceneTreePanel() {
         ? <EditorTree
           label="Scene hierarchy"
           nodes={nodes}
+          draggableValues={entityIds}
           selected={skyCompositionSelected
             ? ['render:sky']
             : splinePointSelection.length ? splinePointSelection : project.selection}
@@ -372,83 +375,6 @@ export function SceneTreePanel() {
         : <EditorEmptyState message="No matching scene objects." />}
     </Stack>
   </EditorPanel>;
-}
-
-function SceneTreeNode({ entities, disabled, children }: {
-  entities: readonly EditorEntity[];
-  disabled: boolean;
-  children: ReactNode;
-}) {
-  const { execute } = useEditor();
-  const ids = entities.map((entity) => entity.id);
-  const allHidden = entities.every((entity) => entity.state.hidden);
-  const allDisabled = entities.every((entity) => entity.state.disabled);
-  const locked = entities.some((entity) => entity.state.locked);
-  const description = entities.length === 1 ? entities[0].name : `${entities.length} objects`;
-  const change = (state: { hidden?: boolean; disabled?: boolean }) => void execute({
-    id: crypto.randomUUID(),
-    kind: 'setEntityState',
-    entityIds: ids,
-    state,
-  });
-  return <span className="scene-tree-node">
-    {children}
-    <span className="scene-tree-actions">
-      <ActionIcon
-        aria-label={`${allHidden ? 'Show' : 'Hide'} ${description}`}
-        color={allHidden ? 'gray' : 'blue'}
-        disabled={disabled || locked}
-        size="xs"
-        title={`${allHidden ? 'Show' : 'Hide'} ${description}`}
-        variant="subtle"
-        onClick={(event) => {
-          event.stopPropagation();
-          change({ hidden: !allHidden });
-        }}
-      >
-        {allHidden ? <EyeSlashIcon size={13} /> : <EyeIcon size={13} />}
-      </ActionIcon>
-      <ActionIcon
-        aria-label={`${allDisabled ? 'Enable' : 'Disable'} ${description}`}
-        color={allDisabled ? 'gray' : 'teal'}
-        disabled={disabled || locked}
-        size="xs"
-        title={`${allDisabled ? 'Enable' : 'Disable'} ${description}`}
-        variant="subtle"
-        onClick={(event) => {
-          event.stopPropagation();
-          change({ disabled: !allDisabled });
-        }}
-      >
-        <PowerIcon size={13} weight={allDisabled ? 'regular' : 'fill'} />
-      </ActionIcon>
-    </span>
-  </span>;
-}
-
-function SceneTreeLabel({ kind, children, dot = false }: { kind: string; children: ReactNode; dot?: boolean }) {
-  const normalizedKind = kind in SCENE_TREE_LABELS ? kind as SceneTreeKind : 'object';
-  const label = SCENE_TREE_LABELS[normalizedKind];
-  const color = `var(--forge-scene-tree-${normalizedKind}, ${DEFAULT_SCENE_TREE_COLORS[normalizedKind]})`;
-  return <span className="scene-tree-label">
-    {dot
-      ? <span
-        aria-label={`${label} item`}
-        className="scene-tree-dot"
-        role="img"
-        style={{ backgroundColor: color }}
-        title={label}
-      />
-      : <Badge className="scene-tree-badge" size="xs" variant="outline" style={{ borderColor: color, color }}>
-        {label}
-      </Badge>}
-    <span className="scene-tree-label-text">{children}</span>
-  </span>;
-}
-
-function groupTreeKind(entities: readonly EditorEntity[]): string {
-  const kinds = new Set(entities.map(entityTreeKind));
-  return kinds.size === 1 ? kinds.values().next().value ?? 'object' : 'object';
 }
 
 function collisionTreeText(entity: EditorEntity, targetGame: string): string {

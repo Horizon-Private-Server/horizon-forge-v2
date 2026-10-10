@@ -215,6 +215,7 @@ export interface EditorEntity {
   asset?: { id: string; kind: string };
   provenance?: { game: string; level: number; section: string; sourceIndex: number };
   sourceClassId?: number;
+  sourceClassName?: string;
   geometry?: {
     kind: 'cuboid' | 'sphere' | 'cylinder' | 'pill' | 'spline' | 'grindPath' | 'area'
       | 'directionalLight' | 'pointLight' | 'environmentSample' | 'environmentTransition'
@@ -226,6 +227,8 @@ export interface EditorEntity {
   instancedCollision?: EditorInstancedCollisionBinding;
   individualInstancedCollision?: EditorInstancedCollisionBinding;
   instancedCollisionEnabled?: boolean;
+  mobyProperties?: EditorMobyPropertyDescriptor[];
+  mobyPVar?: EditorMobyPVarDescriptor;
   transformModes: Array<'translate' | 'rotate' | 'scale'>;
   state: {
     dirty: boolean;
@@ -236,6 +239,81 @@ export interface EditorEntity {
     invalid: boolean;
     missingAsset: boolean;
   };
+}
+
+export type EditorMobyPropertyValue =
+  | { kind: 'integer'; value: number }
+  | { kind: 'float'; value: number }
+  | { kind: 'boolean'; value: boolean }
+  | { kind: 'color'; value: [number, number, number] };
+
+export interface EditorMobyPropertyDescriptor {
+  key: string;
+  label: string;
+  value: EditorMobyPropertyValue;
+  editable: boolean;
+  integerMinimum?: number;
+  integerMaximum?: number;
+  floatMinimum?: number;
+  floatMaximum?: number;
+  unit?: string;
+  help?: string;
+  readOnlyReason?: string;
+}
+
+export type EditorMobyPVarValue =
+  | { kind: 'integer'; value: string }
+  | { kind: 'float'; value: number }
+  | { kind: 'boolean'; value: boolean }
+  | { kind: 'color'; value: number[] }
+  | { kind: 'vector'; value: number[] }
+  | { kind: 'bytes'; value: string }
+  | { kind: 'reference'; value?: string };
+
+export interface EditorMobyPVarOption {
+  key: string;
+  label: string;
+  value: string;
+}
+
+export interface EditorMobyPVarFieldDescriptor {
+  path: string;
+  label: string;
+  offset: number;
+  length: number;
+  kind: 'group' | 'integer' | 'float' | 'boolean' | 'color' | 'vector'
+    | 'choice' | 'flags' | 'reference' | 'bytes' | 'unknown';
+  value?: EditorMobyPVarValue;
+  editable: boolean;
+  invalid: boolean;
+  help?: string;
+  minimum?: string;
+  maximum?: string;
+  options?: EditorMobyPVarOption[];
+  reference?: {
+    targetKind: EditorEntityKind;
+    targetEntityId?: string;
+    nullable: boolean;
+    sourceValue: number;
+    missing: boolean;
+  };
+  children: EditorMobyPVarFieldDescriptor[];
+}
+
+export interface EditorMobyPVarDescriptor {
+  datasetId: string;
+  datasetVersion: number;
+  schemaVersion: number;
+  schemaSource: string;
+  schemaFingerprint: string;
+  stateFingerprint: string;
+  length: number;
+  hasData: boolean;
+  canInitialize: boolean;
+  diagnostic?: string;
+  rawData?: Uint8Array;
+  modifiedByteMask?: Uint8Array;
+  fields: EditorMobyPVarFieldDescriptor[];
 }
 
 export interface EditorInstancedCollisionBinding {
@@ -255,6 +333,7 @@ interface EditorReferenceBase {
   nullable: boolean;
   sourceValue?: number;
   missing: boolean;
+  datasetSource?: string;
 }
 
 export type EditorReference =
@@ -268,6 +347,20 @@ export type EditorReference =
     targetKind: string;
     targetAssetId?: string;
   };
+
+export interface EditorGroup {
+  id: string;
+  name: string;
+  members: string[];
+  missingMembers: string[];
+}
+
+export interface EditorMapGroup {
+  kind: 'moby' | 'tie' | 'shrub';
+  sourceIndex: number;
+  members: string[];
+  missingSourceIndices: number[];
+}
 
 export type EditorCommand =
   | { id: string; kind: 'setSelection'; entityIds: string[] }
@@ -352,7 +445,36 @@ export type EditorCommand =
     imageFormat: 'png' | 'pif';
     imageBytes: Uint8Array;
   }
-  | { id: string; kind: 'removeFxTexture'; entityIds: []; index: number };
+  | { id: string; kind: 'removeFxTexture'; entityIds: []; index: number }
+  | {
+    id: string;
+    kind: 'setMobyInstanceProperty';
+    entityIds: string[];
+    property: { fieldKey: string; expectedClassId: number; value: EditorMobyPropertyValue };
+  }
+  | { id: string; kind: 'importMobyDexEntry'; entityIds: []; entryJson: Uint8Array }
+  | { id: string; kind: 'removeMobyDexEntry'; entityIds: []; game: string; oClass: number }
+  | { id: string; kind: 'initializeMobyPVar'; entityIds: [string] }
+  | {
+    id: string;
+    kind: 'setMobyPVarField';
+    entityIds: [string];
+    pvar: {
+      fieldPath: string;
+      expectedClassId: number;
+      expectedDatasetId: string;
+      expectedDatasetVersion: number;
+      expectedSchemaVersion: number;
+      expectedSchemaFingerprint: string;
+      expectedStateFingerprint: string;
+      value: EditorMobyPVarValue;
+    };
+  }
+  | { id: string; kind: 'createGroup'; entityIds: []; text: string }
+  | { id: string; kind: 'renameGroup'; entityIds: []; groupId: string; text: string }
+  | { id: string; kind: 'deleteGroup'; entityIds: []; groupId: string }
+  | { id: string; kind: 'reorderGroup'; entityIds: []; groupId: string; destinationOrder: number }
+  | { id: string; kind: 'addGroupMembers' | 'removeGroupMembers'; entityIds: string[]; groupId: string };
 
 export interface EditorEvent {
   sequence: number;
@@ -388,6 +510,8 @@ export interface EditorSnapshot {
   fx?: EditorFx;
   entities: EditorEntity[];
   references: EditorReference[];
+  groups: EditorGroup[];
+  mapGroups: EditorMapGroup[];
   selection: string[];
   isDirty: boolean;
   canUndo: boolean;

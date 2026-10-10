@@ -12,6 +12,10 @@ export function installApplicationMenu(runAction: (action: ForgeAction) => void)
     label: 'Settings…',
     click: () => runAction('settings'),
   };
+  const reloadMobyDex: MenuItemConstructorOptions = {
+    label: 'Reload MobyDex Dataset…',
+    click: () => runAction('reloadMobyDex'),
+  };
   const forgeMenu: MenuItemConstructorOptions[] = process.platform === 'darwin'
     ? [
       { role: 'about' },
@@ -19,6 +23,7 @@ export function installApplicationMenu(runAction: (action: ForgeAction) => void)
       setup,
       settings,
       updates,
+      reloadMobyDex,
       { type: 'separator' },
       { role: 'services' },
       { type: 'separator' },
@@ -28,7 +33,7 @@ export function installApplicationMenu(runAction: (action: ForgeAction) => void)
       { type: 'separator' },
       { role: 'quit' },
     ]
-    : [setup, settings, updates];
+    : [setup, settings, updates, { type: 'separator' }, reloadMobyDex];
 
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     {
@@ -82,6 +87,7 @@ export function installApplicationMenu(runAction: (action: ForgeAction) => void)
           submenu: [
             { label: 'Viewport', click: () => runAction('showViewport') },
             { label: 'Scene', click: () => runAction('showSceneTree') },
+            { label: 'Groups', click: () => runAction('showGroups') },
             { label: 'Properties', click: () => runAction('showProperties') },
             { label: 'References', click: () => runAction('showReferences') },
             { label: 'Level Settings', click: () => runAction('showLevelSettings') },

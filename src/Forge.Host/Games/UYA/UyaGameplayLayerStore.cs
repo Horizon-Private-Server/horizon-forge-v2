@@ -121,6 +121,40 @@ public static class UyaGameplayLayerStore
         }
     }
 
+    internal static async Task<GameplayPvarTables?> ReadSourcePvarTablesAsync(
+        ForgeProjectWorkspace workspace,
+        CancellationToken cancellationToken = default)
+    {
+        var root = ForgeProjectPersistence.ResolveRelativePath(
+            workspace.RootPath, UyaGameplayLayerSchema.RelativeRootPath);
+        var path = Path.Combine(root, UyaGameplayLayerSchema.ManifestFileName);
+        if (!File.Exists(path)) return null;
+        RejectLink(root);
+        RejectLink(Path.Combine(root, "blobs"));
+        RejectLink(path);
+        var manifest = ForgeProjectPersistence.Deserialize<UyaGameplaySourceManifest>(
+            await File.ReadAllBytesAsync(path, cancellationToken), "UYA gameplay source");
+        ValidateManifest(manifest, workspace);
+        var pvarNames = UyaGameplayLayerSchema.SectionNames.Take(4).ToArray();
+        var blocks = new List<GameplayRawBlock>(pvarNames.Length);
+        for (var index = 0; index < pvarNames.Length; index++)
+        {
+            var name = pvarNames[index];
+            var section = manifest.Sections.SingleOrDefault(value => value.Name == name);
+            var bytes = Array.Empty<byte>();
+            if (section is not null)
+            {
+                var blob = ForgeProjectPersistence.ResolveRelativePath(root, section.Blob);
+                RejectLink(blob);
+                bytes = await File.ReadAllBytesAsync(blob, cancellationToken);
+                if (bytes.Length != section.Size || Hash(bytes) != section.Sha256)
+                    throw new InvalidDataException($"Gameplay section {name} failed integrity validation.");
+            }
+            blocks.Add(new(index, 0x58 + index * 4, 0, name, bytes));
+        }
+        return GameplayPvarTableReader.Read(blocks, "UYA");
+    }
+
     public static async Task<BakeLayerInput> CreateBakeInputAsync(
         string projectRoot,
         CancellationToken cancellationToken = default)
@@ -208,8 +242,21 @@ public static class UyaGameplayLayerStore
             }
         }
 
+        if (tables is null && blockers.Count == 0 && workspace.Content.MobyPVars is not null)
+            tables = GameplayPvarTableWriter.Write([]);
+
+        if (tables is not null && blockers.Count == 0)
+        {
+            tables = UyaMobyPVarService.Rebuild(workspace.Content, tables, blockers);
+            bytes["pvar_moby_links"] = tables.MobyLinksBytes;
+            bytes["pvar_table"] = tables.TableBytes;
+            bytes["pvar_data"] = tables.DataBytes;
+            bytes["pvar_relative_pointers"] = tables.RelativePointerBytes;
+        }
+
         var enabled = OrderedMobys(workspace).Where(entity => entity.State?.Disabled != true).ToArray();
         var disabled = OrderedMobys(workspace).Where(entity => entity.State?.Disabled == true).ToArray();
+        var nativeIndexes = UyaMobyPVarService.NativeIndexes(workspace.Content);
         var references = new List<UyaGameplayMobyReference>(enabled.Length);
         for (var index = 0; index < enabled.Length; index++)
         {
@@ -221,11 +268,13 @@ public static class UyaGameplayLayerStore
                 continue;
             }
             var moby = UyaMobyInstancesReader.ReadInstance(entity.Source.RawRecord);
-            if (moby.PvarIndex < -1 || (moby.PvarIndex >= 0 && (tables is null || moby.PvarIndex >= tables.Entries.Count)))
-                blockers.Add($"{entity.Name} ({entity.EntityId}) references missing pvar index {moby.PvarIndex}.");
-            references.Add(new(index, entity.EntityId, moby.Uid, moby.PvarIndex));
+            var pvarIndex = nativeIndexes.GetValueOrDefault(entity.EntityId, moby.PvarIndex);
+            if (pvarIndex < -1 || (pvarIndex >= 0 && (tables is null || pvarIndex >= tables.Entries.Count)))
+                blockers.Add($"{entity.Name} ({entity.EntityId}) references missing pvar index {pvarIndex}.");
+            references.Add(new(index, entity.EntityId, moby.Uid, pvarIndex));
         }
-        if (disabled.Length > 0 && bytes.GetValueOrDefault("pvar_moby_links") is { Length: > 0 })
+        if (workspace.Content.MobyPVars is null && disabled.Length > 0
+            && bytes.GetValueOrDefault("pvar_moby_links") is { Length: > 0 })
             blockers.Add($"{disabled.Length} disabled moby instance(s) cannot be removed while pvar_moby_links requires index remapping.");
         if (tables is not null)
             foreach (var pointer in tables.RelativePointers.Where(value => value.PvarIndex < -1 || value.PvarIndex >= tables.Entries.Count))

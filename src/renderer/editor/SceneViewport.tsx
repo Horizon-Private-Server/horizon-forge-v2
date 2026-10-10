@@ -43,7 +43,7 @@ import { findKeybindingCommand, transformModeForKeybinding } from '../../utils/K
 import {
   ASSET_PLACEMENT_MIME, readAssetPlacementDrag, SKY_SHELL_PLACEMENT_MIME,
 } from '../../utils/AssetPlacement.ts';
-import { nextViewportSelection } from './EditorPanelState.ts';
+import { nextViewportSelection } from '../../utils/SceneSelection.ts';
 import { buildGroundPlacement, createGroundSurfaceRaycast } from './ScenePlacement.ts';
 import { assetTemplateKey, SceneProjection } from './SceneProjection.ts';
 import { resolvePointerSnapTarget } from './SceneSnapping.ts';
@@ -63,6 +63,7 @@ interface SceneViewportProps {
   collisionVisualization: CollisionVisualization;
   focusEntityId?: string;
   selection: readonly string[];
+  missingSelectionMembers?: number;
   terrain?: EditorTerrainSource;
   environment?: EditorSceneEnvironment;
   disabled: boolean;
@@ -97,6 +98,7 @@ export function SceneViewport({
   collisionVisualization,
   focusEntityId,
   selection,
+  missingSelectionMembers = 0,
   terrain: terrainSource,
   environment,
   disabled,
@@ -125,10 +127,12 @@ export function SceneViewport({
   const [rotationSnap, setRotationSnap] = useState(15);
   const [scaleSnap, setScaleSnap] = useState(0.1);
   const [notice, setNotice] = useState<string>();
+  const [transformNotice, setTransformNotice] = useState<string>();
   const [skyDropActive, setSkyDropActive] = useState(false);
   const [stats, setStats] = useState<{ fps: number; calls: number; triangles: number }>();
   const currentShowStats = useRef(showStats);
   const currentSelection = useRef(selection);
+  const currentMissingSelectionMembers = useRef(missingSelectionMembers);
   const currentEntities = useRef(entities);
   const currentCollisionVisibility = useRef(collisionVisibility(showSolidCollision, showPlayerBarriers));
   const currentKeybindings = useRef(keybindings);
@@ -143,6 +147,7 @@ export function SceneViewport({
   const splinePointsCommitted = useRef(onSplinePointsCommit);
   const assetDropped = useRef(onAssetDrop);
   currentSelection.current = selection;
+  currentMissingSelectionMembers.current = missingSelectionMembers;
   currentEntities.current = entities;
   currentCollisionVisibility.current = collisionVisibility(showSolidCollision, showPlayerBarriers);
   currentKeybindings.current = keybindings;
@@ -265,6 +270,7 @@ export function SceneViewport({
         preview ?? currentEntities.current,
         currentSelection.current,
       ),
+      availability: setTransformNotice,
       commit: (updates) => {
         void transformsCommitted.current(updates).then((committed) => {
           if (committed) return;
@@ -274,7 +280,12 @@ export function SceneViewport({
               currentEntities.current,
               currentSelection.current,
             );
-            transformTool.sync(currentEntities.current, currentSelection.current, currentProjection);
+            transformTool.sync(
+              currentEntities.current,
+              currentSelection.current,
+              currentProjection,
+              currentMissingSelectionMembers.current,
+            );
           });
         });
       },
@@ -284,7 +295,12 @@ export function SceneViewport({
           requestAnimationFrame(() => {
             if (viewport.current?.projection !== currentProjection) return;
             currentProjection.sync(currentEntities.current, currentSelection.current);
-            transformTool.sync(currentEntities.current, currentSelection.current, currentProjection);
+            transformTool.sync(
+              currentEntities.current,
+              currentSelection.current,
+              currentProjection,
+              currentMissingSelectionMembers.current,
+            );
           });
         });
       },
@@ -384,6 +400,7 @@ export function SceneViewport({
             currentSelection.current,
             currentProjection,
             [terrain, currentProjection.root],
+            currentMissingSelectionMembers.current,
           );
         } catch (cause) {
           showNotice(`Could not place selection: ${errorMessage(cause)}`);
@@ -723,7 +740,12 @@ export function SceneViewport({
       true,
       currentCollisionVisibility.current,
     );
-    current.transformTool.sync(currentEntities.current, currentSelection.current, current.projection);
+    current.transformTool.sync(
+      currentEntities.current,
+      currentSelection.current,
+      current.projection,
+      currentMissingSelectionMembers.current,
+    );
   }, [instancedCollisionOverlay?.entityId, instancedCollisionOverlay?.showSource]);
 
   useEffect(() => {
@@ -844,7 +866,12 @@ export function SceneViewport({
         true,
         currentCollisionVisibility.current,
       );
-      viewport.current.transformTool.sync(currentEntities.current, currentSelection.current, viewport.current.projection);
+      viewport.current.transformTool.sync(
+        currentEntities.current,
+        currentSelection.current,
+        viewport.current.projection,
+        currentMissingSelectionMembers.current,
+      );
       if (!viewport.current.framed) {
         if (!positionCameraAtPreferredMoby(
           viewport.current.camera, viewport.current.controls, currentEntities.current,
@@ -964,13 +991,13 @@ export function SceneViewport({
       currentCollisionVisibility.current,
     );
     syncSkyShellProjections(current, entities);
-    current.transformTool.sync(entities, selection, current.projection);
+    current.transformTool.sync(entities, selection, current.projection, missingSelectionMembers);
     if (!current.framed && entities.length) {
       if (!positionCameraAtPreferredMoby(current.camera, current.controls, entities))
         frameEntities(current.camera, current.controls, entities);
       current.framed = true;
     }
-  }, [entities, selection, selectionColor, showPlayerBarriers, showSolidCollision]);
+  }, [entities, missingSelectionMembers, selection, selectionColor, showPlayerBarriers, showSolidCollision]);
 
   useEffect(() => {
     const next = selection.filter((id) => {
@@ -1173,7 +1200,7 @@ export function SceneViewport({
         onSolidCollisionVisibilityChange={onSolidCollisionVisibilityChange}
         onPlayerBarrierVisibilityChange={onPlayerBarrierVisibilityChange}
       />
-      {notice && <div className="scene-notice" role="status">{notice}</div>}
+      {(notice ?? transformNotice) && <div className="scene-notice" role="status">{notice ?? transformNotice}</div>}
       {showStats && <div className="scene-stats">
         {stats ? `${stats.fps} FPS · ${stats.calls} calls · ${stats.triangles.toLocaleString()} tris` : 'Measuring…'}
       </div>}

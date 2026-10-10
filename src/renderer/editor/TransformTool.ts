@@ -6,6 +6,7 @@ import type { EditorEntity, EditorTransformUpdate, ProjectTransform, ProjectVect
 import type { EditorSnapSource, EditorSnapTarget } from '../../types/EditorViewport.js';
 import { parseSplinePointId, transformSplinePoints } from '../../utils/SplinePoints.ts';
 import { cloneProjectTransform, projectTransformToSceneMatrix, sceneMatrixToProjectTransform } from '../../utils/Transforms.ts';
+import { inspectTransformSelection } from '../../utils/TransformSelection.ts';
 import { VertexSnapIndex } from './SceneSnapping.ts';
 import type { SceneProjection } from './SceneProjection.ts';
 
@@ -18,6 +19,7 @@ const AXIS_PICKER_THICKNESS = 0.5;
 
 interface TransformToolCallbacks {
   preview(entities?: readonly EditorEntity[]): void;
+  availability(message?: string): void;
   commit(updates: EditorTransformUpdate[]): void;
   commitSplinePoints(entityId: string, points: ProjectVector4[]): void;
   collectSnapVertices(entityIds: readonly string[]): THREE.Vector3[];
@@ -53,6 +55,7 @@ export class TransformTool {
   private readonly callbacks: TransformToolCallbacks;
   private entities: readonly EditorEntity[] = [];
   private selection: readonly string[] = [];
+  private missingSelectionMembers = 0;
   private activeIds: string[] = [];
   private activePointIds: string[] = [];
   private activeSpline?: EditorEntity;
@@ -152,10 +155,16 @@ export class TransformTool {
     this.applySnapping();
   }
 
-  sync(entities: readonly EditorEntity[], selection: readonly string[], projection: SceneProjection): void {
+  sync(
+    entities: readonly EditorEntity[],
+    selection: readonly string[],
+    projection: SceneProjection,
+    missingSelectionMembers = 0,
+  ): void {
     this.entities = entities;
     this.entitiesById = new Map(entities.map((entity) => [entity.id, entity]));
     this.selection = selection;
+    this.missingSelectionMembers = missingSelectionMembers;
     this.projection = projection;
     if (this.controls.dragging) return;
     this.updateActiveSelection();
@@ -175,11 +184,19 @@ export class TransformTool {
       ? points.filter((value) => value.point!.entityId === this.activeSpline!.id
         && value.point!.index < this.activeSpline!.geometry!.points.length).map((value) => value.id)
       : [];
-    this.activeIds = this.activePointIds.length ? [] : selection.filter((id) => {
-      const entity = this.entitiesById.get(id);
-      return entity && !entity.state.locked && !entity.state.readOnly && !entity.state.hidden && !entity.state.disabled
-        && (this.mode === 'select' || entity.transformModes.includes(this.mode));
-    });
+    if (this.activePointIds.length || this.mode === 'select') {
+      this.activeIds = [];
+      this.callbacks.availability();
+      return;
+    }
+    const eligibility = inspectTransformSelection(
+      this.entities,
+      selection,
+      this.mode,
+      this.missingSelectionMembers,
+    );
+    this.activeIds = eligibility.entities.map((entity) => entity.id);
+    this.callbacks.availability(eligibility.message);
   }
 
   cancel(): boolean {

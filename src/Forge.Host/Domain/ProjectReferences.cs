@@ -18,6 +18,7 @@ public sealed class ProjectReferenceGraph
         ArgumentNullException.ThrowIfNull(content);
         var entityKinds = content.Entities.ToDictionary(entity => entity.EntityId, ProjectReferences.KindOf);
         var edges = content.Entities.SelectMany(ProjectReferences.FromEntity)
+            .Concat(ProjectMobyPVars.References(content.MobyPVars))
             .Select(edge => edge.Reference is
                     { Domain: ProjectReferenceDomain.Entity, EntityId: { } target }
                     && entityKinds.TryGetValue(target, out var targetKind)
@@ -86,6 +87,10 @@ internal static class ProjectReferences
         { Lighting.EnvironmentTransition: not null } => ProjectEntityKind.EnvironmentTransition,
         { Camera: not null } => ProjectEntityKind.Camera,
         { AmbientSound: not null } => ProjectEntityKind.AmbientSound,
+        { Layer: "mobys" } => ProjectEntityKind.Moby,
+        { Layer: "ties" } => ProjectEntityKind.Tie,
+        { Layer: "shrubs" } => ProjectEntityKind.Shrub,
+        { Layer: "tfrags" } => ProjectEntityKind.Tfrag,
         { Asset.Kind: AssetKind.Moby } => ProjectEntityKind.Moby,
         { Asset.Kind: AssetKind.Tie } => ProjectEntityKind.Tie,
         { Asset.Kind: AssetKind.Shrub } => ProjectEntityKind.Shrub,

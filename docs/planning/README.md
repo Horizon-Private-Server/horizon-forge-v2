@@ -64,6 +64,8 @@ them in a milestone-wide task register would split one implementation plan:
 - [Collision Type Painting v0](../features/collision-type-painting-v0.md) — M2-041 through M2-044
 - [HUD bank and sprite-ID contract v0](../features/hud-bank-contract-v0.md) — M8-001 through M8-005
 - [FX texture inventory and label contract v0](../features/fx-texture-contract-v0.md) — M8-006 through M8-008
+- [UYA moby instance contract v0](../features/uya-moby-instance-contract-v0.md) — M9-001 through M9-003
+- [MobyDex entry schema v1](../features/mobydex-v1.md) — M9-004 onward
 
 ## Task conventions
 

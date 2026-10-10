@@ -135,9 +135,12 @@ internal static class ForgeProjectTests
                     StringComparison.Ordinal);
             var previousContent = System.Text.Encoding.UTF8.GetString(Decompress(contentAfter))
                 .Replace(currentVersion, $"\"schemaVersion\":{ProjectSchema.OldestSupportedVersion}", StringComparison.Ordinal)
-                .Replace("\"assetOverrides\":[],", string.Empty, StringComparison.Ordinal);
+                .Replace("\"assetOverrides\":[],", string.Empty, StringComparison.Ordinal)
+                .Replace(",\"groups\":[]", string.Empty, StringComparison.Ordinal);
             Equal(false, previousContent.Contains("assetOverrides", StringComparison.Ordinal),
                 "previous schema fixture predates asset overrides");
+            Equal(false, previousContent.Contains("groups", StringComparison.Ordinal),
+                "previous schema fixture predates groups");
             await File.WriteAllTextAsync(Path.Combine(movedPath, ForgeProjectWorkspace.ManifestFileName), previousManifest);
             await File.WriteAllBytesAsync(Path.Combine(movedPath, ForgeProjectWorkspace.DefaultContentPath),
                 Compress(System.Text.Encoding.UTF8.GetBytes(previousContent)));
@@ -146,6 +149,7 @@ internal static class ForgeProjectTests
             Equal(ProjectPaletteOptimization.Default, project.Manifest.Target.PaletteOptimization,
                 "previous manifest receives the default palette optimization profile");
             Equal(ProjectSchema.CurrentVersion, project.Content.SchemaVersion, "previous content schema migrates in memory");
+            Equal(0, project.Content.Groups.Count, "previous content receives an empty group list");
             Equal(false, project.IsDirty, "in-memory schema migration opens cleanly");
             Equal(true, (await File.ReadAllTextAsync(Path.Combine(movedPath, ForgeProjectWorkspace.ManifestFileName)))
                 .Contains($"\"schemaVersion\":{ProjectSchema.OldestSupportedVersion}", StringComparison.Ordinal),

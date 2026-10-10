@@ -40,6 +40,20 @@ test('host handshake, echo, progress, cancellation, crash recovery, and concurre
   assert.ok(handshake.capabilities.includes('editor.runtime'));
   assert.ok(handshake.capabilities.includes('assets.explorer.query'));
   assert.ok(handshake.capabilities.includes('uya.render.asset-preview'));
+  assert.ok(handshake.capabilities.includes('mobydex.reload'));
+
+  const mobyDex = JSON.parse(await readFile(
+    path.join(projectRoot, 'src/Forge.Host/Games/UYA/MobyDex/dataset.json'), 'utf8'));
+  mobyDex.id = 'test.uya.reload';
+  mobyDex.version = 2;
+  const reloaded = await client.reloadMobyDexDataset(Buffer.from(JSON.stringify(mobyDex)));
+  assert.equal(await reloaded.result, 'test.uya.reload v2 (75 entries)');
+  const wrongGame = structuredClone(mobyDex);
+  wrongGame.entries[0].game = 'DL';
+  await assert.rejects(
+    (await client.reloadMobyDexDataset(Buffer.from(JSON.stringify(wrongGame)))).result,
+    (error) => error instanceof HostOperationError && error.code === BridgeErrorCode.InvalidInput,
+  );
 
   const concurrent = await Promise.all([
     client.echo('alpha'),

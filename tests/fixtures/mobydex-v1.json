@@ -1,0 +1,287 @@
+{
+  "schemaVersion": 1,
+  "game": "TEST",
+  "oClass": 1,
+  "name": "Synthetic legacy concepts",
+  "description": "Covers Forge v1 overlay concepts without executable schema behavior.",
+  "tags": [
+    "legacy",
+    "synthetic"
+  ],
+  "pvar": {
+    "length": 96,
+    "defaultHex": "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    "relocations": [
+      28
+    ],
+    "fields": [
+      {
+        "key": "height",
+        "label": "Height",
+        "offset": 0,
+        "length": 4,
+        "help": "Forge v1 Float.",
+        "minimum": 0,
+        "maximum": 100,
+        "definition": {
+          "kind": "float32"
+        }
+      },
+      {
+        "key": "teamByte",
+        "label": "Team byte",
+        "offset": 4,
+        "length": 1,
+        "definition": {
+          "kind": "uint8"
+        }
+      },
+      {
+        "key": "team",
+        "label": "Team",
+        "offset": 5,
+        "length": 1,
+        "definition": {
+          "kind": "enum",
+          "storage": "uint8",
+          "options": [
+            {
+              "key": "blue",
+              "label": "Blue",
+              "value": 0
+            },
+            {
+              "key": "red",
+              "label": "Red",
+              "value": 1
+            }
+          ]
+        }
+      },
+      {
+        "key": "abilities",
+        "label": "Abilities",
+        "offset": 6,
+        "length": 1,
+        "definition": {
+          "kind": "flags",
+          "storage": "uint8",
+          "options": [
+            {
+              "key": "jump",
+              "label": "Jump",
+              "value": 1
+            },
+            {
+              "key": "strafe",
+              "label": "Strafe",
+              "value": 2
+            },
+            {
+              "key": "attack",
+              "label": "Attack",
+              "value": 4
+            }
+          ]
+        }
+      },
+      {
+        "key": "enabled",
+        "label": "Enabled",
+        "offset": 7,
+        "length": 1,
+        "definition": {
+          "kind": "bool8"
+        }
+      },
+      {
+        "key": "tint",
+        "label": "Tint",
+        "offset": 8,
+        "length": 3,
+        "definition": {
+          "kind": "rgb8"
+        }
+      },
+      {
+        "key": "padding",
+        "label": "Preserved byte",
+        "offset": 11,
+        "length": 1,
+        "definition": {
+          "kind": "bytes"
+        }
+      },
+      {
+        "key": "tintAlpha",
+        "label": "Tint with alpha",
+        "offset": 12,
+        "length": 4,
+        "definition": {
+          "kind": "rgba8"
+        }
+      },
+      {
+        "key": "launchVelocity",
+        "label": "Launch velocity",
+        "offset": 16,
+        "length": 12,
+        "definition": {
+          "kind": "vector3f32"
+        }
+      },
+      {
+        "key": "relativePointer",
+        "label": "Relative pointer bytes",
+        "offset": 28,
+        "length": 4,
+        "definition": {
+          "kind": "bytes"
+        }
+      },
+      {
+        "key": "checkpoints",
+        "label": "Checkpoints",
+        "offset": 32,
+        "length": 16,
+        "definition": {
+          "kind": "array",
+          "count": 4,
+          "stride": 4,
+          "element": {
+            "kind": "int32"
+          }
+        }
+      },
+      {
+        "key": "targetMoby",
+        "label": "Target moby",
+        "offset": 48,
+        "length": 4,
+        "definition": {
+          "kind": "reference",
+          "storage": "int32",
+          "domain": "entity",
+          "targetKind": "moby",
+          "nullValue": -1
+        }
+      },
+      {
+        "key": "launchCuboid",
+        "label": "Launch cuboid",
+        "offset": 52,
+        "length": 4,
+        "definition": {
+          "kind": "reference",
+          "storage": "int32",
+          "domain": "entity",
+          "targetKind": "cuboid",
+          "nullValue": -1
+        }
+      },
+      {
+        "key": "settings",
+        "label": "Settings",
+        "offset": 56,
+        "length": 12,
+        "definition": {
+          "kind": "struct",
+          "fields": [
+            {
+              "key": "active",
+              "label": "Active",
+              "offset": 0,
+              "length": 1,
+              "definition": {
+                "kind": "bool8"
+              }
+            },
+            {
+              "key": "mode",
+              "label": "Mode",
+              "offset": 1,
+              "length": 1,
+              "definition": {
+                "kind": "uint8"
+              }
+            },
+            {
+              "key": "amount",
+              "label": "Amount",
+              "offset": 4,
+              "length": 4,
+              "definition": {
+                "kind": "float32"
+              }
+            },
+            {
+              "key": "color",
+              "label": "Color",
+              "offset": 8,
+              "length": 3,
+              "definition": {
+                "kind": "rgb8"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "key": "interpretation",
+        "label": "Interpretation",
+        "offset": 68,
+        "length": 4,
+        "definition": {
+          "kind": "union",
+          "fields": [
+            {
+              "key": "asFloat",
+              "label": "As float",
+              "offset": 0,
+              "length": 4,
+              "definition": {
+                "kind": "float32"
+              }
+            },
+            {
+              "key": "asInteger",
+              "label": "As integer",
+              "offset": 0,
+              "length": 4,
+              "definition": {
+                "kind": "int32"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "key": "screenPoint",
+        "label": "Screen point",
+        "offset": 72,
+        "length": 8,
+        "definition": {
+          "kind": "vector2f32"
+        }
+      },
+      {
+        "key": "precision",
+        "label": "Precision",
+        "offset": 80,
+        "length": 8,
+        "definition": {
+          "kind": "float64"
+        }
+      },
+      {
+        "key": "opaqueId",
+        "label": "Opaque ID",
+        "offset": 88,
+        "length": 8,
+        "definition": {
+          "kind": "uint64"
+        }
+      }
+    ]
+  }
+}

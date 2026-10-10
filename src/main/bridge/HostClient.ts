@@ -207,6 +207,11 @@ export class HostClient {
     return { requestId: request.requestId, result: request.result.then(decodeText) };
   }
 
+  async reloadMobyDexDataset(bytes: Uint8Array): Promise<HostRequest<string>> {
+    const request = await this.#request(BridgeOpcode.ReloadMobyDexDataset, bytes);
+    return { requestId: request.requestId, result: request.result.then(decodeText) };
+  }
+
   async validateUyaIso(
     path: string,
     onProgress?: (progress: Progress) => void,

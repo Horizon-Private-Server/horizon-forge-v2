@@ -42,7 +42,8 @@ public sealed record ProjectReference(
 public sealed record ProjectReferenceEdge(
     EntityId OwnerEntityId,
     ProjectReference Reference,
-    int? SourceValue = null);
+    int? SourceValue = null,
+    bool IsNull = false);
 
 public sealed record ProjectDeleteAnalysis(
     IReadOnlyList<EntityId> RequestedEntityIds,

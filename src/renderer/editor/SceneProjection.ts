@@ -89,7 +89,6 @@ export class SceneProjection {
   private readonly assetMaterial = new THREE.MeshBasicMaterial({ color: 0x4363d8, wireframe: true, fog: false });
   private readonly modelLessMaterial = new THREE.MeshBasicMaterial({ color: 0xf032e6, wireframe: true, fog: false });
   private readonly cuboidMaterial = new THREE.MeshBasicMaterial({ wireframe: true, fog: false });
-  private readonly areaMaterial = new THREE.MeshBasicMaterial({ wireframe: true, fog: false, side: THREE.DoubleSide });
   private readonly sphereMaterial = new THREE.MeshBasicMaterial({ wireframe: true, fog: false, side: THREE.DoubleSide });
   private readonly cylinderMaterial = new THREE.MeshBasicMaterial({ wireframe: true, fog: false, side: THREE.DoubleSide });
   private readonly pillMaterial = new THREE.MeshBasicMaterial({ wireframe: true, fog: false, side: THREE.DoubleSide });
@@ -99,7 +98,7 @@ export class SceneProjection {
   });
   private readonly grindPathMaterial = new LineMaterial({ linewidth: SPLINE_LINE_WIDTH, fog: false });
   private readonly directionalLightMaterial = new THREE.LineBasicMaterial({ fog: false });
-  private readonly pointLightMaterial = new THREE.MeshBasicMaterial({ wireframe: true, fog: false });
+  private readonly pointLightColor = new THREE.Color();
   private readonly environmentSampleMaterial = new THREE.MeshBasicMaterial({ wireframe: true, fog: false });
   private readonly environmentTransitionMaterial = new THREE.MeshBasicMaterial({ wireframe: true, fog: false });
   private readonly cameraMaterial = new THREE.MeshBasicMaterial({ wireframe: true, fog: false });
@@ -160,9 +159,8 @@ export class SceneProjection {
     this.splineMaterial.color.set(colors.spline);
     this.splineNodeMaterial.color.set(colors.spline);
     this.grindPathMaterial.color.set(colors.grindPath);
-    this.areaMaterial.color.set(colors.area);
     this.directionalLightMaterial.color.set(colors.directionalLight);
-    this.pointLightMaterial.color.set(colors.pointLight);
+    this.pointLightColor.set(colors.pointLight);
     this.environmentSampleMaterial.color.set(colors.environmentSample);
     this.environmentTransitionMaterial.color.set(colors.environmentTransition);
     this.cameraMaterial.color.set(colors.camera);
@@ -262,6 +260,7 @@ export class SceneProjection {
     if (this.disposed) throw new Error('Scene projection is disposed');
     entities = entities.filter((entity) => !entity.skyShell);
     this.entitiesById = new Map(entities.map((entity) => [entity.id, entity]));
+    const renderedEntities = entities.filter((entity) => entity.geometry?.kind !== 'area');
     if (this.hoveredEntityId && !this.entitiesById.has(this.hoveredEntityId)) this.hoveredEntityId = undefined;
     const selected = new Set(selection);
     const selectedPoints = new Map<string, number[]>();
@@ -277,7 +276,7 @@ export class SceneProjection {
     const projected = new Set<string>();
     this.pickable.clear();
 
-    for (const entity of entities) {
+    for (const entity of renderedEntities) {
       const templateKey = assetTemplateKey(entity);
       const template = templateKey && this.templates.get(templateKey);
       const visible = this.isVisible(entity, Boolean(template), visibleLayers, showMarkers, visibleCollisionKinds);
@@ -293,10 +292,10 @@ export class SceneProjection {
       }
     }
 
-    let removed = this.removeStaleObjects(projected, entities);
+    let removed = this.removeStaleObjects(projected, renderedEntities);
     let created = 0;
     let updated = 0;
-    for (const entity of entities) {
+    for (const entity of renderedEntities) {
       if (projected.has(entity.id)) continue;
       const key = this.projectionKey(entity);
       let object = this.objects.get(entity.id);
@@ -357,7 +356,7 @@ export class SceneProjection {
     }
     if (this.collisionBatch)
       this.updateCollisionBatch(this.collisionBatch, collisionEntities, selected, visibleLayers, visibleCollisionKinds);
-    this.updateSelectionOutlines(entities, selected, visibleLayers, visibleCollisionKinds);
+    this.updateSelectionOutlines(renderedEntities, selected, visibleLayers, visibleCollisionKinds);
 
     return { created, updated, removed };
   }
@@ -530,7 +529,6 @@ export class SceneProjection {
     this.assetMaterial.dispose();
     this.modelLessMaterial.dispose();
     this.cuboidMaterial.dispose();
-    this.areaMaterial.dispose();
     this.sphereMaterial.dispose();
     this.cylinderMaterial.dispose();
     this.pillMaterial.dispose();
@@ -538,7 +536,6 @@ export class SceneProjection {
     this.splineNodeMaterial.dispose();
     this.grindPathMaterial.dispose();
     this.directionalLightMaterial.dispose();
-    this.pointLightMaterial.dispose();
     this.environmentSampleMaterial.dispose();
     this.environmentTransitionMaterial.dispose();
     this.cameraMaterial.dispose();
@@ -576,10 +573,8 @@ export class SceneProjection {
       object = new THREE.Mesh(this.cylinderGeometry, this.cylinderMaterial);
     } else if (entity.geometry?.kind === 'pill') {
       object = new THREE.Mesh(this.pillGeometry, this.pillMaterial);
-    } else if (entity.geometry?.kind === 'area') {
-      object = new THREE.Mesh(this.areaGeometry, this.areaMaterial);
     } else if (entity.geometry?.kind === 'pointLight') {
-      object = new THREE.Mesh(this.areaGeometry, this.pointLightMaterial);
+      object = this.billboardResources.create(this.billboardOptions(entity, false));
     } else if (entity.geometry?.kind === 'environmentSample') {
       object = new THREE.Mesh(this.environmentSampleGeometry, this.environmentSampleMaterial);
     } else if (entity.geometry?.kind === 'environmentTransition') {
@@ -625,7 +620,7 @@ export class SceneProjection {
     object.userData[PLACEMENT_PROXY_KEY] = !entity.geometry
       && (!assetTemplateKey(entity) || !this.templates.has(assetTemplateKey(entity)!));
     object.userData[PICK_THROUGH_KEY] = entity.geometry !== undefined
-      && ['cuboid', 'sphere', 'cylinder', 'pill', 'area', 'pointLight', 'environmentTransition', 'ambientSound']
+      && ['cuboid', 'sphere', 'cylinder', 'pill', 'environmentTransition', 'ambientSound']
         .includes(entity.geometry.kind);
     object.userData[PROJECTION_KEY] = key;
     return object;
@@ -697,7 +692,7 @@ export class SceneProjection {
   private volumePickerGeometry(entity: EditorEntity): LineSegmentsGeometry | undefined {
     switch (entity.geometry?.kind) {
       case 'cuboid': case 'environmentTransition': case 'ambientSound': return this.cuboidPickerGeometry;
-      case 'sphere': case 'area': case 'pointLight': return this.areaPickerGeometry;
+      case 'sphere': return this.areaPickerGeometry;
       case 'cylinder': return this.cylinderPickerGeometry;
       case 'pill': return this.pillPickerGeometry;
       default: return undefined;
@@ -858,8 +853,6 @@ export class SceneProjection {
     if (entity.geometry?.kind === 'sphere') return this.sphereMaterial;
     if (entity.geometry?.kind === 'cylinder') return this.cylinderMaterial;
     if (entity.geometry?.kind === 'pill') return this.pillMaterial;
-    if (entity.geometry?.kind === 'area') return this.areaMaterial;
-    if (entity.geometry?.kind === 'pointLight') return this.pointLightMaterial;
     if (entity.geometry?.kind === 'environmentSample') return this.environmentSampleMaterial;
     if (entity.geometry?.kind === 'environmentTransition') return this.environmentTransitionMaterial;
     if (entity.geometry?.kind === 'camera') return this.cameraMaterial;
@@ -869,12 +862,16 @@ export class SceneProjection {
   }
 
   private billboardOptions(entity: EditorEntity, selected: boolean, hovered = false) {
+    const kind = entity.geometry?.kind;
+    const glyph = kind === 'pointLight' ? 'lightbulb-filament' as const : 'robot' as const;
+    const color = kind === 'pointLight' ? this.pointLightColor.getHex() : this.modelLessMaterial.color.getHex();
+    const label = kind === 'pointLight' ? `${entity.name}, point light` : `${entity.name}, meshless object`;
     return {
       entityId: entity.id,
-      label: `${entity.name}, meshless object`,
+      label,
       worldPosition: this.position,
-      color: this.modelLessMaterial.color.getHex(),
-      glyph: 'robot' as const,
+      color,
+      glyph,
       depthPolicy: 'occluded' as const,
       selected,
       hovered,

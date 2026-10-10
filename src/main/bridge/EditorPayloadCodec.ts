@@ -10,15 +10,23 @@ import type {
   EditorInstancedCollisionRecipe,
   ProjectTransform,
   ProjectVector3,
+  EditorMobyPropertyValue,
+  EditorMobyPVarFieldDescriptor,
+  EditorMobyPVarValue,
 } from '../../types/EditorRuntime.js';
 import { PayloadReader, PayloadWriter, malformed } from './PayloadIO.js';
 
 const MAX_ENTITIES = 100_000;
 const MAX_REFERENCES = 1_000_000;
+const MAX_GROUPS = 4_096;
+const mapGroupKinds = { 1: 'moby', 2: 'tie', 3: 'shrub' } as const;
 const MAX_EVENTS = 1_024;
 const MAX_OCTANTS = 1_000_000;
 const MAX_HUD_IMAGE_BYTES = 16 * 1024 * 1024;
 const MAX_FX_IMAGE_BYTES = 16 * 1024 * 1024;
+const MAX_MOBYDEX_JSON_BYTES = 4 * 1024 * 1024;
+const MAX_MOBY_PVAR_BYTES = 1024 * 1024;
+const MAX_MOBY_PVAR_MASK_BYTES = (MAX_MOBY_PVAR_BYTES + 7) >> 3;
 const commandKinds = {
   setSelection: 1,
   renameProject: 2,
@@ -53,6 +61,23 @@ const commandKinds = {
   removeFxTextureOverride: 31,
   addFxTexture: 32,
   removeFxTexture: 33,
+  setMobyInstanceProperty: 34,
+  importMobyDexEntry: 35,
+  removeMobyDexEntry: 36,
+  initializeMobyPVar: 37,
+  setMobyPVarField: 38,
+  createGroup: 39,
+  renameGroup: 40,
+  deleteGroup: 41,
+  reorderGroup: 42,
+  addGroupMembers: 43,
+  removeGroupMembers: 44,
+} as const;
+const mobyPropertyKinds = {
+  integer: 1,
+  float: 2,
+  boolean: 3,
+  color: 4,
 } as const;
 const eventKinds: Record<number, EditorEvent['kind']> = {
   1: 'projectOpened', 2: 'projectChanged', 3: 'selectionChanged', 4: 'projectSaved',
@@ -94,7 +119,8 @@ export function encodeEditorCommand(value: EditorCommand): Buffer {
     writer.writeString(update.entityId);
     writeTransform(writer, update.transform);
   });
-  const hasText = value.kind === 'renameProject' || value.kind === 'renameEntity' || value.kind === 'setEntityLayer';
+  const hasText = value.kind === 'renameProject' || value.kind === 'renameEntity' || value.kind === 'setEntityLayer'
+    || value.kind === 'createGroup' || value.kind === 'renameGroup';
   writer.writeBoolean(hasText);
   if (hasText) writer.writeString(value.text);
   writer.writeBoolean(value.kind === 'setEntityState');
@@ -154,7 +180,7 @@ export function encodeEditorCommand(value: EditorCommand): Buffer {
   if (value.kind === 'setEntityReference') {
     writer.writeString(value.reference.fieldKey);
     writer.writeBoolean(value.reference.sourceValue !== undefined);
-    if (value.reference.sourceValue !== undefined) writer.writeUInt32(value.reference.sourceValue);
+    if (value.reference.sourceValue !== undefined) writer.writeInt32(value.reference.sourceValue);
     writer.writeBoolean(value.reference.targetEntityId !== undefined);
     if (value.reference.targetEntityId !== undefined) writer.writeString(value.reference.targetEntityId);
   }
@@ -195,6 +221,44 @@ export function encodeEditorCommand(value: EditorCommand): Buffer {
     if (hasImage) writer.writeString(value.imageFormat);
     writer.writeBoolean(hasImage);
     if (hasImage) writer.writeBytes(value.imageBytes, MAX_FX_IMAGE_BYTES);
+  }
+  writer.writeBoolean(value.kind === 'setMobyInstanceProperty');
+  if (value.kind === 'setMobyInstanceProperty') {
+    writer.writeString(value.property.fieldKey);
+    writer.writeUInt32(value.property.expectedClassId);
+    writeMobyPropertyValue(writer, value.property.value);
+  }
+  const isMobyDex = value.kind === 'importMobyDexEntry' || value.kind === 'removeMobyDexEntry';
+  writer.writeBoolean(isMobyDex);
+  if (isMobyDex) {
+    writer.writeBoolean(value.kind === 'importMobyDexEntry');
+    if (value.kind === 'importMobyDexEntry') writer.writeBytes(value.entryJson, MAX_MOBYDEX_JSON_BYTES);
+    writer.writeBoolean(value.kind === 'removeMobyDexEntry');
+    if (value.kind === 'removeMobyDexEntry') writer.writeString(value.game);
+    writer.writeBoolean(value.kind === 'removeMobyDexEntry');
+    if (value.kind === 'removeMobyDexEntry') writer.writeUInt32(value.oClass);
+  }
+  writer.writeBoolean(value.kind === 'setMobyPVarField');
+  if (value.kind === 'setMobyPVarField') {
+    writer.writeString(value.pvar.fieldPath);
+    writer.writeUInt32(value.pvar.expectedClassId);
+    writer.writeString(value.pvar.expectedDatasetId);
+    writer.writeUInt32(value.pvar.expectedDatasetVersion);
+    writer.writeUInt32(value.pvar.expectedSchemaVersion);
+    writer.writeString(value.pvar.expectedSchemaFingerprint);
+    writer.writeString(value.pvar.expectedStateFingerprint);
+    writeMobyPVarValue(writer, value.pvar.value);
+  }
+  const isGroup = value.kind === 'createGroup' || value.kind === 'renameGroup'
+    || value.kind === 'deleteGroup' || value.kind === 'reorderGroup'
+    || value.kind === 'addGroupMembers' || value.kind === 'removeGroupMembers';
+  writer.writeBoolean(isGroup);
+  if (isGroup) {
+    const hasGroupId = value.kind !== 'createGroup';
+    writer.writeBoolean(hasGroupId);
+    if (hasGroupId) writer.writeString(value.groupId);
+    writer.writeBoolean(value.kind === 'reorderGroup');
+    if (value.kind === 'reorderGroup') writer.writeUInt32(value.destinationOrder);
   }
   return writer.toBuffer();
 }
@@ -318,6 +382,18 @@ export function decodeEditorSnapshot(payload: Uint8Array): EditorSnapshot {
   const fx = reader.readBoolean() ? readFx(reader) : undefined;
   const entities = readList(reader, MAX_ENTITIES, () => readEntity(reader));
   const references = readList(reader, MAX_REFERENCES, () => readReference(reader));
+  const groups = readList(reader, MAX_GROUPS, () => ({
+    id: reader.readString(),
+    name: reader.readString(),
+    members: readStrings(reader, MAX_ENTITIES),
+    missingMembers: readStrings(reader, MAX_ENTITIES),
+  }));
+  const mapGroups = readList(reader, MAX_GROUPS, () => ({
+    kind: enumValue(mapGroupKinds, reader.readUInt32(), 'map group kind'),
+    sourceIndex: reader.readUInt32(),
+    members: readStrings(reader, MAX_ENTITIES),
+    missingSourceIndices: readList(reader, MAX_ENTITIES, () => reader.readUInt32()),
+  }));
   const selection = readStrings(reader, MAX_ENTITIES);
   const isDirty = reader.readBoolean();
   const canUndo = reader.readBoolean();
@@ -334,7 +410,7 @@ export function decodeEditorSnapshot(payload: Uint8Array): EditorSnapshot {
   }));
   reader.complete();
   return {
-    projectPath, projectId, projectName, target, baseLevel, levelSettings, hud, fx, entities, references, selection, isDirty,
+    projectPath, projectId, projectName, target, baseLevel, levelSettings, hud, fx, entities, references, groups, mapGroups, selection, isDirty,
     canUndo, canRedo, canPaste, lastEventSequence, capabilities, tools, diagnostics,
   };
 }
@@ -439,16 +515,24 @@ function readReference(reader: PayloadReader): EditorSnapshot['references'][numb
   if (domain === 1) {
     const targetKind = enumValue(entityKinds, reader.readUInt32(), 'reference entity kind');
     const targetEntityId = reader.readBoolean() ? reader.readString() : undefined;
-    const sourceValue = reader.readBoolean() ? reader.readUInt32() : undefined;
+    const sourceValue = reader.readBoolean() ? reader.readInt32() : undefined;
     const missing = reader.readBoolean();
-    return { ownerEntityId, domain: 'entity', fieldKey, nullable, targetKind, targetEntityId, sourceValue, missing };
+    const datasetSource = reader.readBoolean() ? reader.readString() : undefined;
+    return {
+      ownerEntityId, domain: 'entity', fieldKey, nullable, targetKind, targetEntityId,
+      sourceValue, missing, datasetSource,
+    };
   }
   if (domain === 2) {
     const targetKind = reader.readString();
     const targetAssetId = reader.readBoolean() ? reader.readString() : undefined;
-    const sourceValue = reader.readBoolean() ? reader.readUInt32() : undefined;
+    const sourceValue = reader.readBoolean() ? reader.readInt32() : undefined;
     const missing = reader.readBoolean();
-    return { ownerEntityId, domain: 'asset', fieldKey, nullable, targetKind, targetAssetId, sourceValue, missing };
+    const datasetSource = reader.readBoolean() ? reader.readString() : undefined;
+    return {
+      ownerEntityId, domain: 'asset', fieldKey, nullable, targetKind, targetAssetId,
+      sourceValue, missing, datasetSource,
+    };
   }
   throw malformed(`Unknown reference domain ${domain}`);
 }
@@ -481,6 +565,7 @@ function readEntity(reader: PayloadReader): EditorEntity {
     game: reader.readString(), level: reader.readUInt32(), section: reader.readString(), sourceIndex: reader.readUInt32(),
   };
   if (reader.readBoolean()) value.sourceClassId = reader.readUInt32();
+  if (reader.readBoolean()) value.sourceClassName = reader.readString();
   if (reader.readBoolean()) value.geometry = {
     kind: enumValue(geometryKinds, reader.readUInt32(), 'geometry kind'),
     points: readList(reader, MAX_ENTITIES, () => ({
@@ -522,6 +607,38 @@ function readEntity(reader: PayloadReader): EditorEntity {
     })),
   };
   if (reader.readBoolean()) value.instancedCollisionEnabled = reader.readBoolean();
+  if (reader.readBoolean()) {
+    value.mobyProperties = readList(reader, 32, () => ({
+      key: reader.readString(),
+      label: reader.readString(),
+      value: readMobyPropertyValue(reader),
+      editable: reader.readBoolean(),
+      integerMinimum: reader.readBoolean() ? reader.readInt32() : undefined,
+      integerMaximum: reader.readBoolean() ? reader.readInt32() : undefined,
+      floatMinimum: reader.readBoolean() ? reader.readFloat32() : undefined,
+      floatMaximum: reader.readBoolean() ? reader.readFloat32() : undefined,
+      unit: optionalString(reader.readString()),
+      help: optionalString(reader.readString()),
+      readOnlyReason: optionalString(reader.readString()),
+    }));
+  }
+  if (reader.readBoolean()) {
+    value.mobyPVar = {
+      datasetId: reader.readString(),
+      datasetVersion: reader.readUInt32(),
+      schemaVersion: reader.readUInt32(),
+      schemaSource: reader.readString(),
+      schemaFingerprint: reader.readString(),
+      stateFingerprint: reader.readString(),
+      length: reader.readUInt32(),
+      hasData: reader.readBoolean(),
+      canInitialize: reader.readBoolean(),
+      diagnostic: optionalString(reader.readString()),
+      rawData: reader.readBoolean() ? reader.readBytes(MAX_MOBY_PVAR_BYTES) : undefined,
+      modifiedByteMask: reader.readBoolean() ? reader.readBytes(MAX_MOBY_PVAR_MASK_BYTES) : undefined,
+      fields: readMobyPVarFields(reader, 0),
+    };
+  }
   const transformCapabilities = reader.readUInt32();
   value.transformModes = [
     transformCapabilities & 1 ? 'translate' : undefined,
@@ -538,6 +655,107 @@ function readEntity(reader: PayloadReader): EditorEntity {
     missingAsset: reader.readBoolean(),
   };
   return value;
+}
+
+function writeMobyPropertyValue(writer: PayloadWriter, value: EditorMobyPropertyValue): void {
+  writer.writeUInt32(mobyPropertyKinds[value.kind]);
+  switch (value.kind) {
+    case 'integer': writer.writeInt32(value.value); break;
+    case 'float': writer.writeFloat32(value.value); break;
+    case 'boolean': writer.writeBoolean(value.value); break;
+    case 'color': value.value.forEach((channel) => writer.writeInt32(channel)); break;
+  }
+}
+
+function readMobyPropertyValue(reader: PayloadReader): EditorMobyPropertyValue {
+  const kind = reader.readUInt32();
+  switch (kind) {
+    case 1: return { kind: 'integer', value: reader.readInt32() };
+    case 2: return { kind: 'float', value: reader.readFloat32() };
+    case 3: return { kind: 'boolean', value: reader.readBoolean() };
+    case 4: return { kind: 'color', value: [reader.readInt32(), reader.readInt32(), reader.readInt32()] };
+    default: throw malformed(`Unknown moby property value kind ${kind}`);
+  }
+}
+
+function writeMobyPVarValue(writer: PayloadWriter, value: EditorMobyPVarValue): void {
+  const kinds = { integer: 1, float: 2, boolean: 3, color: 4, vector: 5, bytes: 6, reference: 7 } as const;
+  writer.writeUInt32(kinds[value.kind]);
+  switch (value.kind) {
+    case 'integer': writer.writeString(value.value); break;
+    case 'float': writer.writeFloat64(value.value); break;
+    case 'boolean': writer.writeBoolean(value.value); break;
+    case 'color':
+      writer.writeUInt32(value.value.length);
+      value.value.forEach((channel) => writer.writeUInt32(channel));
+      break;
+    case 'vector':
+      writer.writeUInt32(value.value.length);
+      value.value.forEach((component) => writer.writeFloat64(component));
+      break;
+    case 'bytes': writer.writeString(value.value); break;
+    case 'reference':
+      writer.writeBoolean(value.value !== undefined);
+      if (value.value !== undefined) writer.writeString(value.value);
+      break;
+  }
+}
+
+function readMobyPVarValue(reader: PayloadReader): EditorMobyPVarValue {
+  switch (reader.readUInt32()) {
+    case 1: return { kind: 'integer', value: reader.readString() };
+    case 2: return { kind: 'float', value: reader.readFloat64() };
+    case 3: return { kind: 'boolean', value: reader.readBoolean() };
+    case 4: return { kind: 'color', value: readPVarList(reader, () => reader.readUInt32()) };
+    case 5: return { kind: 'vector', value: readPVarList(reader, () => reader.readFloat64()) };
+    case 6: return { kind: 'bytes', value: reader.readString() };
+    case 7: return { kind: 'reference', value: reader.readBoolean() ? reader.readString() : undefined };
+    default: throw malformed('Unknown PVar value kind');
+  }
+}
+
+function readMobyPVarFields(reader: PayloadReader, depth: number): EditorMobyPVarFieldDescriptor[] {
+  if (depth > 16) throw malformed('PVar field hierarchy exceeds its depth limit');
+  return readList(reader, 65_536, () => {
+    const field: EditorMobyPVarFieldDescriptor = {
+      path: reader.readString(),
+      label: reader.readString(),
+      offset: reader.readUInt32(),
+      length: reader.readUInt32(),
+      kind: enumValue({
+        1: 'group', 2: 'integer', 3: 'float', 4: 'boolean', 5: 'color', 6: 'vector',
+        7: 'choice', 8: 'flags', 9: 'reference', 10: 'bytes', 11: 'unknown',
+      }, reader.readUInt32(), 'PVar field kind'),
+      value: reader.readBoolean() ? readMobyPVarValue(reader) : undefined,
+      editable: reader.readBoolean(),
+      invalid: reader.readBoolean(),
+      help: optionalString(reader.readString()),
+      minimum: optionalString(reader.readString()),
+      maximum: optionalString(reader.readString()),
+      options: readList(reader, 4_096, () => ({
+        key: reader.readString(), label: reader.readString(), value: reader.readString(),
+      })),
+      children: [],
+    };
+    if (reader.readBoolean()) {
+      const targetKind = enumValue(entityKinds, reader.readUInt32(), 'PVar reference target kind');
+      field.reference = {
+        targetKind,
+        targetEntityId: reader.readBoolean() ? reader.readString() : undefined,
+        nullable: reader.readBoolean(),
+        sourceValue: reader.readInt32(),
+        missing: reader.readBoolean(),
+      };
+    }
+    field.children = readMobyPVarFields(reader, depth + 1);
+    return field;
+  });
+}
+
+function readPVarList<T>(reader: PayloadReader, read: () => T): T[] {
+  const count = reader.readUInt32();
+  if (count > 16) throw malformed('PVar value exceeds its item limit');
+  return Array.from({ length: count }, read);
 }
 
 function readInstancedCollisionRecipe(reader: PayloadReader): EditorInstancedCollisionRecipe {

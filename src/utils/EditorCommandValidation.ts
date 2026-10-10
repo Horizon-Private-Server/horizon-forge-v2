@@ -13,6 +13,12 @@ const commandKinds = new Set([
   'updatePaletteOptimization',
   'replaceHudTexture', 'removeHudTextureOverride', 'addHudIcon', 'removeHudIcon',
   'replaceFxTexture', 'removeFxTextureOverride', 'addFxTexture', 'removeFxTexture',
+  'setMobyInstanceProperty',
+  'importMobyDexEntry', 'removeMobyDexEntry',
+  'initializeMobyPVar',
+  'setMobyPVarField',
+  'createGroup', 'renameGroup', 'deleteGroup', 'reorderGroup',
+  'addGroupMembers', 'removeGroupMembers',
 ]);
 
 export function isEditorCommand(value: unknown): value is EditorCommand {
@@ -87,7 +93,123 @@ export function isEditorCommand(value: unknown): value is EditorCommand {
   if (command.kind === 'removeFxTexture')
     return command.entityIds.length === 0 && Number.isInteger(command.index)
       && Number(command.index) >= 0 && Number(command.index) < 4_096;
+  if (command.kind === 'setMobyInstanceProperty')
+    return command.entityIds.length > 0 && new Set(command.entityIds).size === command.entityIds.length
+      && isMobyPropertyEdit(command.property);
+  if (command.kind === 'importMobyDexEntry')
+    return hasExactKeys(command, ['id', 'kind', 'entityIds', 'entryJson'])
+      && command.entityIds.length === 0
+      && command.entryJson instanceof Uint8Array
+      && command.entryJson.byteLength > 0 && command.entryJson.byteLength <= 4 * 1024 * 1024;
+  if (command.kind === 'removeMobyDexEntry')
+    return hasExactKeys(command, ['id', 'kind', 'entityIds', 'game', 'oClass'])
+      && command.entityIds.length === 0
+      && typeof command.game === 'string' && /^[A-Z][A-Z0-9-]{1,15}$/.test(command.game)
+      && Number.isInteger(command.oClass) && Number(command.oClass) >= 0
+      && Number(command.oClass) <= 0xffff;
+  if (command.kind === 'initializeMobyPVar')
+    return hasExactKeys(command, ['id', 'kind', 'entityIds']) && command.entityIds.length === 1;
+  if (command.kind === 'setMobyPVarField')
+    return hasExactKeys(command, ['id', 'kind', 'entityIds', 'pvar'])
+      && command.entityIds.length === 1 && isMobyPVarEdit(command.pvar);
+  if (command.kind === 'createGroup')
+    return hasExactKeys(command, ['id', 'kind', 'entityIds', 'text'])
+      && command.entityIds.length === 0 && isGroupName(command.text);
+  if (command.kind === 'renameGroup')
+    return hasExactKeys(command, ['id', 'kind', 'entityIds', 'groupId', 'text'])
+      && command.entityIds.length === 0 && isUuid(command.groupId) && isGroupName(command.text);
+  if (command.kind === 'deleteGroup')
+    return hasExactKeys(command, ['id', 'kind', 'entityIds', 'groupId'])
+      && command.entityIds.length === 0 && isUuid(command.groupId);
+  if (command.kind === 'reorderGroup')
+    return hasExactKeys(command, ['id', 'kind', 'entityIds', 'groupId', 'destinationOrder'])
+      && command.entityIds.length === 0 && isUuid(command.groupId)
+      && Number.isInteger(command.destinationOrder) && Number(command.destinationOrder) >= 0
+      && Number(command.destinationOrder) < 4_096;
+  if (command.kind === 'addGroupMembers' || command.kind === 'removeGroupMembers')
+    return hasExactKeys(command, ['id', 'kind', 'entityIds', 'groupId'])
+      && command.entityIds.length > 0 && command.entityIds.length <= 100_000
+      && new Set(command.entityIds).size === command.entityIds.length && isUuid(command.groupId);
   return true;
+}
+
+function isUuid(value: unknown): value is string {
+  return typeof value === 'string'
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value);
+}
+
+function isGroupName(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0 && value.length <= 256;
+}
+
+function isMobyPVarEdit(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const edit = value as Record<string, unknown>;
+  return hasExactKeys(edit, [
+    'fieldPath', 'expectedClassId', 'expectedDatasetId', 'expectedDatasetVersion',
+    'expectedSchemaVersion', 'expectedSchemaFingerprint', 'expectedStateFingerprint', 'value',
+  ])
+    && typeof edit.fieldPath === 'string' && edit.fieldPath.length > 0 && edit.fieldPath.length <= 256
+    && Number.isInteger(edit.expectedClassId) && Number(edit.expectedClassId) >= 0
+    && Number(edit.expectedClassId) <= 0xffff
+    && typeof edit.expectedDatasetId === 'string' && edit.expectedDatasetId.length > 0
+    && edit.expectedDatasetId.length <= 128
+    && Number.isInteger(edit.expectedDatasetVersion) && Number(edit.expectedDatasetVersion) >= 1
+    && Number.isInteger(edit.expectedSchemaVersion) && Number(edit.expectedSchemaVersion) >= 1
+    && typeof edit.expectedSchemaFingerprint === 'string'
+    && /^[0-9a-f]{64}$/.test(edit.expectedSchemaFingerprint)
+    && typeof edit.expectedStateFingerprint === 'string'
+    && /^[0-9a-f]{64}$/.test(edit.expectedStateFingerprint)
+    && isMobyPVarValue(edit.value);
+}
+
+function isMobyPVarValue(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const field = value as Record<string, unknown>;
+  if (field.kind === 'reference')
+    return hasExactKeys(field, field.value === undefined ? ['kind'] : ['kind', 'value'])
+      && (field.value === undefined || typeof field.value === 'string');
+  if (!hasExactKeys(field, ['kind', 'value'])) return false;
+  switch (field.kind) {
+    case 'integer': return typeof field.value === 'string' && /^-?\d{1,20}$/.test(field.value);
+    case 'float': return typeof field.value === 'number' && Number.isFinite(field.value);
+    case 'boolean': return typeof field.value === 'boolean';
+    case 'color': return Array.isArray(field.value) && field.value.length >= 3 && field.value.length <= 4
+      && field.value.every((channel) => Number.isInteger(channel) && channel >= 0 && channel <= 255);
+    case 'vector': return Array.isArray(field.value) && field.value.length >= 2 && field.value.length <= 4
+      && field.value.every((component) => typeof component === 'number' && Number.isFinite(component));
+    case 'bytes': return typeof field.value === 'string' && /^[0-9a-f]*$/.test(field.value)
+      && field.value.length <= 2 * 1024 * 1024;
+    default: return false;
+  }
+}
+
+function isMobyPropertyEdit(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const edit = value as Record<string, unknown>;
+  if (!hasExactKeys(edit, ['fieldKey', 'expectedClassId', 'value'])
+    || typeof edit.fieldKey !== 'string'
+    || edit.fieldKey.length === 0 || edit.fieldKey.length > 64
+    || !/^[A-Za-z0-9.-]+$/.test(edit.fieldKey)
+    || !Number.isInteger(edit.expectedClassId)
+    || Number(edit.expectedClassId) < 0 || Number(edit.expectedClassId) > 0x7fff_ffff
+    || !edit.value || typeof edit.value !== 'object') return false;
+  const property = edit.value as Record<string, unknown>;
+  if (!hasExactKeys(property, ['kind', 'value'])) return false;
+  switch (property.kind) {
+    case 'integer':
+      return Number.isInteger(property.value)
+        && Number(property.value) >= -0x8000_0000 && Number(property.value) <= 0x7fff_ffff;
+    case 'float': return typeof property.value === 'number' && Number.isFinite(property.value);
+    case 'boolean': return typeof property.value === 'boolean';
+    case 'color': return isColor(property.value);
+    default: return false;
+  }
+}
+
+function hasExactKeys(value: Record<string, unknown>, expected: string[]): boolean {
+  const keys = Object.keys(value);
+  return keys.length === expected.length && expected.every((key) => keys.includes(key));
 }
 
 function isAssetId(value: unknown): value is string {
@@ -106,7 +228,7 @@ function isReferenceUpdate(value: unknown): boolean {
     && reference.fieldKey.length > 0 && reference.fieldKey.length <= 128
     && /^[A-Za-z0-9.\[\]-]+$/.test(reference.fieldKey)
     && (reference.sourceValue === undefined || Number.isInteger(reference.sourceValue)
-      && Number(reference.sourceValue) >= 0 && Number(reference.sourceValue) <= 0x7fff_ffff)
+      && Number(reference.sourceValue) >= -0x8000_0000 && Number(reference.sourceValue) <= 0x7fff_ffff)
     && (reference.targetEntityId === undefined || typeof reference.targetEntityId === 'string');
 }
 

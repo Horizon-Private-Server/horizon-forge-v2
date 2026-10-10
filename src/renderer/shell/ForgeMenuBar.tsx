@@ -49,6 +49,7 @@ export function ForgeMenuBar({ keybindings, project, onAction }: ForgeMenuBarPro
         <Menu.Sub.Dropdown>
           <Item onClick={() => onAction('showViewport')}>Viewport</Item>
           <Item onClick={() => onAction('showSceneTree')}>Scene</Item>
+          <Item onClick={() => onAction('showGroups')}>Groups</Item>
           <Item onClick={() => onAction('showProperties')}>Properties</Item>
           <Item onClick={() => onAction('showReferences')}>References</Item>
           <Item onClick={() => onAction('showLevelSettings')}>Level Settings</Item>
@@ -78,6 +79,8 @@ export function ForgeMenuBar({ keybindings, project, onAction }: ForgeMenuBarPro
       <Item onClick={() => onAction('setup')}>Setup…</Item>
       <Item shortcut={shortcut('app.settings')} onClick={() => onAction('settings')}>Settings…</Item>
       <Item onClick={() => onAction('checkUpdates')}>Check for Updates…</Item>
+      <Menu.Divider />
+      <Item onClick={() => onAction('reloadMobyDex')}>Reload MobyDex Dataset…</Item>
     </TopMenu>
   </nav>;
 }

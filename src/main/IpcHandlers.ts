@@ -1,6 +1,6 @@
 import { app, dialog, ipcMain, shell } from 'electron';
 import type { BrowserWindow } from 'electron';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, open } from 'node:fs/promises';
 import path from 'node:path';
 
 import type { AssetExplorerQuery, ProjectHubState } from '../types/ForgeApi.js';
@@ -33,6 +33,7 @@ interface IpcHandlersOptions {
 }
 
 const uyaImportVersion = 2;
+const maximumMobyDexDatasetBytes = 16 * 1024 * 1024;
 
 export function registerIpcHandlers(options: IpcHandlersOptions): void {
   const { host, notifications, recentProjects, settings, updates, renderAssets, getMainWindow } = options;
@@ -232,6 +233,25 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
     if (confirmation.response !== 1) return false;
     await clearRenderCache(settings.paths);
     return true;
+  });
+  ipcMain.handle('forge:mobydex-reload', async (event) => {
+    assertSender(event.sender.id);
+    const selection = await showOpenDialog(getMainWindow(), {
+      title: 'Reload MobyDex dataset',
+      properties: ['openFile'],
+      filters: [{ name: 'MobyDex dataset', extensions: ['json'] }],
+    });
+    if (selection.canceled || !selection.filePaths[0]) return undefined;
+    const bytes = await readBoundedFile(selection.filePaths[0], maximumMobyDexDatasetBytes);
+    const message = await (await host.reloadMobyDexDataset(bytes)).result;
+    notifications.publish({
+      id: 'mobydex-reloaded',
+      title: 'MobyDex reloaded',
+      message,
+      severity: 'info',
+      createdUnixMilliseconds: Date.now(),
+    });
+    return message;
   });
   ipcMain.handle('forge:setup-state', async (event) => {
     assertSender(event.sender.id);
@@ -534,4 +554,21 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
     const message = await shell.openPath(settings.paths.logs);
     if (message) throw new Error(message);
   });
+}
+
+async function readBoundedFile(filePath: string, maximumBytes: number): Promise<Buffer> {
+  const file = await open(filePath, 'r');
+  try {
+    const buffer = Buffer.allocUnsafe(maximumBytes + 1);
+    let length = 0;
+    while (length < buffer.length) {
+      const result = await file.read(buffer, length, buffer.length - length, null);
+      if (result.bytesRead === 0) break;
+      length += result.bytesRead;
+    }
+    if (length > maximumBytes) throw new TypeError(`MobyDex dataset exceeds ${maximumBytes} bytes`);
+    return buffer.subarray(0, length);
+  } finally {
+    await file.close();
+  }
 }

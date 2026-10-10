@@ -1,0 +1,4413 @@
+{
+  "id": "forge.uya.builtin",
+  "version": 2,
+  "entries": [
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 2366,
+      "name": "Water Tristrip",
+      "tags": [],
+      "pvar": {
+        "length": 112,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "underlayColor1",
+            "label": "Underlay Color 1",
+            "offset": 0,
+            "length": 4,
+            "definition": {
+              "kind": "rgba8"
+            }
+          },
+          {
+            "key": "underlayColor2",
+            "label": "Underlay Color 2",
+            "offset": 4,
+            "length": 4,
+            "definition": {
+              "kind": "rgba8"
+            }
+          },
+          {
+            "key": "overlayColor1",
+            "label": "Overlay Color 1",
+            "offset": 8,
+            "length": 4,
+            "definition": {
+              "kind": "rgba8"
+            }
+          },
+          {
+            "key": "overlayColor2",
+            "label": "Overlay Color 2",
+            "offset": 12,
+            "length": 4,
+            "definition": {
+              "kind": "rgba8"
+            }
+          },
+          {
+            "key": "overlayFxTexture",
+            "label": "Overlay FX Texture",
+            "offset": 16,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          },
+          {
+            "key": "underlayFxTexture",
+            "label": "Underlay FX Texture",
+            "offset": 20,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          },
+          {
+            "key": "tilingDensity",
+            "label": "Tiling Density",
+            "offset": 24,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "zPosition",
+            "label": "Z Position",
+            "offset": 32,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "fogFarDistance",
+            "label": "Fog Far Distance",
+            "offset": 40,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "waveSurge",
+            "label": "Wave Surge",
+            "offset": 48,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "overlaySpeed",
+            "label": "Overlay Speed",
+            "offset": 64,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "underlaySpeed",
+            "label": "Underlay Speed",
+            "offset": 68,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "underlayDirectionVariance",
+            "label": "Underlay Direction Variance",
+            "offset": 72,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "overlayAdditive",
+            "label": "Overlay Additive",
+            "offset": 80,
+            "length": 1,
+            "definition": {
+              "kind": "bool8"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 2871,
+      "name": "Water",
+      "tags": [],
+      "pvar": {
+        "length": 112,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "overlayFxTexture",
+            "label": "Overlay FX Texture",
+            "offset": 0,
+            "length": 4,
+            "help": "Level FX texture index; options are resolved from the active level.",
+            "definition": {
+              "kind": "int32"
+            }
+          },
+          {
+            "key": "underlayFxTexture",
+            "label": "Underlay FX Texture",
+            "offset": 4,
+            "length": 4,
+            "help": "Level FX texture index; options are resolved from the active level.",
+            "definition": {
+              "kind": "int32"
+            }
+          },
+          {
+            "key": "waveSpeed",
+            "label": "Wave Speed",
+            "offset": 8,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "waveCrest",
+            "label": "Wave Crest",
+            "offset": 12,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "waveSurge",
+            "label": "Wave Surge",
+            "offset": 16,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "waveRippleSize",
+            "label": "Wave Ripple Size",
+            "offset": 20,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "waveDirection",
+            "label": "Wave Direction",
+            "offset": 24,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "waveDirectionVariation",
+            "label": "Wave Direction Variation",
+            "offset": 28,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "waveShimmerIntensity",
+            "label": "Wave Shimmer Intensity",
+            "offset": 32,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "overlayTiling",
+            "label": "Overlay Tiling",
+            "offset": 36,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "overlayDirection",
+            "label": "Overlay Direction",
+            "offset": 40,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "overlaySpeed",
+            "label": "Overlay Speed",
+            "offset": 44,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "underlayColor",
+            "label": "Underlay Color",
+            "offset": 48,
+            "length": 4,
+            "definition": {
+              "kind": "rgba8"
+            }
+          },
+          {
+            "key": "overlayColor",
+            "label": "Overlay Color",
+            "offset": 52,
+            "length": 4,
+            "definition": {
+              "kind": "rgba8"
+            }
+          },
+          {
+            "key": "overlayAdditive",
+            "label": "Overlay Additive",
+            "offset": 57,
+            "length": 1,
+            "definition": {
+              "kind": "bool8"
+            }
+          },
+          {
+            "key": "fogColor",
+            "label": "Fog Color",
+            "offset": 58,
+            "length": 3,
+            "definition": {
+              "kind": "rgb8"
+            }
+          },
+          {
+            "key": "fogIntensityNear",
+            "label": "Fog Intensity Near",
+            "offset": 61,
+            "length": 1,
+            "help": "Value higher than far intensity is ineffective",
+            "maximum": 100,
+            "definition": {
+              "kind": "uint8"
+            }
+          },
+          {
+            "key": "fogIntensityFar",
+            "label": "Fog Intensity Far",
+            "offset": 62,
+            "length": 1,
+            "help": "Anything above 100 causes jagged edges",
+            "maximum": 100,
+            "definition": {
+              "kind": "uint8"
+            }
+          },
+          {
+            "key": "fogNearDistance",
+            "label": "Fog Near Distance",
+            "offset": 64,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "fogFarDistance",
+            "label": "Fog Far Distance",
+            "offset": 68,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "waterShimmerThreshold",
+            "label": "Water Shimmer Threshold",
+            "offset": 72,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "zPosition",
+            "label": "Z Position",
+            "offset": 76,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "chunk",
+            "label": "Chunk",
+            "offset": 80,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          },
+          {
+            "key": "hideWhenCameraInCuboid0",
+            "label": "Hide When Camera In Cuboid 0",
+            "offset": 84,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "hideWhenCameraInCuboid1",
+            "label": "Hide When Camera In Cuboid 1",
+            "offset": 88,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "showWhenCameraInCuboid",
+            "label": "Show When Camera In Cuboid",
+            "offset": 92,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 3262,
+      "name": "Base Light",
+      "tags": [],
+      "pvar": {
+        "length": 416,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "baseDefensesGroup",
+            "label": "Base Defenses Group",
+            "offset": 176,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          },
+          {
+            "key": "baseComputer",
+            "label": "Base Computer",
+            "offset": 180,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 4202,
+      "name": "Multiplayer Config",
+      "tags": [],
+      "pvar": {
+        "length": 928,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "blueSpawn",
+            "label": "Blue Spawn",
+            "offset": 0,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "redSpawn",
+            "label": "Red Spawn",
+            "offset": 4,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "nodeSpawn1",
+            "label": "Node Spawn 1",
+            "offset": 32,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "nodeSpawn2",
+            "label": "Node Spawn 2",
+            "offset": 36,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "nodeSpawn3",
+            "label": "Node Spawn 3",
+            "offset": 40,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "nodeSpawn4",
+            "label": "Node Spawn 4",
+            "offset": 44,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "nodeSpawn5",
+            "label": "Node Spawn 5",
+            "offset": 48,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "nodeSpawn6",
+            "label": "Node Spawn 6",
+            "offset": 52,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "nodeSpawn7",
+            "label": "Node Spawn 7",
+            "offset": 56,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "nodeSpawn8",
+            "label": "Node Spawn 8",
+            "offset": 60,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "blueBaseLight",
+            "label": "Blue Base Light",
+            "offset": 64,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "redBaseLight",
+            "label": "Red Base Light",
+            "offset": 68,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "siegeNode1",
+            "label": "Siege Node 1",
+            "offset": 96,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "siegeNode2",
+            "label": "Siege Node 2",
+            "offset": 100,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "siegeNode3",
+            "label": "Siege Node 3",
+            "offset": 104,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "siegeNode4",
+            "label": "Siege Node 4",
+            "offset": 108,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "siegeNode5",
+            "label": "Siege Node 5",
+            "offset": 112,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "siegeNode6",
+            "label": "Siege Node 6",
+            "offset": 116,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "siegeNode7",
+            "label": "Siege Node 7",
+            "offset": 120,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "siegeNode8",
+            "label": "Siege Node 8",
+            "offset": 124,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "blueFlag",
+            "label": "Blue Flag",
+            "offset": 432,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "redFlag",
+            "label": "Red Flag",
+            "offset": 436,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 4220,
+      "name": "Turboslider",
+      "tags": [],
+      "pvar": {
+        "length": 2016,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "initiallyAvailable",
+            "label": "Initially Available",
+            "offset": 1864,
+            "length": 1,
+            "definition": {
+              "kind": "bool8"
+            }
+          },
+          {
+            "key": "antiVehicleBarrier1",
+            "label": "Anti-vehicle barrier 1",
+            "offset": 1968,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "antiVehicleBarrier2",
+            "label": "Anti-vehicle barrier 2",
+            "offset": 1972,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "antiVehicleBarrier3",
+            "label": "Anti-vehicle barrier 3",
+            "offset": 1976,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "antiVehicleBarrier4",
+            "label": "Anti-vehicle barrier 4",
+            "offset": 1980,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "antiVehicleBarrier5",
+            "label": "Anti-vehicle barrier 5",
+            "offset": 1984,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "antiVehicleBarrier6",
+            "label": "Anti-vehicle barrier 6",
+            "offset": 1988,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "antiVehicleBarrier7",
+            "label": "Anti-vehicle barrier 7",
+            "offset": 1992,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "antiVehicleBarrier8",
+            "label": "Anti-vehicle barrier 8",
+            "offset": 1996,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 4222,
+      "name": "Hovership",
+      "tags": [],
+      "pvar": {
+        "length": 1104,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "flyHeightMax",
+            "label": "Fly Height Max",
+            "offset": 768,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "flyHeightMin",
+            "label": "Fly Height Min",
+            "offset": 772,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "antiVehicleBarrier1",
+            "label": "Anti-vehicle barrier 1",
+            "offset": 776,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "antiVehicleBarrier2",
+            "label": "Anti-vehicle barrier 2",
+            "offset": 780,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "antiVehicleBarrier3",
+            "label": "Anti-vehicle barrier 3",
+            "offset": 784,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "antiVehicleBarrier4",
+            "label": "Anti-vehicle barrier 4",
+            "offset": 788,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "antiVehicleBarrier5",
+            "label": "Anti-vehicle barrier 5",
+            "offset": 792,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "antiVehicleBarrier6",
+            "label": "Anti-vehicle barrier 6",
+            "offset": 796,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "antiVehicleBarrier7",
+            "label": "Anti-vehicle barrier 7",
+            "offset": 800,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "antiVehicleBarrier8",
+            "label": "Anti-vehicle barrier 8",
+            "offset": 804,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "antiVehicleBarrier9",
+            "label": "Anti-vehicle barrier 9",
+            "offset": 808,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "antiVehicleBarrier10",
+            "label": "Anti-vehicle barrier 10",
+            "offset": 812,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "antiVehicleBarrier11",
+            "label": "Anti-vehicle barrier 11",
+            "offset": 816,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "antiVehicleBarrier12",
+            "label": "Anti-vehicle barrier 12",
+            "offset": 820,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "antiVehicleBarrier13",
+            "label": "Anti-vehicle barrier 13",
+            "offset": 824,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "antiVehicleBarrier14",
+            "label": "Anti-vehicle barrier 14",
+            "offset": 828,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "antiVehicleBarrier15",
+            "label": "Anti-vehicle barrier 15",
+            "offset": 832,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "antiVehicleBarrier16",
+            "label": "Anti-vehicle barrier 16",
+            "offset": 836,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "antiVehicleBarrier17",
+            "label": "Anti-vehicle barrier 17",
+            "offset": 840,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "antiVehicleBarrier18",
+            "label": "Anti-vehicle barrier 18",
+            "offset": 844,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "flyBoundary",
+            "label": "Fly Boundary",
+            "offset": 1004,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 4223,
+      "name": "Tank",
+      "tags": [],
+      "pvar": {
+        "length": 2016,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "initiallyAvailable",
+            "label": "Initially Available",
+            "offset": 1864,
+            "length": 1,
+            "definition": {
+              "kind": "bool8"
+            }
+          },
+          {
+            "key": "antiVehicleBarrier1",
+            "label": "Anti-vehicle barrier 1",
+            "offset": 1968,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "antiVehicleBarrier2",
+            "label": "Anti-vehicle barrier 2",
+            "offset": 1972,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "antiVehicleBarrier3",
+            "label": "Anti-vehicle barrier 3",
+            "offset": 1976,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "antiVehicleBarrier4",
+            "label": "Anti-vehicle barrier 4",
+            "offset": 1980,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "antiVehicleBarrier5",
+            "label": "Anti-vehicle barrier 5",
+            "offset": 1984,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "antiVehicleBarrier6",
+            "label": "Anti-vehicle barrier 6",
+            "offset": 1988,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "antiVehicleBarrier7",
+            "label": "Anti-vehicle barrier 7",
+            "offset": 1992,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "antiVehicleBarrier8",
+            "label": "Anti-vehicle barrier 8",
+            "offset": 1996,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 4250,
+      "name": "Ball Bot",
+      "tags": [],
+      "pvar": {
+        "length": 736,
+        "relocations": [],
+        "fields": []
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 4253,
+      "name": "Drone",
+      "tags": [],
+      "pvar": {
+        "length": 992,
+        "relocations": [],
+        "fields": []
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 4255,
+      "name": "Ranger Legs",
+      "tags": [],
+      "pvar": {
+        "length": 992,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "initialSpawnTeam",
+            "label": "Initial Spawn Team",
+            "offset": 696,
+            "length": 4,
+            "definition": {
+              "kind": "enum",
+              "storage": "int32",
+              "options": [
+                {
+                  "key": "blue",
+                  "label": "Blue",
+                  "value": 0
+                },
+                {
+                  "key": "red",
+                  "label": "Red",
+                  "value": 1
+                },
+                {
+                  "key": "neutral",
+                  "label": "Neutral",
+                  "value": 2
+                },
+                {
+                  "key": "noInitialSpawn",
+                  "label": "No Initial Spawn",
+                  "value": -1
+                }
+              ]
+            }
+          },
+          {
+            "key": "aggressionDistance",
+            "label": "Aggression Distance",
+            "offset": 704,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "patrolSpline",
+            "label": "Patrol Spline",
+            "offset": 712,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "spline",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "health",
+            "label": "Health",
+            "offset": 976,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "damage",
+            "label": "Damage",
+            "offset": 980,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 4290,
+      "name": "Player Turret",
+      "tags": [],
+      "pvar": {
+        "length": 864,
+        "relocations": [],
+        "fields": []
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 4291,
+      "name": "Teleporter",
+      "tags": [],
+      "pvar": {
+        "length": 112,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "destination",
+            "label": "Destination",
+            "offset": 0,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "siegeBase",
+            "label": "Siege Base",
+            "offset": 28,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 4292,
+      "name": "Jump Pad",
+      "tags": [],
+      "pvar": {
+        "length": 464,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "destinationCuboid",
+            "label": "Destination Cuboid",
+            "offset": 0,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "destinationMoby",
+            "label": "Destination Moby",
+            "offset": 4,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 4294,
+      "name": "Anti-vehicle barrier",
+      "tags": [],
+      "pvar": {
+        "length": 0,
+        "relocations": [],
+        "fields": []
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 5000,
+      "name": "Ammo Pad",
+      "tags": [],
+      "pvar": {
+        "length": 96,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "baseLight",
+            "label": "Base Light",
+            "offset": 80,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 5614,
+      "name": "Health Pad",
+      "tags": [],
+      "pvar": {
+        "length": 96,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "baseLight",
+            "label": "Base Light",
+            "offset": 80,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 5682,
+      "name": "Hoven Breakable Tunnel 1",
+      "tags": [],
+      "pvar": {
+        "length": 64,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "particleCuboid1",
+            "label": "Particle Cuboid 1",
+            "offset": 8,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "particleCuboid2",
+            "label": "Particle Cuboid 2",
+            "offset": 12,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "particleCuboid3",
+            "label": "Particle Cuboid 3",
+            "offset": 16,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "particleCuboid4",
+            "label": "Particle Cuboid 4",
+            "offset": 20,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 5683,
+      "name": "Hoven Breakable Tunnel 2",
+      "tags": [],
+      "pvar": {
+        "length": 64,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "particleCuboid1",
+            "label": "Particle Cuboid 1",
+            "offset": 8,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "particleCuboid2",
+            "label": "Particle Cuboid 2",
+            "offset": 12,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "particleCuboid3",
+            "label": "Particle Cuboid 3",
+            "offset": 16,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "particleCuboid4",
+            "label": "Particle Cuboid 4",
+            "offset": 20,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 5684,
+      "name": "Hoven Breakable Tunnel 3",
+      "tags": [],
+      "pvar": {
+        "length": 64,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "particleCuboid1",
+            "label": "Particle Cuboid 1",
+            "offset": 8,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "particleCuboid2",
+            "label": "Particle Cuboid 2",
+            "offset": 12,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "particleCuboid3",
+            "label": "Particle Cuboid 3",
+            "offset": 16,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "particleCuboid4",
+            "label": "Particle Cuboid 4",
+            "offset": 20,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 5685,
+      "name": "Hoven Breakable Tunnel 4",
+      "tags": [],
+      "pvar": {
+        "length": 64,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "particleCuboid1",
+            "label": "Particle Cuboid 1",
+            "offset": 8,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "particleCuboid2",
+            "label": "Particle Cuboid 2",
+            "offset": 12,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "particleCuboid3",
+            "label": "Particle Cuboid 3",
+            "offset": 16,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "particleCuboid4",
+            "label": "Particle Cuboid 4",
+            "offset": 20,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 5686,
+      "name": "Hoven Breakable Tunnel 5",
+      "tags": [],
+      "pvar": {
+        "length": 64,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "particleCuboid1",
+            "label": "Particle Cuboid 1",
+            "offset": 8,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "particleCuboid2",
+            "label": "Particle Cuboid 2",
+            "offset": 12,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "particleCuboid3",
+            "label": "Particle Cuboid 3",
+            "offset": 16,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "particleCuboid4",
+            "label": "Particle Cuboid 4",
+            "offset": 20,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 5687,
+      "name": "Hoven Breakable Tunnel 6",
+      "tags": [],
+      "pvar": {
+        "length": 64,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "particleCuboid1",
+            "label": "Particle Cuboid 1",
+            "offset": 8,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "particleCuboid2",
+            "label": "Particle Cuboid 2",
+            "offset": 12,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "particleCuboid3",
+            "label": "Particle Cuboid 3",
+            "offset": 16,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "particleCuboid4",
+            "label": "Particle Cuboid 4",
+            "offset": 20,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 5688,
+      "name": "Hoven Breakable Tunnel 7",
+      "tags": [],
+      "pvar": {
+        "length": 64,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "particleCuboid1",
+            "label": "Particle Cuboid 1",
+            "offset": 8,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "particleCuboid2",
+            "label": "Particle Cuboid 2",
+            "offset": 12,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "particleCuboid3",
+            "label": "Particle Cuboid 3",
+            "offset": 16,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "particleCuboid4",
+            "label": "Particle Cuboid 4",
+            "offset": 20,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 5689,
+      "name": "Hoven Breakable Tunnel 8",
+      "tags": [],
+      "pvar": {
+        "length": 64,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "particleCuboid1",
+            "label": "Particle Cuboid 1",
+            "offset": 8,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "particleCuboid2",
+            "label": "Particle Cuboid 2",
+            "offset": 12,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "particleCuboid3",
+            "label": "Particle Cuboid 3",
+            "offset": 16,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "particleCuboid4",
+            "label": "Particle Cuboid 4",
+            "offset": 20,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 5743,
+      "name": "Drone Cluster Controller",
+      "tags": [],
+      "pvar": {
+        "length": 384,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "droneMobyGroup",
+            "label": "Drone Moby Group",
+            "offset": 188,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 5746,
+      "name": "Hoven Glass Platform",
+      "tags": [],
+      "pvar": {
+        "length": 0,
+        "relocations": [],
+        "fields": []
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 6300,
+      "name": "Ammo - Gravity Bomb",
+      "description": "Gravity Bomb ammunition pickup.",
+      "tags": [
+        "ammo",
+        "multiplayer",
+        "pickup"
+      ],
+      "pvar": {
+        "length": 48,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "respawnTimeSeconds",
+            "label": "Respawn time",
+            "offset": 20,
+            "length": 4,
+            "help": "Seconds before the pickup respawns.",
+            "minimum": 0,
+            "maximum": 60,
+            "definition": {
+              "kind": "int32"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 6301,
+      "name": "Ammo - Blitz Gun",
+      "tags": [],
+      "pvar": {
+        "length": 48,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "respawnTimeSeconds",
+            "label": "Respawn time (Seconds)",
+            "offset": 20,
+            "length": 4,
+            "minimum": 0,
+            "maximum": 60,
+            "definition": {
+              "kind": "int32"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 6302,
+      "name": "Ammo - Flux Rifle",
+      "tags": [],
+      "pvar": {
+        "length": 48,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "respawnTimeSeconds",
+            "label": "Respawn time (Seconds)",
+            "offset": 20,
+            "length": 4,
+            "minimum": 0,
+            "maximum": 60,
+            "definition": {
+              "kind": "int32"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 6303,
+      "name": "Ammo - Mini Rocket Tube",
+      "tags": [],
+      "pvar": {
+        "length": 48,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "respawnTimeSeconds",
+            "label": "Respawn time (Seconds)",
+            "offset": 20,
+            "length": 4,
+            "minimum": 0,
+            "maximum": 60,
+            "definition": {
+              "kind": "int32"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 6325,
+      "name": "Marcadia Glass Awning",
+      "tags": [],
+      "pvar": {
+        "length": 0,
+        "relocations": [],
+        "fields": []
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 6529,
+      "name": "Vehicle Pad",
+      "tags": [],
+      "pvar": {
+        "length": 64,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "vehicleSlot1",
+            "label": "Vehicle Slot 1",
+            "offset": 0,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "vehicleSlot2",
+            "label": "Vehicle Slot 2",
+            "offset": 4,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "vehicleSlot3",
+            "label": "Vehicle Slot 3",
+            "offset": 8,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 6531,
+      "name": "Drones Platform",
+      "tags": [],
+      "pvar": {
+        "length": 0,
+        "relocations": [],
+        "fields": []
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 6575,
+      "name": "Destructible Bridge Side Rail",
+      "tags": [],
+      "pvar": {
+        "length": 16,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "health",
+            "label": "Health",
+            "offset": 4,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "tieGroup",
+            "label": "Tie Group",
+            "offset": 12,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 6578,
+      "name": "Destructible Bridge Main",
+      "tags": [],
+      "pvar": {
+        "length": 48,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "centerPiece",
+            "label": "Center Piece",
+            "offset": 4,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "sideRail1",
+            "label": "Side Rail 1",
+            "offset": 8,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "sideRail2",
+            "label": "Side Rail 2",
+            "offset": 12,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "health",
+            "label": "Health",
+            "offset": 16,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "destroyedTieGroup",
+            "label": "Destroyed Tie Group",
+            "offset": 28,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          },
+          {
+            "key": "centerTieGroup",
+            "label": "Center Tie Group",
+            "offset": 32,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 6586,
+      "name": "Anti-vehicle wall",
+      "tags": [],
+      "pvar": {
+        "length": 0,
+        "relocations": [],
+        "fields": []
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 6596,
+      "name": "Swingshot",
+      "tags": [],
+      "pvar": {
+        "length": 80,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "tetherDistance",
+            "label": "Tether Distance",
+            "offset": 4,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "swingStrength",
+            "label": "Swing Strength",
+            "offset": 12,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "antiActivationCuboid",
+            "label": "Anti-activation cuboid",
+            "offset": 28,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "playerFacesSwingshot",
+            "label": "Player faces swingshot",
+            "offset": 52,
+            "length": 1,
+            "definition": {
+              "kind": "bool8"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 6646,
+      "name": "Ball Bot Spawner",
+      "description": "Multiplayer Ball Bot spawner.",
+      "tags": [
+        "multiplayer",
+        "spawner"
+      ],
+      "pvar": {
+        "length": 496,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "team",
+            "label": "Team",
+            "offset": 416,
+            "length": 4,
+            "definition": {
+              "kind": "enum",
+              "storage": "int32",
+              "options": [
+                {
+                  "key": "blue",
+                  "label": "Blue",
+                  "value": 0
+                },
+                {
+                  "key": "red",
+                  "label": "Red",
+                  "value": 1
+                },
+                {
+                  "key": "neutral",
+                  "label": "Neutral",
+                  "value": 2
+                }
+              ]
+            }
+          },
+          {
+            "key": "health",
+            "label": "Health",
+            "offset": 452,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "spawnProximity",
+            "label": "Spawn proximity",
+            "offset": 456,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "spawnMoby",
+            "label": "Spawn moby",
+            "offset": 464,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 6683,
+      "name": "Shock Droid",
+      "tags": [],
+      "pvar": {
+        "length": 784,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "team",
+            "label": "Team",
+            "offset": 684,
+            "length": 4,
+            "definition": {
+              "kind": "enum",
+              "storage": "int32",
+              "options": [
+                {
+                  "key": "blue",
+                  "label": "Blue",
+                  "value": 0
+                },
+                {
+                  "key": "red",
+                  "label": "Red",
+                  "value": 1
+                },
+                {
+                  "key": "neutral",
+                  "label": "Neutral",
+                  "value": 2
+                }
+              ]
+            }
+          },
+          {
+            "key": "health",
+            "label": "Health",
+            "offset": 768,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "damage",
+            "label": "Damage",
+            "offset": 772,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 6695,
+      "name": "Bolt Crank",
+      "tags": [],
+      "pvar": {
+        "length": 96,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "crankBias",
+            "label": "Crank Bias",
+            "offset": 0,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "cameraCuboid",
+            "label": "Camera Cuboid",
+            "offset": 32,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "crankCameraAdjustment",
+            "label": "Crank Camera Adjustment",
+            "offset": 40,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "captureResistance",
+            "label": "Capture Resistance",
+            "offset": 48,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "boltCrankResets",
+            "label": "Bolt Crank Resets",
+            "offset": 52,
+            "length": 1,
+            "definition": {
+              "kind": "bool8"
+            }
+          },
+          {
+            "key": "resetTimerSeconds",
+            "label": "Reset Timer (Seconds)",
+            "offset": 56,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 6697,
+      "name": "Destructible Bridge Center",
+      "tags": [],
+      "pvar": {
+        "length": 0,
+        "relocations": [],
+        "fields": []
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 6727,
+      "name": "Siege Node",
+      "tags": [],
+      "pvar": {
+        "length": 112,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "attachedMoby1",
+            "label": "Attached Moby 1",
+            "offset": 0,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "attachedMoby2",
+            "label": "Attached Moby 2",
+            "offset": 4,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "attachedMoby3",
+            "label": "Attached Moby 3",
+            "offset": 8,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "attachedMoby4",
+            "label": "Attached Moby 4",
+            "offset": 12,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "attachedMoby5",
+            "label": "Attached Moby 5",
+            "offset": 16,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "attachedMoby6",
+            "label": "Attached Moby 6",
+            "offset": 20,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "attachedMoby7",
+            "label": "Attached Moby 7",
+            "offset": 24,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "attachedMoby8",
+            "label": "Attached Moby 8",
+            "offset": 28,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "attachedMobyGroup",
+            "label": "Attached Moby Group",
+            "offset": 52,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          },
+          {
+            "key": "attachedDefenses",
+            "label": "Attached Defenses",
+            "offset": 56,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "boltCrank",
+            "label": "Bolt Crank",
+            "offset": 60,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 6755,
+      "name": "Node Turret",
+      "tags": [],
+      "pvar": {
+        "length": 608,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "health",
+            "label": "Health",
+            "offset": 52,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          },
+          {
+            "key": "turretType",
+            "label": "Turret Type",
+            "offset": 560,
+            "length": 4,
+            "definition": {
+              "kind": "enum",
+              "storage": "int32",
+              "options": [
+                {
+                  "key": "normalAntiPlayerVehicle",
+                  "label": "Normal - Anti player + vehicle",
+                  "value": 0
+                },
+                {
+                  "key": "missleAntiVehicle",
+                  "label": "Missle - Anti vehicle",
+                  "value": 1
+                }
+              ]
+            }
+          },
+          {
+            "key": "damageMultiplier",
+            "label": "Damage Multiplier",
+            "offset": 564,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          },
+          {
+            "key": "shotDelay",
+            "label": "Shot Delay",
+            "offset": 568,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          },
+          {
+            "key": "missleSpeed",
+            "label": "Missle Speed",
+            "offset": 572,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "missleExplosionRadius",
+            "label": "Missle Explosion Radius",
+            "offset": 576,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "missleTrackingStength",
+            "label": "Missle Tracking Stength",
+            "offset": 580,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          },
+          {
+            "key": "missleTrackingTime",
+            "label": "Missle Tracking Time",
+            "offset": 584,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          },
+          {
+            "key": "parentNode",
+            "label": "Parent Node",
+            "offset": 588,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "aggressionDistanceGround",
+            "label": "Aggression Distance (Ground)",
+            "offset": 592,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "aggressionDistanceAir",
+            "label": "Aggression Distance (Air)",
+            "offset": 604,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 6801,
+      "name": "Shock Droid Spawner",
+      "tags": [],
+      "pvar": {
+        "length": 1136,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "team",
+            "label": "Team",
+            "offset": 656,
+            "length": 4,
+            "definition": {
+              "kind": "enum",
+              "storage": "int32",
+              "options": [
+                {
+                  "key": "blue",
+                  "label": "Blue",
+                  "value": 0
+                },
+                {
+                  "key": "red",
+                  "label": "Red",
+                  "value": 1
+                },
+                {
+                  "key": "neutral",
+                  "label": "Neutral",
+                  "value": 2
+                }
+              ]
+            }
+          },
+          {
+            "key": "health",
+            "label": "Health",
+            "offset": 692,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "spawnProximity",
+            "label": "Spawn Proximity",
+            "offset": 696,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "patrolSpline",
+            "label": "Patrol Spline",
+            "offset": 1108,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "spline",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "spawnMobyGroup",
+            "label": "Spawn Moby Group",
+            "offset": 1124,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          },
+          {
+            "key": "spawnLimit",
+            "label": "Spawn Limit",
+            "offset": 1128,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 6807,
+      "name": "Node Mobile Defenses Spawner",
+      "tags": [],
+      "pvar": {
+        "length": 64,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "spawnMobyGroup",
+            "label": "Spawn Moby Group",
+            "offset": 0,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          },
+          {
+            "key": "spawnMoby1",
+            "label": "Spawn Moby 1",
+            "offset": 16,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "spawnMoby2",
+            "label": "Spawn Moby 2",
+            "offset": 20,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "spawnMoby3",
+            "label": "Spawn Moby 3",
+            "offset": 24,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "spawnMoby4",
+            "label": "Spawn Moby 4",
+            "offset": 28,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "spawnMoby5",
+            "label": "Spawn Moby 5",
+            "offset": 32,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "spawnMoby6",
+            "label": "Spawn Moby 6",
+            "offset": 36,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "spawnMoby7",
+            "label": "Spawn Moby 7",
+            "offset": 40,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "spawnMoby8",
+            "label": "Spawn Moby 8",
+            "offset": 44,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "spawnCount",
+            "label": "Spawn Count",
+            "offset": 48,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 6842,
+      "name": "Crate - Gravity Bomb",
+      "tags": [],
+      "pvar": {
+        "length": 144,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "respawnTimeSeconds",
+            "label": "Respawn time (Seconds)",
+            "offset": 112,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          },
+          {
+            "key": "initiallyAvailable",
+            "label": "Initially Available",
+            "offset": 132,
+            "length": 1,
+            "definition": {
+              "kind": "bool8"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 6843,
+      "name": "Crate - Mini Rocket Tube",
+      "tags": [],
+      "pvar": {
+        "length": 144,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "respawnTimeSeconds",
+            "label": "Respawn time (Seconds)",
+            "offset": 112,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          },
+          {
+            "key": "initiallyAvailable",
+            "label": "Initially Available",
+            "offset": 132,
+            "length": 1,
+            "definition": {
+              "kind": "bool8"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 6844,
+      "name": "Crate - Flux Rifle",
+      "tags": [],
+      "pvar": {
+        "length": 144,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "respawnTimeSeconds",
+            "label": "Respawn time (Seconds)",
+            "offset": 112,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          },
+          {
+            "key": "initiallyAvailable",
+            "label": "Initially Available",
+            "offset": 132,
+            "length": 1,
+            "definition": {
+              "kind": "bool8"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 6845,
+      "name": "Crate - Blitz Gun",
+      "tags": [],
+      "pvar": {
+        "length": 144,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "respawnTimeSeconds",
+            "label": "Respawn time (Seconds)",
+            "offset": 112,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          },
+          {
+            "key": "initiallyAvailable",
+            "label": "Initially Available",
+            "offset": 132,
+            "length": 1,
+            "definition": {
+              "kind": "bool8"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 6846,
+      "name": "Crate - Lava Gun",
+      "tags": [],
+      "pvar": {
+        "length": 144,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "respawnTimeSeconds",
+            "label": "Respawn time (Seconds)",
+            "offset": 112,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          },
+          {
+            "key": "initiallyAvailable",
+            "label": "Initially Available",
+            "offset": 132,
+            "length": 1,
+            "definition": {
+              "kind": "bool8"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 6847,
+      "name": "Crate - Holo Shield",
+      "tags": [],
+      "pvar": {
+        "length": 144,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "respawnTimeSeconds",
+            "label": "Respawn time (Seconds)",
+            "offset": 112,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          },
+          {
+            "key": "initiallyAvailable",
+            "label": "Initially Available",
+            "offset": 132,
+            "length": 1,
+            "definition": {
+              "kind": "bool8"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 6848,
+      "name": "Crate - Morph-O-Ray",
+      "tags": [],
+      "pvar": {
+        "length": 144,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "respawnTimeSeconds",
+            "label": "Respawn time (Seconds)",
+            "offset": 112,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          },
+          {
+            "key": "initiallyAvailable",
+            "label": "Initially Available",
+            "offset": 132,
+            "length": 1,
+            "definition": {
+              "kind": "bool8"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 6849,
+      "name": "Crate - Mine Glove",
+      "tags": [],
+      "pvar": {
+        "length": 144,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "respawnTimeSeconds",
+            "label": "Respawn time (Seconds)",
+            "offset": 112,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          },
+          {
+            "key": "initiallyAvailable",
+            "label": "Initially Available",
+            "offset": 132,
+            "length": 1,
+            "definition": {
+              "kind": "bool8"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 6870,
+      "name": "Gattling Turret",
+      "tags": [],
+      "pvar": {
+        "length": 720,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "health",
+            "label": "Health",
+            "offset": 52,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          },
+          {
+            "key": "baseLight",
+            "label": "Base Light",
+            "offset": 568,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "gunBarrelSpinUpRate",
+            "label": "Gun Barrel Spin-up Rate",
+            "offset": 584,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "aggressionDistance",
+            "label": "Aggression Distance",
+            "offset": 596,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "damageMultiplier",
+            "label": "Damage Multiplier",
+            "offset": 604,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "trackingSpeed1",
+            "label": "Tracking Speed 1",
+            "offset": 628,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "trackingSpeed2",
+            "label": "Tracking Speed 2",
+            "offset": 632,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "attachedMoby1",
+            "label": "Attached Moby 1",
+            "offset": 644,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "attachedMoby2",
+            "label": "Attached Moby 2",
+            "offset": 648,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "attachedMoby3",
+            "label": "Attached Moby 3",
+            "offset": 652,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "attachedTieGroup1",
+            "label": "Attached Tie Group 1",
+            "offset": 656,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          },
+          {
+            "key": "attachedTieGroup2",
+            "label": "Attached Tie Group 2",
+            "offset": 660,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          },
+          {
+            "key": "attachedTieGroup3",
+            "label": "Attached Tie Group 3",
+            "offset": 664,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 6889,
+      "name": "Korgon Sloped Bridge",
+      "tags": [],
+      "pvar": {
+        "length": 32,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "parentNode",
+            "label": "Parent Node",
+            "offset": 0,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "team",
+            "label": "Team",
+            "offset": 4,
+            "length": 4,
+            "definition": {
+              "kind": "enum",
+              "storage": "int32",
+              "options": [
+                {
+                  "key": "blue",
+                  "label": "Blue",
+                  "value": 0
+                },
+                {
+                  "key": "red",
+                  "label": "Red",
+                  "value": 1
+                },
+                {
+                  "key": "neutral",
+                  "label": "Neutral",
+                  "value": 2
+                }
+              ]
+            }
+          },
+          {
+            "key": "initialState",
+            "label": "Initial State",
+            "offset": 8,
+            "length": 4,
+            "definition": {
+              "kind": "enum",
+              "storage": "int32",
+              "options": [
+                {
+                  "key": "lowered",
+                  "label": "Lowered",
+                  "value": 0
+                },
+                {
+                  "key": "raised",
+                  "label": "Raised",
+                  "value": 1
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 6898,
+      "name": "Health Crate",
+      "tags": [],
+      "pvar": {
+        "length": 144,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "respawnTimeSeconds",
+            "label": "Respawn time (Seconds)",
+            "offset": 112,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          },
+          {
+            "key": "initiallyAvailable",
+            "label": "Initially Available",
+            "offset": 132,
+            "length": 1,
+            "definition": {
+              "kind": "bool8"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 6905,
+      "name": "Gattling Turret Holder Collision 1",
+      "tags": [],
+      "pvar": {
+        "length": 16,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "autoRotate90DegUnconfirmed",
+            "label": "Auto-rotate 90 deg (Unconfirmed)",
+            "offset": 0,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          },
+          {
+            "key": "unknownField2",
+            "label": "Unknown Field 2",
+            "offset": 4,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          },
+          {
+            "key": "unknownField3",
+            "label": "Unknown Field 3",
+            "offset": 8,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          },
+          {
+            "key": "unknownField4",
+            "label": "Unknown Field 4",
+            "offset": 12,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 6906,
+      "name": "Gattling Turret Holder Collision 2",
+      "tags": [],
+      "pvar": {
+        "length": 16,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "autoRotate90DegUnconfirmed",
+            "label": "Auto-rotate 90 deg (Unconfirmed)",
+            "offset": 0,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          },
+          {
+            "key": "unknownField2",
+            "label": "Unknown Field 2",
+            "offset": 4,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          },
+          {
+            "key": "unknownField3",
+            "label": "Unknown Field 3",
+            "offset": 8,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          },
+          {
+            "key": "unknownField4",
+            "label": "Unknown Field 4",
+            "offset": 12,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 6907,
+      "name": "Gattling Turret Holder Collision 3",
+      "tags": [],
+      "pvar": {
+        "length": 16,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "autoRotate90DegUnconfirmed",
+            "label": "Auto-rotate 90 deg (Unconfirmed)",
+            "offset": 0,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          },
+          {
+            "key": "unknownField2",
+            "label": "Unknown Field 2",
+            "offset": 4,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          },
+          {
+            "key": "unknownField3",
+            "label": "Unknown Field 3",
+            "offset": 8,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          },
+          {
+            "key": "unknownField4",
+            "label": "Unknown Field 4",
+            "offset": 12,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 6914,
+      "name": "Ammo - Mine Glove",
+      "tags": [],
+      "pvar": {
+        "length": 48,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "respawnTimeSeconds",
+            "label": "Respawn time (Seconds)",
+            "offset": 20,
+            "length": 4,
+            "minimum": 0,
+            "maximum": 60,
+            "definition": {
+              "kind": "int32"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 6915,
+      "name": "Ammo - Lava Gun",
+      "tags": [],
+      "pvar": {
+        "length": 48,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "respawnTimeSeconds",
+            "label": "Respawn time (Seconds)",
+            "offset": 20,
+            "length": 4,
+            "minimum": 0,
+            "maximum": 60,
+            "definition": {
+              "kind": "int32"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 6916,
+      "name": "Ammo - Holo Shield Glove",
+      "tags": [],
+      "pvar": {
+        "length": 48,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "respawnTimeSeconds",
+            "label": "Respawn time (Seconds)",
+            "offset": 20,
+            "length": 4,
+            "minimum": 0,
+            "maximum": 60,
+            "definition": {
+              "kind": "int32"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 6917,
+      "name": "Ammo - N60 Storm",
+      "tags": [],
+      "pvar": {
+        "length": 48,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "respawnTimeSeconds",
+            "label": "Respawn time (Seconds)",
+            "offset": 20,
+            "length": 4,
+            "minimum": 0,
+            "maximum": 60,
+            "definition": {
+              "kind": "int32"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 6921,
+      "name": "Crate - Chargeboots",
+      "tags": [],
+      "pvar": {
+        "length": 144,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "respawnTimeSeconds",
+            "label": "Respawn time (Seconds)",
+            "offset": 112,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          },
+          {
+            "key": "initiallyAvailable",
+            "label": "Initially Available",
+            "offset": 132,
+            "length": 1,
+            "definition": {
+              "kind": "bool8"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 6947,
+      "name": "Korgon Extendable Bridge",
+      "tags": [],
+      "pvar": {
+        "length": 208,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "invertDirection",
+            "label": "Invert Direction",
+            "offset": 128,
+            "length": 1,
+            "definition": {
+              "kind": "bool8"
+            }
+          },
+          {
+            "key": "boltCrank",
+            "label": "Bolt Crank",
+            "offset": 140,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "unknownFloat",
+            "label": "Unknown Float",
+            "offset": 176,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "extensionSpeed",
+            "label": "Extension Speed",
+            "offset": 184,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "retractedOffset",
+            "label": "Retracted Offset",
+            "offset": 188,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 7101,
+      "name": "Anti-vehicle Missle Turret",
+      "tags": [],
+      "pvar": {
+        "length": 608,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "health",
+            "label": "Health",
+            "offset": 52,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          },
+          {
+            "key": "turretType",
+            "label": "Turret Type",
+            "offset": 560,
+            "length": 4,
+            "definition": {
+              "kind": "enum",
+              "storage": "int32",
+              "options": [
+                {
+                  "key": "normalAntiPlayerVehicle",
+                  "label": "Normal - Anti player + vehicle",
+                  "value": 0
+                },
+                {
+                  "key": "missleAntiVehicle",
+                  "label": "Missle - Anti vehicle",
+                  "value": 1
+                }
+              ]
+            }
+          },
+          {
+            "key": "damageMultiplier",
+            "label": "Damage Multiplier",
+            "offset": 564,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          },
+          {
+            "key": "shotDelay",
+            "label": "Shot Delay",
+            "offset": 568,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          },
+          {
+            "key": "missleSpeed",
+            "label": "Missle Speed",
+            "offset": 572,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "missleExplosionRadius",
+            "label": "Missle Explosion Radius",
+            "offset": 576,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "missleTrackingStength",
+            "label": "Missle Tracking Stength",
+            "offset": 580,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          },
+          {
+            "key": "missleTrackingTime",
+            "label": "Missle Tracking Time",
+            "offset": 584,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          },
+          {
+            "key": "parentNode",
+            "label": "Parent Node",
+            "offset": 588,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "aggressionDistanceGround",
+            "label": "Aggression Distance (Ground)",
+            "offset": 592,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "aggressionDistanceAir",
+            "label": "Aggression Distance (Air)",
+            "offset": 604,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 7215,
+      "name": "Red Flag",
+      "tags": [],
+      "pvar": {
+        "length": 48,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "capturePoint",
+            "label": "Capture Point",
+            "offset": 24,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 7217,
+      "name": "Blue Flag",
+      "tags": [],
+      "pvar": {
+        "length": 48,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "capturePoint",
+            "label": "Capture Point",
+            "offset": 24,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "cuboid",
+              "nullValue": -1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 7255,
+      "name": "Base Computer",
+      "tags": [],
+      "pvar": {
+        "length": 208,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "health",
+            "label": "Health",
+            "offset": 52,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          },
+          {
+            "key": "baseLight",
+            "label": "Base Light",
+            "offset": 140,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 7710,
+      "name": "Destructible Bridge Center (BWC)",
+      "tags": [],
+      "pvar": {
+        "length": 0,
+        "relocations": [],
+        "fields": []
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 7711,
+      "name": "Destructible Bridge Main (BWC)",
+      "tags": [],
+      "pvar": {
+        "length": 48,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "centerPiece",
+            "label": "Center Piece",
+            "offset": 4,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "sideRail1",
+            "label": "Side Rail 1",
+            "offset": 8,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "sideRail2",
+            "label": "Side Rail 2",
+            "offset": 12,
+            "length": 4,
+            "definition": {
+              "kind": "reference",
+              "storage": "int32",
+              "domain": "entity",
+              "targetKind": "moby",
+              "nullValue": -1
+            }
+          },
+          {
+            "key": "health",
+            "label": "Health",
+            "offset": 16,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "destroyedTieGroup",
+            "label": "Destroyed Tie Group",
+            "offset": 28,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          },
+          {
+            "key": "centerTieGroup",
+            "label": "Center Tie Group",
+            "offset": 32,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 7712,
+      "name": "Destructible Bridge Side Rail (BWC)",
+      "tags": [],
+      "pvar": {
+        "length": 16,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "health",
+            "label": "Health",
+            "offset": 4,
+            "length": 4,
+            "definition": {
+              "kind": "float32"
+            }
+          },
+          {
+            "key": "tieGroup",
+            "label": "Tie Group",
+            "offset": 12,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 7966,
+      "name": "Crate - Random Weapon",
+      "tags": [],
+      "pvar": {
+        "length": 144,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "respawnTimeSeconds",
+            "label": "Respawn time (Seconds)",
+            "offset": 112,
+            "length": 4,
+            "definition": {
+              "kind": "int32"
+            }
+          },
+          {
+            "key": "initiallyAvailable",
+            "label": "Initially Available",
+            "offset": 132,
+            "length": 1,
+            "definition": {
+              "kind": "bool8"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 8030,
+      "name": "Unknown (Node Related)",
+      "tags": [],
+      "pvar": {
+        "length": 192,
+        "relocations": [],
+        "fields": []
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "game": "UYA",
+      "oClass": 12288,
+      "name": "UYA Hill",
+      "tags": [],
+      "pvar": {
+        "length": 512,
+        "relocations": [],
+        "fields": [
+          {
+            "key": "hillCuboids",
+            "label": "Hill Cuboids",
+            "offset": 0,
+            "length": 128,
+            "definition": {
+              "kind": "array",
+              "count": 32,
+              "stride": 4,
+              "element": {
+                "kind": "reference",
+                "storage": "int32",
+                "domain": "entity",
+                "targetKind": "cuboid",
+                "nullValue": -1
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

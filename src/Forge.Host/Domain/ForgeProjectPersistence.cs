@@ -217,6 +217,7 @@ internal static class ForgeProjectPersistence
         var content = contentVersion < ProjectSchema.CurrentVersion
             ? ProjectReferences.Migrate(MigrateContent(contentBytes))
             : Deserialize<ForgeProjectContent>(contentBytes, "Project content");
+        content = ProjectMobyPVars.Migrate(content);
         return new(manifest, content);
     }
 
@@ -249,6 +250,7 @@ internal static class ForgeProjectPersistence
         root["entities"] ??= new JsonArray();
         root["assets"] ??= new JsonArray();
         root["assetOverrides"] ??= new JsonArray();
+        root["groups"] ??= new JsonArray();
         if (root.Remove("tieCollisionBindings", out var legacyBindings))
             root["instancedCollisionBindings"] = legacyBindings;
         root["instancedCollisionBindings"] ??= new JsonArray();

@@ -19,6 +19,8 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Forge.Host.ProtocolTests" />
+    <EmbeddedResource Include="Games/UYA/MobyDex/dataset.json"
+                      LogicalName="Forge.Host.Games.UYA.MobyDex.dataset.json" />
   </ItemGroup>
 
   <Target Name="ValidateRatchetSdk" BeforeTargets="PrepareForBuild">

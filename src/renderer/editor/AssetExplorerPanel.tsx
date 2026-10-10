@@ -11,18 +11,18 @@ import type {
   AssetPreviewKind,
 } from '../../types/AssetExplorer.js';
 import type { SceneTreeColors, SceneTreeKind } from '../../types/SceneTree.js';
-import { errorMessage } from '../../utils/Errors.ts';
 import { ASSET_PLACEMENT_MIME, SKY_SHELL_PLACEMENT_MIME } from '../../utils/AssetPlacement.ts';
-import { formatUyaLevelLabel } from '../../utils/UyaLevels.ts';
-import { AssetPreviewMeshMissingError, AssetThumbnailRuntime } from './AssetThumbnailRuntime.ts';
 import {
   assetExplorerFilterCount,
   assetExplorerQueryKey,
-  assetGridWindow,
   buildAssetFamilies,
   isStaleAssetExplorerCursor,
   retainAssetExplorerPageDepth,
-} from './EditorPanelState.ts';
+} from '../../utils/AssetExplorer.ts';
+import { errorMessage } from '../../utils/Errors.ts';
+import { formatUyaLevelLabel } from '../../utils/UyaLevels.ts';
+import { assetGridWindow } from '../../utils/VirtualGrid.ts';
+import { AssetPreviewMeshMissingError, AssetThumbnailRuntime } from './AssetThumbnailRuntime.ts';
 import { useEditor } from './EditorContext.ts';
 
 const CATEGORIES: { label: string; value: AssetExplorerCategory }[] = [
