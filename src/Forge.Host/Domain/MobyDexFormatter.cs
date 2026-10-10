@@ -8,7 +8,7 @@ internal static class MobyDexFormatter
     public static byte[] Format(MobyDexEntry entry)
     {
         var buffer = new ArrayBufferWriter<byte>();
-        using (var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { Indented = true }))
+        using (var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { Indented = true, NewLine = "\n" }))
         {
             writer.WriteStartObject();
             writer.WriteNumber("schemaVersion", entry.SchemaVersion);
