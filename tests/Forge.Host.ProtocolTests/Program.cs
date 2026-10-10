@@ -33,6 +33,8 @@ internal static class Program
             await ForgeProjectTests.RunAsync();
             await ProjectReferenceTests.RunAsync();
             await ProjectGroupTests.RunAsync();
+            await GroupTemplateTests.RunAsync();
+            await UyaGroupTemplateTests.RunAsync();
             await AuthoringFoundationQualificationTests.RunAsync();
             await HudProjectTests.RunAsync();
             await FxProjectTests.RunAsync();
@@ -172,7 +174,7 @@ internal static class Program
         Equal(true, options.Levels.SequenceEqual(decodedOptions.Levels), "project option levels");
         Equal(true, options.Warnings.SequenceEqual(decodedOptions.Warnings), "project option warnings");
         var createProject = new UyaProjectCreationRequestPayload(
-            "source.iso", "assets", "project", "Test", UyaIsoService.SupportedMd5, "1.00", 3, true);
+            "source.iso", "assets", "project", "Test", UyaIsoService.SupportedMd5, "1.00", 3, true, true);
         Equal(createProject, BridgePayloadCodec.DecodeUyaProjectCreationRequest(
             BridgePayloadCodec.EncodeUyaProjectCreationRequest(createProject)), "project creation payload");
         var preflightRequest = new UyaProjectPreflightRequestPayload("source.iso", "assets", 3);

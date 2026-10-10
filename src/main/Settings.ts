@@ -169,6 +169,13 @@ function createDefinitions(paths: ApplicationPaths, defaultUpdateChannel: Update
       validate: (value): value is number => Number.isInteger(value) && Number(value) >= 5 && Number(value) <= 3600,
     },
     {
+      key: 'projects.applyGroupTemplatesOnCreate', group: 'Editor',
+      label: 'Apply group templates to new projects', type: 'boolean',
+      description: 'Create generated groups from matching template rules when a project is created.',
+      defaultValue: true, restartRequired: false, machineSpecific: false, editable: true,
+      validate: (value): value is boolean => typeof value === 'boolean',
+    },
+    {
       key: 'keybindings.overrides', group: 'Keybindings', label: 'Keybinding overrides', type: 'text',
       description: 'User-defined command shortcuts managed by Forge.', defaultValue: '{}', restartRequired: false,
       machineSpecific: false, editable: true, validate: isKeybindingOverrides,

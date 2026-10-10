@@ -151,6 +151,7 @@ public delegate Task EditorMobyPVarCommandExecutor(
 
 public delegate Task<EditorDiagnostic?> EditorProjectOpenHydrator(
     ForgeProjectWorkspace workspace,
+    AssetCatalogStore? catalog,
     CancellationToken cancellationToken);
 
 public delegate Task<EditorMapGroupCatalog> EditorMapGroupResolver(
@@ -458,7 +459,8 @@ public sealed record EditorGroupSnapshot(
     GroupId GroupId,
     string Name,
     IReadOnlyList<EntityId> Members,
-    IReadOnlyList<EntityId> MissingMembers);
+    IReadOnlyList<EntityId> MissingMembers,
+    ProjectGroupTemplateProvenance? Template = null);
 
 public enum EditorMapGroupKind : byte
 {
@@ -496,6 +498,7 @@ public sealed record EditorSnapshot(
     IReadOnlyList<EditorReferenceSnapshot> References,
     IReadOnlyList<EditorGroupSnapshot> Groups,
     IReadOnlyList<EditorMapGroupSnapshot> MapGroups,
+    IReadOnlyList<EditorGroupTemplateDefinition> GroupTemplates,
     IReadOnlyList<EntityId> Selection,
     bool IsDirty,
     bool CanUndo,

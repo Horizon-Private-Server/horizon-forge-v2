@@ -68,7 +68,7 @@ internal static class ForgeProjectTests
                 new("UYA", 3, "collision/primary/solid", 0),
                 Collision: new(
                     ProjectCollisionPieceKind.Solid, 0, 0, 1, 3, [new(0x21, 1)],
-                    new(existingTieId, existingTie.Transform)));
+                    [existingTieId]));
             var collisionProject = await ForgeProjectWorkspace.CreateAsync(
                 collisionProjectPath, "Collision project", target, baseLevel, [existingTie, linkedCollision]);
             collisionProject.UpdateTransform(linkedCollision.EntityId,
@@ -76,15 +76,29 @@ internal static class ForgeProjectTests
             Equal(new ProjectVector3(2, 3, 4),
                 collisionProject.Content.Entities.Single(value => value.EntityId == existingTieId).Transform.Position,
                 "moving recovered collision translates its attached TIE");
-            Equal(ProjectTransform.Identity.Position,
+            Equal(new ProjectVector3(2, 3, 4),
                 collisionProject.Content.Entities.Single(value => value.EntityId == linkedCollision.EntityId)
                     .Transform.Position,
-                "reverse movement does not apply the translation twice to recovered collision");
+                "moving linked collision translates the component exactly once");
+            collisionProject.UpdateTransforms(
+            [
+                new(existingTieId, existingTie.Transform with { Position = new(4, 3, 4) }),
+                new(linkedCollision.EntityId, linkedCollision.Transform with { Position = new(4, 3, 4) }),
+            ]);
+            Equal(new ProjectVector3(4, 3, 4),
+                collisionProject.Content.Entities.Single(value => value.EntityId == existingTieId).Transform.Position,
+                "a fully expanded linked transform batch moves the component exactly once");
+            Equal(new ProjectVector3(4, 3, 4),
+                collisionProject.Content.Entities.Single(value => value.EntityId == linkedCollision.EntityId)
+                    .Transform.Position,
+                "a fully expanded linked transform batch keeps collision aligned");
             await collisionProject.SaveAsync();
             collisionProject = await ForgeProjectWorkspace.OpenAsync(collisionProjectPath);
             _ = collisionProject.RemoveEntities([existingTieId]);
-            Equal(0, collisionProject.Content.Entities.Count,
-                "deleting a TIE also deletes its recovered collision pieces");
+            Equal(1, collisionProject.Content.Entities.Count,
+                "deleting a TIE preserves linked collision");
+            Equal(0, collisionProject.Content.Entities.Single().Collision!.LinkedInstanceEntityIds!.Count,
+                "deleting a TIE clears its collision link");
 
             project.UpdateTransform(firstId, ProjectTransform.Identity with { Position = new(1, 2, 3) });
             Equal(true, project.IsDirty, "transform marks project dirty");

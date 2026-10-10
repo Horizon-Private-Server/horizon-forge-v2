@@ -1,4 +1,6 @@
-import type { EditorCommand, EditorLevelSettings } from '../types/EditorRuntime.js';
+import type {
+  EditorCommand, EditorGroupTemplateRequest, EditorLevelSettings,
+} from '../types/EditorRuntime.js';
 
 const commandKinds = new Set([
   'setSelection', 'renameProject', 'updateTransform', 'updateTransforms',
@@ -133,9 +135,34 @@ export function isEditorCommand(value: unknown): value is EditorCommand {
   return true;
 }
 
-function isUuid(value: unknown): value is string {
+export function isUuid(value: unknown): value is string {
   return typeof value === 'string'
     && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value);
+}
+
+export function isGroupTemplateRequest(value: unknown): value is EditorGroupTemplateRequest {
+  if (!value || typeof value !== 'object') return false;
+  const request = value as Record<string, unknown>;
+  if (!isTemplateIdentifier(request.templateId)
+    || !Number.isInteger(request.templateVersion)
+    || Number(request.templateVersion) < 1 || Number(request.templateVersion) > 0x7fff_ffff
+    || request.groupId !== undefined && !isUuid(request.groupId)
+    || request.seedEntityId !== undefined && !isUuid(request.seedEntityId)
+    || !Array.isArray(request.parameters) || request.parameters.length > 32) return false;
+  const parameters = request.parameters as unknown[];
+  if (parameters.some((parameter) => {
+    if (!parameter || typeof parameter !== 'object') return true;
+    const candidate = parameter as Record<string, unknown>;
+    return !hasExactKeys(candidate, ['key', 'value'])
+      || !isTemplateIdentifier(candidate.key)
+      || typeof candidate.value !== 'number' || !Number.isFinite(candidate.value);
+  })) return false;
+  return new Set(parameters.map((parameter) => (parameter as { key: string }).key)).size
+    === parameters.length;
+}
+
+function isTemplateIdentifier(value: unknown): value is string {
+  return typeof value === 'string' && /^[a-z0-9][a-z0-9._-]{0,127}$/.test(value);
 }
 
 function isGroupName(value: unknown): value is string {

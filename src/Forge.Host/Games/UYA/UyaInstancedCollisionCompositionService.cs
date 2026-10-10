@@ -14,7 +14,6 @@ internal static class UyaInstancedCollisionCompositionService
     public static async Task<CollisionSource> ReadPrimaryAsync(
         ForgeProjectWorkspace workspace,
         AssetCatalogStore catalog,
-        EntityId? replacementEntityId,
         CancellationToken cancellationToken)
     {
         var primaryEntities = workspace.Content.Entities
@@ -30,8 +29,7 @@ internal static class UyaInstancedCollisionCompositionService
         return new(
             bytes,
             CreateEdits(workspace, assetIds[0], bytes, sourcePayloadIndex: 0),
-            BuildLinkedAdditions(
-                workspace, assetIds[0], bytes, sourcePayloadIndex: 0, replacementEntityId, cancellationToken));
+            []);
     }
 
     public static IReadOnlyList<CollisionPieceEdit> CreateEdits(
@@ -54,64 +52,20 @@ internal static class UyaInstancedCollisionCompositionService
         {
             var kind = UyaCollisionAdapter.ToProjectKind(piece.Kind);
             if (!entities.TryGetValue((kind, piece.SourcePieceIndex), out var entity)
-                || entity.State?.Disabled == true || entity.Collision!.Attachment is not null)
+                || entity.State?.Disabled == true)
                 return new CollisionPieceEdit(piece.Kind, piece.SourcePieceIndex, 0, 0, 0, Remove: true);
             return new CollisionPieceEdit(
                 piece.Kind,
                 piece.SourcePieceIndex,
                 entity.Transform.Position.X,
                 entity.Transform.Position.Y,
-                entity.Transform.Position.Z);
+                entity.Transform.Position.Z,
+                Rotation: new(
+                    entity.Transform.Rotation.X,
+                    entity.Transform.Rotation.Y,
+                    entity.Transform.Rotation.Z,
+                    entity.Transform.Rotation.W));
         }).ToArray();
-    }
-
-    public static IReadOnlyList<CollisionSolidAddition> BuildLinkedAdditions(
-        ForgeProjectWorkspace workspace,
-        AssetId assetId,
-        byte[] source,
-        int? sourcePayloadIndex,
-        EntityId? replacementEntityId,
-        CancellationToken cancellationToken)
-    {
-        var linked = workspace.Content.Entities.Where(value =>
-                value.Asset?.Id == assetId
-                && value.Collision?.Attachment is not null
-                && (sourcePayloadIndex is null || value.Collision.SourcePayloadIndex == sourcePayloadIndex)
-                && value.State?.Disabled != true)
-            .OrderBy(value => value.EntityId.ToString(), StringComparer.Ordinal)
-            .ToArray();
-        if (linked.Length == 0) return [];
-        var entities = workspace.Content.Entities.ToDictionary(value => value.EntityId);
-        var bindings = workspace.Content.InstancedCollisionBindings
-            .Select(value => (value.SourceAssetId, value.InstanceEntityId))
-            .ToHashSet();
-        var pieces = CollisionWork.DecodeSolidPieces(source, GameId.UYA, cancellationToken)
-            .ToDictionary(value => value.SourcePieceIndex);
-        return linked.Select(value =>
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                var attachment = value.Collision!.Attachment!;
-                var parent = entities[attachment.ParentEntityId];
-                if (parent.State?.Disabled == true) return null;
-                var bindingEntityId = parent.InstancedCollisionEnabled == false ? parent.EntityId : (EntityId?)null;
-                if (parent.EntityId == replacementEntityId
-                    || parent.InstancedCollisionEnabled is not null
-                    && parent.Asset is { } parentAsset && parentAsset.IsInstancedCollisionSource()
-                    && bindings.Contains((parentAsset.Id, bindingEntityId)))
-                    return null;
-                var id = $"linked:{value.EntityId}";
-                var addition = new CollisionSolidAddition(id, pieces[value.Collision.SourcePieceIndex].Faces);
-                return CollisionWork.TransformAdditionRelative(
-                    addition,
-                    GameId.UYA,
-                    id,
-                    ToCollisionTransform(value.Transform),
-                    ToCollisionTransform(attachment.BindTransform),
-                    ToCollisionTransform(parent.Transform),
-                    cancellationToken);
-            })
-            .OfType<CollisionSolidAddition>()
-            .ToArray();
     }
 
     public static async Task<IReadOnlyList<CollisionSolidAddition>> BuildAdditionsAsync(

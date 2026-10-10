@@ -398,6 +398,22 @@ internal static class UyaProjectTests
                 new MemoryStream(iso, writable: false), missingCatalog,
                 request with { ProjectPath = refusedPath, AllowPartial = false }));
             Equal(false, Directory.Exists(refusedPath), "warning confirmation precedes project write");
+
+            var recoveryTieId = EntityId.New();
+            var recoveryEntities = new List<ProjectEntity>
+            {
+                new(recoveryTieId, "Recovery TIE", "ties", ProjectTransform.Identity,
+                    new(tieAsset.Id, AssetKind.Tie)),
+                new(EntityId.New(), "Recovery collision", "collision", ProjectTransform.Identity,
+                    new(AssetId.Parse(new string('f', AssetId.TextLength)), AssetKind.Collision),
+                    Collision: new(ProjectCollisionPieceKind.Solid, 0, 0, 1, 3, [new(0, 1)], [recoveryTieId])),
+            };
+            Equal(false, UyaInstancedCollisionLinkRecoveryService.Recover(recoveryEntities,
+                    [new(BakeLayerId.Collision, "collision.bin", AssetKind.Collision, "level.wad", 0, [])],
+                    missingCatalog),
+                "collision recovery reports a missing source asset");
+            Equal(recoveryTieId, recoveryEntities[1].Collision!.LinkedInstanceEntityIds!.Single(),
+                "failed collision recovery preserves existing links");
         }
         finally
         {

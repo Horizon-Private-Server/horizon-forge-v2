@@ -816,6 +816,8 @@ atomic preflight instead of silently placing only the eligible subset.
 
 ### M10-004 — Implement deterministic group-template evaluation
 
+Status: ✅ Complete
+
 Requirements: FR-GROUP-004, NFR-P2-002, NFR-P2-003, NFR-MAINT-001
 Depends on: M9-009, M10-001
 
@@ -836,7 +838,22 @@ Acceptance:
 Verification: determinism, cancellation, stale-preview, spatial scale, ambiguity, and
 regeneration-diff tests.
 
+Implementation: project schema v17 adds optional versioned template provenance to
+ordinary Custom groups, including normalized numeric parameters, the evaluated input
+fingerprint, and a generated-member baseline that keeps later manual additions and
+removals distinguishable. Game adapters plug a bounded evaluator into the editor
+runtime and receive stable kind/reference queries plus a uniform spatial index rather
+than scanning all entity pairs. Evaluations normalize candidate/evidence ordering,
+surface ambiguities and diagnostics, and return cancellable tokenized previews with
+explicit add/remove/manual diffs. Accept and regeneration reject stale project versions,
+commit one undoable group mutation, preserve manual overrides, and are exposed through
+the game-neutral host/Electron bridge. Synthetic qualification covers deterministic
+repeats, typed references, 25,000-entity spatial scale, cancellation, stale previews,
+save/reopen provenance, and atomic regeneration. Concrete UYA rules remain M10-005.
+
 ### M10-005 — Add node/siege templates and qualify M10
+
+Status: ✅ Complete
 
 Requirements: FR-GROUP-004, M10 exit gate, NFR-P2-005
 Depends on: M10-003, M10-004
@@ -856,6 +873,24 @@ Acceptance:
   game-binary change caused solely by grouping.
 
 Verification: template golden fixtures and packaged-app manual group workflow.
+
+Implementation: the UYA adapter now publishes versioned Siege Node and Siege Base
+templates from a strictly validated JSON rule dataset to the game-neutral editor
+snapshot. Node evaluation starts from verified
+OClass `0x1A47`, follows its attached-moby/defense/bolt-crank MobyDex references and
+incoming `parentNode` links, qualifies reviewed node TIE classes by indexed proximity,
+and includes cuboids only through typed references on included node mobys. Base
+evaluation starts from Base Light `0x0CBE`, follows verified
+base references, uses Multiplayer Config only for red/blue naming, and qualifies the
+reviewed base TIE family and nearby cuboids by proximity. Both rules expose bounded
+radius and ambiguity parameters, include evidence for every included or ambiguous
+candidate, and store the stable seed with generated provenance. The compact Groups-panel
+flow previews evidence, add/remove/manual diffs, and requires confirmation for creation
+or regeneration.
+Synthetic red/blue base, hallway/node, parameter-diff, manual-preservation, and
+save/reopen fixtures pass alongside the existing group-only bake-identity test. The
+packaged-app/PCSX2 walkthrough remains a release qualification check rather than an
+automated fixture; see [the reviewed rule contract](../../features/group-templates-v0.md).
 
 ## M11 — Scene semantics and level settings
 
@@ -1076,14 +1111,14 @@ Requirements: FR-TFRAG-003, FR-COLL-003, NFR-P2-005
 Depends on: M12-003, M12-005
 
 Extend collision recovery to score each source collision component against individual
-tfrag entities in local space and store only confident Entity-ID attachments.
+tfrag entities in local space and store confident many-to-many Entity-ID links.
 
 Acceptance:
 
 - Scoring documents bounds coverage, center/alignment terms, minimum confidence, clear
   lead, deterministic tie breaking, and why rejected candidates remain independent.
-- Attached collision follows supported translate/rotate/scale and reverse manipulation
-  remains coherent; source geometry/type bytes are not regenerated from render meshes.
+- Linked collision and instances translate as one connected component in either
+  direction; source geometry/type bytes are not regenerated from render meshes.
 - Ambiguous/weak/no-match cases retain editable world collision with diagnostics and no
   silent association.
 - Transformed combined collision passes native octant/size validation before staging.
@@ -1105,7 +1140,7 @@ Acceptance:
   transforms once, rebuilds tables/packets/bounds/indexes, and semantically re-reads.
 - No-edit output meets the frozen identity contract; a one-piece change leaves
   unaffected payloads/groups semantically or byte identical as specified.
-- Fingerprints include piece assets/transforms/material refs/collision attachments and
+- Fingerprints include piece assets/transforms/material refs/collision links and
   writer version; unrelated layers remain clean.
 - Failure/cancellation retains last successful staging and identifies Entity ID plus
   payload/chunk/group.

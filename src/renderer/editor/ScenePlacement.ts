@@ -2,7 +2,9 @@ import * as THREE from 'three';
 
 import type { EditorEntity, EditorTransformUpdate } from '../../types/EditorRuntime.js';
 import { cloneProjectTransform } from '../../utils/Transforms.ts';
-import { inspectTransformSelection } from '../../utils/TransformSelection.ts';
+import {
+  expandLinkedCollisionTransforms, indexLinkedCollisionTransforms, inspectTransformSelection,
+} from '../../utils/TransformSelection.ts';
 import type { SceneProjection } from './SceneProjection.ts';
 
 export interface GroundPlacementResult {
@@ -85,11 +87,11 @@ export function buildGroundPlacement(
   if (Math.abs(distance) < 0.0001) return { message: 'The selection is already on a surface.', updates: [] };
   return {
     message: `Placed ${selected.length} object${selected.length === 1 ? '' : 's'} on the surface.`,
-    updates: selected.map((entity) => {
+    updates: expandLinkedCollisionTransforms(indexLinkedCollisionTransforms(entities), selected.map((entity) => {
       const transform = cloneProjectTransform(entity.transform);
       transform.position.z += distance;
       return { entityId: entity.id, transform };
-    }),
+    })),
   };
 }
 

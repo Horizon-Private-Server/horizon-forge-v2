@@ -27,10 +27,10 @@ public sealed class ProjectReferenceGraph
             .ToArray();
         return new(
             edges.GroupBy(edge => edge.OwnerEntityId)
-                .ToDictionary(group => group.Key, group => group.ToArray()),
+                .ToDictionary(group => group.Key, Sort),
             edges.Where(edge => edge.Reference is { Domain: ProjectReferenceDomain.Entity, EntityId: not null })
                 .GroupBy(edge => edge.Reference.EntityId!.Value)
-                .ToDictionary(group => group.Key, group => group.ToArray()));
+                .ToDictionary(group => group.Key, Sort));
     }
 
     public IReadOnlyList<ProjectReferenceEdge> Outgoing(EntityId ownerEntityId) =>
@@ -38,6 +38,12 @@ public sealed class ProjectReferenceGraph
 
     public IReadOnlyList<ProjectReferenceEdge> Incoming(EntityId targetEntityId) =>
         _incoming.GetValueOrDefault(targetEntityId) ?? [];
+
+    private static ProjectReferenceEdge[] Sort(IEnumerable<ProjectReferenceEdge> edges) => edges
+        .OrderBy(edge => edge.OwnerEntityId.ToString(), StringComparer.Ordinal)
+        .ThenBy(edge => edge.Reference.FieldKey, StringComparer.Ordinal)
+        .ThenBy(edge => edge.Reference.EntityId?.ToString(), StringComparer.Ordinal)
+        .ToArray();
 }
 
 internal static class ProjectReferences
@@ -48,7 +54,6 @@ internal static class ProjectReferences
     public const string AreaSpheres = "geometry.area.spheres";
     public const string AreaCylinders = "geometry.area.cylinders";
     public const string AreaNegativeCuboids = "geometry.area.negativeCuboids";
-    public const string CollisionAttachment = "collision.attachment";
 
     public static IEnumerable<ProjectReferenceEdge> FromEntity(ProjectEntity entity)
     {
@@ -64,10 +69,6 @@ internal static class ProjectReferences
             foreach (var edge in AreaEdges(entity.EntityId, area.Cylinders)) yield return edge;
             foreach (var edge in AreaEdges(entity.EntityId, area.NegativeCuboids)) yield return edge;
         }
-        if (entity.Collision?.Attachment is { } attachment)
-            yield return new(entity.EntityId, new(
-                ProjectReferenceDomain.Entity, CollisionAttachment, false,
-                EntityKind: ProjectEntityKind.Entity, EntityId: attachment.ParentEntityId));
     }
 
     public static ProjectEntityKind KindOf(ProjectEntity entity) => entity switch
@@ -149,9 +150,16 @@ internal static class ProjectReferences
 
     public static ProjectEntity ClearNullableEntityReferences(ProjectEntity entity, IReadOnlySet<EntityId> targets)
     {
-        if (entity.Geometry?.Area is not { } area) return entity;
+        var collision = entity.Collision?.LinkedInstanceEntityIds is { } linkedInstances
+            ? entity.Collision with
+            {
+                LinkedInstanceEntityIds = linkedInstances.Where(id => !targets.Contains(id)).ToArray(),
+            }
+            : entity.Collision;
+        if (entity.Geometry?.Area is not { } area) return entity with { Collision = collision };
         return entity with
         {
+            Collision = collision,
             Geometry = entity.Geometry with
             {
                 Area = area with
@@ -172,19 +180,6 @@ internal static class ProjectReferences
         int? sourceValue,
         EntityId? targetEntityId)
     {
-        if (fieldKey == CollisionAttachment && sourceValue is null
-            && entity.Collision?.Attachment is { } attachment)
-        {
-            if (targetEntityId is null)
-                throw new InvalidOperationException($"Entity field {fieldKey} is required.");
-            return entity with
-            {
-                Collision = entity.Collision with
-                {
-                    Attachment = attachment with { ParentEntityId = targetEntityId.Value },
-                },
-            };
-        }
         if (sourceValue is not { } sourceIndex || entity.Geometry?.Area is not { } area)
             throw new InvalidOperationException($"Entity has no editable reference field {fieldKey}.");
         var geometry = entity.Geometry;

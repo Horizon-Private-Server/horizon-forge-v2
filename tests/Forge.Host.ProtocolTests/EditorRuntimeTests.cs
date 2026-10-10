@@ -607,8 +607,9 @@ internal static class EditorRuntimeTests
         await using var runtime = new EditorRuntime(
             transformCapabilityResolver: UyaEditorCapabilities.ResolveTransformCapabilities);
         var snapshot = await runtime.OpenAsync(projectPath, TimeSpan.Zero);
-        Equal(EditorTransformCapabilities.Translate, snapshot.Entities.Single().TransformCapabilities,
-            "collision exposes translation only");
+        Equal(EditorTransformCapabilities.Translate | EditorTransformCapabilities.Rotate,
+            snapshot.Entities.Single().TransformCapabilities,
+            "collision exposes translation and rotation");
         Equal(ProjectCollisionPieceKind.Solid, snapshot.Entities.Single().Collision!.Kind,
             "collision metadata reaches editor snapshot");
 
@@ -616,10 +617,12 @@ internal static class EditorRuntimeTests
         snapshot = await runtime.ExecuteAsync(Command(EditorCommandKind.UpdateTransform, [id], requested));
         Equal(new ProjectVector3(0.0625f, 0, -0.078125f), snapshot.Entities.Single().Transform.Position,
             "solid collision translation is quantized before commit");
-        await ThrowsAsync<ArgumentException>(() => runtime.ExecuteAsync(Command(
+        snapshot = await runtime.ExecuteAsync(Command(
             EditorCommandKind.UpdateTransform,
             [id],
-            requested with { Rotation = new(0, 0, 1, 0) })));
+            requested with { Rotation = new(0, 0, 1, 0) }));
+        Equal(new ProjectQuaternion(0, 0, 1, 0), snapshot.Entities.Single().Transform.Rotation,
+            "solid collision rotation commits through the editor");
         await ThrowsAsync<ArgumentException>(() => runtime.ExecuteAsync(Command(EditorCommandKind.CopyEntities, [id])));
         await ThrowsAsync<ArgumentException>(() => runtime.ExecuteAsync(new(
             Guid.NewGuid().ToString("D"), EditorCommandKind.SetEntityLayer, [id], Text: "world")));

@@ -15,7 +15,9 @@ import {
   BridgeProtocolError,
   type BridgeFrame,
 } from '../src/main/bridge/BridgeProtocol.ts';
-import { isEditorCommand } from '../src/utils/EditorCommandValidation.ts';
+import {
+  isEditorCommand, isGroupTemplateRequest, isUuid,
+} from '../src/utils/EditorCommandValidation.ts';
 import {
   decodeEchoRequest,
   decodeDevelopmentIso,
@@ -414,6 +416,24 @@ test('group commands validate stable IDs, names, order, and unique membership', 
   }), false);
 });
 
+test('group template requests validate identifiers, stable IDs, and unique parameters', () => {
+  const request = {
+    templateId: 'uya.node-cluster',
+    templateVersion: 1,
+    parameters: [{ key: 'tie-radius', value: 20 }],
+    seedEntityId: '40000000-0000-4000-8000-000000000001',
+  };
+  assert.equal(isGroupTemplateRequest(request), true);
+  assert.equal(isGroupTemplateRequest({ ...request, templateId: '../template' }), false);
+  assert.equal(isGroupTemplateRequest({ ...request, seedEntityId: 'seed' }), false);
+  assert.equal(isGroupTemplateRequest({ ...request, parameters: [
+    ...request.parameters, request.parameters[0],
+  ] }), false);
+  assert.equal(isGroupTemplateRequest({ ...request, parameters: [{ key: 'UPPER', value: 20 }] }), false);
+  assert.equal(isUuid('40000000-0000-4000-8000-000000000002'), true);
+  assert.equal(isUuid('not-a-command-id'), false);
+});
+
 test('MobyDex commands validate bounded portable entry data', () => {
   const imported = {
     id: '30000000-0000-4000-8000-000000000024',
@@ -552,7 +572,7 @@ test('operation payloads round trip and reject trailing data', () => {
   assert.deepEqual(decodeUyaProjectOptions(encodeUyaProjectOptions(projectOptions)), projectOptions);
   const createProject = {
     sourceIsoPath: '/clean.iso', catalogRootPath: '/assets', projectPath: '/project', name: 'Test',
-    fingerprint: iso.fingerprint, revision: '1.00', level: 3, allowPartial: true,
+    fingerprint: iso.fingerprint, revision: '1.00', level: 3, allowPartial: true, applyGroupTemplates: true,
   };
   assert.deepEqual(decodeUyaProjectCreationRequest(encodeUyaProjectCreationRequest(createProject)), createProject);
   const preflightRequest = { sourceIsoPath: '/clean.iso', catalogRootPath: '/assets', level: 3 };

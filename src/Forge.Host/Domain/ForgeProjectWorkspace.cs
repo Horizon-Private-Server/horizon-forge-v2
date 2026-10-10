@@ -256,6 +256,12 @@ public sealed partial class ForgeProjectWorkspace
         => UpdateTransforms([new(entityId, transform)]);
 
     public void UpdateTransforms(IReadOnlyList<EditorTransformUpdate> updates)
+        => ApplyTransforms(ExpandCollisionLinkTransforms(updates));
+
+    internal void UpdateExpandedTransforms(IReadOnlyList<EditorTransformUpdate> updates)
+        => ApplyTransforms(updates);
+
+    private void ApplyTransforms(IReadOnlyList<EditorTransformUpdate> updates)
     {
         ArgumentNullException.ThrowIfNull(updates);
         var entities = Content.Entities.ToDictionary(entity => entity.EntityId);
@@ -266,32 +272,6 @@ public sealed partial class ForgeProjectWorkspace
                 throw new KeyNotFoundException($"Entity {update.EntityId} is not present in the project.");
         }
         var transforms = updates.ToDictionary(update => update.EntityId, update => update.Transform);
-        var parentDeltas = new Dictionary<EntityId, ProjectVector3>();
-        foreach (var update in updates)
-        {
-            var entity = entities[update.EntityId];
-            if (entity.Collision?.Attachment is not { } attachment) continue;
-            transforms.Remove(update.EntityId);
-            if (transforms.ContainsKey(attachment.ParentEntityId)) continue;
-            var delta = new ProjectVector3(
-                update.Transform.Position.X - entity.Transform.Position.X,
-                update.Transform.Position.Y - entity.Transform.Position.Y,
-                update.Transform.Position.Z - entity.Transform.Position.Z);
-            if (parentDeltas.TryGetValue(attachment.ParentEntityId, out var existing) && existing != delta)
-                throw new ArgumentException("Linked collision pieces require the same parent translation.", nameof(updates));
-            parentDeltas[attachment.ParentEntityId] = delta;
-        }
-        foreach (var (parentId, delta) in parentDeltas)
-        {
-            var parent = entities[parentId].Transform;
-            transforms[parentId] = parent with
-            {
-                Position = new(
-                    parent.Position.X + delta.X,
-                    parent.Position.Y + delta.Y,
-                    parent.Position.Z + delta.Z),
-            };
-        }
         Content = Content with
         {
             Entities = Content.Entities.Select(entity => transforms.TryGetValue(entity.EntityId, out var transform)
@@ -366,9 +346,6 @@ public sealed partial class ForgeProjectWorkspace
         _ = EntityIndexes(entityIds);
         var requested = entityIds.ToHashSet();
         var removed = entityIds.ToHashSet();
-        foreach (var collision in Content.Entities.Where(entity =>
-            entity.Collision?.Attachment is { } attachment && removed.Contains(attachment.ParentEntityId)))
-            removed.Add(collision.EntityId);
         var graph = ProjectReferenceGraph.Create(Content);
         var inbound = removed.SelectMany(graph.Incoming)
             .Where(edge => !removed.Contains(edge.OwnerEntityId))
@@ -403,6 +380,14 @@ public sealed partial class ForgeProjectWorkspace
             Groups = Content.Groups.Select(group => group with
             {
                 Members = group.Members.Where(member => !removed.Contains(member)).ToArray(),
+                Template = group.Template is not { } template
+                    || template.SeedEntityId is { } seed && removed.Contains(seed)
+                    ? null
+                    : template with
+                {
+                    GeneratedMembers = template.GeneratedMembers
+                        .Where(member => !removed.Contains(member)).ToArray(),
+                },
             }).ToArray(),
         };
         try

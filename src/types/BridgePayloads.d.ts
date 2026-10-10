@@ -30,6 +30,7 @@ export interface UyaProjectCreationRequest {
   revision: string;
   level: number;
   allowPartial: boolean;
+  applyGroupTemplates: boolean;
 }
 
 export interface UyaProjectPreflightRequest {

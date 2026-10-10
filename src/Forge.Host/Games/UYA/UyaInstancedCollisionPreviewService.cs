@@ -70,7 +70,7 @@ public static class UyaInstancedCollisionPreviewService
         if (candidates.Count == 0)
             throw new InvalidDataException("No generated instanced collision candidate fits the native collision limits.");
         var primary = await UyaInstancedCollisionCompositionService.ReadPrimaryAsync(
-            workspace, catalog, sourceEntityId, cancellationToken);
+            workspace, catalog, cancellationToken);
         var decodedProxies = new Dictionary<AssetId, CollisionSolidAddition>();
         for (var index = 0; index < candidates.Count; index++)
         {

@@ -21,6 +21,7 @@ internal static class EditorPayloadCodecTests
             [],
             [new(EditorMapGroupKind.Moby, 0, [owner], [3])],
             [],
+            [],
             false,
             false,
             false,
@@ -50,6 +51,24 @@ internal static class EditorPayloadCodecTests
         Equal(EditorCommandKind.RenameGroup, command.Kind, "group command kind payload");
         Equal("Renamed group", command.Text, "group command text payload");
         Equal(groupId, command.GroupEdit!.GroupId, "group command ID payload");
+
+        var templateWriter = new PayloadWriter();
+        templateWriter.WriteString("uya.node-cluster");
+        templateWriter.WriteUInt32(1);
+        templateWriter.WriteUInt32(1);
+        templateWriter.WriteString("distance");
+        templateWriter.WriteDouble(24);
+        templateWriter.WriteBoolean(true);
+        templateWriter.WriteString(groupId.ToString());
+        templateWriter.WriteBoolean(true);
+        templateWriter.WriteString(owner.ToString());
+        var template = EditorPayloadCodec.DecodeGroupTemplateRequest(templateWriter.ToArray());
+        Equal("uya.node-cluster", template.TemplateId, "group template ID payload");
+        Equal(1, template.TemplateVersion, "group template version payload");
+        Equal(groupId, template.GroupId, "group template target payload");
+        Equal(owner, template.SeedEntityId, "group template seed payload");
+        Equal(new ProjectGroupTemplateParameter("distance", 24), template.Parameters.Single(),
+            "group template parameter payload");
     }
 
     private static void Equal<T>(T expected, T actual, string context)

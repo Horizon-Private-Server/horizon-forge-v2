@@ -3,6 +3,7 @@ namespace Forge.Host.Domain;
 internal static partial class ForgeProjectValidation
 {
     internal const int MaxInstancedCollisionFaceTypeOverrides = 100_000;
+    internal const int MaxLinkedCollisionInstances = 256;
 
     public static void Validate(string rootPath, ForgeProjectManifest manifest, ForgeProjectContent content)
     {
@@ -50,7 +51,6 @@ internal static partial class ForgeProjectValidation
         if (content.Entities is null || content.Assets is null || content.InstancedCollisionBindings is null
             || content.AssetOverrides is null || content.Groups is null)
             throw new InvalidDataException("Project content lists are required.");
-        ValidateGroups(content.Groups);
         if (content.LevelSettings is not null) ValidateLevelSettings(content.LevelSettings);
         if (content.Hud is not null) ValidateHud(rootPath, content.Hud, content.Assets);
         if (content.Fx is not null) ValidateFx(rootPath, content.Fx, content.Assets);
@@ -60,6 +60,7 @@ internal static partial class ForgeProjectValidation
             throw new InvalidDataException("Project entities cannot contain null entries.");
         if (content.Entities.Select(entity => entity.EntityId).Distinct().Count() != content.Entities.Count)
             throw new InvalidDataException("Project contains duplicate Entity IDs.");
+        ValidateGroups(content.Groups, content.Entities.Select(entity => entity.EntityId).ToHashSet());
         foreach (var entity in content.Entities)
         {
             if (entity is null || entity.EntityId.Value == Guid.Empty)
@@ -189,7 +190,9 @@ internal static partial class ForgeProjectValidation
         }
     }
 
-    private static void ValidateGroups(IReadOnlyList<ProjectGroup> groups)
+    private static void ValidateGroups(
+        IReadOnlyList<ProjectGroup> groups,
+        IReadOnlySet<EntityId> knownEntityIds)
     {
         if (groups.Count > ProjectGroupSchema.MaximumGroupCount)
             throw new InvalidDataException("Project group count exceeds the supported limit.");
@@ -199,6 +202,9 @@ internal static partial class ForgeProjectValidation
             throw new InvalidDataException("Project contains duplicate Group IDs.");
         if (groups.Sum(group => (long)(group.Members?.Count ?? 0)) > ProjectGroupSchema.MaximumTotalMemberships)
             throw new InvalidDataException("Project group memberships exceed the supported limit.");
+        if (groups.Sum(group => (long)(group.Template?.GeneratedMembers?.Count ?? 0))
+            > ProjectGroupSchema.MaximumTotalMemberships)
+            throw new InvalidDataException("Project generated group memberships exceed the supported limit.");
         foreach (var group in groups)
         {
             if (group.GroupId.Value == Guid.Empty)
@@ -212,8 +218,43 @@ internal static partial class ForgeProjectValidation
                 throw new InvalidDataException($"Project group {group.GroupId} contains duplicate members.");
             if (group.Members.Any(member => member.Value == Guid.Empty))
                 throw new InvalidDataException($"Project group {group.GroupId} contains an empty Entity ID.");
+            if (group.Template is { } template)
+                ValidateGroupTemplate(group.GroupId, template, knownEntityIds);
         }
     }
+
+    private static void ValidateGroupTemplate(
+        GroupId groupId,
+        ProjectGroupTemplateProvenance template,
+        IReadOnlySet<EntityId> knownEntityIds)
+    {
+        if (!ValidTemplateIdentifier(template.TemplateId) || template.TemplateVersion < 1)
+            throw new InvalidDataException($"Project group {groupId} template identity is invalid.");
+        if (template.Parameters is null || template.Parameters.Count > ProjectGroupSchema.MaximumTemplateParameters
+            || template.Parameters.Any(value => value is null || !ValidTemplateIdentifier(value.Key)
+                || !double.IsFinite(value.Value))
+            || template.Parameters.Select(value => value.Key).Distinct(StringComparer.Ordinal).Count()
+                != template.Parameters.Count
+            || !template.Parameters.Select(value => value.Key).SequenceEqual(
+                template.Parameters.Select(value => value.Key).Order(StringComparer.Ordinal)))
+            throw new InvalidDataException($"Project group {groupId} template parameters are invalid.");
+        if (template.InputFingerprint is not { Length: 64 }
+            || template.InputFingerprint.Any(character => !char.IsAsciiHexDigitLower(character)))
+            throw new InvalidDataException($"Project group {groupId} template fingerprint is invalid.");
+        if (template.GeneratedMembers is null
+            || template.GeneratedMembers.Count > ProjectGroupSchema.MaximumMembersPerGroup
+            || template.GeneratedMembers.Distinct().Count() != template.GeneratedMembers.Count
+            || template.GeneratedMembers.Any(member => member.Value == Guid.Empty))
+            throw new InvalidDataException($"Project group {groupId} generated membership is invalid.");
+        if (template.SeedEntityId is not { } seedEntityId
+            || seedEntityId.Value == Guid.Empty
+            || !knownEntityIds.Contains(seedEntityId))
+            throw new InvalidDataException($"Project group {groupId} template seed is invalid.");
+    }
+
+    internal static bool ValidTemplateIdentifier(string? value) => value is { Length: >= 1 and <= 128 }
+        && value[0] is >= 'a' and <= 'z' or >= '0' and <= '9'
+        && value.All(character => character is >= 'a' and <= 'z' or >= '0' and <= '9' or '.' or '-' or '_');
 
     internal static void ValidateInstancedCollisionRecipe(ProjectInstancedCollisionRecipe recipe)
     {
@@ -248,16 +289,16 @@ internal static partial class ForgeProjectValidation
             && collision.Types.Sum(value => value.Count) != collision.FaceCount
             || collision.Kind == ProjectCollisionPieceKind.PlayerBarrier && collision.Types.Count != 0)
             throw new InvalidDataException($"Entity {entity.EntityId} collision type counts are invalid.");
-        if (entity.Transform.Rotation != ProjectTransform.Identity.Rotation
-            || entity.Transform.Scale != ProjectTransform.Identity.Scale)
-            throw new InvalidDataException($"Entity {entity.EntityId} collision supports translation only.");
-        if (collision.Attachment is not { } attachment) return;
-        if (collision.Kind != ProjectCollisionPieceKind.Solid)
-            throw new InvalidDataException($"Entity {entity.EntityId} player barrier cannot follow an instance.");
-        ValidateTransform(attachment.BindTransform);
-        var parent = entities.SingleOrDefault(value => value.EntityId == attachment.ParentEntityId);
-        if (parent is null || !parent.Asset.IsInstancedCollisionSource())
-            throw new InvalidDataException($"Entity {entity.EntityId} collision attachment does not reference a TIE or shrub.");
+        if (entity.Transform.Scale != ProjectTransform.Identity.Scale)
+            throw new InvalidDataException($"Entity {entity.EntityId} collision does not support scaling.");
+        var links = collision.LinkedInstanceEntityIds ?? [];
+        if (links.Count > MaxLinkedCollisionInstances || links.Distinct().Count() != links.Count
+            || links.Any(link => entities.SingleOrDefault(value => value.EntityId == link)
+                is not { } linked || ProjectReferences.KindOf(linked)
+                    is not (ProjectEntityKind.Tie or ProjectEntityKind.Shrub)))
+            throw new InvalidDataException($"Entity {entity.EntityId} collision links are invalid.");
+        if (links.Count > 0 && collision.Kind != ProjectCollisionPieceKind.Solid)
+            throw new InvalidDataException($"Entity {entity.EntityId} player barrier cannot link to an instance.");
     }
 
     public static void ValidateTransform(ProjectTransform transform)

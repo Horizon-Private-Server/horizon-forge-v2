@@ -1,6 +1,3 @@
-import { CaretLeftIcon } from '@phosphor-icons/react/dist/csr/CaretLeft';
-import { CaretRightIcon } from '@phosphor-icons/react/dist/csr/CaretRight';
-import { ActionIcon } from '@mantine/core';
 import type { TreeNodeData } from '@mantine/core';
 import { useMemo, useState } from 'react';
 
@@ -16,41 +13,40 @@ import {
 import type { SceneAreaGroup, SceneSemanticGroup } from '../../utils/SceneGroups.ts';
 import { useEditor } from './EditorContext.ts';
 import { EditorEmptyState, EditorTree } from './EditorPrimitives.tsx';
+import { GroupPageActions } from './GroupPageActions.tsx';
 import { SceneTreeLabel, SceneTreeNode } from './SceneTreeNodes.tsx';
 
-export function AreaGroupsTree({ groups, selectionGroups }: {
+export function AreaGroupsTree({ groups }: {
   groups: readonly SceneAreaGroup[];
-  selectionGroups: readonly SceneAreaGroup[];
 }) {
   const {
     project, setCameraFocus, execute, busy, setSplinePointSelection, setSkyCompositionSelected,
   } = useEditor();
   const [pages, setPages] = useState<Record<string, number>>({});
-  const semanticGroups = useMemo(() => areaSemanticGroups(selectionGroups), [selectionGroups]);
-  const memberIds = useMemo(() => sceneGroupMemberIds(areaSemanticGroups(groups)), [groups]);
+  const semanticGroups = useMemo(() => areaSemanticGroups(groups), [groups]);
+  const memberIds = useMemo(() => sceneGroupMemberIds(semanticGroups), [semanticGroups]);
   const selected = useMemo(() => sceneGroupSelectedValues(
     project.selection, memberIds, semanticGroups,
   ), [memberIds, project.selection, semanticGroups]);
   const nodes = useMemo<TreeNodeData[]>(() => groups.map((group) => {
     const page = sceneGroupPage(group.members, pages[group.area.id] ?? 0);
     const missing = group.members.filter((member) => member.missing).length;
-    const selectionGroup = semanticGroups.find((candidate) => candidate.id === group.area.id);
-    const known = selectionGroup?.members.flatMap((member) => member.entity ? [member.entity] : []) ?? [];
+    const known = group.members.flatMap((member) => member.entity ? [member.entity] : []);
     const label = <SceneTreeLabel kind="area">
       {entityTreeText(group.area)} ({group.members.length}){missing ? ` [${missing} unresolved]` : ''}
     </SceneTreeLabel>;
     return {
       value: sceneGroupValue(group.area.id),
-      label: known.length ? <SceneTreeNode entities={known} disabled={busy} extraActions={page.pageCount > 1
-        ? <AreaPageActions
-          areaName={group.area.name}
+      label: known.length ? <SceneTreeNode entities={known} disabled={busy} extraActions={
+        <GroupPageActions
+          label={group.area.name}
           page={page.page}
           pageCount={page.pageCount}
           start={page.start}
           end={page.end}
           total={group.members.length}
           onChange={(next) => setPages((current) => ({ ...current, [group.area.id]: next }))}
-        /> : undefined}
+        />}
       >
         {label}
       </SceneTreeNode> : <span className="scene-tree-node">{label}</span>,
@@ -103,33 +99,4 @@ function areaSemanticGroups(groups: readonly SceneAreaGroup[]): SceneSemanticGro
     name: group.area.name,
     members: group.members,
   }));
-}
-
-function AreaPageActions({ areaName, page, pageCount, start, end, total, onChange }: {
-  areaName: string;
-  page: number;
-  pageCount: number;
-  start: number;
-  end: number;
-  total: number;
-  onChange(page: number): void;
-}) {
-  return <>
-    <ActionIcon
-      aria-label={`Previous page of ${areaName}`}
-      disabled={page === 0}
-      size="xs"
-      title={`${start + 1}–${end} of ${total}`}
-      variant="subtle"
-      onClick={(event) => { event.stopPropagation(); onChange(page - 1); }}
-    ><CaretLeftIcon size={13} /></ActionIcon>
-    <ActionIcon
-      aria-label={`Next page of ${areaName}`}
-      disabled={page + 1 >= pageCount}
-      size="xs"
-      title={`${start + 1}–${end} of ${total}`}
-      variant="subtle"
-      onClick={(event) => { event.stopPropagation(); onChange(page + 1); }}
-    ><CaretRightIcon size={13} /></ActionIcon>
-  </>;
 }

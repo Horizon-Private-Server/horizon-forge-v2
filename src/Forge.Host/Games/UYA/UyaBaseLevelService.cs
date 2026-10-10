@@ -101,7 +101,7 @@ internal static class UyaBaseLevelService
         var baseLayers = UyaBaseLayerService.Extract(package);
         AddSkyShells(entities, baseLayers, level);
         AddCollisionPieces(entities, baseLayers, level);
-        UyaInstancedCollisionLinkRecoveryService.Recover(entities, baseLayers, catalog);
+        _ = UyaInstancedCollisionLinkRecoveryService.Recover(entities, baseLayers, catalog);
         var mobyPVars = UyaMobyPVarService.Import(
             entities,
             gameplay.PvarTables,

@@ -8,10 +8,6 @@ public enum ProjectCollisionPieceKind : byte
 
 public sealed record ProjectCollisionTypeCount(byte RawType, int Count);
 
-public sealed record ProjectCollisionAttachment(
-    EntityId ParentEntityId,
-    ProjectTransform BindTransform);
-
 public sealed record ProjectCollisionPiece(
     ProjectCollisionPieceKind Kind,
     int SourcePayloadIndex,
@@ -19,4 +15,4 @@ public sealed record ProjectCollisionPiece(
     int FaceCount,
     int VertexCount,
     IReadOnlyList<ProjectCollisionTypeCount> Types,
-    ProjectCollisionAttachment? Attachment = null);
+    IReadOnlyList<EntityId>? LinkedInstanceEntityIds = null);

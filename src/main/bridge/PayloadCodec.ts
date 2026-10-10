@@ -232,6 +232,7 @@ export function encodeUyaProjectCreationRequest(value: UyaProjectCreationRequest
   writer.writeString(value.revision);
   writer.writeUInt32(value.level);
   writer.writeBoolean(value.allowPartial);
+  writer.writeBoolean(value.applyGroupTemplates);
   return writer.toBuffer();
 }
 
@@ -246,6 +247,7 @@ export function decodeUyaProjectCreationRequest(payload: Uint8Array): UyaProject
     revision: reader.readString(),
     level: reader.readUInt32(),
     allowPartial: reader.readBoolean(),
+    applyGroupTemplates: reader.readBoolean(),
   };
   reader.complete();
   return value;

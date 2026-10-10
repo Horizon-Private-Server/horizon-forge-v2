@@ -62,8 +62,9 @@ internal static class AuthoringFoundationQualificationTests
             Equal(ProjectSchema.CurrentVersion, opened.Content.SchemaVersion, $"v{version} content migration");
             Equal(ids.SplineId, Reference(opened, ProjectReferences.AreaSplines), $"v{version} spline reference");
             Equal(ids.CuboidId, Reference(opened, ProjectReferences.AreaCuboids), $"v{version} cuboid reference");
-            Equal(ids.TieId, opened.Content.Entities.Single(entity => entity.EntityId == ids.CollisionId)
-                .Collision!.Attachment!.ParentEntityId, $"v{version} collision attachment");
+            Equal(true, opened.Content.Entities.Single(entity => entity.EntityId == ids.CollisionId)
+                .Collision!.LinkedInstanceEntityIds!.SequenceEqual([ids.TieId]),
+                $"v{version} collision links");
             Equal(true, opened.Content.Entities.Single(entity => entity.EntityId == ids.TieId)
                 .InstancedCollisionEnabled, $"v{version} collision flag");
             Equal(false, opened.IsDirty, $"v{version} opens cleanly");
@@ -209,7 +210,7 @@ internal static class AuthoringFoundationQualificationTests
                 new(AssetId.Parse(new string('c', AssetId.TextLength)), AssetKind.Collision),
                 new("UYA", 3, "level_wad/collision", 0),
                 Collision: new(ProjectCollisionPieceKind.Solid, 0, 0, 1, 3, [new(0, 1)],
-                    new(tieId, ProjectTransform.Identity))),
+                    [tieId])),
         };
         if (texture is not null)
             entities.Add(new(EntityId.New(), "HUD texture", "hud", ProjectTransform.Identity, texture));
@@ -252,10 +253,6 @@ internal static class AuthoringFoundationQualificationTests
         foreach (var entity in content["entities"]!.AsArray().OfType<JsonObject>())
         {
             if (entity.Remove("instancedCollisionEnabled", out var enabled)) entity["tieCollisionEnabled"] = enabled;
-            if (entity["collision"] is JsonObject collision
-                && collision["attachment"] is JsonObject attachment
-                && attachment.Remove("parentEntityId", out var parentId))
-                attachment["tieEntityId"] = parentId;
         }
     }
 

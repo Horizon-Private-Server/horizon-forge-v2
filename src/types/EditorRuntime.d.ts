@@ -121,7 +121,7 @@ export interface EditorCollisionPiece {
   faceCount: number;
   vertexCount: number;
   types: Array<{ rawType: number; count: number }>;
-  attachment?: { parentEntityId: string; bindTransform: ProjectTransform };
+  linkedInstanceEntityIds?: string[];
 }
 
 export interface EditorInstancedCollisionRecipe {
@@ -353,6 +353,63 @@ export interface EditorGroup {
   name: string;
   members: string[];
   missingMembers: string[];
+  template?: EditorGroupTemplateProvenance;
+}
+
+export interface EditorGroupTemplateProvenance {
+  templateId: string;
+  templateVersion: number;
+  parameters: { key: string; value: number }[];
+  inputFingerprint: string;
+  generatedMembers: string[];
+  seedEntityId?: string;
+}
+
+export interface EditorGroupTemplateDefinition {
+  templateId: string;
+  templateVersion: number;
+  label: string;
+  description: string;
+  seedKind: EditorEntityKind;
+  parameters: {
+    key: string;
+    label: string;
+    defaultValue: number;
+    minimum: number;
+    maximum: number;
+    step: number;
+  }[];
+}
+
+export interface EditorGroupTemplateRequest {
+  templateId: string;
+  templateVersion: number;
+  parameters: { key: string; value: number }[];
+  groupId?: string;
+  seedEntityId?: string;
+}
+
+export interface EditorGroupTemplatePreview {
+  token: string;
+  templateId: string;
+  templateVersion: number;
+  parameters: { key: string; value: number }[];
+  groupId?: string;
+  seedEntityId?: string;
+  suggestedName: string;
+  candidateCount: number;
+  ambiguousCandidateCount: number;
+  candidates: {
+    entityId: string;
+    disposition: 'included' | 'ambiguous';
+    evidence: string[];
+  }[];
+  members: string[];
+  addedMembers: string[];
+  removedMembers: string[];
+  manualAdditions: string[];
+  manualRemovals: string[];
+  diagnostics: { code: string; severity: 'info' | 'warning' | 'error'; message: string }[];
 }
 
 export interface EditorMapGroup {
@@ -512,6 +569,7 @@ export interface EditorSnapshot {
   references: EditorReference[];
   groups: EditorGroup[];
   mapGroups: EditorMapGroup[];
+  groupTemplates: EditorGroupTemplateDefinition[];
   selection: string[];
   isDirty: boolean;
   canUndo: boolean;

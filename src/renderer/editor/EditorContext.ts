@@ -5,6 +5,8 @@ import type {
   EditorCollisionFaceType, EditorCommand, EditorSnapshot, EditorInstancedCollisionCandidate, EditorInstancedCollisionGenerationSettings,
   EditorInstancedCollisionPreview,
   EditorInstancedCollisionSourceInfo,
+  EditorGroupTemplatePreview,
+  EditorGroupTemplateRequest,
 } from '../../types/EditorRuntime.js';
 import type { AssetExplorerFamily } from '../../types/AssetExplorer.js';
 import type { SceneTreeColors } from '../../types/SceneTree.js';
@@ -60,6 +62,9 @@ export interface EditorContextValue {
   ): Promise<EditorInstancedCollisionPreview>;
   cancelInstancedCollisionPreview(): Promise<void>;
   applyInstancedCollisionPreview(token: string): Promise<boolean>;
+  previewGroupTemplate(request: EditorGroupTemplateRequest): Promise<EditorGroupTemplatePreview>;
+  cancelGroupTemplatePreview(): Promise<void>;
+  applyGroupTemplatePreview(token: string): Promise<boolean>;
   instancedCollisionOverlay?: InstancedCollisionOverlay;
   setInstancedCollisionOverlay(value?: InstancedCollisionOverlay): void;
   renderedInstancedCollisionEntityIds: ReadonlySet<string>;

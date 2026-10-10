@@ -9,6 +9,35 @@ public sealed partial class ForgeProjectWorkspace
         return group;
     }
 
+    public ProjectGroup CreateTemplateGroup(
+        string name,
+        IReadOnlyList<EntityId> members,
+        ProjectGroupTemplateProvenance template)
+    {
+        ArgumentNullException.ThrowIfNull(members);
+        ArgumentNullException.ThrowIfNull(template);
+        if (members.Count > 0) _ = EntityIndexes(members);
+        var group = new ProjectGroup(GroupId.New(), name, members.ToArray(), template);
+        ReplaceGroups([.. Content.Groups, group]);
+        return group;
+    }
+
+    public ProjectGroup RegenerateTemplateGroup(
+        GroupId groupId,
+        IReadOnlyList<EntityId> members,
+        ProjectGroupTemplateProvenance template)
+    {
+        ArgumentNullException.ThrowIfNull(members);
+        ArgumentNullException.ThrowIfNull(template);
+        var index = FindGroupIndex(groupId);
+        if (Content.Groups[index].Template is null)
+            throw new InvalidOperationException("Only generated groups can be regenerated.");
+        var groups = Content.Groups.ToArray();
+        groups[index] = groups[index] with { Members = members.ToArray(), Template = template };
+        ReplaceGroups(groups);
+        return groups[index];
+    }
+
     public void RenameGroup(GroupId groupId, string name)
     {
         var index = FindGroupIndex(groupId);

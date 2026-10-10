@@ -43,7 +43,8 @@ public sealed record UyaProjectCreationRequestPayload(
     string Fingerprint,
     string Revision,
     uint Level,
-    bool AllowPartial);
+    bool AllowPartial,
+    bool ApplyGroupTemplates);
 public readonly record struct UyaProjectPreflightRequestPayload(string SourceIsoPath, string CatalogRootPath, uint Level);
 public sealed record UyaProjectPreflightPayload(
     uint Level,

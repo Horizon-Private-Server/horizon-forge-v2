@@ -13,6 +13,8 @@ import type {
   EditorInstancedCollisionGenerationSettings,
   EditorInstancedCollisionPreview,
   EditorInstancedCollisionSourceInfo,
+  EditorGroupTemplatePreview,
+  EditorGroupTemplateRequest,
   ForgeHostStatus,
   ForgeProjectDescriptor,
   ForgeProjectSummary,
@@ -51,6 +53,9 @@ import {
   encodeInstancedCollisionPreviewRequest,
   encodeInstancedCollisionSourceRequest,
   encodeInstancedCollisionRenderRequest,
+  decodeGroupTemplatePreview,
+  encodeGroupTemplateApplyRequest,
+  encodeGroupTemplateRequest,
 } from './EditorPayloadCodec.js';
 import { decodeCatalogMaintenance, encodeCatalogCollectionRequest, encodeCatalogMaintenanceRequest,
   encodeProjectAssetRepairRequest } from './MaintenancePayloadCodec.js';
@@ -396,6 +401,19 @@ export class HostClient {
   async applyInstancedCollisionPreview(commandId: string, token: string): Promise<HostRequest<EditorSnapshot>> {
     const request = await this.#request(
       BridgeOpcode.ApplyInstancedCollisionPreview, encodeInstancedCollisionApplyRequest(commandId, token));
+    return { requestId: request.requestId, result: request.result.then(decodeEditorSnapshot) };
+  }
+
+  async previewGroupTemplate(
+    value: EditorGroupTemplateRequest,
+  ): Promise<HostRequest<EditorGroupTemplatePreview>> {
+    const request = await this.#request(BridgeOpcode.PreviewGroupTemplate, encodeGroupTemplateRequest(value));
+    return { requestId: request.requestId, result: request.result.then(decodeGroupTemplatePreview) };
+  }
+
+  async applyGroupTemplatePreview(commandId: string, token: string): Promise<HostRequest<EditorSnapshot>> {
+    const request = await this.#request(
+      BridgeOpcode.ApplyGroupTemplatePreview, encodeGroupTemplateApplyRequest(commandId, token));
     return { requestId: request.requestId, result: request.result.then(decodeEditorSnapshot) };
   }
 

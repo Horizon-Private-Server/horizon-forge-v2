@@ -16,7 +16,7 @@ import { SplineProperties } from './SplineProperties.tsx';
 import { InstancedCollisionProperties } from './InstancedCollisionProperties.tsx';
 import { MobyInstanceProperties } from './MobyInstanceProperties.tsx';
 import { MobyPVarProperties } from './MobyPVarProperties.tsx';
-import { compatibleReferenceTargets } from '../../utils/EditorReferences.ts';
+import { compatibleReferenceTargets, editorEntityKind } from '../../utils/EditorReferences.ts';
 import { ReferenceField } from './ReferenceField.tsx';
 
 export function EntityProperties({ entity }: { entity: EditorEntity }) {
@@ -29,6 +29,8 @@ export function EntityProperties({ entity }: { entity: EditorEntity }) {
       && !pvarReferenceKeys.has(reference.fieldKey),
   ), [entity.id, project.references, pvarReferenceKeys]);
   const entityById = useMemo(() => new Map(project.entities.map((value) => [value.id, value])), [project.entities]);
+  const linkedCollision = useMemo(() => project.entities.filter((candidate) =>
+    candidate.collision?.linkedInstanceEntityIds?.includes(entity.id)), [entity.id, project.entities]);
   if (entity.skyShell) return <SkyShellProperties entity={entity} />;
   const disabled = busy || entity.state.locked || entity.state.readOnly;
   const fields = references.slice(0, 50);
@@ -36,6 +38,11 @@ export function EntityProperties({ entity }: { entity: EditorEntity }) {
     {entity.mobyProperties && <MobyInstanceProperties entities={[entity]} disabled={disabled} />}
     {entity.mobyPVar && <MobyPVarProperties entity={entity} disabled={disabled} />}
     {entity.collision && <CollisionProperties entity={entity} />}
+    {linkedCollision.length > 0 && <LinkedEntities
+      legend="Linked collision"
+      owner={entity}
+      targets={linkedCollision}
+    />}
     {(entity.asset?.kind === 'Tie' || entity.asset?.kind === 'Shrub')
       && <InstancedCollisionProperties entity={entity} disabled={disabled} />}
     {(entity.geometry?.kind === 'spline' || entity.geometry?.kind === 'grindPath')
@@ -145,21 +152,55 @@ export function MultiEntityProperties({ entities }: { entities: EditorEntity[] }
 function CollisionProperties({ entity }: { entity: EditorEntity }) {
   const { project } = useEditor();
   const collision = entity.collision!;
-  const attachedInstance = collision.attachment
-    ? project.entities.find((candidate) => candidate.id === collision.attachment!.parentEntityId)
-    : undefined;
-  return <Fieldset legend="Collision">
+  const linkedInstances = project.entities.filter((candidate) =>
+    collision.linkedInstanceEntityIds?.includes(candidate.id));
+  return <>
+    <Fieldset legend="Collision">
     <EditorPropertyGrid>
       <EditorProperty label="Layer">{collision.kind === 'solid' ? 'Solid collision' : 'Player barrier'}</EditorProperty>
       <EditorProperty label="Piece"><Code>#{collision.sourcePieceIndex}</Code></EditorProperty>
       <EditorProperty label="Geometry">{collision.faceCount} faces · {collision.vertexCount} vertices</EditorProperty>
-      {collision.attachment && <EditorProperty label="Follows instance">{attachedInstance?.name
-        ?? <Code>{collision.attachment.parentEntityId}</Code>}</EditorProperty>}
       <EditorProperty label="Types">{collision.types.length
         ? collision.types.map((value) =>
           `${formatCollisionType(value.rawType, project.target.game)} (${value.count})`).join(', ')
         : 'Player-only barrier'}</EditorProperty>
     </EditorPropertyGrid>
+    </Fieldset>
+    {linkedInstances.length > 0 && <LinkedEntities
+      legend="Linked instances"
+      owner={entity}
+      targets={linkedInstances}
+    />}
+  </>;
+}
+
+function LinkedEntities({ legend, owner, targets }: {
+  legend: string;
+  owner: EditorEntity;
+  targets: readonly EditorEntity[];
+}) {
+  const { navigateToEntity } = useEditor();
+  return <Fieldset legend={legend}>
+    <Stack gap="xs">
+      {targets.map((target) => <ReferenceField
+        key={target.id}
+        candidates={[target]}
+        disabled
+        showFieldKey={false}
+        reference={{
+          ownerEntityId: owner.id,
+          domain: 'entity',
+          fieldKey: legend,
+          nullable: false,
+          targetKind: editorEntityKind(target),
+          targetEntityId: target.id,
+          missing: false,
+          datasetSource: 'Source collision recovery',
+        }}
+        onNavigate={(entityId, action) => void navigateToEntity(entityId, action)}
+      />)}
+      <Text c="dimmed" size="xs">Source-derived links; separate from generated instanced collision.</Text>
+    </Stack>
   </Fieldset>;
 }
 

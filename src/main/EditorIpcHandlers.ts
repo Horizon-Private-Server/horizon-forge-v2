@@ -3,7 +3,9 @@ import { ipcMain } from 'electron';
 import type {
   EditorCommand, EditorSnapshot, EditorInstancedCollisionGenerationSettings,
 } from '../types/ForgeApi.js';
-import { isEditorCommand } from '../utils/EditorCommandValidation.js';
+import {
+  isEditorCommand, isGroupTemplateRequest, isUuid,
+} from '../utils/EditorCommandValidation.js';
 import { setEditorMenuState, setEditorTextInputActive } from './ApplicationMenu.js';
 import type { SettingsStore } from './Settings.js';
 import type { HostClient } from './bridge/HostClient.js';
@@ -24,6 +26,7 @@ export function registerEditorIpcHandlers(
     host, settings, assertSender, getSettingValues, resolveProjectPath, cancelAssetExplorer,
   } = options;
   let activePreviewRequestId: number | undefined;
+  let activeGroupTemplateRequestId: number | undefined;
   let activeSnapshot: EditorSnapshot | undefined;
 
   const updateSnapshot = (value: EditorSnapshot): EditorSnapshot => {
@@ -50,6 +53,7 @@ export function registerEditorIpcHandlers(
     assertSender(event.sender.id);
     await cancelAssetExplorer();
     if (activePreviewRequestId !== undefined) await host.cancel(activePreviewRequestId);
+    if (activeGroupTemplateRequestId !== undefined) await host.cancel(activeGroupTemplateRequestId);
     await (await host.closeEditorProject()).result;
     activeSnapshot = undefined;
     setEditorMenuState();
@@ -94,6 +98,27 @@ export function registerEditorIpcHandlers(
     if (typeof commandId !== 'string' || !commandId || typeof token !== 'string' || !token)
       throw new TypeError('instanced collision apply request is invalid');
     return updateSnapshot(await (await host.applyInstancedCollisionPreview(commandId, token)).result);
+  });
+  ipcMain.handle('forge:editor-group-template-preview', async (event, request: unknown) => {
+    assertSender(event.sender.id);
+    if (!isGroupTemplateRequest(request)) throw new TypeError('group template request is invalid');
+    if (activeGroupTemplateRequestId !== undefined) await host.cancel(activeGroupTemplateRequestId);
+    const pending = await host.previewGroupTemplate(request);
+    activeGroupTemplateRequestId = pending.requestId;
+    try { return await pending.result; }
+    finally {
+      if (activeGroupTemplateRequestId === pending.requestId) activeGroupTemplateRequestId = undefined;
+    }
+  });
+  ipcMain.handle('forge:editor-group-template-cancel', async (event) => {
+    assertSender(event.sender.id);
+    if (activeGroupTemplateRequestId !== undefined) await host.cancel(activeGroupTemplateRequestId);
+  });
+  ipcMain.handle('forge:editor-group-template-apply', async (event, commandId: unknown, token: unknown) => {
+    assertSender(event.sender.id);
+    if (!isUuid(commandId) || !isUuid(token))
+      throw new TypeError('group template apply request is invalid');
+    return updateSnapshot(await (await host.applyGroupTemplatePreview(commandId, token)).result);
   });
   ipcMain.handle('forge:editor-save', async (event) => {
     assertSender(event.sender.id);

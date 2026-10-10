@@ -35,6 +35,7 @@ test('settings validate defaults and preserve unknown keys', async () => {
     assert.equal(invalid.entries.find((entry) => entry.key === 'build.uya.forceOversizedInPlace')?.value, false);
     assert.equal(invalid.entries.find((entry) => entry.key === 'editor.autosaveSeconds')?.value, 30);
     assert.equal(invalid.entries.find((entry) => entry.key === 'ui.showViewportStats')?.value, true);
+    assert.equal(invalid.entries.find((entry) => entry.key === 'projects.applyGroupTemplatesOnCreate')?.value, true);
     assert.equal(readHideEmptyGroups(invalid.entries), true);
     assert.equal(invalid.entries.find((entry) => entry.key === 'ui.componentSize')?.value, 'xs');
     assert.equal(invalid.entries.find((entry) => entry.key === 'ui.selectionColor')?.value, '#22d3ee');
@@ -53,6 +54,7 @@ test('settings validate defaults and preserve unknown keys', async () => {
     await store.set('ui.editorLayout', '{"panels":{}}');
     await store.set('ui.showViewportStats', true);
     await store.set('ui.hideEmptyGroups', false);
+    await store.set('projects.applyGroupTemplatesOnCreate', false);
     await store.set('ui.componentSize', 'lg');
     await store.set('ui.selectionColor', '#123456');
     await store.set('ui.sceneTreeColors.tie', '#00ffff');
@@ -63,6 +65,7 @@ test('settings validate defaults and preserve unknown keys', async () => {
     assert.equal(persisted['ui.editorLayout'], '{"panels":{}}');
     assert.equal(persisted['ui.showViewportStats'], true);
     assert.equal(persisted['ui.hideEmptyGroups'], false);
+    assert.equal(persisted['projects.applyGroupTemplatesOnCreate'], false);
     assert.equal(persisted['ui.componentSize'], 'lg');
     assert.equal(persisted['ui.selectionColor'], '#123456');
     assert.equal(persisted['ui.sceneTreeColors.tie'], '#00ffff');
@@ -79,6 +82,7 @@ test('settings validate defaults and preserve unknown keys', async () => {
       'editor.autosaveSeconds': 30,
       'imports.uya.enabled': true,
       'keybindings.overrides': '{}',
+      'projects.applyGroupTemplatesOnCreate': false,
       'ui.sceneTreeColors.area': '#aaf442',
       'ui.sceneTreeColors.ambientSound': '#0062ff',
       'ui.sceneTreeColors.camera': '#cc3737',

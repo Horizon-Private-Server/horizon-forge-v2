@@ -45,6 +45,8 @@ public enum BridgeOpcode : ushort
     InspectInstancedCollisionSource = 30,
     PrepareAppliedInstancedCollision = 31,
     ReloadMobyDexDataset = 32,
+    PreviewGroupTemplate = 33,
+    ApplyGroupTemplatePreview = 34,
 }
 
 public enum BridgeErrorCode : ushort

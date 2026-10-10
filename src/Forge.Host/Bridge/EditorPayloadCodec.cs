@@ -12,6 +12,7 @@ internal readonly record struct EditorInstancedCollisionRenderRequest(
     string CacheRootPath,
     string CatalogRootPath,
     string Token);
+internal readonly record struct EditorGroupTemplateApplyRequest(string CommandId, string Token);
 
 internal static class EditorPayloadCodec
 {
@@ -135,6 +136,73 @@ internal static class EditorPayloadCodec
                 writer.WriteBoolean(combined.Error is not null);
                 if (combined.Error is not null) writer.WriteString(combined.Error);
             }
+        }
+        return writer.ToArray();
+    }
+
+    public static EditorGroupTemplateRequest DecodeGroupTemplateRequest(ReadOnlySpan<byte> payload)
+    {
+        var reader = new PayloadReader(payload);
+        var templateId = reader.ReadString();
+        var templateVersion = reader.ReadUInt32();
+        if (templateVersion > int.MaxValue) PayloadFormat.Malformed("Group template version is invalid");
+        var count = reader.ReadUInt32();
+        if (count > ProjectGroupSchema.MaximumTemplateParameters)
+            PayloadFormat.Malformed("Group template parameter list exceeds item limit");
+        var parameters = new ProjectGroupTemplateParameter[count];
+        for (var index = 0; index < parameters.Length; index++)
+            parameters[index] = new(reader.ReadString(), reader.ReadDouble());
+        var groupId = reader.ReadBoolean() ? GroupId.Parse(reader.ReadString()) : (GroupId?)null;
+        var seedEntityId = reader.ReadBoolean() ? EntityId.Parse(reader.ReadString()) : (EntityId?)null;
+        reader.Complete();
+        return new(templateId, checked((int)templateVersion), parameters, groupId, seedEntityId);
+    }
+
+    public static EditorGroupTemplateApplyRequest DecodeGroupTemplateApplyRequest(ReadOnlySpan<byte> payload)
+    {
+        var reader = new PayloadReader(payload);
+        var value = new EditorGroupTemplateApplyRequest(reader.ReadString(), reader.ReadString());
+        reader.Complete();
+        return value;
+    }
+
+    public static byte[] EncodeGroupTemplatePreview(EditorGroupTemplatePreview value)
+    {
+        var writer = new PayloadWriter();
+        writer.WriteString(value.Token);
+        writer.WriteString(value.TemplateId);
+        writer.WriteUInt32(checked((uint)value.TemplateVersion));
+        writer.WriteUInt32(checked((uint)value.Parameters.Count));
+        foreach (var parameter in value.Parameters)
+        {
+            writer.WriteString(parameter.Key);
+            writer.WriteDouble(parameter.Value);
+        }
+        writer.WriteBoolean(value.GroupId is not null);
+        if (value.GroupId is { } groupId) writer.WriteString(groupId.ToString());
+        writer.WriteBoolean(value.SeedEntityId is not null);
+        if (value.SeedEntityId is { } seedEntityId) writer.WriteString(seedEntityId.ToString());
+        writer.WriteString(value.SuggestedName);
+        writer.WriteUInt32(checked((uint)value.CandidateCount));
+        writer.WriteUInt32(checked((uint)value.AmbiguousCandidateCount));
+        writer.WriteUInt32(checked((uint)value.Candidates.Count));
+        foreach (var candidate in value.Candidates)
+        {
+            writer.WriteString(candidate.EntityId.ToString());
+            writer.WriteUInt32((uint)candidate.Disposition);
+            writer.WriteStrings(candidate.Evidence.ToArray());
+        }
+        WriteEntityIds(writer, value.Members);
+        WriteEntityIds(writer, value.AddedMembers);
+        WriteEntityIds(writer, value.RemovedMembers);
+        WriteEntityIds(writer, value.ManualAdditions);
+        WriteEntityIds(writer, value.ManualRemovals);
+        writer.WriteUInt32(checked((uint)value.Diagnostics.Count));
+        foreach (var diagnostic in value.Diagnostics)
+        {
+            writer.WriteString(diagnostic.Code);
+            writer.WriteUInt32((uint)diagnostic.Severity);
+            writer.WriteString(diagnostic.Message);
         }
         return writer.ToArray();
     }
@@ -339,6 +407,24 @@ internal static class EditorPayloadCodec
             writer.WriteString(group.Name);
             WriteEntityIds(writer, group.Members);
             WriteEntityIds(writer, group.MissingMembers);
+            writer.WriteBoolean(group.Template is not null);
+            if (group.Template is { } template)
+            {
+                if (template.Parameters.Count > ProjectGroupSchema.MaximumTemplateParameters)
+                    PayloadFormat.Malformed("Group template parameter list exceeds item limit");
+                writer.WriteString(template.TemplateId);
+                writer.WriteUInt32(checked((uint)template.TemplateVersion));
+                writer.WriteUInt32((uint)template.Parameters.Count);
+                foreach (var parameter in template.Parameters)
+                {
+                    writer.WriteString(parameter.Key);
+                    writer.WriteDouble(parameter.Value);
+                }
+                writer.WriteString(template.InputFingerprint);
+                WriteEntityIds(writer, template.GeneratedMembers);
+                writer.WriteBoolean(template.SeedEntityId is not null);
+                if (template.SeedEntityId is { } seedEntityId) writer.WriteString(seedEntityId.ToString());
+            }
         }
         if (value.MapGroups.Count > ProjectGroupSchema.MaximumGroupCount)
             PayloadFormat.Malformed("Map group list exceeds item limit");
@@ -357,6 +443,27 @@ internal static class EditorPayloadCodec
             writer.WriteUInt32((uint)group.MissingSourceIndices.Count);
             foreach (var sourceIndex in group.MissingSourceIndices)
                 writer.WriteUInt32(checked((uint)sourceIndex));
+        }
+        if (value.GroupTemplates.Count > ProjectGroupSchema.MaximumTemplateDefinitions)
+            PayloadFormat.Malformed("Group template definition list exceeds item limit");
+        writer.WriteUInt32((uint)value.GroupTemplates.Count);
+        foreach (var template in value.GroupTemplates)
+        {
+            writer.WriteString(template.TemplateId);
+            writer.WriteUInt32(checked((uint)template.TemplateVersion));
+            writer.WriteString(template.Label);
+            writer.WriteString(template.Description);
+            writer.WriteUInt32((uint)template.SeedKind);
+            writer.WriteUInt32(checked((uint)template.Parameters.Count));
+            foreach (var parameter in template.Parameters)
+            {
+                writer.WriteString(parameter.Key);
+                writer.WriteString(parameter.Label);
+                writer.WriteDouble(parameter.DefaultValue);
+                writer.WriteDouble(parameter.Minimum);
+                writer.WriteDouble(parameter.Maximum);
+                writer.WriteDouble(parameter.Step);
+            }
         }
         WriteEntityIds(writer, value.Selection);
         writer.WriteBoolean(value.IsDirty);
@@ -592,12 +699,11 @@ internal static class EditorPayloadCodec
                 writer.WriteUInt32(type.RawType);
                 writer.WriteUInt32(checked((uint)type.Count));
             }
-            writer.WriteBoolean(value.Collision.Attachment is not null);
-            if (value.Collision.Attachment is not null)
-            {
-                writer.WriteString(value.Collision.Attachment.ParentEntityId.ToString());
-                WriteTransform(writer, value.Collision.Attachment.BindTransform);
-            }
+            var linkedInstances = value.Collision.LinkedInstanceEntityIds ?? [];
+            if (linkedInstances.Count > ForgeProjectValidation.MaxLinkedCollisionInstances)
+                PayloadFormat.Malformed("Linked collision instance list exceeds item limit");
+            writer.WriteUInt32(checked((uint)linkedInstances.Count));
+            foreach (var entityId in linkedInstances) writer.WriteString(entityId.ToString());
         }
         writer.WriteBoolean(value.InstancedCollision is not null);
         if (value.InstancedCollision is not null)

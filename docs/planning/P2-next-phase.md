@@ -351,10 +351,10 @@ native format requires.
 #### FR-TFRAG-003: Collision association
 
 The existing collision association approach is extended to rank native collision
-pieces against individual tfrag entities in local space. It records an attachment only
-when the best candidate passes documented coverage/alignment thresholds with a clear
-lead. Ambiguous collision remains independent. Attached collision follows every
-supported tfrag transform and is revalidated against native collision budgets.
+pieces against individual tfrag entities in local space. It records every qualifying
+many-to-many Entity-ID link using documented coverage/alignment thresholds. Linked
+translation propagates across the connected component and is revalidated against
+native collision budgets.
 
 #### FR-TFRAG-004: Native bake
 

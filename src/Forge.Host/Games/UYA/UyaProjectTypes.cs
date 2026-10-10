@@ -21,4 +21,5 @@ public sealed record UyaProjectCreationRequest(
     string Fingerprint,
     string Revision,
     int Level,
-    bool AllowPartial);
+    bool AllowPartial,
+    bool ApplyGroupTemplates = false);

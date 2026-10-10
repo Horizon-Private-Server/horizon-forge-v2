@@ -56,7 +56,7 @@ test('reference indexes and pages keep large graph work bounded', () => {
   assert.equal(last.pageCount, 50);
 });
 
-test('reference target filtering uses typed kinds and collision source rules', () => {
+test('reference target filtering uses typed kinds', () => {
   const entities = [
     { ...entity(1), layer: 'ties', asset: { id: 'tie', kind: 'Tie' } },
     { ...entity(2), layer: 'shrubs', asset: { id: 'shrub', kind: 'Shrub' } },
@@ -67,10 +67,6 @@ test('reference target filtering uses typed kinds and collision source rules', (
     ownerEntityId: 'area', domain: 'entity', fieldKey: 'geometry.area.splines', nullable: true,
     targetKind: 'spline', sourceValue: 0, missing: false,
   }, entities).map((value) => value.id), ['3']);
-  assert.deepEqual(compatibleReferenceTargets({
-    ownerEntityId: 'collision', domain: 'entity', fieldKey: 'collision.attachment', nullable: false,
-    targetKind: 'entity', missing: false,
-  }, entities).map((value) => value.id), ['1', '2']);
   assert.deepEqual(compatibleReferenceTargets({
     ownerEntityId: 'moby', domain: 'entity', fieldKey: 'pvar.spawnMoby', nullable: true,
     targetKind: 'moby', sourceValue: -1, missing: false,
@@ -211,4 +207,3 @@ test('reference navigation routes entities to the scene and assets to preview', 
   assert.deepEqual(referenceNavigationTarget(assetReference, 'outgoing'),
     { domain: 'asset', id: 'asset', kind: 'Moby' });
 });
-

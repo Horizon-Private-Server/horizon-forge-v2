@@ -14,7 +14,7 @@ Run `npm test`. `AuthoringFoundationQualificationTests` verifies:
   removes an obsolete pre-v4 content path only after the save completes;
 - a future manifest/content pair is rejected without either file being overwritten;
 - historical document-type omissions, uncompressed content, TIE collision field
-  names, collision attachment names, and area links migrate to current contracts;
+  names, collision links, and area links migrate to current contracts;
 - an overridden synthetic texture and typed spline/cuboid references survive
   undo/redo, recovery restore, explicit save, ZIP transfer, and deterministic
   asset/native-index resolution; and

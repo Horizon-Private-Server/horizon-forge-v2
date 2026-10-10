@@ -209,6 +209,7 @@ public static partial class BridgePayloadCodec
         writer.WriteString(value.Revision);
         writer.WriteUInt32(value.Level);
         writer.WriteBoolean(value.AllowPartial);
+        writer.WriteBoolean(value.ApplyGroupTemplates);
         return writer.ToArray();
     }
 
@@ -217,7 +218,7 @@ public static partial class BridgePayloadCodec
         var reader = new PayloadReader(payload);
         var value = new UyaProjectCreationRequestPayload(
             reader.ReadString(), reader.ReadString(), reader.ReadString(), reader.ReadString(),
-            reader.ReadString(), reader.ReadString(), reader.ReadUInt32(), reader.ReadBoolean());
+            reader.ReadString(), reader.ReadString(), reader.ReadUInt32(), reader.ReadBoolean(), reader.ReadBoolean());
         reader.Complete();
         return value;
     }

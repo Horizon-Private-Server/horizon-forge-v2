@@ -126,7 +126,8 @@ internal static class ProjectBridgeHandlers
             request.Fingerprint,
             request.Revision,
             checked((int)request.Level),
-            request.AllowPartial), progress, cancellationToken, mobyDex);
+            request.AllowPartial,
+            request.ApplyGroupTemplates), progress, cancellationToken, mobyDex);
         return EncodeProject(result);
     }
 

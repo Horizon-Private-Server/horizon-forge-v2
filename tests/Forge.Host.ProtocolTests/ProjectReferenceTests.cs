@@ -248,36 +248,122 @@ internal static class ProjectReferenceTests
             new("UYA", 3, "level_wad/collision", 0),
             Collision: new(
                 ProjectCollisionPieceKind.Solid, 0, 0, 1, 3, [new(0, 1)],
-                new(tieId, ProjectTransform.Identity)));
+                [tieId, shrubId]));
         var workspace = await ForgeProjectWorkspace.CreateAsync(
             Path.Combine(root, "command-project"),
             "Reference command",
             new("UYA", "NTSC-U", "1.00", "uya-ntsc-u"),
             new("UYA", "NTSC-U", "1.00", 3, UyaIsoService.SupportedMd5),
             [tie, shrub, collision]);
+        var moved = ProjectTransform.Identity with { Position = new(4, 5, 6) };
+        workspace.UpdateTransform(tieId, moved);
+        Equal(moved, workspace.Content.Entities.Single(entity => entity.EntityId == tieId).Transform,
+            "linked translation moves the selected TIE");
+        Equal(moved, workspace.Content.Entities.Single(entity => entity.EntityId == shrubId).Transform,
+            "linked translation moves another connected instance");
+        Equal(moved,
+            workspace.Content.Entities.Single(entity => entity.EntityId == collisionId).Transform,
+            "linked translation moves collision once");
+        var rotated = moved with { Rotation = new(0, 0, MathF.Sin(MathF.PI / 4), MathF.Cos(MathF.PI / 4)) };
+        workspace.UpdateTransform(tieId, rotated);
+        Equal(true, workspace.Content.Entities.Where(entity =>
+                entity.EntityId == tieId || entity.EntityId == shrubId || entity.EntityId == collisionId)
+            .All(entity => Equivalent(entity.Transform, rotated)),
+            "linked rotation rotates the connected component exactly once");
+        Throws<ArgumentException>(() => workspace.UpdateTransform(
+            tieId, rotated with { Scale = new(2, 2, 2) }));
+        Equal(ProjectTransform.Identity.Scale,
+            workspace.Content.Entities.Single(entity => entity.EntityId == collisionId).Transform.Scale,
+            "linked scale rejection preserves collision transform");
+        var largeTie = new ProjectTransform(
+            new(12345.678f, -9876.543f, 4567.89f),
+            new(0.10259784f, 0.20519568f, 0.30779353f, 0.9233805f),
+            new(1.25f, 0.75f, 2));
+        var largeShrub = new ProjectTransform(
+            new(-23456.78f, 34567.89f, -5678.901f),
+            new(-0.30618623f, 0.20412415f, 0.10206208f, 0.9237604f),
+            new(0.5f, 1.5f, 0.9f));
+        var largeCollision = ProjectTransform.Identity with { Position = new(15000, 12000, -8000) };
+        workspace.RestoreState(workspace.CaptureState() with
+        {
+            Content = workspace.Content with
+            {
+                Entities = workspace.Content.Entities.Select(entity => entity.EntityId switch
+                {
+                    var id when id == tieId => entity with { Transform = largeTie },
+                    var id when id == shrubId => entity with { Transform = largeShrub },
+                    var id when id == collisionId => entity with { Transform = largeCollision },
+                    _ => entity,
+                }).ToArray(),
+            },
+        });
+        var sharedRotation = System.Numerics.Matrix4x4.CreateTranslation(-10000, 20000, -30000)
+            * System.Numerics.Matrix4x4.CreateFromAxisAngle(
+                System.Numerics.Vector3.Normalize(new(1, 2, 3)), MathF.PI / 12)
+            * System.Numerics.Matrix4x4.CreateTranslation(10000, -20000, 30000);
+        workspace.UpdateTransforms([
+            new(tieId, ApplyRigid(largeTie, sharedRotation)),
+            new(shrubId, ApplyRigid(largeShrub, sharedRotation)),
+            new(collisionId, ApplyRigid(largeCollision, sharedRotation)),
+        ]);
+        Equal(true, workspace.Content.Entities.Where(entity =>
+                entity.EntityId == tieId || entity.EntityId == shrubId || entity.EntityId == collisionId)
+            .All(entity => Equivalent(entity.Transform, ApplyRigid(entity.EntityId switch
+            {
+                var id when id == tieId => largeTie,
+                var id when id == shrubId => largeShrub,
+                _ => largeCollision,
+            }, sharedRotation), 0.01f)),
+            "linked rotation tolerates serialized large-coordinate precision");
         await using var runtime = new EditorRuntime(
             transformCapabilityResolver: entity => entity.Collision is null
                 ? EditorTransformCapabilities.None
-                : EditorTransformCapabilities.Translate);
+                : EditorTransformCapabilities.Translate | EditorTransformCapabilities.Rotate);
         _ = await runtime.OpenAsync(workspace.RootPath, TimeSpan.Zero);
         var snapshot = await runtime.ExecuteAsync(new(
             Guid.NewGuid().ToString("D"),
-            EditorCommandKind.SetEntityReference,
-            [collisionId],
-            ReferenceUpdate: new(ProjectReferences.CollisionAttachment, null, shrubId)));
-        Equal(shrubId, snapshot.References.Single(reference =>
-            reference.Reference.FieldKey == ProjectReferences.CollisionAttachment).Reference.EntityId,
-            "reference command updates the stable target");
+            EditorCommandKind.UpdateTransform,
+            [tieId],
+            Transform: moved));
+        Equal(true, snapshot.Entities.Where(entity =>
+                entity.EntityId == tieId || entity.EntityId == shrubId || entity.EntityId == collisionId)
+            .All(entity => entity.Transform == moved),
+            "runtime expands one linked translation across the connected component");
+        snapshot = await runtime.ExecuteAsync(new(
+            Guid.NewGuid().ToString("D"),
+            EditorCommandKind.UpdateTransform,
+            [tieId],
+            Transform: rotated));
+        Equal(true, snapshot.Entities.Where(entity =>
+                entity.EntityId == tieId || entity.EntityId == shrubId || entity.EntityId == collisionId)
+            .All(entity => Equivalent(entity.Transform, rotated)),
+            "runtime expands one linked rotation across the connected component");
         snapshot = await runtime.ExecuteAsync(new(
             Guid.NewGuid().ToString("D"), EditorCommandKind.Undo, []));
-        Equal(tieId, snapshot.References.Single(reference =>
-            reference.Reference.FieldKey == ProjectReferences.CollisionAttachment).Reference.EntityId,
-            "reference command is undoable");
+        Equal(true, snapshot.Entities.Where(entity =>
+                entity.EntityId == tieId || entity.EntityId == shrubId || entity.EntityId == collisionId)
+            .All(entity => entity.Transform == moved),
+            "linked rotation is undoable as one command");
         snapshot = await runtime.ExecuteAsync(new(
             Guid.NewGuid().ToString("D"), EditorCommandKind.Redo, []));
-        Equal(shrubId, snapshot.References.Single(reference =>
-            reference.Reference.FieldKey == ProjectReferences.CollisionAttachment).Reference.EntityId,
-            "reference command is redoable");
+        Equal(true, snapshot.Entities.Where(entity =>
+                entity.EntityId == tieId || entity.EntityId == shrubId || entity.EntityId == collisionId)
+            .All(entity => Equivalent(entity.Transform, rotated)),
+            "linked rotation is redoable as one command");
+        _ = await runtime.ExecuteAsync(new(
+            Guid.NewGuid().ToString("D"), EditorCommandKind.Undo, []));
+        _ = await runtime.ExecuteAsync(new(
+            Guid.NewGuid().ToString("D"), EditorCommandKind.Undo, []));
+        snapshot = await runtime.ExecuteAsync(new(
+            Guid.NewGuid().ToString("D"), EditorCommandKind.DeleteEntities, [shrubId]));
+        Equal(true, snapshot.Entities.Single(entity => entity.EntityId == collisionId)
+            .Collision!.LinkedInstanceEntityIds!.SequenceEqual([tieId]),
+            "deleting an instance clears only its semantic collision link");
+        snapshot = await runtime.ExecuteAsync(new(
+            Guid.NewGuid().ToString("D"), EditorCommandKind.Undo, []));
+        Equal(true, snapshot.Entities.Single(entity => entity.EntityId == collisionId)
+            .Collision!.LinkedInstanceEntityIds!.SequenceEqual([tieId, shrubId]),
+            "collision link cleanup is undoable");
     }
 
     private static T Throws<T>(Action action) where T : Exception
@@ -285,6 +371,37 @@ internal static class ProjectReferenceTests
         try { action(); }
         catch (T exception) { return exception; }
         throw new InvalidOperationException($"Expected {typeof(T).Name}.");
+    }
+
+    private static bool Equivalent(ProjectTransform left, ProjectTransform right, float positionTolerance = 0.0001f)
+    {
+        static bool Near(float first, float second) => MathF.Abs(first - second) <= 0.0001f;
+        var dot = left.Rotation.X * right.Rotation.X + left.Rotation.Y * right.Rotation.Y
+            + left.Rotation.Z * right.Rotation.Z + left.Rotation.W * right.Rotation.W;
+        return MathF.Abs(left.Position.X - right.Position.X) <= positionTolerance
+            && MathF.Abs(left.Position.Y - right.Position.Y) <= positionTolerance
+            && MathF.Abs(left.Position.Z - right.Position.Z) <= positionTolerance
+            && Near(MathF.Abs(dot), 1)
+            && Near(left.Scale.X, right.Scale.X)
+            && Near(left.Scale.Y, right.Scale.Y)
+            && Near(left.Scale.Z, right.Scale.Z);
+    }
+
+    private static ProjectTransform ApplyRigid(ProjectTransform value, System.Numerics.Matrix4x4 delta)
+    {
+        var rotation = System.Numerics.Quaternion.Normalize(new(
+            value.Rotation.X, value.Rotation.Y, value.Rotation.Z, value.Rotation.W));
+        var matrix = System.Numerics.Matrix4x4.CreateScale(value.Scale.X, value.Scale.Y, value.Scale.Z)
+            * System.Numerics.Matrix4x4.CreateFromQuaternion(rotation)
+            * System.Numerics.Matrix4x4.CreateTranslation(value.Position.X, value.Position.Y, value.Position.Z)
+            * delta;
+        Equal(true, System.Numerics.Matrix4x4.Decompose(matrix, out _, out rotation, out var position),
+            "test rigid transform decomposes");
+        rotation = System.Numerics.Quaternion.Normalize(rotation);
+        return new(
+            new(position.X, position.Y, position.Z),
+            new(rotation.X, rotation.Y, rotation.Z, rotation.W),
+            value.Scale);
     }
 
     private static void Equal<T>(T expected, T actual, string context)

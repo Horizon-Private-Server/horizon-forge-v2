@@ -8,6 +8,8 @@ import type {
   EditorInstancedCollisionPreview,
   EditorInstancedCollisionSourceInfo,
   EditorInstancedCollisionRecipe,
+  EditorGroupTemplatePreview,
+  EditorGroupTemplateRequest,
   ProjectTransform,
   ProjectVector3,
   EditorMobyPropertyValue,
@@ -309,6 +311,76 @@ export function encodeInstancedCollisionApplyRequest(commandId: string, token: s
   return writer.toBuffer();
 }
 
+export function encodeGroupTemplateRequest(value: EditorGroupTemplateRequest): Buffer {
+  const writer = new PayloadWriter();
+  writer.writeString(value.templateId);
+  writer.writeUInt32(value.templateVersion);
+  writer.writeUInt32(value.parameters.length);
+  value.parameters.forEach((parameter) => {
+    writer.writeString(parameter.key);
+    writer.writeFloat64(parameter.value);
+  });
+  writer.writeBoolean(value.groupId !== undefined);
+  if (value.groupId !== undefined) writer.writeString(value.groupId);
+  writer.writeBoolean(value.seedEntityId !== undefined);
+  if (value.seedEntityId !== undefined) writer.writeString(value.seedEntityId);
+  return writer.toBuffer();
+}
+
+export function encodeGroupTemplateApplyRequest(commandId: string, token: string): Buffer {
+  const writer = new PayloadWriter();
+  writer.writeString(commandId);
+  writer.writeString(token);
+  return writer.toBuffer();
+}
+
+export function decodeGroupTemplatePreview(payload: Uint8Array): EditorGroupTemplatePreview {
+  const reader = new PayloadReader(payload);
+  const token = reader.readString();
+  const templateId = reader.readString();
+  const templateVersion = reader.readUInt32();
+  const parameters = readList(reader, 32, () => ({ key: reader.readString(), value: reader.readFloat64() }));
+  const groupId = reader.readBoolean() ? reader.readString() : undefined;
+  const seedEntityId = reader.readBoolean() ? reader.readString() : undefined;
+  const suggestedName = reader.readString();
+  const candidateCount = reader.readUInt32();
+  const ambiguousCandidateCount = reader.readUInt32();
+  if (candidateCount > MAX_ENTITIES || ambiguousCandidateCount > candidateCount)
+    malformed('Invalid group template candidate counts');
+  const value: EditorGroupTemplatePreview = {
+    token,
+    templateId,
+    templateVersion,
+    parameters,
+    groupId,
+    seedEntityId,
+    suggestedName,
+    candidateCount,
+    ambiguousCandidateCount,
+    candidates: readList(reader, MAX_ENTITIES, () => ({
+      entityId: reader.readString(),
+      disposition: enumValue({ 1: 'included', 2: 'ambiguous' }, reader.readUInt32(), 'candidate disposition'),
+      evidence: readStrings(reader, 32),
+    })),
+    members: readStrings(reader, MAX_ENTITIES),
+    addedMembers: readStrings(reader, MAX_ENTITIES),
+    removedMembers: readStrings(reader, MAX_ENTITIES),
+    manualAdditions: readStrings(reader, MAX_ENTITIES),
+    manualRemovals: readStrings(reader, MAX_ENTITIES),
+    diagnostics: readList(reader, 100, () => ({
+      code: reader.readString(),
+      severity: enumValue(severities, reader.readUInt32(), 'diagnostic severity'),
+      message: reader.readString(),
+    })),
+  };
+  if (value.candidates.length > candidateCount
+    || value.candidates.filter((candidate) => candidate.disposition === 'ambiguous').length
+      > ambiguousCandidateCount)
+    malformed('Invalid group template candidate details');
+  reader.complete();
+  return value;
+}
+
 export function encodeInstancedCollisionRenderRequest(
   cacheRootPath: string,
   catalogRootPath: string,
@@ -382,17 +454,43 @@ export function decodeEditorSnapshot(payload: Uint8Array): EditorSnapshot {
   const fx = reader.readBoolean() ? readFx(reader) : undefined;
   const entities = readList(reader, MAX_ENTITIES, () => readEntity(reader));
   const references = readList(reader, MAX_REFERENCES, () => readReference(reader));
-  const groups = readList(reader, MAX_GROUPS, () => ({
-    id: reader.readString(),
-    name: reader.readString(),
-    members: readStrings(reader, MAX_ENTITIES),
-    missingMembers: readStrings(reader, MAX_ENTITIES),
-  }));
+  const groups = readList(reader, MAX_GROUPS, () => {
+    const group: EditorSnapshot['groups'][number] = {
+      id: reader.readString(),
+      name: reader.readString(),
+      members: readStrings(reader, MAX_ENTITIES),
+      missingMembers: readStrings(reader, MAX_ENTITIES),
+    };
+    if (reader.readBoolean()) group.template = {
+      templateId: reader.readString(),
+      templateVersion: reader.readUInt32(),
+      parameters: readList(reader, 32, () => ({ key: reader.readString(), value: reader.readFloat64() })),
+      inputFingerprint: reader.readString(),
+      generatedMembers: readStrings(reader, MAX_ENTITIES),
+      seedEntityId: reader.readBoolean() ? reader.readString() : undefined,
+    };
+    return group;
+  });
   const mapGroups = readList(reader, MAX_GROUPS, () => ({
     kind: enumValue(mapGroupKinds, reader.readUInt32(), 'map group kind'),
     sourceIndex: reader.readUInt32(),
     members: readStrings(reader, MAX_ENTITIES),
     missingSourceIndices: readList(reader, MAX_ENTITIES, () => reader.readUInt32()),
+  }));
+  const groupTemplates = readList(reader, 32, () => ({
+    templateId: reader.readString(),
+    templateVersion: reader.readUInt32(),
+    label: reader.readString(),
+    description: reader.readString(),
+    seedKind: enumValue(entityKinds, reader.readUInt32(), 'group template seed kind'),
+    parameters: readList(reader, 32, () => ({
+      key: reader.readString(),
+      label: reader.readString(),
+      defaultValue: reader.readFloat64(),
+      minimum: reader.readFloat64(),
+      maximum: reader.readFloat64(),
+      step: reader.readFloat64(),
+    })),
   }));
   const selection = readStrings(reader, MAX_ENTITIES);
   const isDirty = reader.readBoolean();
@@ -410,7 +508,7 @@ export function decodeEditorSnapshot(payload: Uint8Array): EditorSnapshot {
   }));
   reader.complete();
   return {
-    projectPath, projectId, projectName, target, baseLevel, levelSettings, hud, fx, entities, references, groups, mapGroups, selection, isDirty,
+    projectPath, projectId, projectName, target, baseLevel, levelSettings, hud, fx, entities, references, groups, mapGroups, groupTemplates, selection, isDirty,
     canUndo, canRedo, canPaste, lastEventSequence, capabilities, tools, diagnostics,
   };
 }
@@ -587,10 +685,7 @@ function readEntity(reader: PayloadReader): EditorEntity {
       vertexCount: reader.readUInt32(),
       types: readList(reader, 256, () => ({ rawType: reader.readUInt32(), count: reader.readUInt32() })),
     };
-    if (reader.readBoolean()) value.collision.attachment = {
-      parentEntityId: reader.readString(),
-      bindTransform: readTransform(reader),
-    };
+    value.collision.linkedInstanceEntityIds = readStrings(reader, 256);
   }
   if (reader.readBoolean()) value.instancedCollision = {
     proxyAssetId: reader.readString(),

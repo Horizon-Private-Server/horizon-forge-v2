@@ -5,7 +5,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { KeybindingMap } from '../../types/Keybindings.js';
 import type { AssetExplorerCategory, AssetExplorerFamily } from '../../types/AssetExplorer.js';
 import type {
-  EditorCommand, EditorSnapshot, EditorInstancedCollisionGenerationSettings, ProjectVector4,
+  EditorCommand, EditorSnapshot, EditorInstancedCollisionGenerationSettings, EditorGroupTemplateRequest,
+  ProjectVector4,
 } from '../../types/EditorRuntime.js';
 import type { SceneTreeColors } from '../../types/SceneTree.js';
 import type { CollisionVisualization } from '../../types/CollisionVisualization.js';
@@ -348,6 +349,31 @@ export function EditorWorkspace({
     finally { setBusy(false); }
   }, [onProjectChange]);
 
+  const previewGroupTemplate = useCallback(async (request: EditorGroupTemplateRequest) => {
+    setError(undefined);
+    try { return await window.forge.previewGroupTemplate(request); }
+    catch (cause) {
+      setError(errorMessage(cause));
+      throw cause;
+    }
+  }, []);
+
+  const cancelGroupTemplatePreview = useCallback(() => window.forge.cancelGroupTemplatePreview(), []);
+
+  const applyGroupTemplatePreview = useCallback(async (token: string) => {
+    setBusy(true);
+    setError(undefined);
+    try {
+      onProjectChange(await window.forge.applyGroupTemplatePreview(crypto.randomUUID(), token));
+      return true;
+    }
+    catch (cause) {
+      setError(errorMessage(cause));
+      return false;
+    }
+    finally { setBusy(false); }
+  }, [onProjectChange]);
+
   const setInstancedCollisionRendered = useCallback((entityId: string, rendered: boolean) => {
     setRenderedInstancedCollisionEntityIds((current) => {
       if (current.has(entityId) === rendered) return current;
@@ -445,6 +471,9 @@ export function EditorWorkspace({
     inspectInstancedCollisionSource,
     cancelInstancedCollisionPreview,
     applyInstancedCollisionPreview,
+    previewGroupTemplate,
+    cancelGroupTemplatePreview,
+    applyGroupTemplatePreview,
     instancedCollisionOverlay,
     setInstancedCollisionOverlay,
     renderedInstancedCollisionEntityIds,
@@ -456,14 +485,15 @@ export function EditorWorkspace({
       catch (cause) { setError(errorMessage(cause)); }
       finally { setBusy(false); }
     },
-  }), [applyInstancedCollisionPreview, assetPreview, buildAndPatch, buildProgress, buildResult, busy, cameraFocus,
+  }), [applyGroupTemplatePreview, applyInstancedCollisionPreview, assetPreview, buildAndPatch, buildProgress, buildResult, busy, cameraFocus,
+    cancelGroupTemplatePreview,
     cancelInstancedCollisionPreview, execute,
     hostStatus, inspectAsset, inspectReferencedAsset, navigateToEntity, showReferences, keybindings,
     collisionVisualization, project, sceneLoad, sceneTreeColors, showOcclusionOctants, showPlayerBarriers, showSolidCollision,
     selectionColor, showTerrain,
     showViewportStats, skyCompositionSelected,
     splinePointSelection,
-    terrain, previewInstancedCollision, inspectInstancedCollisionSource, instancedCollisionOverlay,
+    terrain, previewGroupTemplate, previewInstancedCollision, inspectInstancedCollisionSource, instancedCollisionOverlay,
     renderedInstancedCollisionEntityIds, setInstancedCollisionRendered]);
 
   return <EditorContext.Provider value={context}>

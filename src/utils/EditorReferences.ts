@@ -43,9 +43,8 @@ export function compatibleReferenceTargets(
   reference: Extract<EditorReference, { domain: 'entity' }>,
   entities: readonly EditorEntity[],
 ): EditorEntity[] {
-  return entities.filter((entity) => reference.fieldKey === 'collision.attachment'
-    ? editorEntityKind(entity) === 'tie' || editorEntityKind(entity) === 'shrub'
-    : reference.targetKind === 'entity' || editorEntityKind(entity) === reference.targetKind);
+  return entities.filter((entity) =>
+    reference.targetKind === 'entity' || editorEntityKind(entity) === reference.targetKind);
 }
 
 export function compatibleReferenceDropTarget(

@@ -190,7 +190,7 @@ internal static class UyaMobyPVarTests
                 UyaMobyPVarEditorService.Describe(workspace, catalog, entity, index, includeRawData),
             mobyPVarCommandExecutor: (workspace, command, token) =>
                 UyaMobyPVarEditorService.ExecuteAsync(workspace, command, catalog, token),
-            projectOpenHydrator: (workspace, token) =>
+            projectOpenHydrator: (workspace, _, token) =>
                 UyaMobyPVarService.HydrateFromSourceAsync(workspace, catalog, token));
         var snapshot = await runtime.OpenAsync(project, TimeSpan.Zero);
         var raw = snapshot.Entities.Single(value => value.EntityId == moby.EntityId).MobyPVar!;

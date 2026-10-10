@@ -185,12 +185,26 @@ public static class ProjectGroupSchema
     public const int MaximumGroupCount = 4_096;
     public const int MaximumMembersPerGroup = 100_000;
     public const int MaximumTotalMemberships = 1_000_000;
+    public const int MaximumTemplateParameters = 32;
+    public const int MaximumTemplateDefinitions = 32;
 }
+
+public sealed record ProjectGroupTemplateParameter(string Key, double Value);
+
+public sealed record ProjectGroupTemplateProvenance(
+    string TemplateId,
+    int TemplateVersion,
+    IReadOnlyList<ProjectGroupTemplateParameter> Parameters,
+    string InputFingerprint,
+    IReadOnlyList<EntityId> GeneratedMembers,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] EntityId? SeedEntityId = null);
 
 public sealed record ProjectGroup(
     GroupId GroupId,
     string Name,
-    IReadOnlyList<EntityId> Members);
+    IReadOnlyList<EntityId> Members,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    ProjectGroupTemplateProvenance? Template = null);
 
 public sealed record ForgeProjectManifest(
     int SchemaVersion,

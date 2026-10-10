@@ -8,7 +8,9 @@ import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { SceneProjection } from '../src/renderer/editor/SceneProjection.ts';
 import { SceneBillboardResources } from '../src/renderer/editor/SceneBillboardGizmo.ts';
 import { verticalDragScale } from '../src/renderer/editor/TransformTool.ts';
-import { inspectTransformSelection } from '../src/utils/TransformSelection.ts';
+import {
+  expandLinkedCollisionTransforms, indexLinkedCollisionTransforms, inspectTransformSelection,
+} from '../src/utils/TransformSelection.ts';
 import { AssetPreviewScheduler, collectSkyShellObjects } from '../src/renderer/editor/AssetThumbnailRuntime.ts';
 import {
   buildGroundPlacement, createGroundSurfaceRaycast,
@@ -117,18 +119,22 @@ test('group transform eligibility is atomic and deduplicated', () => {
   assert.match(incompatible.message ?? '', /1 without rotation support/);
 });
 
-test('group transform eligibility blocks unresolved and collision-linked members', () => {
+test('group transform eligibility allows linked collision but blocks unresolved members', () => {
   const first = entity('first');
   const collision = entity('collision');
   collision.collision = {
     kind: 'solid', sourcePayloadIndex: 0, sourcePieceIndex: 0,
     faceCount: 1, vertexCount: 3, types: [],
-    attachment: { parentEntityId: first.id, bindTransform: first.transform },
+    linkedInstanceEntityIds: [first.id],
   };
   const result = inspectTransformSelection([first, collision], ['first', 'collision'], 'translate', 2);
   assert.deepEqual(result.entities, []);
   assert.match(result.message ?? '', /2 missing/);
-  assert.match(result.message ?? '', /1 collision-linked/);
+  const complete = inspectTransformSelection([first, collision], ['first', 'collision'], 'translate');
+  assert.deepEqual(complete.entities.map((value) => value.id), ['first', 'collision']);
+  const scale = inspectTransformSelection([first, collision], ['first'], 'scale');
+  assert.deepEqual(scale.entities, []);
+  assert.match(scale.message ?? '', /1 linked to source collision/);
 });
 
 test('billboard gizmos share resources, bound screen size, and dispose synchronously', () => {
@@ -734,39 +740,51 @@ test('scene projection batches unique collision pieces and resolves batch picks'
   templates.forEach(disposeObject);
 });
 
-test('recovered collision follows its attached TIE instance', () => {
+test('linked collision rigid transforms expand across the connected component', () => {
   const tie = entity('tie', 10);
   tie.asset = { id: 'tie-asset', kind: 'Tie' };
+  const secondTie = entity('second-tie', 20);
+  secondTie.asset = { id: 'tie-asset', kind: 'Tie' };
   const collision = entity('collision');
-  collision.transform = {
-    position: { x: 0, y: 0, z: 0 },
-    rotation: { x: 0, y: 0, z: 0, w: 1 },
-    scale: { x: 1, y: 1, z: 1 },
-  };
-  collision.asset = { id: 'collision-asset', kind: 'collision' };
   collision.collision = {
     kind: 'solid', sourcePayloadIndex: 0, sourcePieceIndex: 0,
     faceCount: 1, vertexCount: 3, types: [],
-    attachment: { parentEntityId: tie.id, bindTransform: structuredClone(tie.transform) },
+    linkedInstanceEntityIds: [tie.id, secondTie.id],
   };
-  collision.transformModes = ['translate'];
-  const template = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
-  const projection = new SceneProjection();
-  projection.setAssetTemplates(new Map([['collision-asset:solid:0', template]]));
-  projection.sync([tie, collision]);
-  assert.ok(Math.abs(projection.getBounds(collision.id)!.getCenter(new THREE.Vector3()).x) < 1e-6);
+  const index = indexLinkedCollisionTransforms([tie, secondTie, collision]);
+  const movedFromTie = expandLinkedCollisionTransforms(index, [{
+    entityId: tie.id,
+    transform: { ...tie.transform, position: { ...tie.transform.position, x: 15 } },
+  }]);
+  assert.deepEqual(movedFromTie.map((update) => [update.entityId, update.transform.position.x]), [
+    ['collision', 5], ['second-tie', 25], ['tie', 15],
+  ]);
+  const movedFromCollision = expandLinkedCollisionTransforms(index, [{
+    entityId: collision.id,
+    transform: { ...collision.transform, position: { ...collision.transform.position, x: -2 } },
+  }]);
+  assert.deepEqual(movedFromCollision.map((update) => [update.entityId, update.transform.position.x]), [
+    ['collision', -2], ['second-tie', 18], ['tie', 8],
+  ]);
 
-  tie.transform = { ...tie.transform, position: { ...tie.transform.position, x: 15 } };
-  projection.sync([tie, collision]);
-  assert.ok(Math.abs(projection.getBounds(collision.id)!.getCenter(new THREE.Vector3()).x - 5) < 1e-6);
-
-  tie.state = { ...tie.state, disabled: true };
-  projection.sync([tie, collision]);
-  const batch: THREE.BatchedMesh[] = [];
-  projection.root.traverse((object) => { if (object instanceof THREE.BatchedMesh) batch.push(object); });
-  assert.equal(batch[0].getVisibleAt(0), false);
-  projection.dispose();
-  disposeObject(template);
+  const pivot = new THREE.Vector3(15, 2, 3);
+  const rotation = new THREE.Matrix4().makeTranslation(pivot.x, pivot.y, pivot.z)
+    .multiply(new THREE.Matrix4().makeRotationZ(Math.PI / 2))
+    .multiply(new THREE.Matrix4().makeTranslation(-pivot.x, -pivot.y, -pivot.z));
+  const rotate = (value: EditorEntity) => sceneMatrixToProjectTransform(
+    rotation.clone().multiply(projectTransformToSceneMatrix(value.transform)),
+  );
+  const rotated = expandLinkedCollisionTransforms(index, [tie, secondTie].map((value) => ({
+    entityId: value.id,
+    transform: rotate(value),
+  })));
+  assert.deepEqual(rotated.map((update) => update.entityId), ['collision', 'second-tie', 'tie']);
+  for (const update of rotated) {
+    const source = [tie, secondTie, collision].find((value) => value.id === update.entityId)!;
+    const expected = projectTransformToSceneMatrix(rotate(source));
+    const actual = projectTransformToSceneMatrix(update.transform);
+    assert.ok(actual.elements.every((value, offset) => Math.abs(value - expected.elements[offset]) < 1e-5));
+  }
 });
 
 test('scene projection keeps a representative heavy collision level in one batch', () => {

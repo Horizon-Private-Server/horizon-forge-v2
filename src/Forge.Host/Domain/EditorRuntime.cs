@@ -18,7 +18,7 @@ public sealed partial class EditorRuntime : IAsyncDisposable
         "editor.mobydex.import", "editor.mobydex.remove",
         "editor.reference.update",
         "editor.group.create", "editor.group.rename", "editor.group.delete", "editor.group.reorder",
-        "editor.group.membership",
+        "editor.group.membership", "editor.group-template.preview", "editor.group-template.apply",
         "editor.instanced-collision.inspect", "editor.instanced-collision.preview", "editor.instanced-collision.apply", "editor.instanced-collision.remove",
         "editor.instanced-collision.toggle", "editor.instanced-collision.raw-type", "editor.instanced-collision.face-types",
     ];
@@ -46,6 +46,8 @@ public sealed partial class EditorRuntime : IAsyncDisposable
     private readonly EditorMobyPVarCommandExecutor? _mobyPVarCommandExecutor;
     private readonly EditorProjectOpenHydrator? _projectOpenHydrator;
     private readonly EditorMapGroupResolver? _mapGroupResolver;
+    private readonly EditorGroupTemplateEvaluator? _groupTemplateEvaluator;
+    private readonly IReadOnlyList<EditorGroupTemplateDefinition> _groupTemplates;
     private readonly ushort _hudMinimumAppendSpriteId;
     private readonly ushort _hudMaximumAppendSpriteId;
     private ForgeProjectWorkspace? _workspace;
@@ -78,7 +80,9 @@ public sealed partial class EditorRuntime : IAsyncDisposable
         EditorMobyPVarCommandExecutor? mobyPVarCommandExecutor = null,
         EditorProjectOpenHydrator? projectOpenHydrator = null,
         EditorMapGroupResolver? mapGroupResolver = null,
-        EditorSourceClassNameResolver? sourceClassNameResolver = null)
+        EditorSourceClassNameResolver? sourceClassNameResolver = null,
+        EditorGroupTemplateEvaluator? groupTemplateEvaluator = null,
+        IReadOnlyList<EditorGroupTemplateDefinition>? groupTemplates = null)
     {
         _placementResolver = placementResolver;
         _transformCapabilityResolver = transformCapabilityResolver;
@@ -97,9 +101,13 @@ public sealed partial class EditorRuntime : IAsyncDisposable
         _projectOpenHydrator = projectOpenHydrator;
         _mapGroupResolver = mapGroupResolver;
         _sourceClassNameResolver = sourceClassNameResolver;
+        _groupTemplateEvaluator = groupTemplateEvaluator;
+        _groupTemplates = NormalizeGroupTemplateDefinitions(groupTemplates ?? []);
     }
 
-    public bool HasCapability(string capability) => RuntimeCapabilities.Contains(capability, StringComparer.Ordinal);
+    public bool HasCapability(string capability) => RuntimeCapabilities.Contains(capability, StringComparer.Ordinal)
+        && (_groupTemplateEvaluator is not null && _groupTemplates.Count > 0
+            || !capability.StartsWith("editor.group-template.", StringComparison.Ordinal));
 
     public async Task<EditorSnapshot> OpenAsync(
         string projectPath,
@@ -119,15 +127,15 @@ public sealed partial class EditorRuntime : IAsyncDisposable
         {
             ThrowIfDisposed();
             var workspace = await ForgeProjectWorkspace.OpenAsync(projectPath, cancellationToken);
-            var hydrationDiagnostic = _projectOpenHydrator is null
-                ? null
-                : await _projectOpenHydrator(workspace, cancellationToken);
-            var mapGroups = _mapGroupResolver is null
-                ? new EditorMapGroupCatalog([], [])
-                : await _mapGroupResolver(workspace, cancellationToken);
             var catalog = catalogRootPath is null
                 ? null
                 : await AssetCatalogStore.OpenAsync(catalogRootPath, cancellationToken);
+            var hydrationDiagnostic = _projectOpenHydrator is null
+                ? null
+                : await _projectOpenHydrator(workspace, catalog, cancellationToken);
+            var mapGroups = _mapGroupResolver is null
+                ? new EditorMapGroupCatalog([], [])
+                : await _mapGroupResolver(workspace, cancellationToken);
             var missingAssets = catalog is null ? [] : FindMissingAssets(workspace, catalog);
             var instancedCollisionDiagnostics = await InspectInstancedCollisionProxiesAsync(
                 workspace, catalog, cancellationToken);
@@ -143,6 +151,7 @@ public sealed partial class EditorRuntime : IAsyncDisposable
             _clipboard = [];
             _mapGroupSources = mapGroups.Groups;
             _instancedCollisionCandidates = [];
+            _groupTemplatePreviews = [];
             _projectVersion = 0;
             _history.Clear();
             _diagnostics.Clear();
@@ -182,7 +191,7 @@ public sealed partial class EditorRuntime : IAsyncDisposable
         {
             ThrowIfDisposed();
             var workspace = RequireWorkspace();
-            ValidateCommand(command, workspace);
+            var normalizedTransforms = ValidateCommand(command, workspace);
             var stateBefore = workspace.CaptureState();
             var selectionBefore = _selection;
             var fingerprintBefore = workspace.CurrentFingerprint;
@@ -199,15 +208,12 @@ public sealed partial class EditorRuntime : IAsyncDisposable
                     ScheduleAutosave();
                     break;
                 case EditorCommandKind.UpdateTransform:
-                    workspace.UpdateTransform(command.EntityIds[0], EffectiveTransform(
-                        workspace.GetEntities(command.EntityIds)[0], command.Transform!));
+                    workspace.UpdateExpandedTransforms(normalizedTransforms!);
                     AddEvent(EditorEventKind.ProjectChanged, command.Id, command.EntityIds, "Transform updated");
                     ScheduleAutosave();
                     break;
                 case EditorCommandKind.UpdateTransforms:
-                    var byId = workspace.GetEntities(command.EntityIds).ToDictionary(entity => entity.EntityId);
-                    workspace.UpdateTransforms(command.Transforms!.Select(update => new EditorTransformUpdate(
-                        update.EntityId, EffectiveTransform(byId[update.EntityId], update.Transform))).ToArray());
+                    workspace.UpdateExpandedTransforms(normalizedTransforms!);
                     AddEvent(EditorEventKind.ProjectChanged, command.Id, command.EntityIds, "Transforms updated");
                     ScheduleAutosave();
                     break;
@@ -432,6 +438,7 @@ public sealed partial class EditorRuntime : IAsyncDisposable
             if (projectChanged)
             {
                 _projectVersion++;
+                _groupTemplatePreviews = [];
                 if (command.Kind == EditorCommandKind.SetInstancedCollisionRawType)
                 {
                     var sourceAssetId = workspace.GetEntities(command.EntityIds)[0].Asset!.Id;
@@ -558,6 +565,7 @@ public sealed partial class EditorRuntime : IAsyncDisposable
         _mapGroupSources = [];
         _catalogRootPath = null;
         _instancedCollisionCandidates = [];
+        _groupTemplatePreviews = [];
         _projectVersion = 0;
     }
 
@@ -624,128 +632,6 @@ public sealed partial class EditorRuntime : IAsyncDisposable
         cancellation?.Cancel();
     }
 
-    private EditorSnapshot Snapshot()
-    {
-        var workspace = RequireWorkspace();
-        var selection = _selection.ToHashSet();
-        var bindings = workspace.Content.InstancedCollisionBindings.ToDictionary(
-            binding => (binding.SourceAssetId, binding.InstanceEntityId));
-        var mobyPVarIndex = _mobyPVarResolver is null ? null : CreateMobyPVarResolutionIndex(workspace.Content);
-        var entities = workspace.Content.Entities.Select(entity =>
-        {
-            var state = entity.State ?? new();
-            var sharedBindingKey = (entity.Asset?.Id ?? default, (EntityId?)null);
-            var individualBindingKey = (entity.Asset?.Id ?? default, (EntityId?)entity.EntityId);
-            var bindingDirty = entity.Asset.IsInstancedCollisionSource()
-                && (!Equals(
-                        _savedInstancedCollisionBindings.GetValueOrDefault(sharedBindingKey),
-                        bindings.GetValueOrDefault(sharedBindingKey))
-                    || !Equals(
-                        _savedInstancedCollisionBindings.GetValueOrDefault(individualBindingKey),
-                        bindings.GetValueOrDefault(individualBindingKey)));
-            return new EditorEntitySnapshot(
-                entity.EntityId,
-                entity.Name,
-                entity.Layer,
-                entity.Transform,
-                entity.Asset,
-                entity.Provenance,
-                entity.Source?.ClassId,
-                Visualization(entity),
-                TransformCapabilities(entity),
-                new(!_savedEntities.TryGetValue(entity.EntityId, out var saved) || saved != entity || bindingDirty,
-                    state.Hidden, state.Disabled, state.Locked,
-                    IsReadOnlySource(entity),
-                    HasInvalidGeometryLinks(entity),
-                    entity.Asset is not null && _missingAssets.Contains(entity.Asset.Id)),
-                entity.SkyShell,
-                entity.Collision,
-                entity.Asset is { } sharedAsset && sharedAsset.IsInstancedCollisionSource()
-                    && bindings.TryGetValue((sharedAsset.Id, null), out var sharedBinding)
-                        ? new(sharedBinding.ProxyAssetId, sharedBinding.Recipe, sharedBinding.FaceTypeOverrides)
-                        : null,
-                entity.Asset is { } individualAsset && individualAsset.IsInstancedCollisionSource()
-                    && bindings.TryGetValue((individualAsset.Id, entity.EntityId), out var individualBinding)
-                        ? new(individualBinding.ProxyAssetId, individualBinding.Recipe,
-                            individualBinding.FaceTypeOverrides)
-                        : null,
-                entity.Asset.IsInstancedCollisionSource()
-                    ? entity.InstancedCollisionEnabled
-                    : null,
-                _mobyPropertyResolver?.Invoke(entity),
-                _mobyPVarResolver?.Invoke(
-                    workspace, entity, mobyPVarIndex!, selection.Contains(entity.EntityId)),
-                _sourceClassNameResolver?.Invoke(workspace, entity));
-        }).ToArray();
-        var references = ReferenceSnapshots(workspace, entities.ToDictionary(entity => entity.EntityId));
-        var knownEntityIds = entities.Select(entity => entity.EntityId).ToHashSet();
-        var groups = workspace.Content.Groups.Select(group => new EditorGroupSnapshot(
-            group.GroupId,
-            group.Name,
-            group.Members,
-            group.Members.Where(member => !knownEntityIds.Contains(member)).ToArray())).ToArray();
-        return new(
-            workspace.RootPath,
-            workspace.Manifest.ProjectId,
-            workspace.Manifest.Name,
-            workspace.Manifest.Target,
-            workspace.Manifest.BaseLevel,
-            workspace.Content.LevelSettings,
-            HudSnapshot(workspace),
-            FxSnapshot(workspace),
-            entities,
-            references,
-            groups,
-            MapGroupSnapshots(workspace),
-            _selection.ToArray(),
-            workspace.IsDirty,
-            _history.CanUndo,
-            _history.CanRedo,
-            _clipboard.Length > 0,
-            _eventSequence,
-            RuntimeCapabilities.ToArray(),
-            RuntimeTools.ToArray(),
-            _diagnostics.Concat(PlacementDiagnostics(workspace)).Concat(GroupDiagnostics(groups))
-                .TakeLast(MaxDiagnostics).ToArray());
-    }
-
-    private static IEnumerable<EditorDiagnostic> PlacementDiagnostics(ForgeProjectWorkspace workspace) =>
-        workspace.Content.Entities
-            .Where(entity => entity.Asset?.Kind == AssetKind.Moby && entity.Provenance is null
-                && entity.Source?.RawRecord.Length >= 0x6c
-                && System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(
-                    entity.Source.RawRecord.AsSpan(0x68)) == -1)
-            .Select(entity => new EditorDiagnostic(
-                "moby.pvar-not-generated",
-                EditorDiagnosticSeverity.Warning,
-                $"{entity.Name}: No generated Pvar data; class-specific behavior may be unavailable."));
-
-    private static EditorEntityGeometry? Visualization(ProjectEntity entity)
-    {
-        var geometry = entity.Geometry;
-        if (geometry?.Cuboid is not null) return new(EditorGeometryKind.Cuboid, []);
-        if (geometry?.Spline is not null) return new(EditorGeometryKind.Spline, geometry.Spline.Points);
-        if (geometry?.Area is not null) return new(EditorGeometryKind.Area, []);
-        if (geometry?.Sphere is not null) return new(EditorGeometryKind.Sphere, []);
-        if (geometry?.Cylinder is not null) return new(EditorGeometryKind.Cylinder, []);
-        if (geometry?.Pill is not null) return new(EditorGeometryKind.Pill, []);
-        if (geometry?.GrindPath is not null) return new(EditorGeometryKind.GrindPath, geometry.GrindPath.Points);
-        var lighting = entity.Lighting;
-        if (lighting?.DirectionalLight is { } directional)
-            return new(EditorGeometryKind.DirectionalLight,
-            [
-                new(0, 0, 0, 1),
-                new(directional.TopDirection.X * 12, directional.TopDirection.Y * 12,
-                    directional.TopDirection.Z * 12, directional.TopDirection.W),
-            ]);
-        if (lighting?.PointLight is not null) return new(EditorGeometryKind.PointLight, []);
-        if (lighting?.EnvironmentSamplePoint is not null) return new(EditorGeometryKind.EnvironmentSample, []);
-        if (lighting?.EnvironmentTransition is not null) return new(EditorGeometryKind.EnvironmentTransition, []);
-        if (entity.Camera is not null) return new(EditorGeometryKind.Camera, []);
-        if (entity.AmbientSound is not null) return new(EditorGeometryKind.AmbientSound, []);
-        return null;
-    }
-
     private bool IsReadOnlySource(ProjectEntity entity) => entity.SkyShell is null
         && IsDecodedSource(entity) && TransformCapabilities(entity) == EditorTransformCapabilities.None;
 
@@ -759,14 +645,6 @@ public sealed partial class EditorRuntime : IAsyncDisposable
             | EditorTransformCapabilities.Rotate | EditorTransformCapabilities.Scale;
         if (!IsDecodedSource(entity)) return all;
         return _transformCapabilityResolver?.Invoke(entity) ?? EditorTransformCapabilities.None;
-    }
-
-    private static bool HasInvalidGeometryLinks(ProjectEntity entity)
-    {
-        var area = entity.Geometry?.Area;
-        return area is not null && area.Splines.Concat(area.Cuboids).Concat(area.Spheres)
-            .Concat(area.Cylinders).Concat(area.NegativeCuboids)
-            .Any(link => link.Reference?.EntityId is null);
     }
 
     private static ProjectTransform EffectiveTransform(ProjectEntity entity, ProjectTransform transform)
@@ -826,6 +704,11 @@ public sealed partial class EditorRuntime : IAsyncDisposable
         + (long)before.Content.Groups.Count * 64
         + before.Content.Groups.Sum(group => (long)group.Members.Count * 16
             + (long)group.Name.Length * sizeof(char))
+        + before.Content.Groups.Sum(group => group.Template is not { } template ? 0L
+            : (long)template.GeneratedMembers.Count * 16
+                + template.Parameters.Sum(parameter => 16L
+                    + (long)parameter.Key.Length * sizeof(char))
+                + (long)(template.TemplateId.Length + template.InputFingerprint.Length) * sizeof(char))
         + (long)command.EntityIds.Count * 16
         + (long)(command.Transforms?.Count ?? 0) * 64
         + (long)(command.Points?.Count ?? 0) * 16

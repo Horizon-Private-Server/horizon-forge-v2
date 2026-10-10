@@ -132,6 +132,9 @@ public static class UyaProjectService
             OpaqueSource(request.Revision, request.Level, request.Fingerprint),
             baseData.Gameplay,
             cancellationToken);
+        if (request.ApplyGroupTemplates
+            && await UyaGroupTemplateService.ApplyDefaultsAsync(workspace, cancellationToken) > 0)
+            await workspace.SaveAsync(cancellationToken);
         await ReportAsync(progress, 4, 4);
         return await InspectAsync(workspace.RootPath, catalog, warnings, cancellationToken);
     }

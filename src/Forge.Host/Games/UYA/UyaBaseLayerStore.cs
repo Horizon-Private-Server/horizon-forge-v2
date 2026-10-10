@@ -15,7 +15,7 @@ public static class UyaBaseLayerStore
     private const string PointLightsAssetName = "point-lights.bin";
     private const string TieAmbientAssetName = "tie-ambient-rgbas.bin";
     private const int SkyCompositionVersion = 2;
-    private const int CollisionCompositionVersion = 4;
+    private const int CollisionCompositionVersion = 5;
 
     internal static async Task WriteAsync(
         string projectRoot,
@@ -150,6 +150,37 @@ public static class UyaBaseLayerStore
         return manifest.Layers.SelectMany(layer => layer.Assets).Select(asset => asset.Asset.Id).Distinct().ToArray();
     }
 
+    internal static async Task<IReadOnlyList<UyaBaseLayerPayload>> ReadCollisionPayloadsAsync(
+        ForgeProjectWorkspace workspace,
+        AssetCatalogStore catalog,
+        CancellationToken cancellationToken)
+    {
+        var layer = BakeLayerId.Collision;
+        var inspection = await InspectAsync(workspace.RootPath, catalog, layer, cancellationToken);
+        if (inspection.Manifest is null || inspection.Blockers[layer].Count > 0)
+            throw new InvalidDataException(string.Join(" ", inspection.Blockers[layer]));
+        var record = inspection.Manifest.Layers.Single(value => value.Layer == layer);
+        var payloads = new List<UyaBaseLayerPayload>(record.Assets.Count);
+        foreach (var asset in record.Assets)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var entry = catalog.Query(new(Id: asset.Asset.Id)).Single();
+            var sourceIndex = CollisionSourceIndex(asset.Name);
+            var source = entry.Sources.Single(value =>
+                value.Game == inspection.Manifest.Source.Game
+                && value.Region == inspection.Manifest.Source.Region
+                && value.Revision == inspection.Manifest.Source.Revision
+                && value.Level == $"level{inspection.Manifest.Source.Level:00}"
+                && value.SourceIndex == sourceIndex
+                && value.Fingerprint.Equals(inspection.Manifest.Source.Fingerprint, StringComparison.OrdinalIgnoreCase));
+            var path = workspace.ResolveAssetPath(asset.Asset, catalog)
+                ?? throw new FileNotFoundException($"Base-layer source {asset.Name} is missing.");
+            payloads.Add(new(layer, asset.Name, asset.Asset.Kind, source.Archive, source.SourceIndex,
+                await File.ReadAllBytesAsync(path, cancellationToken)));
+        }
+        return payloads;
+    }
+
     public static async Task<IReadOnlyList<BakeLayerInput>> CreateBakeInputsAsync(
         string projectRoot,
         AssetCatalogStore catalog,
@@ -227,15 +258,7 @@ public static class UyaBaseLayerStore
                                 value.Collision.SourcePieceIndex,
                                 Enabled = value.State?.Disabled != true,
                                 value.Transform.Position,
-                                value.Collision.Attachment,
-                                Parent = value.Collision.Attachment is { } attachment
-                                    ? workspace.Content.Entities.Where(entity => entity.EntityId == attachment.ParentEntityId)
-                                        .Select(entity => new
-                                        {
-                                            Enabled = entity.State?.Disabled != true,
-                                            entity.Transform,
-                                        }).Single()
-                                    : null,
+                                value.Transform.Rotation,
                             }).ToArray(),
                         Bindings = workspace.Content.InstancedCollisionBindings
                             .OrderBy(value => value.SourceAssetId.ToString(), StringComparer.Ordinal)
@@ -449,11 +472,7 @@ public static class UyaBaseLayerStore
             var source = await File.ReadAllBytesAsync(path, cancellationToken);
             var edits = UyaInstancedCollisionCompositionService.CreateEdits(
                 workspace, asset.Asset.Id, source);
-            var assetAdditions = UyaInstancedCollisionCompositionService.BuildLinkedAdditions(
-                    workspace, asset.Asset.Id, source, sourcePayloadIndex: null,
-                    replacementEntityId: null, cancellationToken)
-                .Concat(asset.Name == "collision.bin" ? proxyAdditions : [])
-                .ToArray();
+            var assetAdditions = asset.Name == "collision.bin" ? proxyAdditions : [];
             var composition = await Task.Run(
                 () => CollisionWork.Compose(
                     source, GameId.UYA, edits, assetAdditions, cancellationToken),
@@ -593,6 +612,17 @@ public static class UyaBaseLayerStore
         && BakeSchema.IsFingerprint(asset.Asset.Id.ToString())
         && !string.IsNullOrWhiteSpace(asset.Name)
         && Path.GetFileName(asset.Name) == asset.Name;
+
+    private static int CollisionSourceIndex(string name)
+    {
+        if (name == "collision.bin") return 0;
+        var stem = Path.GetFileNameWithoutExtension(name);
+        if (!stem.StartsWith("chunk-", StringComparison.Ordinal)
+            || !int.TryParse(stem.AsSpan("chunk-".Length), out var sourceIndex)
+            || sourceIndex < 1)
+            throw new InvalidDataException($"Collision source name {name} is invalid.");
+        return sourceIndex;
+    }
 
     private static AssetKind ExpectedKind(BakeLayerId layer) => layer switch
     {

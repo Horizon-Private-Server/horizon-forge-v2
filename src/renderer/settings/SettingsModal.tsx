@@ -54,6 +54,7 @@ export function SettingsModal({
   const [sourceIso, setSourceIso] = useState('');
   const [forceOversizedInPlace, setForceOversizedInPlace] = useState(false);
   const [showViewportStats, setShowViewportStats] = useState(true);
+  const [applyGroupTemplatesOnCreate, setApplyGroupTemplatesOnCreate] = useState(true);
   const [automaticUpdateChecks, setAutomaticUpdateChecks] = useState(true);
   const [updateChannel, setUpdateChannel] = useState<'stable' | 'nightly'>('stable');
   const [keybindingOverrides, setKeybindingOverrides] = useState<KeybindingOverrides>({});
@@ -69,6 +70,7 @@ export function SettingsModal({
       const source = snapshot.entries.find((entry) => entry.key === 'sources.uya.iso');
       const forcedInPlace = snapshot.entries.find((entry) => entry.key === 'build.uya.forceOversizedInPlace');
       const stats = snapshot.entries.find((entry) => entry.key === 'ui.showViewportStats');
+      const applyTemplates = snapshot.entries.find((entry) => entry.key === 'projects.applyGroupTemplatesOnCreate');
       const storedUiSize = snapshot.entries.find((entry) => entry.key === 'ui.componentSize')?.value;
       const updates = snapshot.entries.find((entry) => entry.key === 'updates.automaticChecks');
       const channel = snapshot.entries.find((entry) => entry.key === 'updates.channel');
@@ -77,6 +79,7 @@ export function SettingsModal({
       setSourceIso(typeof source?.value === 'string' ? source.value : '');
       setForceOversizedInPlace(forcedInPlace?.value === true);
       setShowViewportStats(stats?.value === true);
+      setApplyGroupTemplatesOnCreate(applyTemplates?.value === true);
       const nextUiSize = isUiSize(storedUiSize) ? storedUiSize : 'xs';
       setSavedUiSize(nextUiSize);
       onUiSizeChange(nextUiSize);
@@ -153,6 +156,20 @@ export function SettingsModal({
               Oversized levels overwrite sectors beyond their original allocation and will likely break levels
               immediately after the current level index.
             </Text>}
+            <Switch
+              checked={applyGroupTemplatesOnCreate}
+              label="Apply group templates to new projects"
+              description="Create generated groups from matching template rules during project creation."
+              onChange={(event) => {
+                const value = event.currentTarget.checked;
+                setApplyGroupTemplatesOnCreate(value);
+                void window.forge.setSetting('projects.applyGroupTemplatesOnCreate', value)
+                  .catch((reason: unknown) => {
+                    setApplyGroupTemplatesOnCreate(!value);
+                    setError(errorMessage(reason));
+                  });
+              }}
+            />
             <Switch
               checked={showViewportStats}
               label="Show viewport statistics"

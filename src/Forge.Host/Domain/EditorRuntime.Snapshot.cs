@@ -1,0 +1,136 @@
+namespace Forge.Host.Domain;
+
+public sealed partial class EditorRuntime
+{
+    private EditorSnapshot Snapshot()
+    {
+        var workspace = RequireWorkspace();
+        var selection = _selection.ToHashSet();
+        var bindings = workspace.Content.InstancedCollisionBindings.ToDictionary(
+            binding => (binding.SourceAssetId, binding.InstanceEntityId));
+        var mobyPVarIndex = _mobyPVarResolver is null ? null : CreateMobyPVarResolutionIndex(workspace.Content);
+        var entities = workspace.Content.Entities.Select(entity =>
+        {
+            var state = entity.State ?? new();
+            var sharedBindingKey = (entity.Asset?.Id ?? default, (EntityId?)null);
+            var individualBindingKey = (entity.Asset?.Id ?? default, (EntityId?)entity.EntityId);
+            var bindingDirty = entity.Asset.IsInstancedCollisionSource()
+                && (!Equals(
+                        _savedInstancedCollisionBindings.GetValueOrDefault(sharedBindingKey),
+                        bindings.GetValueOrDefault(sharedBindingKey))
+                    || !Equals(
+                        _savedInstancedCollisionBindings.GetValueOrDefault(individualBindingKey),
+                        bindings.GetValueOrDefault(individualBindingKey)));
+            return new EditorEntitySnapshot(
+                entity.EntityId,
+                entity.Name,
+                entity.Layer,
+                entity.Transform,
+                entity.Asset,
+                entity.Provenance,
+                entity.Source?.ClassId,
+                Visualization(entity),
+                TransformCapabilities(entity),
+                new(!_savedEntities.TryGetValue(entity.EntityId, out var saved) || saved != entity || bindingDirty,
+                    state.Hidden, state.Disabled, state.Locked,
+                    IsReadOnlySource(entity),
+                    HasInvalidGeometryLinks(entity),
+                    entity.Asset is not null && _missingAssets.Contains(entity.Asset.Id)),
+                entity.SkyShell,
+                entity.Collision,
+                entity.Asset is { } sharedAsset && sharedAsset.IsInstancedCollisionSource()
+                    && bindings.TryGetValue((sharedAsset.Id, null), out var sharedBinding)
+                        ? new(sharedBinding.ProxyAssetId, sharedBinding.Recipe, sharedBinding.FaceTypeOverrides)
+                        : null,
+                entity.Asset is { } individualAsset && individualAsset.IsInstancedCollisionSource()
+                    && bindings.TryGetValue((individualAsset.Id, entity.EntityId), out var individualBinding)
+                        ? new(individualBinding.ProxyAssetId, individualBinding.Recipe,
+                            individualBinding.FaceTypeOverrides)
+                        : null,
+                entity.Asset.IsInstancedCollisionSource()
+                    ? entity.InstancedCollisionEnabled
+                    : null,
+                _mobyPropertyResolver?.Invoke(entity),
+                _mobyPVarResolver?.Invoke(
+                    workspace, entity, mobyPVarIndex!, selection.Contains(entity.EntityId)),
+                _sourceClassNameResolver?.Invoke(workspace, entity));
+        }).ToArray();
+        var references = ReferenceSnapshots(workspace, entities.ToDictionary(entity => entity.EntityId));
+        var knownEntityIds = entities.Select(entity => entity.EntityId).ToHashSet();
+        var groups = workspace.Content.Groups.Select(group => new EditorGroupSnapshot(
+            group.GroupId,
+            group.Name,
+            group.Members,
+            group.Members.Where(member => !knownEntityIds.Contains(member)).ToArray(),
+            group.Template)).ToArray();
+        return new(
+            workspace.RootPath,
+            workspace.Manifest.ProjectId,
+            workspace.Manifest.Name,
+            workspace.Manifest.Target,
+            workspace.Manifest.BaseLevel,
+            workspace.Content.LevelSettings,
+            HudSnapshot(workspace),
+            FxSnapshot(workspace),
+            entities,
+            references,
+            groups,
+            MapGroupSnapshots(workspace),
+            _groupTemplates,
+            _selection.ToArray(),
+            workspace.IsDirty,
+            _history.CanUndo,
+            _history.CanRedo,
+            _clipboard.Length > 0,
+            _eventSequence,
+            RuntimeCapabilities.Where(HasCapability).ToArray(),
+            RuntimeTools.ToArray(),
+            _diagnostics.Concat(PlacementDiagnostics(workspace)).Concat(GroupDiagnostics(groups))
+                .TakeLast(MaxDiagnostics).ToArray());
+    }
+
+    private static IEnumerable<EditorDiagnostic> PlacementDiagnostics(ForgeProjectWorkspace workspace) =>
+        workspace.Content.Entities
+            .Where(entity => entity.Asset?.Kind == AssetKind.Moby && entity.Provenance is null
+                && entity.Source?.RawRecord.Length >= 0x6c
+                && System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(
+                    entity.Source.RawRecord.AsSpan(0x68)) == -1)
+            .Select(entity => new EditorDiagnostic(
+                "moby.pvar-not-generated",
+                EditorDiagnosticSeverity.Warning,
+                $"{entity.Name}: No generated Pvar data; class-specific behavior may be unavailable."));
+
+    private static EditorEntityGeometry? Visualization(ProjectEntity entity)
+    {
+        var geometry = entity.Geometry;
+        if (geometry?.Cuboid is not null) return new(EditorGeometryKind.Cuboid, []);
+        if (geometry?.Spline is not null) return new(EditorGeometryKind.Spline, geometry.Spline.Points);
+        if (geometry?.Area is not null) return new(EditorGeometryKind.Area, []);
+        if (geometry?.Sphere is not null) return new(EditorGeometryKind.Sphere, []);
+        if (geometry?.Cylinder is not null) return new(EditorGeometryKind.Cylinder, []);
+        if (geometry?.Pill is not null) return new(EditorGeometryKind.Pill, []);
+        if (geometry?.GrindPath is not null) return new(EditorGeometryKind.GrindPath, geometry.GrindPath.Points);
+        var lighting = entity.Lighting;
+        if (lighting?.DirectionalLight is { } directional)
+            return new(EditorGeometryKind.DirectionalLight,
+            [
+                new(0, 0, 0, 1),
+                new(directional.TopDirection.X * 12, directional.TopDirection.Y * 12,
+                    directional.TopDirection.Z * 12, directional.TopDirection.W),
+            ]);
+        if (lighting?.PointLight is not null) return new(EditorGeometryKind.PointLight, []);
+        if (lighting?.EnvironmentSamplePoint is not null) return new(EditorGeometryKind.EnvironmentSample, []);
+        if (lighting?.EnvironmentTransition is not null) return new(EditorGeometryKind.EnvironmentTransition, []);
+        if (entity.Camera is not null) return new(EditorGeometryKind.Camera, []);
+        if (entity.AmbientSound is not null) return new(EditorGeometryKind.AmbientSound, []);
+        return null;
+    }
+
+    private static bool HasInvalidGeometryLinks(ProjectEntity entity)
+    {
+        var area = entity.Geometry?.Area;
+        return area is not null && area.Splines.Concat(area.Cuboids).Concat(area.Spheres)
+            .Concat(area.Cylinders).Concat(area.NegativeCuboids)
+            .Any(link => link.Reference?.EntityId is null);
+    }
+}

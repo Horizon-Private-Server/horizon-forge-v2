@@ -54,8 +54,6 @@ interface CollisionBatchEntry {
 
 interface CollisionBatchState {
   transform: EditorEntity['transform'];
-  bindTransform?: EditorEntity['transform'];
-  parentTransform?: EditorEntity['transform'];
   visible: boolean;
   selected: boolean;
 }
@@ -137,8 +135,6 @@ export class SceneProjection {
   private readonly position = new THREE.Vector3();
   private readonly scale = new THREE.Vector3();
   private readonly entityMatrix = new THREE.Matrix4();
-  private readonly bindMatrix = new THREE.Matrix4();
-  private readonly parentMatrix = new THREE.Matrix4();
   private readonly instanceMatrix = new THREE.Matrix4();
   private readonly instanceBounds = new THREE.Box3();
   private entitiesById = new Map<string, EditorEntity>();
@@ -735,12 +731,8 @@ export class SceneProjection {
     for (const entity of entities) {
       const visible = this.isVisible(entity, true, visibleLayers, true, visibleCollisionKinds);
       const isSelected = selected.has(entity.id);
-      const attachment = entity.collision?.attachment;
-      const parentTransform = attachment && this.entitiesById.get(attachment.parentEntityId)?.transform;
       const previous = batch.states.get(entity.id);
       if (previous?.transform === entity.transform
-        && previous.bindTransform === attachment?.bindTransform
-        && previous.parentTransform === parentTransform
         && previous.visible === visible
         && previous.selected === isSelected) continue;
       const matrix = this.projectedMatrix(entity);
@@ -752,8 +744,6 @@ export class SceneProjection {
       batch.matrices.set(entity.id, matrix.clone());
       batch.states.set(entity.id, {
         transform: entity.transform,
-        bindTransform: attachment?.bindTransform,
-        parentTransform,
         visible,
         selected: isSelected,
       });
@@ -796,12 +786,7 @@ export class SceneProjection {
 
   private projectedMatrix(entity: EditorEntity): THREE.Matrix4 {
     this.composeProjectedMatrix(entity.transform, this.entityMatrix);
-    const attachment = entity.collision?.attachment;
-    const parent = attachment && this.entitiesById.get(attachment.parentEntityId);
-    if (!attachment || !parent) return this.entityMatrix;
-    this.composeProjectedMatrix(attachment.bindTransform, this.bindMatrix).invert();
-    this.composeProjectedMatrix(parent.transform, this.parentMatrix);
-    return this.entityMatrix.premultiply(this.bindMatrix).premultiply(this.parentMatrix);
+    return this.entityMatrix;
   }
 
   private composeProjectedMatrix(
@@ -828,8 +813,6 @@ export class SceneProjection {
     return !entity.state.hidden
       && !this.previewHidden.has(entity.id)
       && !entity.state.disabled
-      && !(entity.collision?.attachment
-        && this.entitiesById.get(entity.collision.attachment.parentEntityId)?.state.disabled)
       && (visibleLayers?.has(entity.layer) ?? true)
       && (!entity.collision || visibleCollisionKinds?.has(entity.collision.kind) !== false)
       && (hasTemplate || showMarkers);

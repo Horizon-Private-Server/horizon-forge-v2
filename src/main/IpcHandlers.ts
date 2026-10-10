@@ -421,6 +421,7 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
       revision,
       level: Number(level),
       allowPartial,
+      applyGroupTemplates: values['projects.applyGroupTemplatesOnCreate'] === true,
     });
     const project = await request.result;
     await recentProjects.add(project.path);

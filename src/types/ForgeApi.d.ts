@@ -1,6 +1,6 @@
 import type {
   EditorCommand, EditorEvent, EditorSnapshot, EditorInstancedCollisionGenerationSettings, EditorInstancedCollisionPreview,
-  EditorInstancedCollisionSourceInfo,
+  EditorInstancedCollisionSourceInfo, EditorGroupTemplatePreview, EditorGroupTemplateRequest,
 } from './EditorRuntime.js';
 import type { AssetExplorerPage, AssetExplorerQuery, AssetModelKind, AssetPreviewKind, AssetPreviewSource } from './AssetExplorer.js';
 import type { ForgeNotification } from './Notifications.js';
@@ -8,7 +8,7 @@ import type { UpdateCheckResult } from './Updates.js';
 
 export type {
   EditorCommand, EditorEvent, EditorSnapshot, EditorInstancedCollisionGenerationSettings, EditorInstancedCollisionPreview,
-  EditorInstancedCollisionSourceInfo,
+  EditorInstancedCollisionSourceInfo, EditorGroupTemplatePreview, EditorGroupTemplateRequest,
 } from './EditorRuntime.js';
 export type { AssetExplorerPage, AssetExplorerQuery, AssetModelKind, AssetPreviewKind, AssetPreviewSource } from './AssetExplorer.js';
 export type { ForgeNotification } from './Notifications.js';
@@ -29,6 +29,7 @@ export interface KnownSettings {
   'imports.uya.enabled': boolean;
   'imports.uya.completedFingerprint': string;
   'imports.uya.completedVersion': number;
+  'projects.applyGroupTemplatesOnCreate': boolean;
   'paths.projects': string;
   'paths.developmentIsos': string;
   'sources.uya.fingerprint': string;
@@ -355,6 +356,9 @@ export interface ForgeApi {
   ): Promise<EditorInstancedCollisionPreview>;
   cancelInstancedCollisionPreview(): Promise<void>;
   applyInstancedCollisionPreview(commandId: string, token: string): Promise<EditorSnapshot>;
+  previewGroupTemplate(request: EditorGroupTemplateRequest): Promise<EditorGroupTemplatePreview>;
+  cancelGroupTemplatePreview(): Promise<void>;
+  applyGroupTemplatePreview(commandId: string, token: string): Promise<EditorSnapshot>;
   getInstancedCollisionPreviewModel(token: string, requestToken: string): Promise<AssetPreviewSource>;
   getAppliedInstancedCollisionModel(proxyAssetId: string, requestToken: string): Promise<AssetPreviewSource>;
   saveEditorProject(): Promise<EditorSnapshot>;

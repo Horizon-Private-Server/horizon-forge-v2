@@ -2,7 +2,9 @@ namespace Forge.Host.Domain;
 
 public sealed partial class EditorRuntime
 {
-    private void ValidateCommand(EditorCommand command, ForgeProjectWorkspace workspace)
+    private IReadOnlyList<EditorTransformUpdate>? ValidateCommand(
+        EditorCommand command,
+        ForgeProjectWorkspace workspace)
     {
         ValidateCommandId(command.Id);
         if (!Enum.IsDefined(command.Kind)) throw new ArgumentOutOfRangeException(nameof(command), "Unknown editor command kind.");
@@ -93,11 +95,7 @@ public sealed partial class EditorRuntime
             && command.Kind is EditorCommandKind.DuplicateEntities or EditorCommandKind.CopyEntities
                 or EditorCommandKind.SetEntityLayer)
             throw new ArgumentException("Collision pieces cannot be duplicated, copied, or moved to another layer.", nameof(command));
-        var movesLockedCollisionParent = (command.Kind is EditorCommandKind.UpdateTransform
-                or EditorCommandKind.UpdateTransforms)
-            && workspace.GetEntities(command.EntityIds).Any(entity =>
-                entity.Collision?.Attachment is { } attachment && locked.Contains(attachment.ParentEntityId));
-        if ((command.EntityIds.Any(locked.Contains) || movesLockedCollisionParent)
+        if (command.EntityIds.Any(locked.Contains)
             && command.Kind is EditorCommandKind.UpdateTransform or EditorCommandKind.UpdateTransforms
                 or EditorCommandKind.RenameEntity
                 or EditorCommandKind.SetEntityLayer
@@ -417,7 +415,22 @@ public sealed partial class EditorRuntime
                 throw new ArgumentException("Group membership commands require an existing group and entities.", nameof(command));
         }
         if (command.Kind is EditorCommandKind.UpdateTransform or EditorCommandKind.UpdateTransforms)
-            ValidateTransformCapabilities(command, workspace);
+        {
+            var explicitUpdates = command.Kind == EditorCommandKind.UpdateTransform
+                ? [new EditorTransformUpdate(command.EntityIds[0], command.Transform!)]
+                : command.Transforms!;
+            var entities = workspace.GetEntities(command.EntityIds)
+                .ToDictionary(entity => entity.EntityId);
+            var updates = workspace.ExpandCollisionLinkTransforms(explicitUpdates.Select(update =>
+                new EditorTransformUpdate(
+                    update.EntityId,
+                    EffectiveTransform(entities[update.EntityId], update.Transform))).ToArray());
+            if (updates.Any(update => locked.Contains(update.EntityId)))
+                throw new ArgumentException("Locked linked entities cannot be moved.", nameof(command));
+            ValidateTransformCapabilities(updates, workspace);
+            return updates;
+        }
+        return null;
     }
 
     private static bool HasNonHudCommandData(EditorCommand command) =>
@@ -474,12 +487,11 @@ public sealed partial class EditorRuntime
     private static bool IsEditablePath(ProjectEntity entity) =>
         entity.Geometry?.Spline is not null || entity.Geometry?.GrindPath is not null;
 
-    private void ValidateTransformCapabilities(EditorCommand command, ForgeProjectWorkspace workspace)
+    private void ValidateTransformCapabilities(
+        IReadOnlyList<EditorTransformUpdate> updates,
+        ForgeProjectWorkspace workspace)
     {
         var entities = workspace.Content.Entities.ToDictionary(entity => entity.EntityId);
-        var updates = command.Kind == EditorCommandKind.UpdateTransform
-            ? [new EditorTransformUpdate(command.EntityIds[0], command.Transform!)]
-            : command.Transforms!;
         foreach (var update in updates)
         {
             var entity = entities[update.EntityId];
@@ -490,7 +502,7 @@ public sealed partial class EditorRuntime
                     && update.Transform.Rotation != entity.Transform.Rotation
                 || !capabilities.HasFlag(EditorTransformCapabilities.Scale)
                     && update.Transform.Scale != entity.Transform.Scale)
-                throw new ArgumentException("Transform command changes an unsupported component.", nameof(command));
+                throw new ArgumentException("Transform command changes an unsupported component.", nameof(updates));
         }
     }
 }

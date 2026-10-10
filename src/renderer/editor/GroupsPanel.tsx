@@ -1,7 +1,6 @@
-import { CaretLeftIcon } from '@phosphor-icons/react/dist/csr/CaretLeft';
-import { CaretRightIcon } from '@phosphor-icons/react/dist/csr/CaretRight';
 import { DotsThreeVerticalIcon } from '@phosphor-icons/react/dist/csr/DotsThreeVertical';
 import { MinusIcon } from '@phosphor-icons/react/dist/csr/Minus';
+import { MagicWandIcon } from '@phosphor-icons/react/dist/csr/MagicWand';
 import { PencilSimpleIcon } from '@phosphor-icons/react/dist/csr/PencilSimple';
 import { PlusIcon } from '@phosphor-icons/react/dist/csr/Plus';
 import { TrashIcon } from '@phosphor-icons/react/dist/csr/Trash';
@@ -30,6 +29,8 @@ import type { SceneSemanticGroup } from '../../utils/SceneGroups.ts';
 import { AreaGroupsTree } from './AreaGroupsTree.tsx';
 import { useEditor } from './EditorContext.ts';
 import { EditorEmptyState, EditorPanel, EditorTree } from './EditorPrimitives.tsx';
+import { GroupPageActions } from './GroupPageActions.tsx';
+import { GroupTemplateDialog } from './GroupTemplateDialog.tsx';
 import { groupTreeKind, SceneTreeLabel, SceneTreeNode } from './SceneTreeNodes.tsx';
 
 export function GroupsPanel() {
@@ -38,6 +39,7 @@ export function GroupsPanel() {
   } = useEditor();
   const [groupPages, setGroupPages] = useState<Record<string, number>>({});
   const [groupEditor, setGroupEditor] = useState<{ groupId?: string; name: string }>();
+  const [templateEditor, setTemplateEditor] = useState<{ groupId?: string }>();
   const [hideEmptyGroups, setHideEmptyGroups] = useState(DEFAULT_HIDE_EMPTY_GROUPS);
   const [preferenceError, setPreferenceError] = useState<string>();
   useEffect(() => {
@@ -55,8 +57,6 @@ export function GroupsPanel() {
     const groups = model.groups.filter((group) => group.members.length > 0);
     return { groups, matched: groups.length + groups.reduce((total, group) => total + group.members.length, 0) };
   }, [hideEmptyGroups, project.entities, project.references]);
-  const areaSelectionModel = useMemo(() => buildSceneAreaGroups(project.entities, project.references, ''),
-    [project.entities, project.references]);
   const visibleMapGroups = useMemo(() => project.mapGroups.filter(
     (group) => !hideEmptyGroups || group.members.length > 0 || group.missingSourceIndices.length > 0,
   ), [hideEmptyGroups, project.mapGroups]);
@@ -71,30 +71,27 @@ export function GroupsPanel() {
   const mapModel = useMemo(() => buildSceneSemanticGroups(
     mapGroupDefinitions, project.entities, '',
   ), [mapGroupDefinitions, project.entities]);
-  const mapSelectionModel = useMemo(() => buildSceneSemanticGroups(
-    mapGroupDefinitions, project.entities, '',
-  ), [mapGroupDefinitions, project.entities]);
   const mapMemberIds = useMemo(() => sceneGroupMemberIds(mapModel.groups), [mapModel.groups]);
   const mapSelected = useMemo(() => sceneGroupSelectedValues(
-    project.selection, mapMemberIds, mapSelectionModel.groups,
-  ), [mapMemberIds, mapSelectionModel.groups, project.selection]);
+    project.selection, mapMemberIds, mapModel.groups,
+  ), [mapMemberIds, mapModel.groups, project.selection]);
   const model = useMemo(() => buildSceneSemanticGroups(project.groups, project.entities, ''),
     [project.entities, project.groups]);
-  const selectionModel = useMemo(() => buildSceneSemanticGroups(project.groups, project.entities, ''),
-    [project.entities, project.groups]);
+  const groupsById = useMemo(() => new Map(project.groups.map((group) => [group.id, group])), [project.groups]);
   const memberIds = useMemo(() => sceneGroupMemberIds(model.groups), [model.groups]);
   const selected = useMemo(() => sceneGroupSelectedValues(
-    project.selection, memberIds, selectionModel.groups,
-  ), [project.selection, memberIds, selectionModel.groups]);
+    project.selection, memberIds, model.groups,
+  ), [project.selection, memberIds, model.groups]);
   const dropTargets = useMemo(() => sceneGroupDropTargets(model.groups), [model.groups]);
   const nodes = useMemo<TreeNodeData[]>(() => model.groups.map((group) => {
     const page = sceneGroupPage(group.members, groupPages[group.id] ?? 0);
-    const known = (selectionModel.groups.find((candidate) => candidate.id === group.id)?.members ?? [])
-      .flatMap((member) => member.entity ? [member.entity] : []);
+    const known = group.members.flatMap((member) => member.entity ? [member.entity] : []);
+    const source = groupsById.get(group.id)!;
     return {
       value: sceneGroupValue(group.id),
       label: <SemanticGroupNode
         group={group}
+        source={source}
         entities={known}
         page={page.page}
         pageCount={page.pageCount}
@@ -103,6 +100,7 @@ export function GroupsPanel() {
         disabled={busy}
         onPageChange={(next) => setGroupPages((current) => ({ ...current, [group.id]: next }))}
         onRename={() => setGroupEditor({ groupId: group.id, name: group.name })}
+        onRegenerate={() => setTemplateEditor({ groupId: group.id })}
       />,
       nodeProps: { selectable: true },
       children: page.values.map((member) => member.entity ? {
@@ -136,12 +134,11 @@ export function GroupsPanel() {
         nodeProps: { selectable: false },
       }),
     };
-  }), [busy, groupPages, model.groups, selectionModel.groups]);
+  }), [busy, groupPages, groupsById, model.groups]);
   const mapNodes = useMemo<TreeNodeData[]>(() => mapModel.groups.map((group) => {
     const page = sceneGroupPage(group.members, groupPages[group.id] ?? 0);
     const source = mapGroupsById.get(group.id)!;
-    const known = (mapSelectionModel.groups.find((candidate) => candidate.id === group.id)?.members ?? [])
-      .flatMap((member) => member.entity ? [member.entity] : []);
+    const known = group.members.flatMap((member) => member.entity ? [member.entity] : []);
     return {
       value: sceneGroupValue(group.id),
       label: <MapGroupNode
@@ -164,7 +161,7 @@ export function GroupsPanel() {
         nodeProps: { selectable: true },
       }] : []),
     };
-  }), [busy, groupPages, mapGroupsById, mapModel.groups, mapSelectionModel.groups]);
+  }), [busy, groupPages, mapGroupsById, mapModel.groups]);
 
   const submitGroup = async () => {
     if (!groupEditor?.name.trim()) return;
@@ -190,6 +187,15 @@ export function GroupsPanel() {
             variant="default"
             onClick={() => setGroupEditor({ name: 'New group' })}
           >New</Button>
+          {project.groupTemplates.length > 0 && <Button
+            aria-label="Generate group"
+            disabled={busy || project.selection.length !== 1}
+            leftSection={<MagicWandIcon size={14} />}
+            size="xs"
+            title={project.selection.length === 1 ? 'Generate group from selection' : 'Select one seed entity'}
+            variant="default"
+            onClick={() => setTemplateEditor({})}
+          >Generate</Button>}
           <Switch
             aria-label="Hide empty groups"
             checked={hideEmptyGroups}
@@ -229,7 +235,7 @@ export function GroupsPanel() {
             });
           }}
           onActivate={(value) => {
-            const group = selectionModel.groups.find((candidate) => sceneGroupValue(candidate.id) === value);
+            const group = model.groups.find((candidate) => sceneGroupValue(candidate.id) === value);
             const entityId = memberIds.get(value) ?? group?.members.find((member) => member.entity)?.entityId;
             if (entityId) setCameraFocus({ entityId });
           }}
@@ -238,13 +244,13 @@ export function GroupsPanel() {
             setSplinePointSelection([]);
             void execute({
               id: crypto.randomUUID(), kind: 'setSelection',
-              entityIds: sceneGroupSelection(values, selectionModel.groups, memberIds, changedValue),
+              entityIds: sceneGroupSelection(values, model.groups, memberIds, changedValue),
             });
           }}
         />
         : <EditorEmptyState message="No matching custom groups or objects." />}
       <Text fw={600} size="xs">Areas</Text>
-      <AreaGroupsTree groups={areaModel.groups} selectionGroups={areaSelectionModel.groups} />
+      <AreaGroupsTree groups={areaModel.groups} />
       <Text fw={600} size="xs">Map groups</Text>
       {mapNodes.length
         ? <EditorTree
@@ -254,7 +260,7 @@ export function GroupsPanel() {
           selected={mapSelected}
           multiple
           onActivate={(value) => {
-            const group = mapSelectionModel.groups.find((candidate) => sceneGroupValue(candidate.id) === value);
+            const group = mapModel.groups.find((candidate) => sceneGroupValue(candidate.id) === value);
             const entityId = mapMemberIds.get(value) ?? group?.members.find((member) => member.entity)?.entityId;
             if (entityId) setCameraFocus({ entityId });
           }}
@@ -264,7 +270,7 @@ export function GroupsPanel() {
             void execute({
               id: crypto.randomUUID(), kind: 'setSelection',
               entityIds: sceneGroupSelection(
-                values, mapSelectionModel.groups, mapMemberIds, changedValue,
+                values, mapModel.groups, mapMemberIds, changedValue,
               ),
             });
           }}
@@ -298,6 +304,10 @@ export function GroupsPanel() {
         </Stack>
       </form>
     </Modal>
+    {templateEditor && <GroupTemplateDialog
+      group={project.groups.find((group) => group.id === templateEditor.groupId)}
+      onClose={() => setTemplateEditor(undefined)}
+    />}
   </EditorPanel>;
 }
 
@@ -318,33 +328,25 @@ function MapGroupNode({
   const label = <SceneTreeLabel kind={source.kind}>
     {group.name} ({source.members.length + unresolved}){unresolved ? ` [${unresolved} unresolved]` : ''}
   </SceneTreeLabel>;
-  const actions = pageCount > 1 && <>
-    <ActionIcon
-      aria-label={`Previous page of ${group.name}`}
-      disabled={page === 0}
-      size="xs"
-      title={`${pageStart + 1}–${pageEnd} of ${source.members.length}`}
-      variant="subtle"
-      onClick={(event) => { event.stopPropagation(); onPageChange(page - 1); }}
-    ><CaretLeftIcon size={13} /></ActionIcon>
-    <ActionIcon
-      aria-label={`Next page of ${group.name}`}
-      disabled={page + 1 >= pageCount}
-      size="xs"
-      title={`${pageStart + 1}–${pageEnd} of ${source.members.length}`}
-      variant="subtle"
-      onClick={(event) => { event.stopPropagation(); onPageChange(page + 1); }}
-    ><CaretRightIcon size={13} /></ActionIcon>
-  </>;
+  const actions = <GroupPageActions
+    label={group.name}
+    page={page}
+    pageCount={pageCount}
+    start={pageStart}
+    end={pageEnd}
+    total={source.members.length}
+    onChange={onPageChange}
+  />;
   return entities.length
     ? <SceneTreeNode entities={entities} disabled={disabled} extraActions={actions}>{label}</SceneTreeNode>
     : <span className="scene-tree-node">{label}<span className="scene-tree-actions">{actions}</span></span>;
 }
 
 function SemanticGroupNode({
-  group, entities, page, pageCount, pageStart, pageEnd, disabled, onPageChange, onRename,
+  group, source, entities, page, pageCount, pageStart, pageEnd, disabled, onPageChange, onRename, onRegenerate,
 }: {
   group: SceneSemanticGroup;
+  source: EditorGroup;
   entities: readonly EditorEntity[];
   page: number;
   pageCount: number;
@@ -353,9 +355,10 @@ function SemanticGroupNode({
   disabled: boolean;
   onPageChange(page: number): void;
   onRename(): void;
+  onRegenerate(): void;
 }) {
   const { project, execute } = useEditor();
-  const memberIds = new Set(project.groups.find((candidate) => candidate.id === group.id)?.members ?? []);
+  const memberIds = new Set(source.members);
   const selectedToAdd = project.selection.filter((entityId) => !memberIds.has(entityId));
   const groupIndex = project.groups.findIndex((candidate) => candidate.id === group.id);
   const missingCount = group.members.filter((member) => member.missing).length;
@@ -363,24 +366,15 @@ function SemanticGroupNode({
     {group.name} ({group.members.length}){missingCount ? ` [${missingCount} missing]` : ''}
   </SceneTreeLabel>;
   const actions = <>
-    {pageCount > 1 && <>
-      <ActionIcon
-        aria-label={`Previous page of ${group.name}`}
-        disabled={page === 0}
-        size="xs"
-        title={`${pageStart + 1}–${pageEnd} of ${group.members.length}`}
-        variant="subtle"
-        onClick={(event) => { event.stopPropagation(); onPageChange(page - 1); }}
-      ><CaretLeftIcon size={13} /></ActionIcon>
-      <ActionIcon
-        aria-label={`Next page of ${group.name}`}
-        disabled={page + 1 >= pageCount}
-        size="xs"
-        title={`${pageStart + 1}–${pageEnd} of ${group.members.length}`}
-        variant="subtle"
-        onClick={(event) => { event.stopPropagation(); onPageChange(page + 1); }}
-      ><CaretRightIcon size={13} /></ActionIcon>
-    </>}
+    <GroupPageActions
+      label={group.name}
+      page={page}
+      pageCount={pageCount}
+      start={pageStart}
+      end={pageEnd}
+      total={group.members.length}
+      onChange={onPageChange}
+    />
     <ActionIcon
       aria-label={`Add selection to ${group.name}`}
       disabled={disabled || selectedToAdd.length === 0}
@@ -394,6 +388,21 @@ function SemanticGroupNode({
         });
       }}
     ><PlusIcon size={13} /></ActionIcon>
+    <ActionIcon
+      aria-label={`Delete ${group.name}`}
+      color="red"
+      disabled={disabled}
+      size="xs"
+      title="Delete custom group"
+      variant="subtle"
+      onClick={(event) => {
+        event.stopPropagation();
+        if (!window.confirm(`Delete custom group "${group.name}"? Its objects will not be deleted.`)) return;
+        void execute({
+          id: crypto.randomUUID(), kind: 'deleteGroup', entityIds: [], groupId: group.id,
+        });
+      }}
+    ><TrashIcon size={13} /></ActionIcon>
     <Menu position="bottom-end" withinPortal>
       <Menu.Target>
         <ActionIcon
@@ -407,6 +416,10 @@ function SemanticGroupNode({
       </Menu.Target>
       <Menu.Dropdown onClick={(event) => event.stopPropagation()}>
         <Menu.Item leftSection={<PencilSimpleIcon size={14} />} onClick={onRename}>Rename</Menu.Item>
+        {source.template && <Menu.Item
+          leftSection={<MagicWandIcon size={14} />}
+          onClick={onRegenerate}
+        >Regenerate</Menu.Item>}
         <Menu.Item
           disabled={groupIndex <= 0}
           onClick={() => void execute({
@@ -421,14 +434,6 @@ function SemanticGroupNode({
             groupId: group.id, destinationOrder: groupIndex + 1,
           })}
         >Move later</Menu.Item>
-        <Menu.Divider />
-        <Menu.Item
-          color="red"
-          leftSection={<TrashIcon size={14} />}
-          onClick={() => void execute({
-            id: crypto.randomUUID(), kind: 'deleteGroup', entityIds: [], groupId: group.id,
-          })}
-        >Delete group</Menu.Item>
       </Menu.Dropdown>
     </Menu>
   </>;

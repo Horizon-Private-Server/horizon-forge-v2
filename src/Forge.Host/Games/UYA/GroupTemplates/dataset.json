@@ -1,0 +1,172 @@
+{
+  "schemaVersion": 1,
+  "templates": [
+    {
+      "templateId": "uya.node-cluster",
+      "templateVersion": 1,
+      "label": "Siege node",
+      "description": "Groups a Siege Node with its verified PVar links, referenced cuboids, and nearby node TIEs.",
+      "seedKind": "moby",
+      "seedClass": "0x1A47",
+      "seedLabel": "Siege Node",
+      "suggestedName": "Siege Node #{sourceIndex}",
+      "nameRules": [],
+      "parameters": [
+        {
+          "key": "ambiguity-margin",
+          "label": "Ambiguity margin",
+          "defaultValue": 1,
+          "minimum": 0,
+          "maximum": 32,
+          "step": 0.5
+        },
+        {
+          "key": "tie-radius",
+          "label": "TIE radius",
+          "defaultValue": 20,
+          "minimum": 0,
+          "maximum": 128,
+          "step": 1
+        }
+      ],
+      "referenceRules": [
+        {
+          "scope": "seed",
+          "direction": "outgoing",
+          "evidenceLabel": "Siege Node",
+          "ownerKinds": [],
+          "ownerClasses": [],
+          "fields": ["attachedDefenses", "boltCrank"],
+          "fieldPrefixes": ["attachedMoby"],
+          "targetKinds": ["moby"]
+        },
+        {
+          "scope": "seed",
+          "direction": "incoming",
+          "evidenceLabel": "the selected Siege Node",
+          "ownerKinds": [],
+          "ownerClasses": [],
+          "fields": ["parentNode"],
+          "fieldPrefixes": [],
+          "targetKinds": ["moby"]
+        },
+        {
+          "scope": "includedMembers",
+          "direction": "outgoing",
+          "evidenceLabel": "Mobile Defenses Spawner",
+          "ownerKinds": ["moby"],
+          "ownerClasses": ["0x1A97"],
+          "fields": [],
+          "fieldPrefixes": ["spawnMoby"],
+          "targetKinds": ["moby"]
+        },
+        {
+          "scope": "includedMembers",
+          "direction": "outgoing",
+          "evidenceLabel": "Included node moby",
+          "ownerKinds": ["moby"],
+          "ownerClasses": [],
+          "fields": [],
+          "fieldPrefixes": [],
+          "targetKinds": ["cuboid"]
+        }
+      ],
+      "nearbyRules": [
+        {
+          "entityKind": "tie",
+          "classIds": ["0x1F19", "0x1F1F"],
+          "evidenceLabel": "TIE",
+          "radiusParameter": "tie-radius",
+          "ambiguityParameter": "ambiguity-margin"
+        }
+      ],
+      "includeLinkedCollision": false
+    },
+    {
+      "templateId": "uya.siege-base",
+      "templateVersion": 1,
+      "label": "Siege base",
+      "description": "Groups a Base Light with linked base mobys, nearby siege-base TIEs, and cuboids.",
+      "seedKind": "moby",
+      "seedClass": "0x0CBE",
+      "seedLabel": "Base Light",
+      "suggestedName": "Siege Base #{sourceIndex}",
+      "nameRules": [
+        { "incomingField": "redBaseLight", "name": "Red Siege Base" },
+        { "incomingField": "blueBaseLight", "name": "Blue Siege Base" }
+      ],
+      "parameters": [
+        {
+          "key": "ambiguity-margin",
+          "label": "Ambiguity margin",
+          "defaultValue": 1,
+          "minimum": 0,
+          "maximum": 32,
+          "step": 0.5
+        },
+        {
+          "key": "tie-radius",
+          "label": "Nearby radius",
+          "defaultValue": 16,
+          "minimum": 0,
+          "maximum": 128,
+          "step": 1
+        }
+      ],
+      "referenceRules": [
+        {
+          "scope": "seed",
+          "direction": "outgoing",
+          "evidenceLabel": "Base Light",
+          "ownerKinds": [],
+          "ownerClasses": [],
+          "fields": ["baseComputer"],
+          "fieldPrefixes": [],
+          "targetKinds": ["moby"]
+        },
+        {
+          "scope": "seed",
+          "direction": "incoming",
+          "evidenceLabel": "the selected Base Light",
+          "ownerKinds": [],
+          "ownerClasses": [],
+          "fields": ["baseLight", "parentNode", "siegeBase"],
+          "fieldPrefixes": [],
+          "targetKinds": ["moby"]
+        },
+        {
+          "scope": "includedMembers",
+          "direction": "outgoing",
+          "evidenceLabel": "Gattling Turret",
+          "ownerKinds": ["moby"],
+          "ownerClasses": ["0x1AD6"],
+          "fields": ["attachedMoby1", "attachedMoby2", "attachedMoby3"],
+          "fieldPrefixes": [],
+          "targetKinds": ["moby"]
+        }
+      ],
+      "nearbyRules": [
+        {
+          "entityKind": "tie",
+          "classIds": [
+            "0x02D5", "0x02D6",
+            "0x1D42", "0x1D43", "0x1D44", "0x1D45", "0x1D46", "0x1D47", "0x1D48",
+            "0x1D4C", "0x1D4D", "0x1D4E",
+            "0x1F20", "0x1F21", "0x1F22"
+          ],
+          "evidenceLabel": "TIE",
+          "radiusParameter": "tie-radius",
+          "ambiguityParameter": "ambiguity-margin"
+        },
+        {
+          "entityKind": "cuboid",
+          "classIds": [],
+          "evidenceLabel": "Cuboid",
+          "radiusParameter": "tie-radius",
+          "ambiguityParameter": "ambiguity-margin"
+        }
+      ],
+      "includeLinkedCollision": true
+    }
+  ]
+}

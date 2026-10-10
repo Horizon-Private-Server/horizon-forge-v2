@@ -5,6 +5,7 @@ import type {
   AssetExplorerQuery,
   AssetPreviewKind,
   EditorCommand,
+  EditorGroupTemplateRequest,
   EditorInstancedCollisionGenerationSettings,
   ForgeAction,
   ForgeApi,
@@ -67,6 +68,11 @@ const forgeApi = Object.freeze({
   cancelInstancedCollisionPreview: () => ipcRenderer.invoke('forge:editor-instanced-collision-cancel'),
   applyInstancedCollisionPreview: (commandId: string, token: string) =>
     ipcRenderer.invoke('forge:editor-instanced-collision-apply', commandId, token),
+  previewGroupTemplate: (request: EditorGroupTemplateRequest) =>
+    ipcRenderer.invoke('forge:editor-group-template-preview', request),
+  cancelGroupTemplatePreview: () => ipcRenderer.invoke('forge:editor-group-template-cancel'),
+  applyGroupTemplatePreview: (commandId: string, token: string) =>
+    ipcRenderer.invoke('forge:editor-group-template-apply', commandId, token),
   getInstancedCollisionPreviewModel: (token: string, requestToken: string) =>
     ipcRenderer.invoke('forge:editor-instanced-collision-model', token, requestToken),
   getAppliedInstancedCollisionModel: (proxyAssetId: string, requestToken: string) =>

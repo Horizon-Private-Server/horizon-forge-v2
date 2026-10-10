@@ -32,13 +32,15 @@ public static class BridgeHost
                 UyaMobyPVarEditorService.Describe(workspace, mobyDex, entity, index, includeRawData),
             (workspace, command, token) =>
                 UyaMobyPVarEditorService.ExecuteAsync(workspace, command, mobyDex, token),
-            projectOpenHydrator: (workspace, token) =>
-                UyaMobyPVarService.HydrateFromSourceAsync(workspace, mobyDex, token),
+            projectOpenHydrator: (workspace, catalog, token) =>
+                UyaProjectOpenHydrationService.HydrateAsync(workspace, catalog, mobyDex, token),
             mapGroupResolver: UyaMapGroupService.ReadAsync,
             sourceClassNameResolver: (workspace, entity) =>
                 entity.Source is { } source && ProjectReferences.KindOf(entity) == ProjectEntityKind.Moby
                     ? workspace.ResolveMobyDexEntry(mobyDex, "UYA", source.ClassId)?.Entry.Name
-                    : null);
+                    : null,
+            groupTemplateEvaluator: UyaGroupTemplateService.EvaluateAsync,
+            groupTemplates: UyaGroupTemplateService.Definitions);
         var requests = new ConcurrentDictionary<uint, CancellationTokenSource>();
         var tasks = new ConcurrentDictionary<uint, Task>();
 
@@ -175,6 +177,8 @@ public static class BridgeHost
                 case BridgeOpcode.PreviewInstancedCollision:
                 case BridgeOpcode.ApplyInstancedCollisionPreview:
                 case BridgeOpcode.InspectInstancedCollisionSource:
+                case BridgeOpcode.PreviewGroupTemplate:
+                case BridgeOpcode.ApplyGroupTemplatePreview:
                     await writer.WriteAsync(new(
                         BridgeMessageKind.Result, frame.Opcode, BridgeErrorCode.None, frame.RequestId,
                         await EditorBridgeHandlers.HandleAsync(frame, editor, requestCancellation.Token)), hostCancellation);

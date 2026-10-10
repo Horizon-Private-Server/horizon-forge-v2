@@ -268,10 +268,7 @@ internal static class ForgeProjectPersistence
             {
                 if (entity.Remove("tieCollisionEnabled", out var enabled))
                     entity["instancedCollisionEnabled"] = enabled;
-                if (entity["collision"] is JsonObject collision
-                    && collision["attachment"] is JsonObject attachment
-                    && attachment.Remove("tieEntityId", out var parentId))
-                    attachment["parentEntityId"] = parentId;
+                if (entity["collision"] is JsonObject collision) collision.Remove("attachment");
             }
         }
         return DeserializeNode<ForgeProjectContent>(root, "Project content");

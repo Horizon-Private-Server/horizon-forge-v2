@@ -6,7 +6,10 @@ import type { EditorEntity, EditorTransformUpdate, ProjectTransform, ProjectVect
 import type { EditorSnapSource, EditorSnapTarget } from '../../types/EditorViewport.js';
 import { parseSplinePointId, transformSplinePoints } from '../../utils/SplinePoints.ts';
 import { cloneProjectTransform, projectTransformToSceneMatrix, sceneMatrixToProjectTransform } from '../../utils/Transforms.ts';
-import { inspectTransformSelection } from '../../utils/TransformSelection.ts';
+import {
+  expandLinkedCollisionTransforms, indexLinkedCollisionTransforms, inspectTransformSelection,
+  type LinkedCollisionTransformIndex,
+} from '../../utils/TransformSelection.ts';
 import { VertexSnapIndex } from './SceneSnapping.ts';
 import type { SceneProjection } from './SceneProjection.ts';
 
@@ -73,6 +76,7 @@ export class TransformTool {
   private snapTarget: EditorSnapTarget = 'grid';
   private vertexIndex?: VertexSnapIndex;
   private entitiesById = new Map<string, EditorEntity>();
+  private collisionLinks: LinkedCollisionTransformIndex = indexLinkedCollisionTransforms([]);
   private cancelled = false;
   private pointerActive = false;
   private scaleDragStartY?: number;
@@ -161,8 +165,11 @@ export class TransformTool {
     projection: SceneProjection,
     missingSelectionMembers = 0,
   ): void {
-    this.entities = entities;
-    this.entitiesById = new Map(entities.map((entity) => [entity.id, entity]));
+    if (this.entities !== entities) {
+      this.entities = entities;
+      this.entitiesById = new Map(entities.map((entity) => [entity.id, entity]));
+      this.collisionLinks = indexLinkedCollisionTransforms(entities);
+    }
     this.selection = selection;
     this.missingSelectionMembers = missingSelectionMembers;
     this.projection = projection;
@@ -293,24 +300,6 @@ export class TransformTool {
     }
     const updates = this.buildUpdates();
     const transforms = new Map(updates.map((update) => [update.entityId, update.transform]));
-    const explicit = new Set(transforms.keys());
-    for (const update of updates) {
-      const entity = this.entitiesById.get(update.entityId);
-      const parentId = entity?.collision?.attachment?.parentEntityId;
-      if (!entity || !parentId) continue;
-      transforms.delete(entity.id);
-      if (explicit.has(parentId) || transforms.has(parentId)) continue;
-      const parent = this.entitiesById.get(parentId);
-      if (!parent) continue;
-      transforms.set(parentId, {
-        ...parent.transform,
-        position: {
-          x: parent.transform.position.x + update.transform.position.x - entity.transform.position.x,
-          y: parent.transform.position.y + update.transform.position.y - entity.transform.position.y,
-          z: parent.transform.position.z + update.transform.position.z - entity.transform.position.z,
-        },
-      });
-    }
     this.callbacks.preview(this.entities.map((entity) => {
       const transform = transforms.get(entity.id);
       return transform ? { ...entity, transform } : entity;
@@ -336,13 +325,14 @@ export class TransformTool {
     this.proxy.updateMatrix();
     this.inversePivot.copy(this.startPivot).invert();
     this.delta.copy(this.proxy.matrix).multiply(this.inversePivot);
-    return [...this.originals].map(([entityId, original]) => {
+    const updates = [...this.originals].map(([entityId, original]) => {
       projectTransformToSceneMatrix(original, this.source);
       this.transformed.copy(this.delta).multiply(this.source);
       const transform = sceneMatrixToProjectTransform(this.transformed);
       clampScale(transform);
       return { entityId, transform };
     });
+    return expandLinkedCollisionTransforms(this.collisionLinks, updates);
   }
 
   private buildSplinePoints(): ProjectVector4[] | undefined {

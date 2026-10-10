@@ -19,8 +19,29 @@ internal static class EditorBridgeHandlers
         BridgeOpcode.ApplyInstancedCollisionPreview => await ApplyInstancedCollisionAsync(frame.Payload, runtime, cancellationToken),
         BridgeOpcode.InspectInstancedCollisionSource => await InspectInstancedCollisionSourceAsync(
             frame.Payload, runtime, cancellationToken),
+        BridgeOpcode.PreviewGroupTemplate => await PreviewGroupTemplateAsync(
+            frame.Payload, runtime, cancellationToken),
+        BridgeOpcode.ApplyGroupTemplatePreview => await ApplyGroupTemplateAsync(
+            frame.Payload, runtime, cancellationToken),
         _ => throw new BridgeProtocolException(BridgeErrorCode.UnknownOpcode, $"Unsupported editor opcode: {frame.Opcode}"),
     };
+
+    private static async Task<byte[]> PreviewGroupTemplateAsync(
+        byte[] payload,
+        EditorRuntime runtime,
+        CancellationToken cancellationToken) => EditorPayloadCodec.EncodeGroupTemplatePreview(
+            await runtime.PreviewGroupTemplateAsync(
+                EditorPayloadCodec.DecodeGroupTemplateRequest(payload), cancellationToken));
+
+    private static async Task<byte[]> ApplyGroupTemplateAsync(
+        byte[] payload,
+        EditorRuntime runtime,
+        CancellationToken cancellationToken)
+    {
+        var request = EditorPayloadCodec.DecodeGroupTemplateApplyRequest(payload);
+        return EditorPayloadCodec.EncodeSnapshot(await runtime.ApplyGroupTemplatePreviewAsync(
+            request.CommandId, request.Token, cancellationToken));
+    }
 
     private static async Task<byte[]> InspectInstancedCollisionSourceAsync(
         byte[] payload,
