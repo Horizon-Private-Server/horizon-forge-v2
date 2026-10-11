@@ -14,6 +14,7 @@ interface ViewportToolbarProps {
   scaleSnap: number;
   showSolidCollision: boolean;
   showPlayerBarriers: boolean;
+  showDeathHeight: boolean;
   onModeChange(value: EditorTransformMode): void;
   onSpaceChange(value: EditorTransformSpace): void;
   onSnapSourceChange(value: EditorSnapSource): void;
@@ -24,6 +25,7 @@ interface ViewportToolbarProps {
   onScaleSnapChange(value: number): void;
   onSolidCollisionVisibilityChange(value: boolean): void;
   onPlayerBarrierVisibilityChange(value: boolean): void;
+  onDeathHeightVisibilityChange(value: boolean): void;
 }
 
 export function ViewportToolbar({
@@ -37,6 +39,7 @@ export function ViewportToolbar({
   scaleSnap,
   showSolidCollision,
   showPlayerBarriers,
+  showDeathHeight,
   onModeChange,
   onSpaceChange,
   onSnapSourceChange,
@@ -47,6 +50,7 @@ export function ViewportToolbar({
   onScaleSnapChange,
   onSolidCollisionVisibilityChange,
   onPlayerBarrierVisibilityChange,
+  onDeathHeightVisibilityChange,
 }: ViewportToolbarProps) {
   return <Group aria-label="Viewport tools" className="scene-toolbar" gap="xs" role="group">
     <SegmentedControl
@@ -98,6 +102,8 @@ export function ViewportToolbar({
             onChange={(event) => onSolidCollisionVisibilityChange(event.currentTarget.checked)} />
           <Switch checked={showPlayerBarriers} label="Player barriers"
             onChange={(event) => onPlayerBarrierVisibilityChange(event.currentTarget.checked)} />
+          <Switch checked={showDeathHeight} label="Death height"
+            onChange={(event) => onDeathHeightVisibilityChange(event.currentTarget.checked)} />
           <Text c="dimmed" size="xs">Viewport-only; does not change the project or build.</Text>
         </Stack>
       </Popover.Dropdown>

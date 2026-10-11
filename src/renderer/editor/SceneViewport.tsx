@@ -77,11 +77,13 @@ interface SceneViewportProps {
   showTerrain: boolean;
   showSolidCollision: boolean;
   showPlayerBarriers: boolean;
+  showDeathHeight: boolean;
   instancedCollisionOverlay?: InstancedCollisionOverlay;
   onFocusHandled(): void;
   onLoadProgress(progress?: EditorLoadProgress): void;
   onSolidCollisionVisibilityChange(value: boolean): void;
   onPlayerBarrierVisibilityChange(value: boolean): void;
+  onDeathHeightVisibilityChange(value: boolean): void;
   onSelectionChange(values: string[]): void;
   onTransformsCommit(values: EditorTransformUpdate[]): Promise<boolean>;
   onLevelPositionCommit(field: LevelSettingsPositionField, value: ProjectVector3): Promise<boolean>;
@@ -114,11 +116,13 @@ export function SceneViewport({
   showTerrain,
   showSolidCollision,
   showPlayerBarriers,
+  showDeathHeight,
   instancedCollisionOverlay,
   onFocusHandled,
   onLoadProgress,
   onSolidCollisionVisibilityChange,
   onPlayerBarrierVisibilityChange,
+  onDeathHeightVisibilityChange,
   onSelectionChange,
   onTransformsCommit,
   onLevelPositionCommit,
@@ -200,6 +204,8 @@ export function SceneViewport({
     collisionScenes: Set<THREE.Object3D>;
     instancedCollisionPreview: InstancedCollisionOverlayProjection;
     levelSettingsOverlay: LevelSettingsOverlayProjection;
+    terrainBounds: THREE.Box3;
+    syncLevelSettingsBounds(): void;
     syncTransforms(): void;
   }>(null);
   const dropFrame = useRef<number | undefined>(undefined);
@@ -230,6 +236,7 @@ export function SceneViewport({
     const currentProjection = new SceneProjection();
     currentProjection.setSelectionColor(selectionColor);
     const levelSettingsOverlay = new LevelSettingsOverlayProjection();
+    levelSettingsOverlay.setDeathPlaneVisible(showDeathHeight);
     levelSettingsOverlay.sync(currentLevelSceneSettings.current);
     const transformProjection = {
       getBounds: (id: string, target?: THREE.Box3) =>
@@ -360,6 +367,18 @@ export function SceneViewport({
         markerSelection ? 0 : currentMissingSelectionMembers.current,
       );
     }
+    const terrainBounds = new THREE.Box3();
+    const levelSettingsBounds = new THREE.Box3();
+    const levelSettingsPoint = new THREE.Vector3();
+    function syncLevelSettingsBounds() {
+      levelSettingsBounds.copy(terrainBounds);
+      for (const entity of currentEntities.current) {
+        if (entity.skyShell) continue;
+        levelSettingsBounds.expandByPoint(ps2PositionToScene(entity.transform.position, levelSettingsPoint));
+      }
+      levelSettingsOverlay.setSceneBounds(levelSettingsBounds);
+    }
+    syncLevelSettingsBounds();
     const dropGhost = new THREE.Mesh(
       new THREE.SphereGeometry(2, 16, 8),
       new THREE.MeshBasicMaterial({ color: 0x57b8ff, depthTest: false, transparent: true, opacity: 0.8 }),
@@ -397,6 +416,8 @@ export function SceneViewport({
       collisionScenes,
       instancedCollisionPreview,
       levelSettingsOverlay,
+      terrainBounds,
+      syncLevelSettingsBounds,
       syncTransforms: syncTransformSelection,
     };
 
@@ -897,6 +918,8 @@ export function SceneViewport({
         viewport.current.terrain.add(scene);
         loadedScenes.push(scene);
       }
+      viewport.current.terrainBounds.setFromObject(viewport.current.terrain);
+      viewport.current.syncLevelSettingsBounds();
       const templates = new Map<string, THREE.Object3D>();
       const failedAssets = new Set<string>();
       const collisionEntitiesByAsset = new Map<string, EditorEntity[]>();
@@ -974,6 +997,8 @@ export function SceneViewport({
       viewport.current?.projection.setAssetTemplates(new Map());
       octants?.removeFromParent();
       if (viewport.current) {
+        viewport.current.terrainBounds.makeEmpty();
+        viewport.current.syncLevelSettingsBounds();
         viewport.current.skyEye.set(0, 0, 0);
         applySceneEnvironment(viewport.current.scene, undefined, viewport.current.skyScene);
       }
@@ -1073,6 +1098,7 @@ export function SceneViewport({
       true,
       currentCollisionVisibility.current,
     );
+    current.syncLevelSettingsBounds();
     syncSkyShellProjections(current, entities);
     if (selection.length && currentLevelSettingsSelection.current) {
       currentLevelSettingsSelection.current = undefined;
@@ -1107,6 +1133,7 @@ export function SceneViewport({
   }, [sceneTreeColors]);
   useEffect(() => { if (viewport.current) viewport.current.occlusion.visible = showOcclusionOctants; }, [showOcclusionOctants]);
   useEffect(() => { if (viewport.current) viewport.current.terrain.visible = showTerrain; }, [showTerrain]);
+  useEffect(() => viewport.current?.levelSettingsOverlay.setDeathPlaneVisible(showDeathHeight), [showDeathHeight]);
 
   useEffect(() => { if (!showStats) setStats(undefined); }, [showStats]);
 
@@ -1276,6 +1303,7 @@ export function SceneViewport({
         scaleSnap={scaleSnap}
         showSolidCollision={showSolidCollision}
         showPlayerBarriers={showPlayerBarriers}
+        showDeathHeight={showDeathHeight}
         onModeChange={setMode}
         onSpaceChange={setSpace}
         onSnapSourceChange={setSnapSource}
@@ -1286,6 +1314,7 @@ export function SceneViewport({
         onScaleSnapChange={setScaleSnap}
         onSolidCollisionVisibilityChange={onSolidCollisionVisibilityChange}
         onPlayerBarrierVisibilityChange={onPlayerBarrierVisibilityChange}
+        onDeathHeightVisibilityChange={onDeathHeightVisibilityChange}
       />
       {(notice ?? transformNotice) && <div className="scene-notice" role="status">{notice ?? transformNotice}</div>}
       {showStats && <div className="scene-stats">

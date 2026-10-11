@@ -210,7 +210,9 @@ test('level positions use editable Phosphor billboards outside entity projection
     shipCameraCuboidEnd: { sourceValue: -1 },
   };
   projection.sync(settings);
-  const ship = projection.root.children[0] as THREE.Mesh;
+  const ship = projection.root.children.find(
+    (child) => child.userData.forgeBillboardGlyph === 'airplane-tilt',
+  ) as THREE.Mesh;
   assert.equal(ship.userData.forgeBillboardGizmo, true);
   assert.equal(ship.userData.forgeBillboardGlyph, 'airplane-tilt');
   assert.equal(ship.userData.forgeAccessibleLabel, 'Ship position');
@@ -218,7 +220,9 @@ test('level positions use editable Phosphor billboards outside entity projection
   assert.deepEqual(projection.getResourceCounts(), { geometries: 1, materials: 1, textures: 1 });
 
   projection.sync({ ...settings, shipPosition: { x: 40, y: 50, z: 60 } });
-  assert.equal(projection.root.children[0], ship);
+  assert.equal(projection.root.children.find(
+    (child) => child.userData.forgeBillboardGlyph === 'airplane-tilt',
+  ), ship);
   assert.deepEqual(ship.position.toArray(), [40, 60, -50]);
 
   projection.sync({ ...settings, isSphericalWorld: true, shipPosition: { x: 40, y: 50, z: 60 } });
@@ -242,12 +246,71 @@ test('level positions use editable Phosphor billboards outside entity projection
     [7, 9, -8]);
 
   projection.sync({ ...settings, shipPosition: { x: 40, y: 50, z: 60 } });
-  assert.equal(projection.root.children.length, 1);
+  assert.equal(projection.root.children.filter(
+    (child) => child.userData.forgeBillboardGizmo,
+  ).length, 1);
   projection.sync(undefined);
   assert.equal(projection.root.children.length, 0);
   assert.deepEqual(projection.getResourceCounts(), { geometries: 1, materials: 0, textures: 0 });
   projection.dispose();
   assert.deepEqual(projection.getResourceCounts(), { geometries: 0, materials: 0, textures: 0 });
+});
+
+test('death height aid follows scene bounds, toggles, ignores picking, and disposes', () => {
+  const projection = new LevelSettingsOverlayProjection();
+  const settings = {
+    deathHeight: -100,
+    isSphericalWorld: false,
+    sphereCenter: { x: 1, y: 2, z: 3 },
+    shipPosition: { x: 10, y: 20, z: 30 },
+    shipRotationZ: 0,
+    shipPath: { sourceValue: -1 },
+    shipCameraCuboidStart: { sourceValue: -1 },
+    shipCameraCuboidEnd: { sourceValue: -1 },
+  };
+  projection.setSceneBounds(new THREE.Box3(
+    new THREE.Vector3(-100, -20, -200),
+    new THREE.Vector3(300, 100, 600),
+  ));
+  projection.sync(settings);
+
+  const plane = projection.root.children.find(
+    (child) => child.userData.forgeDeathHeightPlane,
+  ) as THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
+  assert.ok(plane);
+  assert.deepEqual(plane.position.toArray(), [100, -100, 200]);
+  assert.deepEqual(plane.scale.toArray().map(Math.round), [440, 880, 1]);
+  assert.equal(plane.rotation.x, -Math.PI / 2);
+  assert.equal(plane.material.transparent, true);
+  assert.equal(plane.material.depthWrite, false);
+  assert.equal(plane.material.map!.wrapS, THREE.RepeatWrapping);
+  assert.ok(Math.abs(plane.material.map!.repeat.x - 440 / 128) < 0.0001);
+  assert.ok(Math.abs(plane.material.map!.repeat.y - 880 / 128) < 0.0001);
+  assert.equal(plane.material.map!.minFilter, THREE.LinearMipmapLinearFilter);
+  assert.equal(plane.material.map!.generateMipmaps, true);
+  const image = plane.material.map!.image as { data: Uint8Array };
+  const alpha = image.data.filter((_, index) => index % 4 === 3);
+  assert.ok(alpha.includes(0) && alpha.includes(72) && alpha.includes(210));
+  assert.equal(projection.resolvePick([{ object: plane } as unknown as THREE.Intersection]), undefined);
+  assert.equal(projection.getTransformEntities().some((entity) => entity.name === 'Death height'), false);
+
+  projection.setDeathPlaneVisible(false);
+  assert.equal(plane.visible, false);
+  projection.setDeathPlaneVisible(true);
+  projection.sync({ ...settings, deathHeight: -120 });
+  assert.equal(plane.visible, true);
+  assert.equal(plane.position.y, -120);
+
+  let geometryDisposed = false;
+  let materialDisposed = false;
+  let textureDisposed = false;
+  plane.geometry.addEventListener('dispose', () => { geometryDisposed = true; });
+  plane.material.addEventListener('dispose', () => { materialDisposed = true; });
+  plane.material.map!.addEventListener('dispose', () => { textureDisposed = true; });
+  projection.dispose();
+  assert.equal(geometryDisposed, true);
+  assert.equal(materialDisposed, true);
+  assert.equal(textureDisposed, true);
 });
 
 test('meshless projections use pickable billboards but never placement geometry', () => {

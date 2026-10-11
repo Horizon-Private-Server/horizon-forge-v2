@@ -35,7 +35,7 @@ export function ViewportPanel() {
     project, keybindings, selectionColor, sceneTreeColors, collisionVisualization, terrain, cameraFocus, setCameraFocus, setSceneLoad,
     execute, busy, showViewportStats, showOcclusionOctants, splinePointSelection, setSplinePointSelection,
     setSkyCompositionSelected, showSolidCollision, setShowSolidCollision,
-    showPlayerBarriers, setShowPlayerBarriers, showTerrain,
+    showPlayerBarriers, setShowPlayerBarriers, showDeathHeight, setShowDeathHeight, showTerrain,
     instancedCollisionOverlay,
   } = useEditor();
   const appearance = project.levelSettings && {
@@ -72,6 +72,7 @@ export function ViewportPanel() {
     showTerrain={showTerrain}
     showSolidCollision={showSolidCollision}
     showPlayerBarriers={showPlayerBarriers}
+    showDeathHeight={showDeathHeight}
     instancedCollisionOverlay={instancedCollisionOverlay}
     terrain={terrain}
     environment={environment}
@@ -80,6 +81,7 @@ export function ViewportPanel() {
     onLoadProgress={setSceneLoad}
     onSolidCollisionVisibilityChange={setShowSolidCollision}
     onPlayerBarrierVisibilityChange={setShowPlayerBarriers}
+    onDeathHeightVisibilityChange={setShowDeathHeight}
     onSelectionChange={(values) => {
       setSkyCompositionSelected(false);
       const points = values.filter((value) => parseSplinePointId(value));

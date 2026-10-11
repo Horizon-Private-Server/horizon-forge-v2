@@ -105,6 +105,7 @@ export function EditorWorkspace({
   const [showTerrain, setShowTerrain] = useState(true);
   const [showSolidCollision, setShowSolidCollision] = useState(true);
   const [showPlayerBarriers, setShowPlayerBarriers] = useState(true);
+  const [showDeathHeight, setShowDeathHeight] = useState(true);
   const [assetPreview, setAssetPreview] = useState<AssetExplorerFamily>();
   const [instancedCollisionOverlay, setInstancedCollisionOverlay] = useState<InstancedCollisionOverlay>();
   const [renderedInstancedCollisionEntityIds, setRenderedInstancedCollisionEntityIds] = useState<Set<string>>(
@@ -463,6 +464,8 @@ export function EditorWorkspace({
     setShowSolidCollision,
     showPlayerBarriers,
     setShowPlayerBarriers,
+    showDeathHeight,
+    setShowDeathHeight,
     assetPreview,
     inspectAsset,
     inspectReferencedAsset,
@@ -497,7 +500,7 @@ export function EditorWorkspace({
     cancelGroupTemplatePreview,
     cancelInstancedCollisionPreview, execute,
     hostStatus, inspectAsset, inspectReferencedAsset, navigateToEntity, showReferences, keybindings,
-    collisionVisualization, project, sceneLoad, sceneTreeColors, showOcclusionOctants, showPlayerBarriers, showSolidCollision,
+    collisionVisualization, project, sceneLoad, sceneTreeColors, showDeathHeight, showOcclusionOctants, showPlayerBarriers, showSolidCollision,
     selectionColor, showTerrain,
     showViewportStats, skyCompositionSelected,
     splinePointSelection,

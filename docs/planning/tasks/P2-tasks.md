@@ -975,6 +975,13 @@ Acceptance:
 
 Verification: projection/update/picking/exclusion/disposal tests and visual check.
 
+Completed: the scene overlay now projects editable ship and spherical-world position
+billboards plus a scene-bounded death-height plane with transparent warning stripes and
+repeating skull markers. The plane has a viewport-only visibility control, while all
+three aids remain outside project entities, placement/snapping geometry, and baked
+output. Overlay geometry, materials, and textures are reused for the project lifetime
+and disposed on project close.
+
 ### M11-004 — Replace area meshes with billboard gizmos
 
 Requirements: FR-LEVEL-002, FR-SCENE-002, FR-SCENE-007

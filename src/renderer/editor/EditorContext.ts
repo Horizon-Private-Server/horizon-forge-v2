@@ -43,6 +43,8 @@ export interface EditorContextValue {
   setShowSolidCollision(value: boolean): void;
   showPlayerBarriers: boolean;
   setShowPlayerBarriers(value: boolean): void;
+  showDeathHeight: boolean;
+  setShowDeathHeight(value: boolean): void;
   assetPreview?: AssetExplorerFamily;
   inspectAsset(family: AssetExplorerFamily, activate?: boolean): void;
   inspectReferencedAsset(assetId: string, assetKind: string): Promise<void>;

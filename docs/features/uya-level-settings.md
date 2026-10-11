@@ -32,6 +32,12 @@ spherical-world mode is enabled, sphere center as a `sphere` billboard. Both are
 translate-only tool targets; dragging them commits the same undoable level-settings
 command used by the property controls rather than creating scene entities.
 
+Death height is shown as a viewport-only horizontal plane with transparent warning
+stripes and repeating skull markers. Its extent follows loaded terrain and entity
+positions with a bounded fallback, and the viewport Visibility menu can hide it without
+changing project state. Like the position billboards, it is excluded from placement,
+snapping, project serialization, and baked output.
+
 Format evidence is consistent across the SDK reader, Replanetizer's UYA offsets, and
 Wrench's `LevelSettings` model and `rewrite_level_settings_links`, where these values are
 declared as `pathlink` and `cuboidlink` and remapped with instance ordering.

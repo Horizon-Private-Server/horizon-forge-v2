@@ -1,7 +1,10 @@
+import { EyeIcon } from '@phosphor-icons/react/dist/csr/Eye';
+import { EyeSlashIcon } from '@phosphor-icons/react/dist/csr/EyeSlash';
 import {
-  Alert, Badge, Checkbox, Code, Fieldset, Group, NumberInput, Slider, Stack, Text,
+  ActionIcon, Alert, Badge, Checkbox, Code, Fieldset, Group, NumberInput, Slider, Stack, Text,
 } from '@mantine/core';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 
 import type {
   EditorLevelReference, EditorLevelSceneSettings, EditorLevelSettings, ProjectVector3,
@@ -19,7 +22,8 @@ type SceneReferenceKey = 'shipPath' | 'shipCameraCuboidStart' | 'shipCameraCuboi
 
 export function LevelSettingsPanel() {
   const {
-    project, terrain, execute, busy, showOcclusionOctants, setShowOcclusionOctants, navigateToEntity,
+    project, terrain, execute, busy, showOcclusionOctants, setShowOcclusionOctants,
+    showDeathHeight, setShowDeathHeight, navigateToEntity,
   } = useEditor();
   const editable = project.levelSettings;
   const settings = editable ? { ...terrain?.environment, ...editable } : terrain?.environment;
@@ -103,6 +107,16 @@ export function LevelSettingsPanel() {
         <Fieldset legend="World">
           <Stack gap="xs">
             <LevelNumberInput label="Death height" unit="world units" value={scene.deathHeight}
+              labelAction={<ActionIcon
+                aria-label={`${showDeathHeight ? 'Hide' : 'Show'} death height plane`}
+                color={showDeathHeight ? 'blue' : 'gray'}
+                size="xs"
+                title={`${showDeathHeight ? 'Hide' : 'Show'} death height plane`}
+                variant="subtle"
+                onClick={() => setShowDeathHeight(!showDeathHeight)}
+              >
+                {showDeathHeight ? <EyeIcon size={13} /> : <EyeSlashIcon size={13} />}
+              </ActionIcon>}
               disabled={busy} onCommit={(value) => updateScene('deathHeight', value)} />
             <Checkbox
               aria-label="Use spherical world"
@@ -176,8 +190,9 @@ function LevelReferenceInput({
   </Stack>;
 }
 
-function LevelNumberInput({ label, unit, value, disabled, onCommit }: {
+function LevelNumberInput({ label, labelAction, unit, value, disabled, onCommit }: {
   label: string;
+  labelAction?: ReactNode;
   unit: string;
   value: number;
   disabled: boolean;
@@ -203,28 +218,34 @@ function LevelNumberInput({ label, unit, value, disabled, onCommit }: {
     }
   };
   const error = !valid ? 'Enter a finite number.' : rejected ? 'The change was rejected.' : undefined;
-  return <NumberInput
-    aria-label={`${label} in ${unit}`}
-    label={label}
-    description={unit}
-    decimalScale={4}
-    disabled={disabled}
-    error={error}
-    value={draft}
-    onChange={(next) => {
-      setRejected(false);
-      setDraft(next);
-    }}
-    onBlur={() => { void commit(); }}
-    onKeyDown={(event) => {
-      if (event.key === 'Enter') event.currentTarget.blur();
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        cancelled.current = true;
-        event.currentTarget.blur();
-      }
-    }}
-  />;
+  return <Stack gap={labelAction ? 2 : 0}>
+    {labelAction && <Group justify="space-between" wrap="nowrap">
+      <Text size="sm" fw={500}>{label}</Text>
+      {labelAction}
+    </Group>}
+    <NumberInput
+      aria-label={`${label} in ${unit}`}
+      label={labelAction ? undefined : label}
+      description={unit}
+      decimalScale={4}
+      disabled={disabled}
+      error={error}
+      value={draft}
+      onChange={(next) => {
+        setRejected(false);
+        setDraft(next);
+      }}
+      onBlur={() => { void commit(); }}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') event.currentTarget.blur();
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          cancelled.current = true;
+          event.currentTarget.blur();
+        }
+      }}
+    />
+  </Stack>;
 }
 
 function LevelVectorInput({ label, unit, value, disabled, onCommit }: {
