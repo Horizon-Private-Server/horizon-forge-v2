@@ -132,7 +132,7 @@ internal static class UyaBaseLevelService
                     [mobyTable.SpawnableMobyCount, mobyTable.Pad8, mobyTable.PadC], mobyTable.TrailingBytes),
             ],
             gameplay,
-            levelSettings is null ? null : ProjectSettings(levelSettings),
+            levelSettings is null ? null : ProjectSettings(levelSettings, entities),
             hud,
             fx,
             mobyPVars);
@@ -174,7 +174,9 @@ internal static class UyaBaseLevelService
         }
     }
 
-    private static ProjectLevelSettings ProjectSettings(UyaLevelSettings value) => new(
+    private static ProjectLevelSettings ProjectSettings(
+        UyaLevelSettings value,
+        IReadOnlyList<ProjectEntity> entities) => new(
         new((byte)Math.Clamp(value.BackgroundColor.Red, 0, 255),
             (byte)Math.Clamp(value.BackgroundColor.Green, 0, 255),
             (byte)Math.Clamp(value.BackgroundColor.Blue, 0, 255)),
@@ -184,7 +186,39 @@ internal static class UyaBaseLevelService
         Math.Max(0, Finite(value.FogNearDistance) / 1024),
         Math.Max(0, Finite(value.FogFarDistance) / 1024),
         Math.Clamp(Finite(value.FogNearIntensity), 0, 255),
-        Math.Clamp(Finite(value.FogFarIntensity), 0, 255));
+        Math.Clamp(Finite(value.FogFarIntensity), 0, 255),
+        new(
+            Finite(value.DeathHeight),
+            value.IsSphericalWorld,
+            ProjectVector(value.SphereCenter),
+            ProjectVector(value.ShipPosition),
+            Finite(value.ShipRotationZ),
+            LevelReference(value.ShipPath, ProjectReferences.LevelShipPath,
+                ProjectEntityKind.Spline, "gameplay/core/splines", entities),
+            LevelReference(value.ShipCameraCuboidStart, ProjectReferences.LevelShipCameraCuboidStart,
+                ProjectEntityKind.Cuboid, "gameplay/core/cuboids", entities),
+            LevelReference(value.ShipCameraCuboidEnd, ProjectReferences.LevelShipCameraCuboidEnd,
+                ProjectEntityKind.Cuboid, "gameplay/core/cuboids", entities)));
+
+    private static ProjectVector3 ProjectVector(UyaVector3 value) =>
+        new(Finite(value.X), Finite(value.Y), Finite(value.Z));
+
+    private static ProjectIndexedReference LevelReference(
+        int sourceValue,
+        string fieldKey,
+        ProjectEntityKind kind,
+        string section,
+        IReadOnlyList<ProjectEntity> entities)
+    {
+        var target = entities.SingleOrDefault(entity =>
+            entity.Provenance?.Section == section && entity.Provenance.SourceIndex == sourceValue);
+        return new(sourceValue, new(
+            ProjectReferenceDomain.Entity,
+            fieldKey,
+            true,
+            EntityKind: kind,
+            EntityId: target?.EntityId));
+    }
 
     private static void AddSkyShells(
         ICollection<ProjectEntity> entities,

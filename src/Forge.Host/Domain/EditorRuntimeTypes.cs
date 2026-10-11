@@ -309,6 +309,28 @@ public delegate Task<IReadOnlyList<EntityId>> EditorSkyShellCommandExecutor(
 
 public sealed record EditorTransformUpdate(EntityId EntityId, ProjectTransform Transform);
 
+public enum EditorCommandResultKind : byte
+{
+    Snapshot = 1,
+    Transforms = 2,
+    LevelSettings = 3,
+}
+
+public sealed record EditorTransformPatch(
+    EntityId EntityId,
+    ProjectTransform Transform,
+    bool Dirty);
+
+public sealed record EditorCommandResult(
+    EditorCommandResultKind Kind,
+    EditorSnapshot? Snapshot,
+    IReadOnlyList<EditorTransformPatch> Transforms,
+    ProjectLevelSettings? LevelSettings,
+    bool IsDirty,
+    bool CanUndo,
+    bool CanRedo,
+    long LastEventSequence);
+
 public sealed record EditorEntityStateChange(
     bool? Hidden = null,
     bool? Disabled = null,

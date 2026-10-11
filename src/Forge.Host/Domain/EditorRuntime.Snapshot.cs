@@ -2,6 +2,52 @@ namespace Forge.Host.Domain;
 
 public sealed partial class EditorRuntime
 {
+    private EditorCommandResult CommandResult(
+        EditorCommand command,
+        IReadOnlyList<EditorTransformUpdate>? transforms)
+    {
+        var workspace = RequireWorkspace();
+        if (command.Kind is EditorCommandKind.UpdateTransform or EditorCommandKind.UpdateTransforms)
+        {
+            var entities = workspace.GetEntities(transforms!.Select(value => value.EntityId).ToArray());
+            var bindings = entities.Any(entity => entity.Asset.IsInstancedCollisionSource())
+                ? workspace.Content.InstancedCollisionBindings.ToDictionary(
+                    binding => (binding.SourceAssetId, binding.InstanceEntityId))
+                : null;
+            return new(
+                EditorCommandResultKind.Transforms,
+                null,
+                entities.Select(entity => new EditorTransformPatch(
+                    entity.EntityId,
+                    entity.Transform,
+                    EntityIsDirty(entity, bindings))).ToArray(),
+                null,
+                workspace.IsDirty,
+                _history.CanUndo,
+                _history.CanRedo,
+                _eventSequence);
+        }
+        if (command.Kind == EditorCommandKind.UpdateLevelSettings)
+            return new(
+                EditorCommandResultKind.LevelSettings,
+                null,
+                [],
+                workspace.Content.LevelSettings,
+                workspace.IsDirty,
+                _history.CanUndo,
+                _history.CanRedo,
+                _eventSequence);
+        return new(
+            EditorCommandResultKind.Snapshot,
+            Snapshot(),
+            [],
+            null,
+            workspace.IsDirty,
+            _history.CanUndo,
+            _history.CanRedo,
+            _eventSequence);
+    }
+
     private EditorSnapshot Snapshot()
     {
         var workspace = RequireWorkspace();
@@ -12,15 +58,6 @@ public sealed partial class EditorRuntime
         var entities = workspace.Content.Entities.Select(entity =>
         {
             var state = entity.State ?? new();
-            var sharedBindingKey = (entity.Asset?.Id ?? default, (EntityId?)null);
-            var individualBindingKey = (entity.Asset?.Id ?? default, (EntityId?)entity.EntityId);
-            var bindingDirty = entity.Asset.IsInstancedCollisionSource()
-                && (!Equals(
-                        _savedInstancedCollisionBindings.GetValueOrDefault(sharedBindingKey),
-                        bindings.GetValueOrDefault(sharedBindingKey))
-                    || !Equals(
-                        _savedInstancedCollisionBindings.GetValueOrDefault(individualBindingKey),
-                        bindings.GetValueOrDefault(individualBindingKey)));
             return new EditorEntitySnapshot(
                 entity.EntityId,
                 entity.Name,
@@ -31,7 +68,7 @@ public sealed partial class EditorRuntime
                 entity.Source?.ClassId,
                 Visualization(entity),
                 TransformCapabilities(entity),
-                new(!_savedEntities.TryGetValue(entity.EntityId, out var saved) || saved != entity || bindingDirty,
+                new(EntityIsDirty(entity, bindings),
                     state.Hidden, state.Disabled, state.Locked,
                     IsReadOnlySource(entity),
                     HasInvalidGeometryLinks(entity),
@@ -87,6 +124,24 @@ public sealed partial class EditorRuntime
             RuntimeTools.ToArray(),
             _diagnostics.Concat(PlacementDiagnostics(workspace)).Concat(GroupDiagnostics(groups))
                 .TakeLast(MaxDiagnostics).ToArray());
+    }
+
+    private bool EntityIsDirty(
+        ProjectEntity entity,
+        IReadOnlyDictionary<(AssetId SourceAssetId, EntityId? InstanceEntityId), ProjectInstancedCollisionBinding>
+            ? bindings)
+    {
+        if (!_savedEntities.TryGetValue(entity.EntityId, out var saved) || saved != entity) return true;
+        if (!entity.Asset.IsInstancedCollisionSource()) return false;
+        if (bindings is null) throw new InvalidOperationException("Instanced collision bindings are unavailable.");
+        var sharedBindingKey = (entity.Asset.Id, (EntityId?)null);
+        var individualBindingKey = (entity.Asset.Id, (EntityId?)entity.EntityId);
+        return !Equals(
+                _savedInstancedCollisionBindings.GetValueOrDefault(sharedBindingKey),
+                bindings.GetValueOrDefault(sharedBindingKey))
+            || !Equals(
+                _savedInstancedCollisionBindings.GetValueOrDefault(individualBindingKey),
+                bindings.GetValueOrDefault(individualBindingKey));
     }
 
     private static IEnumerable<EditorDiagnostic> PlacementDiagnostics(ForgeProjectWorkspace workspace) =>

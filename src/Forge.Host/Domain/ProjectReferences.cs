@@ -54,6 +54,9 @@ internal static class ProjectReferences
     public const string AreaSpheres = "geometry.area.spheres";
     public const string AreaCylinders = "geometry.area.cylinders";
     public const string AreaNegativeCuboids = "geometry.area.negativeCuboids";
+    public const string LevelShipPath = "level.shipPath";
+    public const string LevelShipCameraCuboidStart = "level.shipCameraCuboidStart";
+    public const string LevelShipCameraCuboidEnd = "level.shipCameraCuboidEnd";
 
     public static IEnumerable<ProjectReferenceEdge> FromEntity(ProjectEntity entity)
     {
@@ -174,6 +177,22 @@ internal static class ProjectReferences
         };
     }
 
+    public static ProjectLevelSettings? ClearNullableEntityReferences(
+        ProjectLevelSettings? settings,
+        IReadOnlySet<EntityId> targets)
+    {
+        if (settings?.Scene is not { } scene) return settings;
+        return settings with
+        {
+            Scene = scene with
+            {
+                ShipPath = Clear(scene.ShipPath, targets),
+                ShipCameraCuboidStart = Clear(scene.ShipCameraCuboidStart, targets),
+                ShipCameraCuboidEnd = Clear(scene.ShipCameraCuboidEnd, targets),
+            },
+        };
+    }
+
     public static ProjectEntity UpdateEntityReference(
         ProjectEntity entity,
         string fieldKey,
@@ -230,6 +249,12 @@ internal static class ProjectReferences
         IReadOnlySet<EntityId> targets) => links
         .Where(link => link.Reference?.EntityId is not { } id || !targets.Contains(id))
         .ToArray();
+
+    private static ProjectIndexedReference Clear(
+        ProjectIndexedReference value,
+        IReadOnlySet<EntityId> targets) => value.Reference.EntityId is { } id && targets.Contains(id)
+            ? value with { SourceValue = -1, Reference = value.Reference with { EntityId = null } }
+            : value;
 
     private static ProjectGeometryLink[] Update(
         IReadOnlyList<ProjectGeometryLink> links,

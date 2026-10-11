@@ -917,6 +917,13 @@ Acceptance:
 Verification: SDK byte-mask fixtures, ref reorder/delete, command/migration, and native
 round-trip tests.
 
+Completed: the SDK now owns the full verified writable prefix through `0x57`, with
+byte-identical no-edit and field-mask coverage. Forge imports world-space values and
+typed spline/cuboid Entity-ID references, validates and transports the expanded scene
+contract, clears deleted nullable targets atomically, and resolves links from
+deterministic native ordering during bake. Unknown bytes from `0x58` onward remain
+source-owned. See [the verified UYA contract](../../features/uya-level-settings.md).
+
 ### M11-002 — Complete the level settings property UI
 
 Requirements: FR-LEVEL-001, FR-UI-004, FR-REF-003, NFR-UX-001
@@ -936,6 +943,15 @@ Acceptance:
 - Existing fog/background controls remain functional and use the same command path.
 
 Verification: component/command/accessibility tests and full settings walkthrough.
+
+Completed: the level-settings panel now exposes the verified UYA world and ship fields
+through finite number, vector, toggle, and typed reference controls. Numeric drafts stay
+local until valid blur/Enter commits; Escape restores authoritative values. Ship links
+accept only deterministic source-backed spline/cuboid targets, support the shared
+drag/focus/clear interactions, and report unresolved, wrong-kind, and non-bakeable
+targets inline. Existing palette, background, fog, and occlusion controls remain intact,
+and unsupported projects disclose their target capability instead of presenting inert
+values.
 
 ### M11-003 — Render death, ship, and sphere semantic aids
 

@@ -7,6 +7,9 @@ import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 
 import { SceneProjection } from '../src/renderer/editor/SceneProjection.ts';
 import { SceneBillboardResources } from '../src/renderer/editor/SceneBillboardGizmo.ts';
+import {
+  LevelSettingsOverlayProjection, levelSettingsPositionField,
+} from '../src/renderer/editor/LevelSettingsOverlayProjection.ts';
 import { verticalDragScale } from '../src/renderer/editor/TransformTool.ts';
 import {
   expandLinkedCollisionTransforms, indexLinkedCollisionTransforms, inspectTransformSelection,
@@ -192,6 +195,59 @@ test('billboard gizmos share resources, bound screen size, and dispose synchrono
   assert.deepEqual(resources.counts(), { geometries: 1, materials: 0, textures: 0 });
   resources.dispose();
   assert.deepEqual(resources.counts(), { geometries: 0, materials: 0, textures: 0 });
+});
+
+test('level positions use editable Phosphor billboards outside entity projection', () => {
+  const projection = new LevelSettingsOverlayProjection();
+  const settings = {
+    deathHeight: -100,
+    isSphericalWorld: false,
+    sphereCenter: { x: 1, y: 2, z: 3 },
+    shipPosition: { x: 10, y: 20, z: 30 },
+    shipRotationZ: 0,
+    shipPath: { sourceValue: -1 },
+    shipCameraCuboidStart: { sourceValue: -1 },
+    shipCameraCuboidEnd: { sourceValue: -1 },
+  };
+  projection.sync(settings);
+  const ship = projection.root.children[0] as THREE.Mesh;
+  assert.equal(ship.userData.forgeBillboardGizmo, true);
+  assert.equal(ship.userData.forgeBillboardGlyph, 'airplane-tilt');
+  assert.equal(ship.userData.forgeAccessibleLabel, 'Ship position');
+  assert.deepEqual(ship.position.toArray(), [10, 30, -20]);
+  assert.deepEqual(projection.getResourceCounts(), { geometries: 1, materials: 1, textures: 1 });
+
+  projection.sync({ ...settings, shipPosition: { x: 40, y: 50, z: 60 } });
+  assert.equal(projection.root.children[0], ship);
+  assert.deepEqual(ship.position.toArray(), [40, 60, -50]);
+
+  projection.sync({ ...settings, isSphericalWorld: true, shipPosition: { x: 40, y: 50, z: 60 } });
+  const sphere = projection.root.children.find((child) => child.userData.forgeBillboardGlyph === 'sphere')!;
+  assert.equal(sphere.userData.forgeAccessibleLabel, 'Spherical world center');
+  assert.deepEqual(sphere.position.toArray(), [1, 3, -2]);
+  assert.equal(levelSettingsPositionField(sphere.userData.forgeEntityId), 'sphereCenter');
+  assert.equal(projection.resolvePick([{ object: sphere } as THREE.Intersection]),
+    sphere.userData.forgeEntityId);
+  assert.deepEqual(projection.getTransformEntities().map((entity) => [
+    levelSettingsPositionField(entity.id), entity.transform.position, entity.transformModes,
+  ]), [
+    ['shipPosition', { x: 40, y: 50, z: 60 }, ['translate']],
+    ['sphereCenter', { x: 1, y: 2, z: 3 }, ['translate']],
+  ]);
+  const preview = projection.getTransformEntities()[1]!;
+  preview.transform.position = { x: 7, y: 8, z: 9 };
+  projection.previewTransforms([{ entityId: preview.id, transform: preview.transform }]);
+  assert.deepEqual(sphere.position.toArray(), [7, 9, -8]);
+  assert.deepEqual(projection.getBounds(sphere.userData.forgeEntityId)!.getCenter(new THREE.Vector3()).toArray(),
+    [7, 9, -8]);
+
+  projection.sync({ ...settings, shipPosition: { x: 40, y: 50, z: 60 } });
+  assert.equal(projection.root.children.length, 1);
+  projection.sync(undefined);
+  assert.equal(projection.root.children.length, 0);
+  assert.deepEqual(projection.getResourceCounts(), { geometries: 1, materials: 0, textures: 0 });
+  projection.dispose();
+  assert.deepEqual(projection.getResourceCounts(), { geometries: 0, materials: 0, textures: 0 });
 });
 
 test('meshless projections use pickable billboards but never placement geometry', () => {
@@ -492,6 +548,19 @@ test('scene projection renders decoded geometry and lighting markers', () => {
     (child) => child instanceof THREE.Points && child !== splineNodes,
   ) as THREE.Points;
   assert.deepEqual(Array.from(selectedSplineNodes.geometry.getAttribute('position').array), [5, 7, -6]);
+  const previewSpline = {
+    ...spline,
+    geometry: {
+      kind: 'spline' as const,
+      points: [{ x: 10, y: 20, z: 30, w: 4 }, { x: 50, y: 60, z: 70, w: 8 }],
+    },
+  };
+  projection.previewSpline(previewSpline, [splinePointId('spline', 1)]);
+  assert.deepEqual(Array.from(line.geometry.getAttribute('instanceStart').array), [10, 30, -20, 50, 70, -60]);
+  assert.deepEqual(Array.from(selectedSplineNodes.geometry.getAttribute('position').array), [50, 70, -60]);
+  projection.sync(entities, [splinePointId('spline', 1)]);
+  const restoredLine = projection.getObject('spline') as Line2;
+  assert.deepEqual(Array.from(restoredLine.geometry.getAttribute('instanceStart').array), [1, 3, -2, 5, 7, -6]);
   projection.sync(entities, ['area']);
   assert.equal(projection.getObject('area'), undefined);
   projection.dispose();
@@ -645,6 +714,11 @@ test('scene projection merges matching parts, instances assets, and resolves ins
   assert.equal(mesh.geometry.getAttribute('position').count, geometry.getAttribute('position').count * 2);
   assert.equal(projection.resolvePick([{ object: mesh, instanceId: 1 }] as unknown as THREE.Intersection[]), 'b');
   assert.ok(Math.abs(projection.getBounds('b')!.getCenter(new THREE.Vector3()).x - 10) < 1e-6);
+  const moved = entity('b', 25).transform;
+  projection.previewTransforms([{ entityId: 'b', transform: moved }]);
+  assert.ok(Math.abs(projection.getBounds('b')!.getCenter(new THREE.Vector3()).x - 25) < 1e-6);
+  assert.ok(Math.abs(projection.getBounds('a')!.getCenter(new THREE.Vector3()).x) < 1e-6);
+  assert.ok(Math.abs(new THREE.Vector3().setFromMatrixPosition(selectionOutlines[0].matrix).x - 25) < 1e-6);
   projection.sync([entity('a'), entity('b', 10)], [], new Set(), false);
   assert.equal(mesh.count, 0);
   assert.equal(projection.resolvePick([{ object: mesh, instanceId: 0 }] as unknown as THREE.Intersection[]), undefined);

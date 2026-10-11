@@ -11,7 +11,10 @@ import {
   type LinkedCollisionTransformIndex,
 } from '../../utils/TransformSelection.ts';
 import { VertexSnapIndex } from './SceneSnapping.ts';
-import type { SceneProjection } from './SceneProjection.ts';
+
+interface TransformProjection {
+  getBounds(entityId: string, target?: THREE.Box3): THREE.Box3 | undefined;
+}
 
 export type EditorTransformMode = 'select' | 'translate' | 'rotate' | 'scale';
 export type EditorTransformSpace = 'world' | 'local';
@@ -21,7 +24,8 @@ const PLANE_HANDLE_OFFSET = 0.15;
 const AXIS_PICKER_THICKNESS = 0.5;
 
 interface TransformToolCallbacks {
-  preview(entities?: readonly EditorEntity[]): void;
+  previewTransforms(updates?: readonly EditorTransformUpdate[]): void;
+  previewSpline(entity?: EditorEntity): void;
   availability(message?: string): void;
   commit(updates: EditorTransformUpdate[]): void;
   commitSplinePoints(entityId: string, points: ProjectVector4[]): void;
@@ -64,7 +68,7 @@ export class TransformTool {
   private activeSpline?: EditorEntity;
   private originalSplinePoints?: ProjectVector4[];
   private originals = new Map<string, ProjectTransform>();
-  private projection?: SceneProjection;
+  private projection?: TransformProjection;
   private mode: EditorTransformMode = 'select';
   private space: EditorTransformSpace = 'world';
   private snapEnabled = false;
@@ -162,7 +166,7 @@ export class TransformTool {
   sync(
     entities: readonly EditorEntity[],
     selection: readonly string[],
-    projection: SceneProjection,
+    projection: TransformProjection,
     missingSelectionMembers = 0,
   ): void {
     if (this.entities !== entities) {
@@ -210,7 +214,8 @@ export class TransformTool {
     if (!this.controls.dragging || this.originals.size === 0 && !this.originalSplinePoints) return false;
     this.cancelled = true;
     this.controls.reset();
-    this.callbacks.preview();
+    if (this.originalSplinePoints) this.callbacks.previewSpline();
+    else this.callbacks.previewTransforms();
     return true;
   }
 
@@ -282,8 +287,10 @@ export class TransformTool {
         this.activePointIds.length ? this.activePointIds : this.activeIds,
       ));
     }
-    this.originals = new Map(this.entities.filter((entity) => this.activeIds.includes(entity.id))
-      .map((entity) => [entity.id, cloneProjectTransform(entity.transform)]));
+    this.originals = new Map(this.activeIds.map((id) => {
+      const entity = this.entitiesById.get(id)!;
+      return [id, cloneProjectTransform(entity.transform)];
+    }));
     this.originalSplinePoints = this.activeSpline?.geometry?.points.map((point) => ({ ...point }));
   };
 
@@ -293,17 +300,13 @@ export class TransformTool {
     if (this.originalSplinePoints && this.activeSpline) {
       const points = this.buildSplinePoints();
       if (!points) return;
-      this.callbacks.preview(this.entities.map((entity) => entity.id === this.activeSpline!.id
-        ? { ...entity, geometry: { kind: this.activeSpline!.geometry!.kind, points } }
-        : entity));
+      this.callbacks.previewSpline({
+        ...this.activeSpline,
+        geometry: { kind: this.activeSpline.geometry!.kind, points },
+      });
       return;
     }
-    const updates = this.buildUpdates();
-    const transforms = new Map(updates.map((update) => [update.entityId, update.transform]));
-    this.callbacks.preview(this.entities.map((entity) => {
-      const transform = transforms.get(entity.id);
-      return transform ? { ...entity, transform } : entity;
-    }));
+    this.callbacks.previewTransforms(this.buildUpdates());
   };
 
   private readonly handleMouseUp = () => {
@@ -312,10 +315,9 @@ export class TransformTool {
     const changed = !this.proxy.matrix.equals(this.startPivot);
     this.originals.clear();
     this.vertexIndex = undefined;
-    if (this.cancelled) this.callbacks.preview();
-    else if (changed && splinePoints && this.activeSpline)
+    if (!this.cancelled && changed && splinePoints && this.activeSpline)
       this.callbacks.commitSplinePoints(this.activeSpline.id, splinePoints);
-    else if (changed && updates.length) this.callbacks.commit(updates);
+    else if (!this.cancelled && changed && updates.length) this.callbacks.commit(updates);
     this.originalSplinePoints = undefined;
     this.cancelled = false;
     queueMicrotask(() => { this.pointerActive = false; });

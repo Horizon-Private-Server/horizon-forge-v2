@@ -1,14 +1,13 @@
 import { EyeIcon } from '@phosphor-icons/react/dist/csr/Eye';
 import { EyeSlashIcon } from '@phosphor-icons/react/dist/csr/EyeSlash';
 import {
-  ActionIcon, Alert, Button, Checkbox, Code, Group, Slider, Stack, Text,
+  ActionIcon, Alert, Button, Group, Stack, Text,
 } from '@mantine/core';
 import type { TreeNodeData } from '@mantine/core';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 
-import type { EditorEntity, EditorLevelSettings } from '../../types/EditorRuntime.js';
+import type { EditorEntity } from '../../types/EditorRuntime.js';
 import { createAssetPlacementCommand, createSkyShellAddCommand } from '../../utils/AssetPlacement.ts';
-import { parseRgb } from '../../utils/Color.ts';
 import { formatCollisionType } from '../../utils/CollisionFormat.ts';
 import { selectedMissingGroupMemberCount } from '../../utils/SceneGroups.ts';
 import {
@@ -18,7 +17,6 @@ import {
   entityTreeText,
 } from '../../utils/SceneSelection.ts';
 import { parseSplinePointId, splinePointId } from '../../utils/SplinePoints.ts';
-import { ColorPickerInput } from '../ColorPickerInput.tsx';
 import { EntityProperties, MultiEntityProperties } from './EntityProperties.tsx';
 import { useEditor } from './EditorContext.ts';
 import {
@@ -26,8 +24,6 @@ import {
   EditorFilter,
   EditorPanel,
   EditorProgressState,
-  EditorProperty,
-  EditorPropertyGrid,
   EditorTree,
 } from './EditorPrimitives.tsx';
 import { SceneViewport } from './SceneViewport.tsx';
@@ -42,10 +38,18 @@ export function ViewportPanel() {
     showPlayerBarriers, setShowPlayerBarriers, showTerrain,
     instancedCollisionOverlay,
   } = useEditor();
-  const levelSettingsSignature = JSON.stringify(project.levelSettings);
-  const environment = useMemo(() => project.levelSettings
-    ? { ...terrain?.environment, ...project.levelSettings }
-    : terrain?.environment, [levelSettingsSignature, terrain?.environment]);
+  const appearance = project.levelSettings && {
+    backgroundColor: project.levelSettings.backgroundColor,
+    fogColor: project.levelSettings.fogColor,
+    fogNearDistance: project.levelSettings.fogNearDistance,
+    fogFarDistance: project.levelSettings.fogFarDistance,
+    fogNearIntensity: project.levelSettings.fogNearIntensity,
+    fogFarIntensity: project.levelSettings.fogFarIntensity,
+  };
+  const appearanceSignature = JSON.stringify(appearance);
+  const environment = useMemo(() => appearance
+    ? { ...terrain?.environment, ...appearance }
+    : terrain?.environment, [appearanceSignature, terrain?.environment]);
   const missingSelectionMembers = useMemo(() => selectedMissingGroupMemberCount(
     project.selection,
     project.entities,
@@ -71,6 +75,7 @@ export function ViewportPanel() {
     instancedCollisionOverlay={instancedCollisionOverlay}
     terrain={terrain}
     environment={environment}
+    levelSceneSettings={project.levelSettings?.scene}
     onFocusHandled={() => setCameraFocus(undefined)}
     onLoadProgress={setSceneLoad}
     onSolidCollisionVisibilityChange={setShowSolidCollision}
@@ -91,6 +96,17 @@ export function ViewportPanel() {
       id: crypto.randomUUID(), kind: 'updateTransforms',
       entityIds: transforms.map((value) => value.entityId), transforms,
     })}
+    onLevelPositionCommit={(field, value) => {
+      const levelSettings = project.levelSettings;
+      if (!levelSettings?.scene) return Promise.resolve(false);
+      return execute({
+        id: crypto.randomUUID(), kind: 'updateLevelSettings', entityIds: [],
+        levelSettings: {
+          ...levelSettings,
+          scene: { ...levelSettings.scene, [field]: value },
+        },
+      });
+    }}
     onSplinePointsCommit={(entityId, points) => execute({
       id: crypto.randomUUID(), kind: 'updateSplinePoints', entityIds: [entityId], points,
     })}
@@ -98,104 +114,6 @@ export function ViewportPanel() {
       ? createSkyShellAddCommand(asset)
       : createAssetPlacementCommand(asset, position!))}
   />;
-}
-
-export function LevelSettingsPanel() {
-  const { project, terrain, execute, busy, showOcclusionOctants, setShowOcclusionOctants } = useEditor();
-  const editable = project.levelSettings;
-  const settings = editable ? { ...terrain?.environment, ...editable } : terrain?.environment;
-  const updatePaletteOptimization = (strength: number) => void execute({
-    id: crypto.randomUUID(), kind: 'updatePaletteOptimization', entityIds: [],
-    paletteOptimization: { mappingVersion: 'paletteOptimization.v1', strength },
-  });
-  const paletteControl = <Stack gap={2}>
-    <LevelSlider label="Texture palette optimization" value={project.target.paletteOptimization.strength}
-      max={100} disabled={busy} onCommit={updatePaletteOptimization} />
-    <Group justify="space-between">
-      <Text size="xs" c="dimmed">Visual fidelity</Text>
-      <Text size="xs" c="dimmed">VRAM savings</Text>
-    </Group>
-  </Stack>;
-  if (!settings) return <EditorPanel label="Level settings">
-    <Stack>{paletteControl}<EditorEmptyState message="Level settings are unavailable." /></Stack>
-  </EditorPanel>;
-  const update = (value: Partial<EditorLevelSettings>) => {
-    if (!editable) return;
-    void execute({
-      id: crypto.randomUUID(), kind: 'updateLevelSettings', entityIds: [],
-      levelSettings: { ...editable, ...value },
-    });
-  };
-  const rgb = (value: readonly number[]) => `rgb(${value.join(', ')})`;
-  const vector = (value: readonly number[]) => value.map((item) => item.toFixed(2)).join(', ');
-  const fogDistanceMax = Math.max(1000, settings.fogNearDistance, settings.fogFarDistance);
-  return <EditorPanel label="Level settings">
-    <Stack>
-      {!editable && <Text size="xs" c="yellow">Migrate this project to edit imported level settings.</Text>}
-      {paletteControl}
-      <Checkbox
-        checked={showOcclusionOctants}
-        label={`Show occlusion octants (${(terrain?.occlusionOctants.length ?? 0).toLocaleString()})`}
-        onChange={(event) => setShowOcclusionOctants(event.currentTarget.checked)}
-      />
-      <LevelColorInput label="Background color" value={rgb(settings.backgroundColor)} disabled={!editable || busy}
-        onCommit={(value) => update({ backgroundColor: value })} />
-      <LevelColorInput label="Fog color" value={rgb(settings.fogColor)} disabled={!editable || busy}
-        onCommit={(value) => update({ fogColor: value })} />
-      <LevelSlider label="Fog near distance" value={settings.fogNearDistance} max={fogDistanceMax}
-        precision={2} disabled={!editable || busy} onCommit={(value) => update({ fogNearDistance: value })} />
-      <LevelSlider label="Fog far distance" value={settings.fogFarDistance} max={fogDistanceMax}
-        precision={2} disabled={!editable || busy} onCommit={(value) => update({ fogFarDistance: value })} />
-      <LevelSlider label="Fog near intensity" value={settings.fogNearIntensity} max={255}
-        disabled={!editable || busy} onCommit={(value) => update({ fogNearIntensity: value })} />
-      <LevelSlider label="Fog far intensity" value={settings.fogFarIntensity} max={255}
-        disabled={!editable || busy} onCommit={(value) => update({ fogFarIntensity: value })} />
-      <EditorPropertyGrid>
-        <EditorProperty label="Death height">{(settings.deathHeight ?? 0).toFixed(2)}</EditorProperty>
-        <EditorProperty label="Spherical world">{settings.isSphericalWorld ? 'Yes' : 'No'}</EditorProperty>
-        <EditorProperty label="Sphere center"><Code>{vector(settings.sphereCenter ?? [0, 0, 0])}</Code></EditorProperty>
-        <EditorProperty label="Ship position"><Code>{vector(settings.shipPosition ?? [0, 0, 0])}</Code></EditorProperty>
-        <EditorProperty label="Ship rotation Z">{(settings.shipRotationZ ?? 0).toFixed(3)}</EditorProperty>
-        <EditorProperty label="Ship path">{settings.shipPath ?? -1}</EditorProperty>
-        <EditorProperty label="Ship camera cuboids">
-          {settings.shipCameraCuboidStart ?? -1} → {settings.shipCameraCuboidEnd ?? -1}
-        </EditorProperty>
-        <EditorProperty label="Chunk planes">{settings.chunkPlaneCount ?? 0}</EditorProperty>
-        <EditorProperty label="Core sounds">{settings.coreSoundsCount ?? 0}</EditorProperty>
-      </EditorPropertyGrid>
-    </Stack>
-  </EditorPanel>;
-}
-
-function LevelColorInput({ label, value, disabled, onCommit }: {
-  label: string;
-  value: string;
-  disabled: boolean;
-  onCommit(value: [number, number, number]): void;
-}) {
-  const [draft, setDraft] = useState(value);
-  useEffect(() => setDraft(value), [value]);
-  return <ColorPickerInput
-    label={label} value={draft} format="rgb" disabled={disabled}
-    onChange={setDraft} onChangeEnd={(next) => onCommit(parseRgb(next))}
-  />;
-}
-
-function LevelSlider({ label, value, max, precision = 0, disabled, onCommit }: {
-  label: string;
-  value: number;
-  max: number;
-  precision?: number;
-  disabled: boolean;
-  onCommit(value: number): void;
-}) {
-  const [draft, setDraft] = useState(value);
-  useEffect(() => setDraft(value), [value]);
-  return <Stack gap={2}>
-    <Group justify="space-between"><Text size="xs" fw={500}>{label}</Text><Code>{draft.toFixed(precision)}</Code></Group>
-    <Slider disabled={disabled} min={0} max={max} step={precision ? 0.01 : 1} value={draft}
-      thumbLabel={label} onChange={setDraft} onChangeEnd={onCommit} />
-  </Stack>;
 }
 
 export function SceneTreePanel() {

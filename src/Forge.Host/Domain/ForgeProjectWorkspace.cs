@@ -282,7 +282,7 @@ public sealed partial class ForgeProjectWorkspace
 
     public void UpdateLevelSettings(ProjectLevelSettings settings)
     {
-        ForgeProjectValidation.ValidateLevelSettings(settings);
+        ForgeProjectValidation.ValidateLevelSettings(settings, Content.Entities);
         Content = Content with { LevelSettings = settings };
     }
 
@@ -373,6 +373,7 @@ public sealed partial class ForgeProjectWorkspace
         Content = Content with
         {
             Entities = entities,
+            LevelSettings = ProjectReferences.ClearNullableEntityReferences(Content.LevelSettings, removed),
             InstancedCollisionBindings = Content.InstancedCollisionBindings
                 .Where(binding => binding.InstanceEntityId is null || !removed.Contains(binding.InstanceEntityId.Value))
                 .ToArray(),
@@ -406,9 +407,13 @@ public sealed partial class ForgeProjectWorkspace
 
     public ProjectEntity[] GetEntities(IReadOnlyList<EntityId> entityIds)
     {
-        _ = EntityIndexes(entityIds);
+        ArgumentNullException.ThrowIfNull(entityIds);
+        if (entityIds.Count == 0 || entityIds.Distinct().Count() != entityIds.Count)
+            throw new ArgumentException("Entity IDs must be non-empty and unique.", nameof(entityIds));
         var entities = Content.Entities.ToDictionary(entity => entity.EntityId);
-        return entityIds.Select(id => entities[id]).ToArray();
+        return entityIds.Select(id => entities.TryGetValue(id, out var entity)
+            ? entity
+            : throw new KeyNotFoundException($"Entity {id} is not present in the project.")).ToArray();
     }
 
     public void UpdateEntityReference(

@@ -32,6 +32,15 @@ internal static class EditorPayloadCodecTests
             []);
 
         _ = EditorPayloadCodec.EncodeSnapshot(snapshot);
+        _ = EditorPayloadCodec.EncodeCommandResult(new(
+            EditorCommandResultKind.Transforms,
+            null,
+            [new(owner, ProjectTransform.Identity, true)],
+            null,
+            true,
+            true,
+            false,
+            1));
 
         var groupId = GroupId.New();
         var writer = new PayloadWriter();

@@ -11,13 +11,14 @@ interface ReferenceFieldProps {
   reference: Extract<EditorReference, { domain: 'entity' }>;
   candidates: readonly EditorEntity[];
   disabled: boolean;
+  ariaLabel?: string;
   showFieldKey?: boolean;
   onChange?(entityId?: string): void;
   onNavigate?(entityId: string, action: 'select' | 'reveal' | 'focus'): void;
 }
 
 export function ReferenceField({
-  reference, candidates, disabled, showFieldKey = true, onChange, onNavigate,
+  reference, candidates, disabled, ariaLabel, showFieldKey = true, onChange, onNavigate,
 }: ReferenceFieldProps) {
   const [dropping, setDropping] = useState(false);
   const target = candidates.find((entity) => entity.id === reference.targetEntityId);
@@ -60,7 +61,7 @@ export function ReferenceField({
       : 'Drop a compatible entity here'}>
       <UnstyledButton
         aria-invalid={reference.missing || undefined}
-        aria-label={`${reference.fieldKey} reference: ${label}`}
+        aria-label={`${ariaLabel ?? reference.fieldKey} reference: ${label}`}
         className="reference-field-target"
         data-dropping={dropping || undefined}
         data-missing={reference.missing || undefined}
@@ -73,7 +74,7 @@ export function ReferenceField({
     </Tooltip>
     {reference.nullable && <Tooltip label="Clear reference">
       <ActionIcon
-        aria-label={`Clear ${reference.fieldKey} reference`}
+        aria-label={`Clear ${ariaLabel ?? reference.fieldKey} reference`}
         disabled={!canChange || (!reference.targetEntityId && !reference.missing)}
         size="sm"
         variant="subtle"

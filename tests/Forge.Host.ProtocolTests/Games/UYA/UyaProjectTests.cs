@@ -56,6 +56,21 @@ internal static class UyaProjectTests
             Equal(new ProjectRgb24(0, 0, 0), workspace.Content.LevelSettings!.BackgroundColor,
                 "level settings imported into project content");
             Equal(0f, workspace.Content.LevelSettings.FogNearDistance, "level settings distance uses editor units");
+            var importedSceneSettings = workspace.Content.LevelSettings.Scene!;
+            Equal(-64f, importedSceneSettings.DeathHeight,
+                "death height imports without coordinate scaling");
+            Equal(new ProjectVector3(10, 20, 30), importedSceneSettings.SphereCenter,
+                "sphere center imports in native world units");
+            Equal(new ProjectVector3(40, 50, 60), importedSceneSettings.ShipPosition,
+                "ship position imports in native world units");
+            var importedSpline = workspace.Content.Entities.Single(value => value.Geometry?.Spline is not null);
+            var importedCuboid = workspace.Content.Entities.Single(value => value.Geometry?.Cuboid is not null);
+            Equal(importedSpline.EntityId, importedSceneSettings.ShipPath.Reference.EntityId,
+                "ship path imports as a stable spline reference");
+            Equal(importedCuboid.EntityId, importedSceneSettings.ShipCameraCuboidStart.Reference.EntityId,
+                "ship camera start imports as a stable cuboid reference");
+            Equal(importedCuboid.EntityId, importedSceneSettings.ShipCameraCuboidEnd.Reference.EntityId,
+                "ship camera end imports as a stable cuboid reference");
 
             var opaque = await OpaqueContentStore.InspectAsync(projectPath);
             Equal(true, opaque.IsValid, "opaque content captured");
@@ -102,7 +117,7 @@ internal static class UyaProjectTests
             }
             var expectedBaseHashes = new Dictionary<BakeLayerId, string>
             {
-                [BakeLayerId.World] = "235a7f4dd8af8a77a032c72b99f4537ecb4c1e30067f1ef4c5308689279cb137",
+                [BakeLayerId.World] = "09957cbf3788e71727a8c2079491dadfa3b75dfba657cf5c9a3133d68d112c43",
                 [BakeLayerId.Sky] = "66687aadf862bd776c8fc18b8e9f8e20089714856ee233b3902a591d0d5f2925",
                 [BakeLayerId.Tfrags] = "f315f3f6d33215f8777a7d5a4b809f433729d13a86fe6adf3da5c11137e18273",
                 [BakeLayerId.Collision] = "067dc6a810183e9069f63c2020b692c122c8d58263ed7f5c0e531504dc3b6e06",
@@ -137,8 +152,24 @@ internal static class UyaProjectTests
                 FogFarDistance = 200,
                 FogNearIntensity = 127.5f,
                 FogFarIntensity = 32,
+                Scene = originalSettings.Scene! with
+                {
+                    DeathHeight = -64,
+                    IsSphericalWorld = true,
+                    SphereCenter = new(10, 20, 30),
+                    ShipPosition = new(40, 50, 60),
+                    ShipRotationZ = 1.25f,
+                },
             };
             workspace.UpdateLevelSettings(editedSettings);
+            var reorderedState = workspace.CaptureState();
+            workspace.RestoreState(reorderedState with
+            {
+                Content = reorderedState.Content with
+                {
+                    Entities = reorderedState.Content.Entities.Reverse().ToArray(),
+                },
+            });
             await workspace.SaveAsync();
             var editedBaseInputs = await UyaBaseLayerStore.CreateBakeInputsAsync(projectPath, catalog);
             var editedInputs = editedBaseInputs.Append(opaqueInput).ToDictionary(input => input.Id);
@@ -156,9 +187,21 @@ internal static class UyaProjectTests
             Equal(new UyaRgb96(4, 5, 6), editedNativeSettings.FogColor, "level settings fog color serialized");
             Equal(25 * 1024f, editedNativeSettings.FogNearDistance, "level settings near distance serialized");
             Equal(200 * 1024f, editedNativeSettings.FogFarDistance, "level settings far distance serialized");
+            Equal(-64f, editedNativeSettings.DeathHeight, "level settings death height serialized");
+            Equal(true, editedNativeSettings.IsSphericalWorld, "level settings spherical-world state serialized");
+            Equal(new UyaVector3(10, 20, 30), editedNativeSettings.SphereCenter,
+                "level settings sphere center serialized in native units");
+            Equal(new UyaVector3(40, 50, 60), editedNativeSettings.ShipPosition,
+                "level settings ship position serialized in native units");
+            Equal(1.25f, editedNativeSettings.ShipRotationZ, "level settings ship rotation serialized");
+            Equal(0, editedNativeSettings.ShipPath, "ship path stable reference resolves to native index");
+            Equal(0, editedNativeSettings.ShipCameraCuboidStart,
+                "ship camera start stable reference resolves to native index");
+            Equal(0, editedNativeSettings.ShipCameraCuboidEnd,
+                "ship camera end stable reference resolves to native index");
             var worldAsset = baseInspection.Manifest.Layers.Single(value => value.Layer == BakeLayerId.World).Assets.Single();
             var worldSource = await File.ReadAllBytesAsync(catalog.ResolveBlobPath(worldAsset.Asset.Id)!);
-            Equal(true, editedWorldBytes.AsSpan(0x28).SequenceEqual(worldSource.AsSpan(0x28)),
+            Equal(true, editedWorldBytes.AsSpan(0x58).SequenceEqual(worldSource.AsSpan(0x58)),
                 "level settings unsupported bytes preserved");
             workspace.UpdateLevelSettings(originalSettings);
             await workspace.SaveAsync();
@@ -490,6 +533,14 @@ internal static class UyaProjectTests
         WriteInt32(gameplay, 0x90, 0x1180);
         WriteInt32(gameplay, 0x94, 0x740);
         WriteInt32(gameplay, 0x98, 0x1100);
+        var levelSettings = gameplay[0x11a0..];
+        WriteSingle(levelSettings, 0x28, -64);
+        WriteSingle(levelSettings, 0x30, 10);
+        WriteSingle(levelSettings, 0x34, 20);
+        WriteSingle(levelSettings, 0x38, 30);
+        WriteSingle(levelSettings, 0x3c, 40);
+        WriteSingle(levelSettings, 0x40, 50);
+        WriteSingle(levelSettings, 0x44, 60);
         var ties = gameplay[0xa0..];
         WriteInt32(ties, 0, 1);
         var tie = ties[0x10..];

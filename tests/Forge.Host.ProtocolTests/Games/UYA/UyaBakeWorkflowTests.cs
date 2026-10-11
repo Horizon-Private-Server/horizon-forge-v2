@@ -289,7 +289,7 @@ internal static class UyaBakeWorkflowTests
             var packedSource = await UyaLevelPackService.PackAsync(project, catalog, sourceLevelWad, context);
             Equal(true, packedSource.Succeeded, "validated staging packs: "
                 + string.Join(" | ", packedSource.Diagnostics.Select(value => value.Cause)));
-            Equal("8e344e0d181cf1fa7d0249e582dbbf457a2fcc294fae6932c9749b60adaa2381",
+            Equal("6dfca5b3de41d3f7d793e226f6182743af89396f5e933729ed4b914dbb9b3e9f",
                 packedSource.OutputSha256, "unchanged staged project golden WAD");
             _ = UyaLevelWadInventoryReader.Read(packedSource.OutputBytes!);
             var packedFiles = UyaLevelWadUnpacker.Unpack(packedSource.OutputBytes!).Files;

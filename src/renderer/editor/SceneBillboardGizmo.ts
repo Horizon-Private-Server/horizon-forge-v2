@@ -9,7 +9,9 @@ const ENTITY_ID_KEY = 'forgeEntityId';
 const GLYPH_KEY = 'forgeBillboardGlyph';
 const LABEL_KEY = 'forgeAccessibleLabel';
 const TEXTURE_SIZE = 128;
+const PHOSPHOR_AIRPLANE_TILT_PATH = 'M185.33,114.21l29.14-27.42.17-.17a32,32,0,0,0-45.26-45.26c0,.06-.11.11-.17.17L141.79,70.67l-83-30.2a8,8,0,0,0-8.39,1.86l-24,24a8,8,0,0,0,1.22,12.31l63.89,42.59L76.69,136H56a8,8,0,0,0-5.65,2.34l-24,24A8,8,0,0,0,29,175.42l36.82,14.73,14.7,36.75.06.16a8,8,0,0,0,13.18,2.47l23.87-23.88A8,8,0,0,0,120,200V179.31l14.76-14.76,42.59,63.89a8,8,0,0,0,12.31,1.22l24-24a8,8,0,0,0,1.86-8.39Zm-.07,97.23-42.59-63.88A8,8,0,0,0,136.8,144c-.27,0-.53,0-.79,0a8,8,0,0,0-5.66,2.35l-24,24A8,8,0,0,0,104,176v20.69L90.93,209.76,79.43,181A8,8,0,0,0,75,176.57l-28.74-11.5L59.32,152H80a8,8,0,0,0,5.66-2.34l24-24a8,8,0,0,0-1.22-12.32L44.56,70.74l13.5-13.49,83.22,30.26a8,8,0,0,0,8.56-2L180.78,52.6A16,16,0,0,1,203.4,75.23l-32.87,30.93a8,8,0,0,0-2,8.56l30.26,83.22Z';
 const PHOSPHOR_LIGHTBULB_FILAMENT_PATH = 'M176,232a8,8,0,0,1-8,8H88a8,8,0,0,1,0-16h80A8,8,0,0,1,176,232Zm40-128a87.55,87.55,0,0,1-33.64,69.21A16.24,16.24,0,0,0,176,186v6a16,16,0,0,1-16,16H96a16,16,0,0,1-16-16v-6a16,16,0,0,0-6.23-12.66A87.59,87.59,0,0,1,40,104.5C39.74,56.83,78.26,17.15,125.88,16A88,88,0,0,1,216,104Zm-16,0a72,72,0,0,0-73.74-72c-39,.92-70.47,33.39-70.26,72.39a71.64,71.64,0,0,0,27.64,56.3h0A32,32,0,0,1,96,186v6h24V147.31L90.34,117.66a8,8,0,0,1,11.32-11.32L128,132.69l26.34-26.35a8,8,0,0,1,11.32,11.32L136,147.31V192h24v-6a32.12,32.12,0,0,1,12.47-25.35A71.65,71.65,0,0,0,200,104Z';
+const PHOSPHOR_SPHERE_PATH = 'M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm88,104c0,6-17,16.23-48.77,21.17.51-7,.77-14.08.77-21.17,0-32.24-5.35-64.72-15.74-84.6A88.17,88.17,0,0,1,216,128ZM128,40c8.15,0,24,31.06,24,88,0,8.24-.34,15.92-.93,23.07-7.15.59-14.83.93-23.07.93-56.94,0-88-15.85-88-24A88.1,88.1,0,0,1,128,40ZM43.4,152.26C63.28,162.65,95.76,168,128,168c7.09,0,14.19-.26,21.17-.77C144.23,199,134,216,128,216A88.17,88.17,0,0,1,43.4,152.26ZM152.26,212.6c6.29-12,10.73-28.67,13.26-47.08,18.41-2.53,35-7,47.08-13.26A88.4,88.4,0,0,1,152.26,212.6Z';
 
 interface Resource<T> {
   value: T;
@@ -240,9 +242,10 @@ function createBillboardTexture(
 }
 
 function createPhosphorGlyphMask(glyph: SceneBillboardGlyph): Uint8ClampedArray | undefined {
-  if (glyph !== 'lightbulb-filament'
-    || typeof document === 'undefined'
-    || typeof Path2D === 'undefined') return undefined;
+  const path = glyph === 'airplane-tilt' ? PHOSPHOR_AIRPLANE_TILT_PATH
+    : glyph === 'lightbulb-filament' ? PHOSPHOR_LIGHTBULB_FILAMENT_PATH
+      : glyph === 'sphere' ? PHOSPHOR_SPHERE_PATH : undefined;
+  if (!path || typeof document === 'undefined' || typeof Path2D === 'undefined') return undefined;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = TEXTURE_SIZE;
   const context = canvas.getContext('2d');
@@ -257,7 +260,7 @@ function createPhosphorGlyphMask(glyph: SceneBillboardGlyph): Uint8ClampedArray 
     TEXTURE_SIZE * 0.625 + 128 * scale,
   );
   context.fillStyle = '#fff';
-  context.fill(new Path2D(PHOSPHOR_LIGHTBULB_FILAMENT_PATH));
+  context.fill(new Path2D(path));
   return context.getImageData(0, 0, TEXTURE_SIZE, TEXTURE_SIZE).data.filter((_, index) => index % 4 === 3);
 }
 
@@ -281,6 +284,9 @@ function glyphShape(glyph: SceneBillboardGlyph, x: number, y: number): boolean {
   }
   if (glyph === 'settings') return Math.abs(x) < 0.055 && Math.abs(localY) < 0.22
     || Math.abs(localY) < 0.055 && Math.abs(x) < 0.22;
+  if (glyph === 'airplane-tilt') return segmentDistance(x, localY, -0.2, -0.18, 0.2, 0.18) < 0.045
+    || segmentDistance(x, localY, -0.2, -0.18, 0.05, -0.08) < 0.035
+    || segmentDistance(x, localY, 0.2, 0.18, -0.05, 0.08) < 0.035;
   if (glyph === 'lightbulb-filament') {
     const bulbOutline = Math.abs(Math.hypot(x, localY - 0.08) - 0.24) < 0.035
       && localY >= -0.04;

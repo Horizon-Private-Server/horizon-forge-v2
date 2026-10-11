@@ -131,15 +131,30 @@ test('shared golden vectors encode and decode exactly', () => {
 });
 
 test('level settings commands pass IPC boundary validation', () => {
-  assert.equal(isEditorCommand({
+  const command = {
     id: '30000000-0000-4000-8000-00000000000d',
     kind: 'updateLevelSettings',
     entityIds: [],
     levelSettings: {
       backgroundColor: [57, 65, 50], fogColor: [40, 50, 40],
       fogNearDistance: 10, fogFarDistance: 175, fogNearIntensity: 255, fogFarIntensity: 0,
+      scene: {
+        deathHeight: -64,
+        isSphericalWorld: true,
+        sphereCenter: { x: 1, y: 2, z: 3 },
+        shipPosition: { x: 4, y: 5, z: 6 },
+        shipRotationZ: 1.25,
+        shipPath: { sourceValue: 2, entityId: '10000000-0000-4000-8000-000000000001' },
+        shipCameraCuboidStart: { sourceValue: -1 },
+        shipCameraCuboidEnd: { sourceValue: 3, entityId: '10000000-0000-4000-8000-000000000002' },
+      },
     },
-  }), true);
+  } as const;
+  assert.equal(isEditorCommand(command), true);
+  assert.equal(isEditorCommand({ ...command, levelSettings: {
+    ...command.levelSettings,
+    scene: { ...command.levelSettings.scene, shipPath: { sourceValue: 2, entityId: 'not-an-entity-id' } },
+  } }), false);
   assert.equal(isEditorCommand({
     id: '30000000-0000-4000-8000-00000000000d',
     kind: 'updateLevelSettings',

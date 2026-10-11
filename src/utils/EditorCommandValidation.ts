@@ -323,7 +323,28 @@ function isLevelSettings(value: unknown): value is EditorLevelSettings {
     && isFiniteNumber(settings.fogNearDistance, 0)
     && isFiniteNumber(settings.fogFarDistance, 0)
     && isFiniteNumber(settings.fogNearIntensity, 0, 255)
-    && isFiniteNumber(settings.fogFarIntensity, 0, 255);
+    && isFiniteNumber(settings.fogFarIntensity, 0, 255)
+    && (settings.scene === undefined || isLevelSceneSettings(settings.scene));
+}
+
+function isLevelSceneSettings(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const scene = value as Record<string, unknown>;
+  return isFiniteNumber(scene.deathHeight, Number.NEGATIVE_INFINITY)
+    && typeof scene.isSphericalWorld === 'boolean'
+    && isVector(scene.sphereCenter)
+    && isVector(scene.shipPosition)
+    && isFiniteNumber(scene.shipRotationZ, Number.NEGATIVE_INFINITY)
+    && isLevelReference(scene.shipPath)
+    && isLevelReference(scene.shipCameraCuboidStart)
+    && isLevelReference(scene.shipCameraCuboidEnd);
+}
+
+function isLevelReference(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const reference = value as Record<string, unknown>;
+  return Number.isInteger(reference.sourceValue) && Number(reference.sourceValue) >= -1
+    && (reference.entityId === undefined || isUuid(reference.entityId));
 }
 
 function isColor(value: unknown): boolean {

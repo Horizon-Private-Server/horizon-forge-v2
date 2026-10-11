@@ -6,6 +6,7 @@ import type {
 import {
   isEditorCommand, isGroupTemplateRequest, isUuid,
 } from '../utils/EditorCommandValidation.js';
+import { applyEditorCommandResult } from '../utils/EditorCommandResult.js';
 import { setEditorMenuState, setEditorTextInputActive } from './ApplicationMenu.js';
 import type { SettingsStore } from './Settings.js';
 import type { HostClient } from './bridge/HostClient.js';
@@ -65,7 +66,10 @@ export function registerEditorIpcHandlers(
   ipcMain.handle('forge:editor-execute', async (event, command: unknown) => {
     assertSender(event.sender.id);
     assertEditorCommand(command);
-    return updateSnapshot(await (await host.executeEditorCommand(command)).result);
+    if (!activeSnapshot) throw new TypeError('No editor project is open');
+    const result = await (await host.executeEditorCommand(command)).result;
+    updateSnapshot(applyEditorCommandResult(activeSnapshot, result));
+    return result;
   });
   ipcMain.handle('forge:editor-instanced-collision-inspect', async (event, entityId: unknown) => {
     assertSender(event.sender.id);

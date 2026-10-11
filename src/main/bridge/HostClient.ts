@@ -8,6 +8,7 @@ import type {
   BuildPatchResult,
   CatalogMaintenancePreview,
   EditorCommand,
+  EditorCommandResult,
   EditorEvent,
   EditorSnapshot,
   EditorInstancedCollisionGenerationSettings,
@@ -43,6 +44,7 @@ import {
 } from './BuildPayloadCodec.js';
 import {
   decodeEditorEvents,
+  decodeEditorCommandResult,
   decodeEditorSnapshot,
   decodeInstancedCollisionPreview,
   decodeInstancedCollisionSourceInfo,
@@ -378,9 +380,9 @@ export class HostClient {
     return { requestId: request.requestId, result: request.result.then(decodeEditorSnapshot) };
   }
 
-  async executeEditorCommand(command: EditorCommand): Promise<HostRequest<EditorSnapshot>> {
+  async executeEditorCommand(command: EditorCommand): Promise<HostRequest<EditorCommandResult>> {
     const request = await this.#request(BridgeOpcode.ExecuteEditorCommand, encodeEditorCommand(command));
-    return { requestId: request.requestId, result: request.result.then(decodeEditorSnapshot) };
+    return { requestId: request.requestId, result: request.result.then(decodeEditorCommandResult) };
   }
 
   async previewInstancedCollision(

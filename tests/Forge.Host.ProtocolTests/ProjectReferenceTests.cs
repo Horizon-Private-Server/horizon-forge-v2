@@ -11,12 +11,19 @@ internal static class ProjectReferenceTests
         try
         {
             var splineId = EntityId.New();
+            var cuboidId = EntityId.New();
             var areaId = EntityId.New();
             var mobyId = EntityId.New();
             var mobyAssetId = AssetId.Parse(new string('a', AssetId.TextLength));
             var spline = new ProjectEntity(
                 splineId, "Spline", "splines", ProjectTransform.Identity, null,
                 Geometry: new(Spline: new([])));
+            var cuboid = new ProjectEntity(
+                cuboidId, "Cuboid", "cuboids", ProjectTransform.Identity, null,
+                Geometry: new(Cuboid: new(
+                    Enumerable.Repeat(0f, 16).ToArray(),
+                    Enumerable.Repeat(0f, 12).ToArray(),
+                    new(0, 0, 0))));
             var moby = new ProjectEntity(
                 mobyId, "Moby", "mobys", ProjectTransform.Identity,
                 new(mobyAssetId, AssetKind.Moby));
@@ -27,12 +34,19 @@ internal static class ProjectReferenceTests
                 EntityKind: ProjectEntityKind.Spline,
                 EntityId: splineId);
             var area = Area(areaId, [new(7, Reference: reference)]);
+            var levelSettings = new ProjectLevelSettings(
+                new(1, 2, 3), new(4, 5, 6), 10, 175, 255, 0,
+                new(0, false, new(0, 0, 0), new(0, 0, 0), 0,
+                    IndexedReference(7, ProjectReferences.LevelShipPath, ProjectEntityKind.Spline, splineId),
+                    IndexedReference(3, ProjectReferences.LevelShipCameraCuboidStart, ProjectEntityKind.Cuboid, cuboidId),
+                    IndexedReference(3, ProjectReferences.LevelShipCameraCuboidEnd, ProjectEntityKind.Cuboid, cuboidId)));
             var workspace = await ForgeProjectWorkspace.CreateAsync(
                 Path.Combine(root, "project"),
                 "References",
                 new("UYA", "NTSC-U", "1.00", "uya-ntsc-u"),
                 new("UYA", "NTSC-U", "1.00", 3, UyaIsoService.SupportedMd5),
-                [spline, moby, area]);
+                [spline, cuboid, moby, area],
+                levelSettings);
 
             await using (var runtime = new EditorRuntime())
             {
@@ -54,6 +68,31 @@ internal static class ProjectReferenceTests
                     "bridge asset stable target");
                 Equal(true, EditorPayloadCodec.EncodeSnapshot(snapshot).Length > 0,
                     "reference snapshot has a bridge representation");
+                var editedLevelSettings = levelSettings with
+                {
+                    Scene = levelSettings.Scene! with { DeathHeight = -64 },
+                };
+                snapshot = await runtime.ExecuteAsync(new(
+                    Guid.NewGuid().ToString("D"), EditorCommandKind.UpdateLevelSettings, [],
+                    LevelSettings: editedLevelSettings));
+                Equal(-64f, snapshot.LevelSettings!.Scene!.DeathHeight,
+                    "level scene settings use the undoable command path");
+                snapshot = await runtime.ExecuteAsync(new(
+                    Guid.NewGuid().ToString("D"), EditorCommandKind.Undo, []));
+                Equal(0f, snapshot.LevelSettings!.Scene!.DeathHeight,
+                    "level scene setting command is undoable");
+                await ThrowsAsync<InvalidDataException>(() => runtime.ExecuteAsync(new(
+                    Guid.NewGuid().ToString("D"), EditorCommandKind.UpdateLevelSettings, [],
+                    LevelSettings: levelSettings with
+                    {
+                        Scene = levelSettings.Scene! with
+                        {
+                            ShipPath = levelSettings.Scene.ShipPath with
+                            {
+                                Reference = levelSettings.Scene.ShipPath.Reference with { EntityId = mobyId },
+                            },
+                        },
+                    })));
             }
 
             var graph = ProjectReferenceGraph.Create(workspace.Content);
@@ -89,12 +128,18 @@ internal static class ProjectReferenceTests
             var history = new EditorHistory();
             var beforeDelete = workspace.CaptureState();
             _ = workspace.RemoveEntities([splineId]);
+            Equal(-1, workspace.Content.LevelSettings!.Scene!.ShipPath.SourceValue,
+                "delete clears the native source value for a level reference");
+            Equal(null, workspace.Content.LevelSettings.Scene.ShipPath.Reference.EntityId,
+                "delete clears the stable target for a level reference");
             var afterDelete = workspace.CaptureState();
             history.Push(beforeDelete, afterDelete, [], [], [splineId], 256);
             Equal(0, workspace.Content.Entities.Single(entity => entity.EntityId == areaId)
                 .Geometry!.Area!.Splines.Count, "delete clears nullable area link atomically");
             Equal(true, history.TryUndo(out var state, out _, out _), "reference-clearing delete is undoable");
             workspace.RestoreState(state);
+            Equal(splineId, workspace.Content.LevelSettings!.Scene!.ShipPath.Reference.EntityId,
+                "undo restores a cleared level reference");
             Equal(splineId, workspace.Content.Entities.Single(entity => entity.EntityId == areaId)
                 .Geometry!.Area!.Splines.Single().Reference!.EntityId, "undo restores target and link");
             Equal(true, history.TryRedo(out state, out _, out _), "reference-clearing delete is redoable");
@@ -177,6 +222,17 @@ internal static class ProjectReferenceTests
             Directory.Delete(root, recursive: true);
         }
     }
+
+    private static ProjectIndexedReference IndexedReference(
+        int sourceValue,
+        string fieldKey,
+        ProjectEntityKind kind,
+        EntityId entityId) => new(sourceValue, new(
+        ProjectReferenceDomain.Entity,
+        fieldKey,
+        true,
+        EntityKind: kind,
+        EntityId: entityId));
 
     private static ForgeProjectState ReplaceReference(
         ForgeProjectState state,
@@ -370,6 +426,13 @@ internal static class ProjectReferenceTests
     {
         try { action(); }
         catch (T exception) { return exception; }
+        throw new InvalidOperationException($"Expected {typeof(T).Name}.");
+    }
+
+    private static async Task ThrowsAsync<T>(Func<Task> action) where T : Exception
+    {
+        try { await action(); }
+        catch (T) { return; }
         throw new InvalidOperationException($"Expected {typeof(T).Name}.");
     }
 

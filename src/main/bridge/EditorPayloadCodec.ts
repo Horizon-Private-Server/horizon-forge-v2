@@ -1,5 +1,6 @@
 import type {
   EditorCommand,
+  EditorCommandResult,
   EditorEntity,
   EditorEvent,
   EditorLevelSettings,
@@ -16,6 +17,7 @@ import type {
   EditorMobyPVarFieldDescriptor,
   EditorMobyPVarValue,
 } from '../../types/EditorRuntime.js';
+import { BRIDGE_MAX_PAYLOAD_LENGTH } from './FrameCodec.js';
 import { PayloadReader, PayloadWriter, malformed } from './PayloadIO.js';
 
 const MAX_ENTITIES = 100_000;
@@ -29,6 +31,7 @@ const MAX_FX_IMAGE_BYTES = 16 * 1024 * 1024;
 const MAX_MOBYDEX_JSON_BYTES = 4 * 1024 * 1024;
 const MAX_MOBY_PVAR_BYTES = 1024 * 1024;
 const MAX_MOBY_PVAR_MASK_BYTES = (MAX_MOBY_PVAR_BYTES + 7) >> 3;
+const MAX_EDITOR_SNAPSHOT_BYTES = BRIDGE_MAX_PAYLOAD_LENGTH - 8;
 const commandKinds = {
   setSelection: 1,
   renameProject: 2,
@@ -513,6 +516,42 @@ export function decodeEditorSnapshot(payload: Uint8Array): EditorSnapshot {
   };
 }
 
+export function decodeEditorCommandResult(payload: Uint8Array): EditorCommandResult {
+  const reader = new PayloadReader(payload);
+  const kind = reader.readUInt32();
+  if (kind === 1) {
+    const snapshot = decodeEditorSnapshot(reader.readBytes(MAX_EDITOR_SNAPSHOT_BYTES));
+    reader.complete();
+    return { kind: 'snapshot', snapshot };
+  }
+  if (kind === 2) {
+    const transforms = readList(reader, MAX_ENTITIES, () => ({
+      entityId: reader.readString(),
+      transform: readTransform(reader),
+      dirty: reader.readBoolean(),
+    }));
+    const status = readCommandStatus(reader);
+    reader.complete();
+    return { kind: 'transforms', transforms, ...status };
+  }
+  if (kind === 3) {
+    const levelSettings = readLevelSettings(reader);
+    const status = readCommandStatus(reader);
+    reader.complete();
+    return { kind: 'levelSettings', levelSettings, ...status };
+  }
+  throw malformed(`Unknown editor command result kind ${kind}`);
+}
+
+function readCommandStatus(reader: PayloadReader) {
+  return {
+    isDirty: reader.readBoolean(),
+    canUndo: reader.readBoolean(),
+    canRedo: reader.readBoolean(),
+    lastEventSequence: reader.readUInt64(),
+  };
+}
+
 function readFx(reader: PayloadReader): NonNullable<EditorSnapshot['fx']> {
   const canRead = reader.readBoolean();
   const isDirty = reader.readBoolean();
@@ -894,10 +933,21 @@ function writeLevelSettings(writer: PayloadWriter, value: EditorLevelSettings): 
   writer.writeFloat32(value.fogFarDistance);
   writer.writeFloat32(value.fogNearIntensity);
   writer.writeFloat32(value.fogFarIntensity);
+  writer.writeBoolean(value.scene !== undefined);
+  if (value.scene) {
+    writer.writeFloat32(value.scene.deathHeight);
+    writer.writeBoolean(value.scene.isSphericalWorld);
+    writeVector(writer, value.scene.sphereCenter);
+    writeVector(writer, value.scene.shipPosition);
+    writer.writeFloat32(value.scene.shipRotationZ);
+    writeLevelReference(writer, value.scene.shipPath);
+    writeLevelReference(writer, value.scene.shipCameraCuboidStart);
+    writeLevelReference(writer, value.scene.shipCameraCuboidEnd);
+  }
 }
 
 function readLevelSettings(reader: PayloadReader): EditorLevelSettings {
-  return {
+  const value: EditorLevelSettings = {
     backgroundColor: [reader.readUInt32(), reader.readUInt32(), reader.readUInt32()],
     fogColor: [reader.readUInt32(), reader.readUInt32(), reader.readUInt32()],
     fogNearDistance: reader.readFloat32(),
@@ -905,6 +955,30 @@ function readLevelSettings(reader: PayloadReader): EditorLevelSettings {
     fogNearIntensity: reader.readFloat32(),
     fogFarIntensity: reader.readFloat32(),
   };
+  if (reader.readBoolean()) {
+    value.scene = {
+      deathHeight: reader.readFloat32(),
+      isSphericalWorld: reader.readBoolean(),
+      sphereCenter: readVector(reader),
+      shipPosition: readVector(reader),
+      shipRotationZ: reader.readFloat32(),
+      shipPath: readLevelReference(reader),
+      shipCameraCuboidStart: readLevelReference(reader),
+      shipCameraCuboidEnd: readLevelReference(reader),
+    };
+  }
+  return value;
+}
+
+function writeLevelReference(writer: PayloadWriter, value: { sourceValue: number; entityId?: string }): void {
+  writer.writeInt32(value.sourceValue);
+  writer.writeBoolean(value.entityId !== undefined);
+  if (value.entityId) writer.writeString(value.entityId);
+}
+
+function readLevelReference(reader: PayloadReader): { sourceValue: number; entityId?: string } {
+  const sourceValue = reader.readInt32();
+  return { sourceValue, entityId: reader.readBoolean() ? reader.readString() : undefined };
 }
 
 function writeTransform(writer: PayloadWriter, value: ProjectTransform): void {

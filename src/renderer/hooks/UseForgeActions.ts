@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 
 import type { EditorCommand, EditorLayoutAction, EditorSnapshot, ForgeAction } from '../../types/ForgeApi.js';
 import { errorMessage } from '../../utils/Errors.ts';
+import { applyEditorCommandResult } from '../../utils/EditorCommandResult.ts';
 
 export function useForgeActions(
   setSetupOpened: (value: boolean) => void,
@@ -42,7 +43,9 @@ export function useForgeActions(
           id: crypto.randomUUID(),
           kind: action === 'undoEditor' ? 'undo' : 'redo',
           entityIds: [],
-        }).then(setActiveProject).catch((error) => setEditorError(errorMessage(error)));
+        }).then((result) => setActiveProject((project) => project
+          ? applyEditorCommandResult(project, result)
+          : project)).catch((error) => setEditorError(errorMessage(error)));
       }
     }
     else if (isEditorEntityAction(action)) {
@@ -56,7 +59,9 @@ export function useForgeActions(
       const entityIds = action === 'pasteEntities' ? [] : activeProject.selection;
       const command = { id: crypto.randomUUID(), kind: action, entityIds } as EditorCommand;
       void window.forge.executeEditorCommand(command)
-        .then(setActiveProject)
+        .then((result) => setActiveProject((project) => project
+          ? applyEditorCommandResult(project, result)
+          : project))
         .catch((error) => setEditorError(errorMessage(error)));
     }
     else if (isEditorLayoutAction(action)) {

@@ -205,6 +205,23 @@ export interface EditorLevelSettings {
   fogFarDistance: number;
   fogNearIntensity: number;
   fogFarIntensity: number;
+  scene?: EditorLevelSceneSettings;
+}
+
+export interface EditorLevelReference {
+  sourceValue: number;
+  entityId?: string;
+}
+
+export interface EditorLevelSceneSettings {
+  deathHeight: number;
+  isSphericalWorld: boolean;
+  sphereCenter: ProjectVector3;
+  shipPosition: ProjectVector3;
+  shipRotationZ: number;
+  shipPath: EditorLevelReference;
+  shipCameraCuboidStart: EditorLevelReference;
+  shipCameraCuboidEnd: EditorLevelReference;
 }
 
 export interface EditorEntity {
@@ -580,3 +597,22 @@ export interface EditorSnapshot {
   tools: { id: string; label: string; capability: string }[];
   diagnostics: { code: string; severity: 'info' | 'warning' | 'error'; message: string }[];
 }
+
+export type EditorCommandResult =
+  | { kind: 'snapshot'; snapshot: EditorSnapshot }
+  | {
+    kind: 'transforms';
+    transforms: (EditorTransformUpdate & { dirty: boolean })[];
+    isDirty: boolean;
+    canUndo: boolean;
+    canRedo: boolean;
+    lastEventSequence: number;
+  }
+  | {
+    kind: 'levelSettings';
+    levelSettings: EditorLevelSettings;
+    isDirty: boolean;
+    canUndo: boolean;
+    canRedo: boolean;
+    lastEventSequence: number;
+  };

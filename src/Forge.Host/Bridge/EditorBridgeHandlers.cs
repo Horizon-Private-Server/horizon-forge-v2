@@ -103,8 +103,8 @@ internal static class EditorBridgeHandlers
     private static async Task<byte[]> ExecuteAsync(
         byte[] payload,
         EditorRuntime runtime,
-        CancellationToken cancellationToken) => EditorPayloadCodec.EncodeSnapshot(
-            await runtime.ExecuteAsync(EditorPayloadCodec.DecodeCommand(payload), cancellationToken));
+        CancellationToken cancellationToken) => EditorPayloadCodec.EncodeCommandResult(
+            await runtime.ExecuteResultAsync(EditorPayloadCodec.DecodeCommand(payload), cancellationToken));
 
     private static async Task<byte[]> SaveAsync(
         byte[] payload,

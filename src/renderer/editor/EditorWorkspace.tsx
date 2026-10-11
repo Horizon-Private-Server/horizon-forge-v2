@@ -22,6 +22,7 @@ import type {
 import { buildAssetFamilies } from '../../utils/AssetExplorer.ts';
 import { isTextInput } from '../../utils/Dom.ts';
 import { errorMessage } from '../../utils/Errors.ts';
+import { applyEditorCommandResult } from '../../utils/EditorCommandResult.ts';
 import { findKeybindingCommand, forgeActionForKeybinding } from '../../utils/Keybindings.ts';
 import { parseSplinePointId, removeSplinePoints, splinePointId } from '../../utils/SplinePoints.ts';
 import { EditorContext, type InstancedCollisionOverlay } from './EditorContext.ts';
@@ -37,12 +38,12 @@ import {
 import {
   DiagnosticsPanel,
   EditorWatermark,
-  LevelSettingsPanel,
   PropertiesPanel,
   SceneTreePanel,
   ViewportPanel,
 } from './EditorPanels.tsx';
 import { GroupsPanel } from './GroupsPanel.tsx';
+import { LevelSettingsPanel } from './LevelSettingsPanel.tsx';
 import { EditorErrorState } from './EditorPrimitives.tsx';
 import { EditorStatusBar } from './EditorStatusBar.tsx';
 import { ReferencesPanel } from './ReferencesPanel.tsx';
@@ -110,6 +111,8 @@ export function EditorWorkspace({
     () => new Set(),
   );
   const terrainProjectId = useRef<string | undefined>(undefined);
+  const projectRef = useRef(project);
+  projectRef.current = project;
   const onReady = useCallback((event: DockviewReadyEvent) => setApi(event.api), []);
 
   useEffect(() => {
@@ -246,7 +249,12 @@ export function EditorWorkspace({
   const execute = useCallback(async (command: EditorCommand) => {
     setError(undefined);
     try {
-      onProjectChange(await window.forge.executeEditorCommand(command));
+      const next = applyEditorCommandResult(
+        projectRef.current,
+        await window.forge.executeEditorCommand(command),
+      );
+      projectRef.current = next;
+      onProjectChange(next);
       return true;
     }
     catch (cause) {

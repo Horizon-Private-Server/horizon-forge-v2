@@ -489,6 +489,50 @@ internal static class EditorPayloadCodec
         return writer.ToArray();
     }
 
+    public static byte[] EncodeCommandResult(EditorCommandResult value)
+    {
+        var writer = new PayloadWriter();
+        writer.WriteUInt32((uint)value.Kind);
+        switch (value.Kind)
+        {
+            case EditorCommandResultKind.Snapshot:
+                var snapshot = value.Snapshot
+                    ?? throw new InvalidOperationException("Editor command snapshot is missing.");
+                writer.WriteBytes(EncodeSnapshot(snapshot), BridgeFrameCodec.MaxPayloadLength - 8);
+                break;
+            case EditorCommandResultKind.Transforms:
+                if (value.Transforms.Count > MaxEntities)
+                    PayloadFormat.Malformed("Editor transform patch exceeds item limit");
+                writer.WriteUInt32(checked((uint)value.Transforms.Count));
+                foreach (var transform in value.Transforms)
+                {
+                    writer.WriteString(transform.EntityId.ToString());
+                    WriteTransform(writer, transform.Transform);
+                    writer.WriteBoolean(transform.Dirty);
+                }
+                WriteCommandStatus(writer, value);
+                break;
+            case EditorCommandResultKind.LevelSettings:
+                var levelSettings = value.LevelSettings
+                    ?? throw new InvalidOperationException("Editor level settings patch is missing.");
+                WriteLevelSettings(writer, levelSettings);
+                WriteCommandStatus(writer, value);
+                break;
+            default:
+                PayloadFormat.Malformed("Unknown editor command result kind");
+                break;
+        }
+        return writer.ToArray();
+    }
+
+    private static void WriteCommandStatus(PayloadWriter writer, EditorCommandResult value)
+    {
+        writer.WriteBoolean(value.IsDirty);
+        writer.WriteBoolean(value.CanUndo);
+        writer.WriteBoolean(value.CanRedo);
+        writer.WriteUInt64(checked((ulong)value.LastEventSequence));
+    }
+
     private static void WriteHud(PayloadWriter writer, EditorHudSnapshot value)
     {
         writer.WriteBoolean(value.CanRead);
@@ -993,7 +1037,8 @@ internal static class EditorPayloadCodec
     private static ProjectLevelSettings ReadLevelSettings(ref PayloadReader reader) => new(
         new(checked((byte)reader.ReadUInt32()), checked((byte)reader.ReadUInt32()), checked((byte)reader.ReadUInt32())),
         new(checked((byte)reader.ReadUInt32()), checked((byte)reader.ReadUInt32()), checked((byte)reader.ReadUInt32())),
-        reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle());
+        reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle(),
+        reader.ReadBoolean() ? ReadLevelSceneSettings(ref reader) : null);
 
     private static void WriteLevelSettings(PayloadWriter writer, ProjectLevelSettings value)
     {
@@ -1007,6 +1052,49 @@ internal static class EditorPayloadCodec
         writer.WriteSingle(value.FogFarDistance);
         writer.WriteSingle(value.FogNearIntensity);
         writer.WriteSingle(value.FogFarIntensity);
+        writer.WriteBoolean(value.Scene is not null);
+        if (value.Scene is { } scene) WriteLevelSceneSettings(writer, scene);
+    }
+
+    private static ProjectLevelSceneSettings ReadLevelSceneSettings(ref PayloadReader reader) => new(
+        reader.ReadSingle(),
+        reader.ReadBoolean(),
+        ReadVector(ref reader),
+        ReadVector(ref reader),
+        reader.ReadSingle(),
+        ReadLevelReference(ref reader, ProjectReferences.LevelShipPath, ProjectEntityKind.Spline),
+        ReadLevelReference(ref reader, ProjectReferences.LevelShipCameraCuboidStart, ProjectEntityKind.Cuboid),
+        ReadLevelReference(ref reader, ProjectReferences.LevelShipCameraCuboidEnd, ProjectEntityKind.Cuboid));
+
+    private static void WriteLevelSceneSettings(PayloadWriter writer, ProjectLevelSceneSettings value)
+    {
+        writer.WriteSingle(value.DeathHeight);
+        writer.WriteBoolean(value.IsSphericalWorld);
+        WriteVector(writer, value.SphereCenter);
+        WriteVector(writer, value.ShipPosition);
+        writer.WriteSingle(value.ShipRotationZ);
+        WriteLevelReference(writer, value.ShipPath);
+        WriteLevelReference(writer, value.ShipCameraCuboidStart);
+        WriteLevelReference(writer, value.ShipCameraCuboidEnd);
+    }
+
+    private static ProjectIndexedReference ReadLevelReference(
+        ref PayloadReader reader,
+        string fieldKey,
+        ProjectEntityKind entityKind) => new(
+        reader.ReadInt32(),
+        new(
+            ProjectReferenceDomain.Entity,
+            fieldKey,
+            true,
+            EntityKind: entityKind,
+            EntityId: reader.ReadBoolean() ? EntityId.Parse(reader.ReadString()) : null));
+
+    private static void WriteLevelReference(PayloadWriter writer, ProjectIndexedReference value)
+    {
+        writer.WriteInt32(value.SourceValue);
+        writer.WriteBoolean(value.Reference.EntityId is not null);
+        if (value.Reference.EntityId is { } entityId) writer.WriteString(entityId.ToString());
     }
 
     private static void WriteTransform(PayloadWriter writer, ProjectTransform value)

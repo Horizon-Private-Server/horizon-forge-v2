@@ -12,6 +12,7 @@ import {
   HostOperationError,
 } from '../dist-electron/main/bridge/HostClient.js';
 import { BridgeErrorCode } from '../dist-electron/main/bridge/BridgeProtocol.js';
+import { applyEditorCommandResult } from '../dist-electron/utils/EditorCommandResult.js';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const hostDll = path.join(projectRoot, 'src/Forge.Host/bin/Release/net10.0/Forge.Host.dll');
@@ -128,15 +129,25 @@ test('host handshake, echo, progress, cancellation, crash recovery, and concurre
     instancedCollisionBindings: [],
   })));
   const opened = await (await client.openEditorProject(editorRoot, catalogRoot, 0)).result;
+  let currentSnapshot = opened;
+  let lastCommandResult;
+  const executeEditorCommand = async (command) => {
+    lastCommandResult = await (await client.executeEditorCommand(command)).result;
+    currentSnapshot = applyEditorCommandResult(
+      currentSnapshot,
+      lastCommandResult,
+    );
+    return currentSnapshot;
+  };
   assert.equal(opened.projectId, projectId);
   assert.equal(opened.entities[0].id, entityId);
-  const selected = await (await client.executeEditorCommand({
+  const selected = await executeEditorCommand({
     id: '30000000-0000-4000-8000-000000000001',
     kind: 'setSelection',
     entityIds: [entityId],
-  })).result;
+  });
   assert.deepEqual(selected.selection, [entityId]);
-  const transformed = await (await client.executeEditorCommand({
+  const transformed = await executeEditorCommand({
     id: '30000000-0000-4000-8000-000000000002',
     kind: 'updateTransform',
     entityIds: [entityId],
@@ -145,20 +156,21 @@ test('host handshake, echo, progress, cancellation, crash recovery, and concurre
       rotation: { x: 0, y: 0, z: 0, w: 1 },
       scale: { x: 1, y: 1, z: 1 },
     },
-  })).result;
+  });
   assert.deepEqual(transformed.entities[0].transform.position, { x: 10.5, y: 20.25, z: -30.75 });
+  assert.equal(lastCommandResult.kind, 'transforms');
   assert.equal(transformed.entities[0].state.dirty, true);
   assert.equal(transformed.canUndo, true);
-  const undone = await (await client.executeEditorCommand({
+  const undone = await executeEditorCommand({
     id: '30000000-0000-4000-8000-000000000007', kind: 'undo', entityIds: [],
-  })).result;
+  });
   assert.deepEqual(undone.entities[0].transform.position, { x: 1, y: 2, z: 3 });
   assert.equal(undone.canRedo, true);
-  const redone = await (await client.executeEditorCommand({
+  const redone = await executeEditorCommand({
     id: '30000000-0000-4000-8000-000000000008', kind: 'redo', entityIds: [],
-  })).result;
+  });
   assert.deepEqual(redone.entities[0].transform.position, { x: 10.5, y: 20.25, z: -30.75 });
-  const batchTransformed = await (await client.executeEditorCommand({
+  const batchTransformed = await executeEditorCommand({
     id: '30000000-0000-4000-8000-000000000006',
     kind: 'updateTransforms',
     entityIds: [entityId],
@@ -170,48 +182,48 @@ test('host handshake, echo, progress, cancellation, crash recovery, and concurre
         scale: { x: 1, y: 1, z: 1 },
       },
     }],
-  })).result;
+  });
   assert.deepEqual(batchTransformed.entities[0].transform.position, { x: 11, y: 22, z: 33 });
-  const duplicated = await (await client.executeEditorCommand({
+  const duplicated = await executeEditorCommand({
     id: '30000000-0000-4000-8000-000000000009', kind: 'duplicateEntities', entityIds: [entityId],
-  })).result;
+  });
   const duplicateId = duplicated.selection[0];
   assert.notEqual(duplicateId, entityId);
   assert.equal(duplicated.entities.length, 2);
-  const deleted = await (await client.executeEditorCommand({
+  const deleted = await executeEditorCommand({
     id: '30000000-0000-4000-8000-00000000000a', kind: 'deleteEntities', entityIds: [duplicateId],
-  })).result;
+  });
   assert.equal(deleted.entities.length, 1);
-  const copied = await (await client.executeEditorCommand({
+  const copied = await executeEditorCommand({
     id: '30000000-0000-4000-8000-00000000000b', kind: 'copyEntities', entityIds: [entityId],
-  })).result;
+  });
   assert.equal(copied.canPaste, true);
-  const pasted = await (await client.executeEditorCommand({
+  const pasted = await executeEditorCommand({
     id: '30000000-0000-4000-8000-00000000000c', kind: 'pasteEntities', entityIds: [],
-  })).result;
+  });
   assert.equal(pasted.entities.length, 2);
   assert.notEqual(pasted.selection[0], entityId);
-  const updatedEntity = await (await client.executeEditorCommand({
+  const updatedEntity = await executeEditorCommand({
     id: '30000000-0000-4000-8000-000000000004',
     kind: 'renameEntity',
     entityIds: [entityId],
     text: 'Renamed moby',
-  })).result;
+  });
   assert.equal(updatedEntity.entities[0].name, 'Renamed moby');
-  const updatedState = await (await client.executeEditorCommand({
+  const updatedState = await executeEditorCommand({
     id: '30000000-0000-4000-8000-000000000005',
     kind: 'setEntityState',
     entityIds: [entityId],
     state: { hidden: true, locked: true },
-  })).result;
+  });
   assert.equal(updatedState.entities[0].state.hidden, true);
   assert.equal(updatedState.entities[0].state.locked, true);
-  const renamed = await (await client.executeEditorCommand({
+  const renamed = await executeEditorCommand({
     id: '30000000-0000-4000-8000-000000000003',
     kind: 'renameProject',
     entityIds: [],
     text: 'Renamed over bridge',
-  })).result;
+  });
   assert.equal(renamed.projectName, 'Renamed over bridge');
   assert.equal(renamed.isDirty, true);
   const events = await (await client.readEditorEvents(0)).result;
@@ -219,6 +231,21 @@ test('host handshake, echo, progress, cancellation, crash recovery, and concurre
     'projectOpened', 'selectionChanged', 'projectChanged', 'projectChanged', 'projectChanged', 'projectChanged',
     'projectChanged', 'projectChanged', 'projectChanged', 'projectChanged', 'projectChanged', 'projectChanged',
   ]);
+  const withLevelSettings = await executeEditorCommand({
+    id: '30000000-0000-4000-8000-00000000000d',
+    kind: 'updateLevelSettings',
+    entityIds: [],
+    levelSettings: {
+      backgroundColor: [1, 2, 3],
+      fogColor: [4, 5, 6],
+      fogNearDistance: 10,
+      fogFarDistance: 100,
+      fogNearIntensity: 1,
+      fogFarIntensity: 2,
+    },
+  });
+  assert.equal(lastCommandResult.kind, 'levelSettings');
+  assert.deepEqual(withLevelSettings.levelSettings.backgroundColor, [1, 2, 3]);
   const saved = await (await client.saveEditorProject()).result;
   assert.equal(saved.isDirty, false);
   assert.equal(saved.entities[0].state.dirty, false);

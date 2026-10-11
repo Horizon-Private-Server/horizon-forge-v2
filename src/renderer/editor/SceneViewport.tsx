@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { DragEvent } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -9,7 +9,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 
 import type {
-  EditorEntity, EditorTransformUpdate, ProjectVector3, ProjectVector4,
+  EditorEntity, EditorLevelSceneSettings, EditorTransformUpdate, ProjectVector3, ProjectVector4,
 } from '../../types/EditorRuntime.js';
 import type { AssetModelPlacementDragData, AssetPlacementDragData } from '../../types/AssetExplorer.js';
 import type { KeybindingMap } from '../../types/Keybindings.js';
@@ -51,6 +51,10 @@ import { TransformTool } from './TransformTool.ts';
 import type { EditorTransformMode, EditorTransformSpace } from './TransformTool.ts';
 import { InstancedCollisionOverlayProjection } from './InstancedCollisionOverlayProjection.ts';
 import {
+  LevelSettingsOverlayProjection, levelSettingsPositionField,
+} from './LevelSettingsOverlayProjection.ts';
+import type { LevelSettingsPositionField } from './LevelSettingsOverlayProjection.ts';
+import {
   interpolatePointerSegment, shouldOrbitWhileCollisionPainting,
 } from './CollisionPainting.ts';
 import { ViewportToolbar } from './ViewportToolbar.tsx';
@@ -66,6 +70,7 @@ interface SceneViewportProps {
   missingSelectionMembers?: number;
   terrain?: EditorTerrainSource;
   environment?: EditorSceneEnvironment;
+  levelSceneSettings?: EditorLevelSceneSettings;
   disabled: boolean;
   showStats: boolean;
   showOcclusionOctants: boolean;
@@ -79,6 +84,7 @@ interface SceneViewportProps {
   onPlayerBarrierVisibilityChange(value: boolean): void;
   onSelectionChange(values: string[]): void;
   onTransformsCommit(values: EditorTransformUpdate[]): Promise<boolean>;
+  onLevelPositionCommit(field: LevelSettingsPositionField, value: ProjectVector3): Promise<boolean>;
   onSplinePointsCommit(entityId: string, points: ProjectVector4[]): Promise<boolean>;
   onAssetDrop(asset: AssetPlacementDragData, position?: ProjectVector3): Promise<boolean>;
 }
@@ -101,6 +107,7 @@ export function SceneViewport({
   missingSelectionMembers = 0,
   terrain: terrainSource,
   environment,
+  levelSceneSettings,
   disabled,
   showStats,
   showOcclusionOctants,
@@ -114,6 +121,7 @@ export function SceneViewport({
   onPlayerBarrierVisibilityChange,
   onSelectionChange,
   onTransformsCommit,
+  onLevelPositionCommit,
   onSplinePointsCommit,
   onAssetDrop,
 }: SceneViewportProps) {
@@ -137,6 +145,8 @@ export function SceneViewport({
   const currentCollisionVisibility = useRef(collisionVisibility(showSolidCollision, showPlayerBarriers));
   const currentKeybindings = useRef(keybindings);
   const currentEnvironment = useRef(environment);
+  const currentLevelSceneSettings = useRef(levelSceneSettings);
+  const currentLevelSettingsSelection = useRef<string | undefined>(undefined);
   const currentCollisionVisualization = useRef(collisionVisualization);
   const currentSelectionColor = useRef(selectionColor);
   const currentInstancedCollisionOverlay = useRef(instancedCollisionOverlay);
@@ -144,6 +154,7 @@ export function SceneViewport({
   const loadProgressChanged = useRef(onLoadProgress);
   const selectionChanged = useRef(onSelectionChange);
   const transformsCommitted = useRef(onTransformsCommit);
+  const levelPositionCommitted = useRef(onLevelPositionCommit);
   const splinePointsCommitted = useRef(onSplinePointsCommit);
   const assetDropped = useRef(onAssetDrop);
   currentSelection.current = selection;
@@ -152,6 +163,7 @@ export function SceneViewport({
   currentCollisionVisibility.current = collisionVisibility(showSolidCollision, showPlayerBarriers);
   currentKeybindings.current = keybindings;
   currentEnvironment.current = environment;
+  currentLevelSceneSettings.current = levelSceneSettings;
   currentCollisionVisualization.current = collisionVisualization;
   currentSelectionColor.current = selectionColor;
   currentInstancedCollisionOverlay.current = instancedCollisionOverlay;
@@ -160,6 +172,7 @@ export function SceneViewport({
   loadProgressChanged.current = onLoadProgress;
   selectionChanged.current = onSelectionChange;
   transformsCommitted.current = onTransformsCommit;
+  levelPositionCommitted.current = onLevelPositionCommit;
   splinePointsCommitted.current = onSplinePointsCommit;
   assetDropped.current = onAssetDrop;
   const viewport = useRef<{
@@ -186,12 +199,14 @@ export function SceneViewport({
     previewRequests: Set<string>;
     collisionScenes: Set<THREE.Object3D>;
     instancedCollisionPreview: InstancedCollisionOverlayProjection;
+    levelSettingsOverlay: LevelSettingsOverlayProjection;
+    syncTransforms(): void;
   }>(null);
   const dropFrame = useRef<number | undefined>(undefined);
   const pendingDrop = useRef<{ x: number; y: number } | undefined>(undefined);
-  const skySourceSignature = entities.filter((entity) => entity.skyShell && entity.asset)
+  const skySourceSignature = useMemo(() => entities.filter((entity) => entity.skyShell && entity.asset)
     .map((entity) => `${entity.id}:${entity.asset!.id}:${entity.skyShell!.sourceShellIndex}`)
-    .sort().join('|');
+    .sort().join('|'), [entities]);
 
   useEffect(() => {
     const element = container.current;
@@ -214,12 +229,18 @@ export function SceneViewport({
     sky.name = 'Sky';
     const currentProjection = new SceneProjection();
     currentProjection.setSelectionColor(selectionColor);
+    const levelSettingsOverlay = new LevelSettingsOverlayProjection();
+    levelSettingsOverlay.sync(currentLevelSceneSettings.current);
+    const transformProjection = {
+      getBounds: (id: string, target?: THREE.Box3) =>
+        levelSettingsOverlay.getBounds(id, target) ?? currentProjection.getBounds(id, target),
+    };
     const collisionScenes = new Set<THREE.Object3D>();
     const instancedCollisionPreview = new InstancedCollisionOverlayProjection(
       collisionScenes,
       () => setNotice('Collision candidate overlay unavailable.'),
     );
-    content.add(terrain, occlusion, currentProjection.root, instancedCollisionPreview.root);
+    content.add(terrain, occlusion, currentProjection.root, levelSettingsOverlay.root, instancedCollisionPreview.root);
     skyScene.add(sky);
     scene.add(content);
 
@@ -266,12 +287,33 @@ export function SceneViewport({
     const snapRaycaster = new THREE.Raycaster();
     const snapPointer = new THREE.Vector2();
     const transformTool = new TransformTool(camera, renderer.domElement, toolScene, {
-      preview: (preview) => currentProjection.sync(
-        preview ?? currentEntities.current,
-        currentSelection.current,
-      ),
+      previewTransforms: (updates) => {
+        if (currentLevelSettingsSelection.current) {
+          levelSettingsOverlay.previewTransforms(updates);
+          return;
+        }
+        if (updates) currentProjection.previewTransforms(updates);
+        else currentProjection.sync(currentEntities.current, currentSelection.current);
+      },
+      previewSpline: (preview) => {
+        if (preview) currentProjection.previewSpline(preview, currentSelection.current);
+        else currentProjection.sync(currentEntities.current, currentSelection.current);
+      },
       availability: setTransformNotice,
       commit: (updates) => {
+        const levelUpdate = updates.find((update) => levelSettingsPositionField(update.entityId));
+        const field = levelUpdate && levelSettingsPositionField(levelUpdate.entityId);
+        if (levelUpdate && field) {
+          void levelPositionCommitted.current(field, levelUpdate.transform.position).then((committed) => {
+            if (committed) return;
+            requestAnimationFrame(() => {
+              if (viewport.current?.projection !== currentProjection) return;
+              levelSettingsOverlay.previewTransforms();
+              syncTransformSelection();
+            });
+          });
+          return;
+        }
         void transformsCommitted.current(updates).then((committed) => {
           if (committed) return;
           requestAnimationFrame(() => {
@@ -280,12 +322,7 @@ export function SceneViewport({
               currentEntities.current,
               currentSelection.current,
             );
-            transformTool.sync(
-              currentEntities.current,
-              currentSelection.current,
-              currentProjection,
-              currentMissingSelectionMembers.current,
-            );
+            syncTransformSelection();
           });
         });
       },
@@ -295,12 +332,7 @@ export function SceneViewport({
           requestAnimationFrame(() => {
             if (viewport.current?.projection !== currentProjection) return;
             currentProjection.sync(currentEntities.current, currentSelection.current);
-            transformTool.sync(
-              currentEntities.current,
-              currentSelection.current,
-              currentProjection,
-              currentMissingSelectionMembers.current,
-            );
+            syncTransformSelection();
           });
         });
       },
@@ -316,6 +348,18 @@ export function SceneViewport({
         );
       },
     });
+    function syncTransformSelection() {
+      const markerSelection = currentLevelSettingsSelection.current;
+      const transformEntities = markerSelection
+        ? levelSettingsOverlay.getTransformEntities()
+        : currentEntities.current;
+      transformTool.sync(
+        transformEntities,
+        markerSelection ? [markerSelection] : currentSelection.current,
+        transformProjection,
+        markerSelection ? 0 : currentMissingSelectionMembers.current,
+      );
+    }
     const dropGhost = new THREE.Mesh(
       new THREE.SphereGeometry(2, 16, 8),
       new THREE.MeshBasicMaterial({ color: 0x57b8ff, depthTest: false, transparent: true, opacity: 0.8 }),
@@ -352,6 +396,8 @@ export function SceneViewport({
       previewRequests: new Set(),
       collisionScenes,
       instancedCollisionPreview,
+      levelSettingsOverlay,
+      syncTransforms: syncTransformSelection,
     };
 
     let noticeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -559,9 +605,14 @@ export function SceneViewport({
           -(event.clientY - bounds.top) / bounds.height * 2 + 1,
         );
         raycaster.setFromCamera(pointer, camera);
-        currentProjection.setHoveredEntityId(
-          currentProjection.resolvePick(raycaster.intersectObject(currentProjection.root, true)),
+        const intersections = raycaster.intersectObjects(
+          [levelSettingsOverlay.root, currentProjection.root], true,
         );
+        const markerId = levelSettingsOverlay.resolvePick(intersections);
+        levelSettingsOverlay.setHovered(markerId);
+        currentProjection.setHoveredEntityId(markerId
+          ? undefined
+          : currentProjection.resolvePick(intersections));
         return;
       }
       if (event.pointerId !== lookPointerId || !lookPosition) return;
@@ -597,15 +648,44 @@ export function SceneViewport({
         -(event.clientY - bounds.top) / bounds.height * 2 + 1,
       );
       raycaster.setFromCamera(pointer, camera);
-      const id = currentProjection.resolvePick(raycaster.intersectObject(currentProjection.root, true));
+      const intersections = raycaster.intersectObjects(
+        [levelSettingsOverlay.root, currentProjection.root], true,
+      );
+      const markerId = levelSettingsOverlay.resolvePick(intersections);
+      if (markerId) {
+        currentLevelSettingsSelection.current = markerId;
+        levelSettingsOverlay.setSelected(markerId);
+        if (currentSelection.current.length) {
+          currentSelection.current = [];
+          selectionChanged.current([]);
+          currentProjection.sync(
+            currentEntities.current,
+            [],
+            undefined,
+            true,
+            currentCollisionVisibility.current,
+          );
+        }
+        syncTransformSelection();
+        return;
+      }
+      if (currentLevelSettingsSelection.current) {
+        currentLevelSettingsSelection.current = undefined;
+        levelSettingsOverlay.setSelected();
+      }
+      const id = currentProjection.resolvePick(intersections);
       const next = nextViewportSelection(currentSelection.current, id, {
         toggle: event.ctrlKey || event.metaKey,
         add: event.shiftKey,
       });
       if (next.length === currentSelection.current.length
-        && next.every((value, index) => value === currentSelection.current[index])) return;
+        && next.every((value, index) => value === currentSelection.current[index])) {
+        syncTransformSelection();
+        return;
+      }
       currentSelection.current = next;
       selectionChanged.current(next);
+      syncTransformSelection();
     };
     const pointerCancel = (event: PointerEvent) => {
       if (transformTool.isInteracting) return;
@@ -656,6 +736,7 @@ export function SceneViewport({
       controls.update();
       transformTool.update();
       currentProjection.updateBillboards(camera, element.clientHeight);
+      levelSettingsOverlay.updateForCamera(camera, element.clientHeight);
       renderer.info.reset();
       outlinePass.selectedObjects = currentProjection.getSelectionOutlineObjects();
       composer.render(delta);
@@ -709,6 +790,7 @@ export function SceneViewport({
       terrain.removeFromParent();
       terrain.clear();
       currentProjection.dispose();
+      levelSettingsOverlay.dispose();
       instancedCollisionPreview.dispose();
       viewport.current?.previewRequests.forEach((token) => { void window.forge.cancelAssetPreview(token); });
       viewport.current?.placedTemplates.forEach(disposeObject);
@@ -740,12 +822,7 @@ export function SceneViewport({
       true,
       currentCollisionVisibility.current,
     );
-    current.transformTool.sync(
-      currentEntities.current,
-      currentSelection.current,
-      current.projection,
-      currentMissingSelectionMembers.current,
-    );
+    current.syncTransforms();
   }, [instancedCollisionOverlay?.entityId, instancedCollisionOverlay?.showSource]);
 
   useEffect(() => {
@@ -866,12 +943,7 @@ export function SceneViewport({
         true,
         currentCollisionVisibility.current,
       );
-      viewport.current.transformTool.sync(
-        currentEntities.current,
-        currentSelection.current,
-        viewport.current.projection,
-        currentMissingSelectionMembers.current,
-      );
+      viewport.current.syncTransforms();
       if (!viewport.current.framed) {
         if (!positionCameraAtPreferredMoby(
           viewport.current.camera, viewport.current.controls, currentEntities.current,
@@ -920,6 +992,17 @@ export function SceneViewport({
     applySceneEnvironment(current.scene, environment, current.skyScene);
     configurePs2MaterialFog(current.content, environment);
   }, [environment]);
+
+  useEffect(() => {
+    const current = viewport.current;
+    if (!current) return;
+    current.levelSettingsOverlay.sync(levelSceneSettings, currentLevelSettingsSelection.current);
+    if (currentLevelSettingsSelection.current
+      && !current.levelSettingsOverlay.getTransformEntities()
+        .some((entity) => entity.id === currentLevelSettingsSelection.current))
+      currentLevelSettingsSelection.current = undefined;
+    current.syncTransforms();
+  }, [levelSceneSettings]);
 
   useEffect(() => {
     const current = viewport.current;
@@ -991,7 +1074,11 @@ export function SceneViewport({
       currentCollisionVisibility.current,
     );
     syncSkyShellProjections(current, entities);
-    current.transformTool.sync(entities, selection, current.projection, missingSelectionMembers);
+    if (selection.length && currentLevelSettingsSelection.current) {
+      currentLevelSettingsSelection.current = undefined;
+      current.levelSettingsOverlay.setSelected();
+    }
+    current.syncTransforms();
     if (!current.framed && entities.length) {
       if (!positionCameraAtPreferredMoby(current.camera, current.controls, entities))
         frameEntities(current.camera, current.controls, entities);

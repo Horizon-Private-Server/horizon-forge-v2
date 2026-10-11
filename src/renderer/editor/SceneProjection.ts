@@ -357,6 +357,80 @@ export class SceneProjection {
     return { created, updated, removed };
   }
 
+  previewTransforms(updates: readonly { entityId: string; transform: EditorEntity['transform'] }[]): void {
+    if (this.disposed) throw new Error('Scene projection is disposed');
+    const touchedInstances = new Set<THREE.InstancedMesh>();
+    for (const update of updates) {
+      const current = this.entitiesById.get(update.entityId);
+      if (!current) continue;
+      const entity = { ...current, transform: update.transform };
+      this.entitiesById.set(entity.id, entity);
+      const matrix = this.projectedMatrix(entity);
+
+      const object = this.objects.get(entity.id);
+      if (object instanceof SceneBillboardGizmo) object.position.copy(this.position);
+      else if (object) {
+        object.position.copy(this.position);
+        object.quaternion.copy(this.projectedRotation);
+        object.scale.copy(this.scale);
+        object.updateMatrix();
+      }
+
+      for (const projection of this.instances.values()) {
+        for (const mesh of projection.meshes) {
+          const index = (mesh.userData[INSTANCE_IDS_KEY] as string[]).indexOf(entity.id);
+          if (index < 0) continue;
+          this.instanceMatrix.copy(matrix);
+          if (mesh.userData[MIRRORED_BATCH_KEY] === true) this.instanceMatrix.premultiply(INSTANCE_MIRROR);
+          mesh.setMatrixAt(index, this.instanceMatrix);
+          mesh.instanceMatrix.needsUpdate = true;
+          touchedInstances.add(mesh);
+        }
+      }
+
+      const collisionBatch = this.collisionBatch;
+      if (collisionBatch) {
+        for (const entry of collisionBatch.entries.get(entity.id) ?? [])
+          entry.mesh.setMatrixAt(entry.instanceId, matrix);
+        if (collisionBatch.entries.has(entity.id)) {
+          collisionBatch.matrices.set(entity.id, matrix.clone());
+          const state = collisionBatch.states.get(entity.id);
+          if (state) collisionBatch.states.set(entity.id, { ...state, transform: entity.transform });
+        }
+      }
+
+      const outline = this.selectionOutlines.get(entity.id);
+      if (outline) {
+        outline.matrix.copy(matrix);
+        outline.matrixWorldNeedsUpdate = true;
+      }
+    }
+    touchedInstances.forEach((mesh) => mesh.computeBoundingSphere());
+  }
+
+  previewSpline(entity: EditorEntity, selection: readonly string[]): void {
+    if (entity.geometry?.kind !== 'spline' && entity.geometry?.kind !== 'grindPath') return;
+    const object = this.objects.get(entity.id);
+    if (!(object instanceof Line2)) return;
+    const points = entity.geometry.points.map((point) => ps2PositionToScene(point, new THREE.Vector3()));
+    if (points.length > 1) object.geometry.setFromPoints(points);
+    const nodes = object.children.find((child) => child.userData[SPLINE_NODES_KEY]);
+    if (nodes instanceof THREE.Points) {
+      nodes.geometry.setFromPoints(points);
+      nodes.geometry.computeBoundingSphere();
+    }
+    const selectedNodes = object.children.find((child) => child.userData[SPLINE_SELECTED_NODES_KEY]);
+    if (selectedNodes instanceof THREE.Points) {
+      const selected = selection.map(parseSplinePointId)
+        .filter((value) => value?.entityId === entity.id && value.index < points.length)
+        .map((value) => points[value!.index]);
+      selectedNodes.geometry.setFromPoints(selected);
+      selectedNodes.geometry.computeBoundingSphere();
+    }
+    object.userData[PROJECTION_KEY] = this.projectionKey(entity);
+    this.entitiesById.set(entity.id, entity);
+  }
+
   getObject(entityId: string): THREE.Object3D | undefined {
     const object = this.objects.get(entityId);
     if (object) return object;

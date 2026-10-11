@@ -39,6 +39,10 @@ public sealed record ProjectReference(
     AssetKind? AssetKind = null,
     AssetId? AssetId = null);
 
+public sealed record ProjectIndexedReference(
+    int SourceValue,
+    ProjectReference Reference);
+
 public sealed record ProjectReferenceEdge(
     EntityId OwnerEntityId,
     ProjectReference Reference,

@@ -1,5 +1,5 @@
 export type SceneBillboardGlyph = 'object' | 'robot' | 'area' | 'ship' | 'sphere' | 'settings'
-  | 'lightbulb-filament';
+  | 'airplane-tilt' | 'lightbulb-filament';
 
 export interface SceneBillboardOptions {
   entityId: string;

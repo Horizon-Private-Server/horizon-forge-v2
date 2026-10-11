@@ -51,7 +51,6 @@ internal static partial class ForgeProjectValidation
         if (content.Entities is null || content.Assets is null || content.InstancedCollisionBindings is null
             || content.AssetOverrides is null || content.Groups is null)
             throw new InvalidDataException("Project content lists are required.");
-        if (content.LevelSettings is not null) ValidateLevelSettings(content.LevelSettings);
         if (content.Hud is not null) ValidateHud(rootPath, content.Hud, content.Assets);
         if (content.Fx is not null) ValidateFx(rootPath, content.Fx, content.Assets);
         if (content.MobyDex is not null) MobyDexCatalog.ValidateProjectState(content.MobyDex);
@@ -60,6 +59,7 @@ internal static partial class ForgeProjectValidation
             throw new InvalidDataException("Project entities cannot contain null entries.");
         if (content.Entities.Select(entity => entity.EntityId).Distinct().Count() != content.Entities.Count)
             throw new InvalidDataException("Project contains duplicate Entity IDs.");
+        if (content.LevelSettings is not null) ValidateLevelSettings(content.LevelSettings, content.Entities);
         ValidateGroups(content.Groups, content.Entities.Select(entity => entity.EntityId).ToHashSet());
         foreach (var entity in content.Entities)
         {
@@ -334,9 +334,12 @@ internal static partial class ForgeProjectValidation
             throw new InvalidDataException($"Sky shell entity {entity.EntityId} is invalid.");
     }
 
-    public static void ValidateLevelSettings(ProjectLevelSettings settings)
+    public static void ValidateLevelSettings(
+        ProjectLevelSettings settings,
+        IReadOnlyList<ProjectEntity> entities)
     {
         ArgumentNullException.ThrowIfNull(settings);
+        ArgumentNullException.ThrowIfNull(entities);
         if (settings.BackgroundColor is null || settings.FogColor is null)
             throw new InvalidDataException("Level setting colors are required.");
         var values = new[]
@@ -350,6 +353,32 @@ internal static partial class ForgeProjectValidation
             throw new InvalidDataException("Level setting fog distances cannot be negative.");
         if (settings.FogNearIntensity is < 0 or > 255 || settings.FogFarIntensity is < 0 or > 255)
             throw new InvalidDataException("Level setting fog intensities must be between 0 and 255.");
+        if (settings.Scene is not { } scene) return;
+        if (!float.IsFinite(scene.DeathHeight) || !float.IsFinite(scene.ShipRotationZ)
+            || !ValidVector(scene.SphereCenter) || !ValidVector(scene.ShipPosition))
+            throw new InvalidDataException("Level scene settings must be finite.");
+        ValidateLevelReference(scene.ShipPath, ProjectReferences.LevelShipPath, ProjectEntityKind.Spline, entities);
+        ValidateLevelReference(scene.ShipCameraCuboidStart, ProjectReferences.LevelShipCameraCuboidStart,
+            ProjectEntityKind.Cuboid, entities);
+        ValidateLevelReference(scene.ShipCameraCuboidEnd, ProjectReferences.LevelShipCameraCuboidEnd,
+            ProjectEntityKind.Cuboid, entities);
+    }
+
+    private static void ValidateLevelReference(
+        ProjectIndexedReference value,
+        string fieldKey,
+        ProjectEntityKind kind,
+        IReadOnlyList<ProjectEntity> entities)
+    {
+        if (value is null || value.SourceValue < -1 || value.Reference is not
+            { Domain: ProjectReferenceDomain.Entity, Nullable: true } reference
+            || reference.FieldKey != fieldKey || reference.EntityKind != kind)
+            throw new InvalidDataException($"Level setting reference {fieldKey} is invalid.");
+        if (reference.EntityId is not { } target) return;
+        var entity = entities.SingleOrDefault(candidate => candidate.EntityId == target)
+            ?? throw new InvalidDataException($"Level setting reference {fieldKey} targets a missing entity.");
+        if (ProjectReferences.KindOf(entity) != kind)
+            throw new InvalidDataException($"Level setting reference {fieldKey} targets the wrong entity kind.");
     }
 
     public static bool ValidPoints(IReadOnlyList<ProjectVector4>? points) => points is not null

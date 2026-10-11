@@ -344,7 +344,7 @@ public static class UyaBaseLayerStore
                     ?? throw new FileNotFoundException($"Base-layer asset {asset.Asset.Id} disappeared during bake.");
                 if (plan.Layer == BakeLayerId.World && workspace.Content.LevelSettings is { } settings)
                 {
-                    var bytes = WriteLevelSettings(await File.ReadAllBytesAsync(source, token), settings);
+                    var bytes = WriteLevelSettings(await File.ReadAllBytesAsync(source, token), settings, workspace);
                     await ForgeProjectPersistence.WriteFileSafelyAsync(Path.Combine(output, asset.Name), bytes, token);
                 }
                 else if (plan.Layer == BakeLayerId.Sky && asset.Name == "sky.bin")
@@ -394,7 +394,7 @@ public static class UyaBaseLayerStore
                 {
                     var source = workspace.ResolveAssetPath(asset.Asset, catalog)
                         ?? throw new FileNotFoundException($"Base-layer asset {asset.Asset.Id} disappeared during validation.");
-                    var expected = WriteLevelSettings(await File.ReadAllBytesAsync(source, token), settings);
+                    var expected = WriteLevelSettings(await File.ReadAllBytesAsync(source, token), settings, workspace);
                     if (!bytes.SequenceEqual(expected))
                         throw new InvalidDataException("World staged level settings changed during write.");
                 }
@@ -483,14 +483,52 @@ public static class UyaBaseLayerStore
         return result;
     }
 
-    private static byte[] WriteLevelSettings(byte[] source, ProjectLevelSettings settings) =>
-        UyaLevelSettingsWriter.Write(source, new(
+    private static byte[] WriteLevelSettings(
+        byte[] source,
+        ProjectLevelSettings settings,
+        ForgeProjectWorkspace workspace)
+    {
+        var original = UyaLevelSettingsReader.Read(source);
+        var scene = settings.Scene;
+        return UyaLevelSettingsWriter.Write(source, new(
             new(settings.BackgroundColor.R, settings.BackgroundColor.G, settings.BackgroundColor.B),
             new(settings.FogColor.R, settings.FogColor.G, settings.FogColor.B),
             settings.FogNearDistance * 1024,
             settings.FogFarDistance * 1024,
             settings.FogNearIntensity,
-            settings.FogFarIntensity));
+            settings.FogFarIntensity,
+            scene?.DeathHeight ?? original.DeathHeight,
+            scene?.IsSphericalWorld ?? original.IsSphericalWorld,
+            scene is null ? original.SphereCenter : NativeVector(scene.SphereCenter),
+            scene is null ? original.ShipPosition : NativeVector(scene.ShipPosition),
+            scene?.ShipRotationZ ?? original.ShipRotationZ,
+            scene is null ? original.ShipPath : ResolveLevelReference(
+                workspace, scene.ShipPath, "gameplay/core/splines"),
+            scene is null ? original.ShipCameraCuboidStart : ResolveLevelReference(
+                workspace, scene.ShipCameraCuboidStart, "gameplay/core/cuboids"),
+            scene is null ? original.ShipCameraCuboidEnd : ResolveLevelReference(
+                workspace, scene.ShipCameraCuboidEnd, "gameplay/core/cuboids")));
+    }
+
+    private static UyaVector3 NativeVector(ProjectVector3 value) =>
+        new(value.X, value.Y, value.Z);
+
+    private static int ResolveLevelReference(
+        ForgeProjectWorkspace workspace,
+        ProjectIndexedReference value,
+        string section)
+    {
+        if (value.Reference.EntityId is not { } target)
+        {
+            if (value.SourceValue == -1) return -1;
+            throw new InvalidDataException(
+                $"Level setting {value.Reference.FieldKey} cannot resolve source index {value.SourceValue}.");
+        }
+        var entity = workspace.Content.Entities.SingleOrDefault(candidate => candidate.EntityId == target);
+        if (entity?.Provenance?.Section != section)
+            throw new InvalidDataException($"Level setting {value.Reference.FieldKey} targets a missing entity.");
+        return entity.Provenance.SourceIndex;
+    }
 
     private static byte[] WriteTieAmbientRgbas(byte[] source, ForgeProjectWorkspace workspace)
     {

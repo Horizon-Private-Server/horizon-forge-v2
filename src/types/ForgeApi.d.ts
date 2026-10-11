@@ -1,5 +1,5 @@
 import type {
-  EditorCommand, EditorEvent, EditorSnapshot, EditorInstancedCollisionGenerationSettings, EditorInstancedCollisionPreview,
+  EditorCommand, EditorCommandResult, EditorEvent, EditorSnapshot, EditorInstancedCollisionGenerationSettings, EditorInstancedCollisionPreview,
   EditorInstancedCollisionSourceInfo, EditorGroupTemplatePreview, EditorGroupTemplateRequest,
 } from './EditorRuntime.js';
 import type { AssetExplorerPage, AssetExplorerQuery, AssetModelKind, AssetPreviewKind, AssetPreviewSource } from './AssetExplorer.js';
@@ -7,7 +7,7 @@ import type { ForgeNotification } from './Notifications.js';
 import type { UpdateCheckResult } from './Updates.js';
 
 export type {
-  EditorCommand, EditorEvent, EditorSnapshot, EditorInstancedCollisionGenerationSettings, EditorInstancedCollisionPreview,
+  EditorCommand, EditorCommandResult, EditorEvent, EditorSnapshot, EditorInstancedCollisionGenerationSettings, EditorInstancedCollisionPreview,
   EditorInstancedCollisionSourceInfo, EditorGroupTemplatePreview, EditorGroupTemplateRequest,
 } from './EditorRuntime.js';
 export type { AssetExplorerPage, AssetExplorerQuery, AssetModelKind, AssetPreviewKind, AssetPreviewSource } from './AssetExplorer.js';
@@ -348,7 +348,7 @@ export interface ForgeApi {
   openEditorProject(path: string): Promise<EditorSnapshot>;
   closeEditorProject(): Promise<void>;
   getEditorSnapshot(): Promise<EditorSnapshot>;
-  executeEditorCommand(command: EditorCommand): Promise<EditorSnapshot>;
+  executeEditorCommand(command: EditorCommand): Promise<EditorCommandResult>;
   inspectInstancedCollisionSource(entityId: string): Promise<EditorInstancedCollisionSourceInfo>;
   previewInstancedCollision(
     entityId: string,
