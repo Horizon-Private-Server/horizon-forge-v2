@@ -1589,6 +1589,28 @@ Exit: the addendum's portable UYA qualification project completes its determinis
 edit/build/test workflow on packaged Linux and Windows applications, and both project
 and application update interruption retain a known-good state.
 
+### P3: Content expansion and runtime fidelity
+
+- Complete the constrained custom-model pipeline first for project-local UYA TIEs,
+  including stable custom class allocation and source-versus-native preview.
+- Import supported asset/entity families from another verified vanilla map using
+  dependency-complete add/replace transactions and visible provenance.
+- Inventory, preview, merge, and remap UYA sound-bank entries so imported mobys carry
+  their playable sound dependencies.
+- Add a class-driven editor-only moby simulation framework, beginning with the UYA
+  `0x0B37` ocean plane.
+- Rebuild native occlusion automatically with conservative CPU/reference semantics,
+  an accelerated backend, source/generated probes, and cost diagnostics.
+
+Detailed requirements, dependency ordering, milestone exits, discovery gates, and
+deferrals are defined by the
+[P3 content-expansion addendum](planning/P3-content-expansion.md).
+
+Exit: a portable UYA project containing a custom TIE, donor-map content, imported moby
+sound dependencies, ocean simulation, and generated occlusion completes the addendum's
+packaged Linux/Windows, PCSX2, and selected real-hardware qualification without its
+original model paths or donor media.
+
 ### Future
 
 - Broader four-game/content coverage after the first target proves the pipeline.

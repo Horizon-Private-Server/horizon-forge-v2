@@ -2,6 +2,12 @@
 
 Milestone: [P1 — Custom assets](../milestones/P1-custom-assets.md)
 
+Phase 3 ownership note: the remaining project-local model work in P1-001, P1-002,
+P1-005, and P1-006 is delivered first as the constrained custom-TIE slice in
+[M14](P3-tasks.md#m14--custom-tie-asset-pipeline). The P1 task IDs remain as historical
+requirements/dependencies; M14 owns new implementation issues and will update their
+completion evidence rather than creating a competing asset pipeline.
+
 ## P1-001 — Add project-local custom asset lifecycle
 
 Requirements: FR-ASSET-005, FR-ASSET-006, NFR-PORT-001, DR-005

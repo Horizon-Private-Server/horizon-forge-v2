@@ -1,8 +1,9 @@
 # Horizon Forge planning index
 
-This directory turns the [Forge v2 specification](../forge-v2-spec.md) and the
-[P2 advanced-authoring addendum](P2-next-phase.md) into trackable milestones and
-issue-ready tasks. The specifications define behavior; these documents define
+This directory turns the [Forge v2 specification](../forge-v2-spec.md), the
+[P2 advanced-authoring addendum](P2-next-phase.md), and the
+[P3 content-expansion addendum](P3-content-expansion.md) into trackable milestones
+and issue-ready tasks. The specifications define behavior; these documents define
 delivery order and completion evidence.
 
 ## Priority model
@@ -10,6 +11,8 @@ delivery order and completion evidence.
 - **P0/MVP:** the first usable vanilla NTSC-U UYA editor release.
 - **P1:** custom GLB assets and custom-texture quantization.
 - **P2:** asset-override, texture-bank, semantic, terrain, and update authoring.
+- **P3:** custom TIEs, cross-map imports, sound banks, moby simulations, and
+  generated occlusion.
 - **Future:** cross-game expansion, collaboration, plugins, macOS, and other work
   explicitly deferred by the specification.
 
@@ -31,6 +34,9 @@ P1 Custom assets starts only after the relevant M3-M5 contracts are stable.
 
 P2 branches after the P0/P1 contracts it consumes; see its dependency graph rather
 than treating M7-M13 as one strictly serial chain.
+
+P3 branches after the specific P1/P2 contracts each lane consumes; M19 release
+qualification remains after M13-007 and the M14-M18 exit gates.
 ```
 
 M6 workflow scaffolding may begin earlier, but its release gate remains last.
@@ -49,6 +55,7 @@ M6 workflow scaffolding may begin earlier, but its release gate remains last.
 | P0 | M6 — Distribution and release | [Milestone](milestones/M6-distribution.md) | [Tasks](tasks/M6-tasks.md) |
 | P1 | P1 — Custom asset pipeline | [Milestone](milestones/P1-custom-assets.md) | [Tasks](tasks/P1-tasks.md) |
 | P2 | M7-M13 — Advanced authoring | [Plan and requirements](P2-next-phase.md) | [Tasks](tasks/P2-tasks.md) |
+| P3 | M14-M19 — Content expansion and runtime fidelity | [Plan and requirements](P3-content-expansion.md) | [Tasks](tasks/P3-tasks.md) |
 
 See [P0/MVP scope](P0-MVP.md) for the release boundary.
 

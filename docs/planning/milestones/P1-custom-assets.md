@@ -4,6 +4,11 @@ Priority: P1
 Depends on: stable M3-M5 contracts  
 Task register: [P1 tasks](../tasks/P1-tasks.md)
 
+Phase 3 note: unfinished project-local GLB/model deliverables are now scheduled as the
+first custom-TIE slice in [M14](../tasks/P3-tasks.md#m14--custom-tie-asset-pipeline).
+Completed P1 palette work remains the shared prerequisite; no second custom-asset
+store or converter is introduced.
+
 ## Outcome
 
 A constrained custom GLB can be attached to a project, converted into supported
@@ -24,4 +29,3 @@ and inspected in-game with every conversion compromise reported.
 The documented fixture completes import-to-game deterministically without
 changing vanilla colors, exceeding target limits silently, or depending on its
 original external GLB path.
-
