@@ -2,7 +2,8 @@
 
 Target: UYA NTSC-U 1.00 (`uya-ntsc-u`)  
 Date: 2026-10-10  
-Status: automated synthetic gate passed; real-level pack/patch and PCSX2 checks pending
+Status: automated synthetic gate passed; packaged Linux/Windows, real-level pack/patch,
+and PCSX2 checks pending
 
 ## Automated gate
 

@@ -2,7 +2,7 @@
 
 Target: UYA NTSC-U 1.00 (`uya-ntsc-u`)  
 Date: 2026-10-11  
-Status: automated Linux gate passed; packaged PCSX2 and Windows evidence pending
+Status: automated Linux gate passed; packaged Linux/Windows and PCSX2 evidence pending
 
 ## Automated gate
 
@@ -23,7 +23,7 @@ Ratchet PS2 SDK. The fixtures verify:
   and
 - generated individual/shared tfrag collision uses the canonical local mesh, follows
   piece transforms, survives save/reopen, and retains native face types, while coarse
-  retail collision remains independent under the documented M12-006 deferral.
+  retail collision remains independent under the explicit M12-006 design.
 
 The local retail corpus covers 3,354 exact-boundary groups. The current largest-level
 extraction fixture contains 1,006 occurrences across primary plus two streamed owners.

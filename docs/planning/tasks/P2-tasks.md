@@ -6,11 +6,23 @@ Tasks are ordered by dependency within each milestone. The phase plan's graph al
 independent milestone lanes to run in parallel. Discovery tasks freeze their contracts
 before downstream project schemas or UI are implemented.
 
+## Current milestone status
+
+| Milestone | Status | Remaining gate |
+| --- | --- | --- |
+| M7 — Authoring foundations | 🚧 Implementation complete | Remaining packaged Linux/Windows accessibility qualification in M7-007 |
+| M8 — HUD and FX | 🚧 Implementation complete | Combined packaged Linux/Windows and PCSX2 qualification in M8-005/M8-008 |
+| M9 — MobyDex and mobys | 🚧 Implementation complete | Real-level pack/patch, packaged Linux/Windows, and PCSX2 qualification in M9-009 |
+| M10 — Groups | ✅ Complete | None |
+| M11 — Scene semantics | 🚧 Implementation complete | Packaged Linux/Windows and PCSX2 qualification in M11-005 |
+| M12 — Editable tfrags | 🚧 Implementation complete | Packaged Linux/Windows and streamed-piece PCSX2 qualification in M12-008 |
+| M13 — Full-package updater | ⏳ Not started | M13-001 through M13-007 |
+
 ## M7 — Authoring foundations and workspace chrome
 
 ### M7-001 — Streamline the workspace ribbon
 
-Status: 🚧 In progress
+Status: 🚧 In progress — implementation complete; M7-007 qualification remains
 
 Requirements: FR-UI-008, NFR-UX-001, NFR-UX-002
 Depends on: M2-009, M6-004
@@ -34,7 +46,7 @@ dirty/save/error, and host-disconnect walkthroughs.
 
 ### M7-002 — Generalize the project-attached asset lifecycle
 
-Status: 🚧 In progress
+Status: 🚧 In progress — implementation complete; M7-007 qualification remains
 
 Requirements: FR-ASSET-007, FR-ASSET-005, FR-ASSET-006, NFR-P2-001
 Depends on: P1-001
@@ -57,7 +69,7 @@ round trip with synthetic assets.
 
 ### M7-003 — Add exact asset override bindings
 
-Status: 🚧 In progress
+Status: 🚧 In progress — implementation complete; M7-007 qualification remains
 
 Requirements: FR-ASSET-008, NFR-P2-001, NFR-P2-002, NFR-PORT-001
 Depends on: M7-002, M2-008
@@ -105,7 +117,7 @@ ordering, delete/undo, and 25k-entity indexed-lookup tests.
 
 ### M7-005 — Build shared reference fields and the References view
 
-Status: 🚧 In progress
+Status: 🚧 In progress — implementation complete; M7-007 qualification remains
 
 Requirements: FR-REF-003, FR-UI-002, FR-UI-006, NFR-UX-001
 Depends on: M7-004, M2-004
@@ -151,7 +163,7 @@ Verification: projection/picking/size/cache/disposal tests and high-DPI visual c
 
 ### M7-007 — Qualify the authoring foundation migration
 
-Status: 🚧 In progress
+Status: 🚧 In progress — automated and Linux smoke gates pass; remaining packaged checks are pending
 
 Requirements: M7 exit gate, NFR-REL-001, NFR-REL-004, NFR-PORT-001
 Depends on: M7-001, M7-002, M7-003, M7-004, M7-005, M7-006
@@ -295,7 +307,7 @@ integrity plus corrupt PIF diagnostics.
 
 ### M8-005 — Rebuild, bake, and qualify HUD changes
 
-Status: 🚧 In progress
+Status: 🚧 In progress — implementation complete; packaged Linux/Windows and PCSX2 evidence remain
 
 Requirements: FR-HUD-003, FR-BAKE-002, NFR-REL-002
 Depends on: M8-003, M8-004, M4-005
@@ -326,8 +338,8 @@ previous staged snapshot on any write or validation failure. Synthetic end-to-en
 coverage replaces an existing texture, appends `E001` into bank 2, verifies stable
 source indexes and untouched banks, proves HUD-only invalidation and repeatable output,
 and transfers custom HUD assets with the project. Automated Linux qualification is
-recorded in [M8 HUD bake qualification](../../qualification/M8-hud-bake.md); packaged
-Windows and PCSX2 visual rows remain pending.
+recorded in [M8 HUD and FX bake qualification](../../qualification/M8-hud-bake.md);
+packaged Linux/Windows and PCSX2 visual rows remain pending.
 
 ### M8-006 — Move FX labels and inventory into game-owned contracts
 
@@ -382,6 +394,8 @@ round trip with a custom FX texture.
 
 ### M8-008 — Bake/qualify FX changes and close M8
 
+Status: 🚧 In progress — implementation complete; packaged Linux/Windows and PCSX2 evidence remain
+
 Requirements: FR-FX-003, M8 exit gate, NFR-REL-002
 Depends on: M8-005, M8-007, M4-005
 
@@ -399,6 +413,16 @@ Acceptance:
   PCSX2; DL label/sprite fixtures pass without claiming writable DL support.
 
 Verification: incremental/determinism matrix and packaged-app/PCSX2 qualification.
+
+Implementation: FX uses an independent bake-layer fingerprint and composes replacements
+and deterministic trailing additions through the SDK before atomic staging. Packing
+rewrites the owning asset-WAD offsets and aligned payloads, then semantically re-reads
+the result; failures retain the last good stage. Project and SDK fixtures cover shared
+source identities, append ordering, palette ownership, ZIP portability, relocated data,
+and combined HUD/FX layer planning.
+
+Qualification: [M8 HUD and FX bake](../../qualification/M8-hud-bake.md). Automated
+coverage passes; packaged Linux/Windows and PCSX2 visual evidence remain pending.
 
 ## M9 — MobyDex and moby editing
 
@@ -673,7 +697,7 @@ bytes as the initial baseline.
 
 ### M9-009 — Integrate moby/PVar reference enrichment and qualify M9
 
-Status: 🚧 In progress
+Status: 🚧 In progress — automated gate passes; real-level, packaged Linux/Windows, and PCSX2 evidence remain
 
 Requirements: FR-UI-006, FR-PVAR-003, M9 exit gate, NFR-P2-005
 Depends on: M9-002, M9-003, M9-004, M9-005, M9-006, M9-007, M9-008, M7-007
@@ -704,8 +728,9 @@ relocations, unknown-byte preservation, failure atomicity, and staged native-tab
 semantic re-read.
 
 Qualification: [M9 MobyDex and moby editing](../../qualification/M9-moby-editing.md).
-The automated gate passes; real-level pack/patch, packaged Windows, and maintainer
-PCSX2 evidence remain pending, so this task and the M9 exit gate are not complete.
+The automated gate passes; real-level pack/patch, packaged Linux/Windows, and
+maintainer PCSX2 evidence remain pending, so this task and the M9 exit gate are not
+complete.
 
 ## M10 — Group engine
 
@@ -896,6 +921,8 @@ automated fixture; see [the reviewed rule contract](../../features/group-templat
 
 ### M11-001 — Promote verified remaining UYA level settings
 
+Status: ✅ Complete
+
 Requirements: FR-LEVEL-001, FR-MOBY-001, NFR-P2-001
 Depends on: M2-018, M3-005, M7-004
 
@@ -926,6 +953,8 @@ source-owned. See [the verified UYA contract](../../features/uya-level-settings.
 
 ### M11-002 — Complete the level settings property UI
 
+Status: ✅ Complete
+
 Requirements: FR-LEVEL-001, FR-UI-004, FR-REF-003, NFR-UX-001
 Depends on: M11-001, M7-005
 
@@ -955,6 +984,8 @@ values.
 
 ### M11-003 — Render death, ship, and sphere semantic aids
 
+Status: ✅ Complete
+
 Requirements: FR-LEVEL-002, FR-GIZMO-001, NFR-PERF-003
 Depends on: M11-001, M7-006
 
@@ -982,27 +1013,38 @@ three aids remain outside project entities, placement/snapping geometry, and bak
 output. Overlay geometry, materials, and textures are reused for the project lifetime
 and disposed on project close.
 
-### M11-004 — Replace area meshes with billboard gizmos
+### M11-004 — Present areas as map-owned groups
 
-Requirements: FR-LEVEL-002, FR-SCENE-002, FR-SCENE-007
-Depends on: M7-006, M2-015
+Status: ✅ Complete
 
-Use the shared billboard for area identity while retaining its authoritative bounding
-sphere and typed spline/cuboid/sphere/cylinder links for properties and bake.
+Requirements: FR-LEVEL-002, FR-GROUP-002, FR-GROUP-003, NFR-P2-003
+Depends on: M2-015, M10-002, M10-003
+
+Treat source areas as baked semantic containers in the parallel Groups panel while
+retaining their authoritative bounds and typed spline/cuboid/sphere/cylinder links.
 
 Acceptance:
 
-- Area pins appear at the documented center, select the original area Entity ID, and
-  expose type/name/link status without rendering the old area sphere as its identity.
-- Optional bounds visualization remains an editor overlay and can be toggled separately
-  for inspection without affecting picking authority or bake.
-- Tree selection/focus, viewport selection, properties, hide/disable/lock, and reference
-  navigation remain synchronized.
-- Large area counts reuse billboard resources and do not create per-area icon textures.
+- Areas appear as map-owned groups, remain distinct from Forge-only Custom groups, and
+  expose their source identity and resolved members without a scene proxy.
+- Selecting or transforming an area operates on its resolved children through ordinary
+  atomic entity commands; authoritative area records and links remain unchanged.
+- Empty areas follow the shared hide-empty control, while non-empty areas remain
+  keyboard navigable alongside map and Custom groups.
+- Scene projection omits the obsolete area wire sphere and does not allocate per-area
+  billboard resources.
 
-Verification: scene projection/picking/resource tests and representative-level check.
+Verification: group projection/navigation/transform tests, scene omission tests, and
+representative-level check.
+
+Completed: areas now live with map and Custom groups in the parallel Groups panel and
+can select or transform their resolved children atomically. Custom groups remain first,
+map-owned types are labeled distinctly, empty baked groups share one compact visibility
+toggle, and scene projection omits area identity geometry entirely.
 
 ### M11-005 — Qualify level settings and scene semantics
+
+Status: 🚧 In progress — automated gate passes; packaged Linux/Windows and PCSX2 evidence remain
 
 Requirements: M11 exit gate, NFR-P2-002, NFR-P2-005
 Depends on: M11-002, M11-003, M11-004
@@ -1014,16 +1056,20 @@ Acceptance:
 
 - Each supported setting survives save/recovery/undo/reorder/build and SDK semantic
   re-read; missing refs produce actionable blockers.
-- Death/ship/sphere/area aids remain visually and keyboard distinguishable at supported
-  scaling and never change baked geometry.
+- Death/ship/sphere aids and area-group rows remain visually and keyboard
+  distinguishable at supported scaling; overlays never change baked geometry.
 - Clean Linux/Windows rebuilds agree and patched UYA observes ship/death/sphere settings
   exercised by the fixture.
 
 Verification: automated matrix, packaged interaction record, and PCSX2 result.
 
+Qualification: [M11 scene semantics and level settings](../../qualification/M11-scene-semantics.md).
+
 ## M12 — Editable tfrags
 
 ### M12-001 — Prove native UYA tfrag piece boundaries and limits
+
+Status: ✅ Complete
 
 Requirements: FR-TFRAG-001, FR-TFRAG-004, FR-SDK-002
 Depends on: M3-003, M3A-006
@@ -1056,6 +1102,8 @@ and non-finite transforms have explicit preflight reasons. See
 [the UYA tfrag piece contract](../../features/uya-tfrag-pieces-v0.md).
 
 ### M12-002 — Add canonical tfrag-piece extraction in the SDK
+
+Status: ✅ Complete
 
 Requirements: FR-TFRAG-001, FR-ASSET-007, NFR-P2-002
 Depends on: M12-001, M7-002
@@ -1090,6 +1138,8 @@ primary plus two streamed chunks under a 1.5 GiB managed-heap cap. See
 
 ### M12-003 — Import tfrag pieces as authoritative project entities
 
+Status: ✅ Complete
+
 Requirements: FR-TFRAG-001, FR-REF-001, NFR-P2-001
 Depends on: M12-002, M7-007
 
@@ -1122,6 +1172,8 @@ missing-source, identity, deduplication, transform separation, structural rules,
 directory-move portability are covered by protocol tests.
 
 ### M12-004 — Render, select, and inspect individual tfrag pieces
+
+Status: ✅ Complete
 
 Requirements: FR-TFRAG-002, FR-SCENE-011, NFR-PERF-001, NFR-PERF-003
 Depends on: M12-003, M2-012
@@ -1156,6 +1208,8 @@ of M12-008 qualification.
 
 ### M12-005 — Support validated tfrag piece transforms
 
+Status: ✅ Complete
+
 Requirements: FR-TFRAG-002, FR-EDIT-001, NFR-P2-002
 Depends on: M12-004, M2-006
 
@@ -1186,39 +1240,38 @@ source geometry. Synthetic boundary tests cover transform order, normal handling
 winding, bounds, repeatability, cancellation, unsupported scales, and overflow; Forge
 protocol tests cover capability exposure, atomic rejection, save/reopen, and history.
 
-### M12-006 — Associate collision with tfrag pieces
+### M12-006 — Generate optional collision for tfrag pieces
+
+Status: ✅ Complete
 
 Requirements: FR-TFRAG-003, FR-COLL-003, NFR-P2-005
 Depends on: M12-003, M12-005
 
-Extend collision recovery to score each source collision component against individual
-tfrag entities in local space and store confident many-to-many Entity-ID links.
+Generate explicit individual or shared collision from a tfrag's canonical local mesh
+without inferring ownership of coarse retail collision components.
 
 Acceptance:
 
-- Scoring documents bounds coverage, center/alignment terms, minimum confidence, clear
-  lead, deterministic tie breaking, and why rejected candidates remain independent.
-- Linked collision and instances translate as one connected component in either
-  direction; source geometry/type bytes are not regenerated from render meshes.
-- Ambiguous/weak/no-match cases retain editable world collision with diagnostics and no
-  silent association.
-- Transformed combined collision passes native octant/size validation before staging.
+- Exact source-LOD modes preserve authored triangle topology; separate bounded
+  decimation modes reduce faces without bridging disconnected surfaces.
+- Individual/shared recipes persist source LOD, raw type, reduction target, and
+  generator version and regenerate deterministically from the attached canonical asset.
+- Generated collision follows translate/rotate/scale edits and passes native
+  octant/size validation before staging.
+- Retail collision remains editable and unchanged unless the user edits it explicitly;
+  Forge creates no proximity-based tfrag links.
 
-Verification: strong/ambiguous/no-match golden fixtures, transform/reverse-link tests,
-and collision budget failure cases.
+Verification: exact-LOD topology, constrained decimation, winding, persistence,
+transform, composition, and collision-budget fixtures.
 
-Deferred: retail tfrag collision components are commonly much coarser than editable
-tfrag groups, so spatially assigning them to individual pieces produces misleading
-ownership and movement behavior. Tfrag editing therefore leaves world collision
-independent until a native collision-group ownership strategy is verified.
-
-Implemented separately: each tfrag piece can generate an individual or shared native
-collision proxy from its canonical local-space mesh. The ordinary collision composer
-applies the piece transform and validates combined octant limits, so generated collision
-tracks translate/rotate/scale edits without inferring ownership of coarse retail
-collision components.
+Completed: each tfrag piece can generate an individual or shared native collision proxy
+from its canonical local mesh using exact LOD or constrained decimation modes. Recipes
+survive save/reopen and the ordinary collision composer applies the piece transform and
+validates combined native limits. Retail collision remains independent by design.
 
 ### M12-007 — Implement target-native tfrag composition and staging
+
+Status: ✅ Complete
 
 Requirements: FR-TFRAG-004, FR-BAKE-001 through FR-BAKE-004, NFR-REL-002
 Depends on: M12-005, M12-006, M3-003
@@ -1231,9 +1284,11 @@ transforms, and semantically re-reads output before atomic staging. Synthetic an
 retail fixtures cover no-edit identity, one-piece isolation, multi-owner composition,
 repeated and clean-build determinism, cancellation/failure rollback, and combined
 translation/rotation/scale. A level09 chunk 2 regression covers simultaneous reduction
-with arbitrary rotation and enlargement against 445 retail groups. Packaged PCSX2 and
-Windows qualification remain for M12-008. Collision remains independent under the
-M12-006 deferral rather than being rewritten from an unproven spatial association.
+with arbitrary rotation and enlargement against 445 retail groups. Packaged
+Linux/Windows and PCSX2 qualification remain for M12-008. Coarse retail collision
+remains independent;
+optional generated collision follows the explicit M12-006 recipe path instead of an
+unproven spatial association.
 
 Add the SDK writer/composer for changed native pieces and integrate deterministic
 primary/chunk terrain output with incremental staging.
@@ -1253,6 +1308,8 @@ Verification: no-edit/one-piece/multi-chunk/determinism/re-read/incremental/canc
 tests and largest-level allocation/throughput profile.
 
 ### M12-008 — Qualify editable tfrags end to end
+
+Status: 🚧 In progress — automated Linux gate passes; packaged Linux/Windows and PCSX2 evidence remain
 
 Requirements: M12 exit gate, FR-BUILD-001, FR-PATCH-005
 Depends on: M12-007, M4-006
@@ -1285,6 +1342,8 @@ Verification: packaged-app qualification report and PCSX2 evidence reference.
 
 ### M13-001 — Freeze the install and update package contract
 
+Status: ⏳ Not started
+
 Requirements: FR-UPD-003 through FR-UPD-005, FR-RELENG-004, NFR-SEC-004
 Depends on: M6-001, M6-002, M6-003, M6-004
 
@@ -1309,6 +1368,8 @@ matrix.
 
 ### M13-002 — Download verified full packages with progress/cancellation
 
+Status: ⏳ Not started
+
 Requirements: FR-UPD-004, FR-UPD-002, NFR-REL-003, NFR-SEC-004
 Depends on: M13-001, M6-004
 
@@ -1331,6 +1392,8 @@ Verification: local fake-release server tests for success, cancellation, corrupt
 redirect, timeout, oversize, disk error, concurrency, and resume-state discovery.
 
 ### M13-003 — Extract and validate a staged installation safely
+
+Status: ⏳ Not started
 
 Requirements: FR-UPD-004, NFR-SEC-003, NFR-REL-002, NFR-P2-004
 Depends on: M13-002
@@ -1355,6 +1418,8 @@ and Linux/Windows clean-package tests.
 
 ### M13-004 — Activate updates out of process with rollback
 
+Status: ⏳ Not started
+
 Requirements: FR-UPD-005, FR-UPD-002, NFR-REL-001, NFR-REL-002
 Depends on: M13-003
 
@@ -1378,6 +1443,8 @@ matrix, rollback launch, and clean Linux/Windows VM upgrades.
 
 ### M13-005 — Add update badge and lifecycle UI
 
+Status: ⏳ Not started
+
 Requirements: FR-UPD-004, FR-UPD-005, FR-UI-008, NFR-UX-001
 Depends on: M7-001, M13-002, M13-003, M13-004
 
@@ -1399,6 +1466,8 @@ Acceptance:
 Verification: state/component/accessibility tests and packaged update walkthrough.
 
 ### M13-006 — Qualify secure full-package updates
+
+Status: ⏳ Not started
 
 Requirements: FR-UPD-004, FR-UPD-005, NFR-SEC-004, NFR-REL-001
 Depends on: M13-004, M13-005
@@ -1422,6 +1491,8 @@ Verification: clean VM matrix, malicious fixture suite, checkpoint fault injecti
 and signed qualification report.
 
 ### M13-007 — Run the P2 release qualification gate
+
+Status: ⏳ Not started
 
 Requirements: P2 release gate, all P2 functional requirements and NFR refinements
 Depends on: M7-007, M8-008, M9-009, M10-005, M11-005, M12-008, M13-006

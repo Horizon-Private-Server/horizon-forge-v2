@@ -1578,7 +1578,8 @@ with every conversion compromise reported.
 - HUD/FX texture-bank authoring as the first override-system integration.
 - MobyDex-backed moby instance/PVar editing and semantic groups.
 - Semantic level-setting gizmos.
-- Native-piece tfrag transforms and collision association.
+- Native-piece tfrag transforms with explicit generated collision; coarse retail
+  collision remains independently authored.
 - Verified full-package self-updates for supported install layouts.
 
 Detailed requirements, dependencies, milestone exits, and deferrals are defined by

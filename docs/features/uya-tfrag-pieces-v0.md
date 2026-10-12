@@ -1,8 +1,7 @@
 # UYA tfrag piece contract v0
 
-Status: boundary frozen for M12-001; canonical extraction, project import,
-entity-aware rendering, validated transforms, and native in-place composition
-implemented (2026-10-11)
+Status: M12-001 through M12-007 implemented; packaged cross-platform and PCSX2
+qualification remains under M12-008 (2026-10-11)
 
 This note fixes the native ownership boundary and initial transform policy used by
 M12-002 onward. Binary parsing, canonical extraction, and composition remain SDK
@@ -245,3 +244,17 @@ assets; SDK transform math supplies deterministic native-space positions, normal
 winding, and bounds to the native composer. Tfrag collision stays independent because
 the retail collision groupings observed so far are substantially coarser than editable
 tfrag groups and do not provide a deterministic one-to-one ownership relation.
+
+## Generated collision
+
+Forge does not infer links from retail collision to individual tfrag groups. A piece
+may instead own an explicit individual or shared instanced-collision recipe generated
+from its attached canonical local mesh. Exact modes retain the selected source LOD's
+triangle topology; separate constrained-decimation modes reduce faces without merging
+disconnected surfaces or bridging source holes. Recipes retain the source LOD, raw
+collision type, target ratio, and generator version so regeneration is deterministic.
+
+The existing collision composer applies the authoritative tfrag transform, preserves
+one-sided winding, and validates native octant and size limits before staging. Removing
+or disabling generated collision leaves independently authored retail collision
+unchanged.

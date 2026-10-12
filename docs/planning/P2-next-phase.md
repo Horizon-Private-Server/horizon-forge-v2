@@ -1,6 +1,6 @@
 # P2 — Advanced authoring
 
-Status: Draft 0.1
+Status: In progress — M7 through M12 implemented; cross-platform qualification and M13 remain
 Priority: P2
 Depends on: P0 release contracts, P1 project-attached assets where noted
 Task register: [P2 tasks](tasks/P2-tasks.md)
@@ -34,8 +34,11 @@ preserved and disclosed rather than guessed.
 - **No blind index conversion.** A raw integer becomes a reference only when a
   game-specific layout or MobyDex field proves its meaning, null sentinel, target
   kind, and bake encoding. Unknown integers remain opaque.
-- **Groups are editor-only organization.** Manual and template groups never enter
+- **Custom groups are editor-only organization.** Manual and template groups never enter
   game binaries. A group transform emits ordinary entity transform commands.
+- **Areas are map-owned groups, not scene objects.** The Groups panel exposes areas as
+  baked containers whose member transforms use ordinary entity commands. Forge does
+  not render a separate area identity mesh or billboard.
 - **MobyDex is local in P2.** A versioned built-in dataset ships with Forge and a
   project may carry custom entries. Independent network updates are deferred until
   schema compatibility and artifact signing are proven.
@@ -46,6 +49,9 @@ preserved and disclosed rather than guessed.
 - **Tfrag editing means native-piece transforms.** P2 splits source tfrags at proven
   native group boundaries and supports piece translate/rotate/scale. It does not add
   vertex-, face-, UV-, or material-authoring tools.
+- **Tfrag collision is explicit.** Retail collision remains independent because its
+  native groupings do not deterministically map to individual tfrag pieces. Users may
+  instead generate optional instanced collision from a piece's canonical local mesh.
 - **Full-package updates precede deltas.** Only Forge-managed, user-writable install
   layouts self-update. Package-manager or protected installs receive a clear handoff.
 
@@ -324,8 +330,9 @@ saved, fingerprinted, and written by the game adapter.
   with repeating skull markers, sized from scene bounds with a safe fallback.
 - Ship position and spherical-world center use FR-GIZMO-001 with distinct icons and
   non-color labels.
-- Area entities replace their current wire-sphere mesh with the shared billboard while
-  preserving authoritative bounds, picking, selection, and properties.
+- Area records appear as baked group containers in the parallel Groups panel. Selecting
+  or transforming an area acts on its resolved children without projecting a separate
+  area object into the scene; empty areas follow the shared hide-empty setting.
 
 These aids are renderer projections of project data and never become baked meshes.
 
@@ -348,13 +355,14 @@ mirrored/non-uniform scales are rejected explicitly. Transform application updat
 vertices, normals/winding, bounds, chunk/group metadata, and bake fingerprints as the
 native format requires.
 
-#### FR-TFRAG-003: Collision association
+#### FR-TFRAG-003: Explicit generated collision
 
-The existing collision association approach is extended to rank native collision
-pieces against individual tfrag entities in local space. It records every qualifying
-many-to-many Entity-ID link using documented coverage/alignment thresholds. Linked
-translation propagates across the connected component and is revalidated against
-native collision budgets.
+Retail collision remains independent from individual tfrag entities because the
+observed native collision groupings are substantially coarser than editable terrain
+groups and provide no deterministic ownership key. A tfrag may opt into individual or
+shared instanced collision generated from a selected canonical source LOD or a bounded
+decimation. Generated collision follows the piece transform and is revalidated against
+native collision budgets; Forge never creates proximity-based retail links silently.
 
 #### FR-TFRAG-004: Native bake
 
@@ -435,6 +443,8 @@ relationships, and opaque data.
 
 ### M7 — Authoring foundations and workspace chrome
 
+Status: implementation complete; packaged Linux/Windows accessibility qualification pending
+
 Deliver the compact ribbon, generalized project-attached assets, exact override
 bindings, stable typed references, shared reference UI, and billboard primitive.
 
@@ -444,6 +454,8 @@ the compact ribbon and billboard pass keyboard/high-DPI checks.
 
 ### M8 — HUD and FX texture authoring
 
+Status: implementation complete; packaged Linux/Windows and PCSX2 qualification pending
+
 Deliver SDK read/write contracts, lazy main viewports, exact texture overrides, append
 flows, per-game labels/IDs, incremental rebuilds, and target-limit diagnostics.
 
@@ -452,6 +464,8 @@ transfer, bake/build/patch, and PCSX2 verification with stable existing indexes.
 display/validation fixtures pass without claiming a writable DL project pipeline.
 
 ### M9 — MobyDex and moby editing
+
+Status: implementation complete; real-level, packaged Linux/Windows, and PCSX2 qualification pending
 
 Deliver per-game moby instance descriptors, instance editing, the MobyDex schema and
 validation/contribution flow, lossless structured PVar editing, reference-aware fields,
@@ -463,6 +477,8 @@ or incompatible definitions cannot mutate a project.
 
 ### M10 — Group engine
 
+Status: complete
+
 Deliver persisted manual groups, the parallel group tree, atomic group transforms, a
 versioned template evaluator, and initial node/siege templates.
 
@@ -472,22 +488,30 @@ not silently overwrite manual membership.
 
 ### M11 — Scene semantics and level settings
 
+Status: implementation complete; packaged Linux/Windows and PCSX2 qualification pending
+
 Deliver remaining verified level settings, typed ship references, death-height plane,
-ship/sphere billboards, and billboard-based area rendering.
+ship/sphere billboards, and map-owned area groups.
 
 Exit: settings edit and round-trip through UYA output, every semantic aid selects the
-right authoritative data, and no overlay appears in baked scene geometry.
+right authoritative data, areas transform their resolved children without a scene
+proxy, and no overlay appears in baked scene geometry.
 
 ### M12 — Editable tfrags
 
+Status: implementation complete; packaged Linux/Windows and streamed-piece PCSX2 qualification pending
+
 Deliver proven native piece boundaries, per-piece entities/rendering/transforms,
-collision association, SDK writing, and incremental bake qualification.
+explicit generated collision, SDK writing, and incremental bake qualification.
 
 Exit: representative primary and chunk tfrag pieces can be moved, rotated, and scaled,
-with confidently associated collision following them, then rebuilt and verified in
-PCSX2; untouched terrain retains the qualified no-edit identity.
+with optional generated collision following them, then rebuilt and verified in PCSX2;
+retail collision remains unchanged and untouched terrain retains the qualified no-edit
+identity.
 
 ### M13 — Full-package updater and P2 qualification
+
+Status: not started
 
 Deliver an explicit install-layout contract, secure full-package download/extraction,
 out-of-process activation/rollback, ribbon update state, and the combined release gate.
@@ -503,11 +527,12 @@ application.
 - A general in-app schema designer or executable/user-authored group templates.
 - Automatic inference of unknown PVar/index meanings.
 - Tfrag vertex/face/UV/material authoring and terrain generation.
+- Inferred ownership links between coarse retail collision and individual tfrag groups.
 - Insertion/reordering of existing FX indexes.
 - A writable DL level pipeline solely to expose P2 controls.
 - Delta application updates.
 
-## Discovery evidence and unresolved gates
+## Discovery evidence and remaining gates
 
 - Forge v1's
   [`pvar_overlay.json`](https://github.com/Horizon-Private-Server/horizon-forge/blob/develop/pvar_overlay.json)
@@ -530,7 +555,10 @@ application.
   M8-003 now imports exact HUD source identities into schema 13, routes replacements
   through asset overrides, stores appended `Exxx` icons as direct attached-texture
   references, and exposes bounded undoable bridge commands.
-- M12-001 must prove the source-native tfrag group boundary and writer constraints.
+- M12-001 froze one native table record and its complete multi-LOD data range as the
+  editable tfrag unit. M12-002 through M12-007 now cover canonical extraction,
+  project entities, rendering, transforms, explicit generated collision, and native
+  composition; packaged cross-platform and PCSX2 evidence remains under M12-008.
 - M13-001 must freeze which packaged install layouts can be replaced and rolled back
   safely before implementation begins.
 
