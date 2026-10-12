@@ -84,7 +84,8 @@ public sealed record ProjectEntity(
     ProjectAmbientSoundInstance? AmbientSound = null,
     ProjectSkyShell? SkyShell = null,
     ProjectCollisionPiece? Collision = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? InstancedCollisionEnabled = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? InstancedCollisionEnabled = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ProjectTfragPiece? Tfrag = null);
 
 public sealed record ProjectAttachedAsset(
     AssetId Id,
@@ -226,7 +227,8 @@ public sealed record ForgeProjectContent(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ProjectHudState? Hud = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ProjectFxState? Fx = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ProjectMobyDexState? MobyDex = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ProjectMobyPVarState? MobyPVars = null)
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ProjectMobyPVarState? MobyPVars = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ProjectTfragState? Tfrags = null)
 {
     public IReadOnlyList<ProjectGroup> Groups { get; init; } = [];
 }

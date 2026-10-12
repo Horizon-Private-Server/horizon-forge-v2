@@ -46,6 +46,7 @@ internal static class Program
             await BakeLayerTests.RunAsync();
             await EditorRuntimeTests.RunAsync();
             await UyaProjectTests.RunAsync();
+            await UyaTfragProjectTests.RunAsync();
             await UyaBakeWorkflowTests.RunAsync();
             await UyaRenderPackageTests.RunAsync();
             await UyaArchiveBuildTests.RunAsync();
@@ -341,9 +342,10 @@ internal static class Program
         collisionPreviewWriter.WriteUInt32(9);
         collisionPreviewWriter.WriteUInt32(2);
         collisionPreviewWriter.WriteBoolean(true);
+        collisionPreviewWriter.WriteSingle(0.75f);
         var collisionPreviewRequest = EditorPayloadCodec.DecodeInstancedCollisionPreviewRequest(collisionPreviewWriter.ToArray());
         Equal(parentEntityId, collisionPreviewRequest.EntityId, "instanced collision preview entity payload");
-        Equal(new EditorInstancedCollisionGenerationSettings(0xa7, 9, 1, true), collisionPreviewRequest.Settings,
+        Equal(new EditorInstancedCollisionGenerationSettings(0xa7, 9, 1, true, 0.75f), collisionPreviewRequest.Settings,
             "instanced collision generation settings payload");
         var invalidCollisionPreviewWriter = new PayloadWriter();
         invalidCollisionPreviewWriter.WriteString(parentEntityId.ToString());
@@ -352,6 +354,7 @@ internal static class Program
         invalidCollisionPreviewWriter.WriteUInt32(6);
         invalidCollisionPreviewWriter.WriteUInt32(0);
         invalidCollisionPreviewWriter.WriteBoolean(false);
+        invalidCollisionPreviewWriter.WriteSingle(1f);
         Expect(BridgeErrorCode.MalformedPayload, () =>
             EditorPayloadCodec.DecodeInstancedCollisionPreviewRequest(invalidCollisionPreviewWriter.ToArray()));
 

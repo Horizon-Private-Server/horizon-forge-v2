@@ -37,6 +37,9 @@ internal static class ForgeProjectTests
             var project = await ForgeProjectWorkspace.CreateAsync(originalPath, "Portable project", target, baseLevel, entities);
             var otherProject = await ForgeProjectWorkspace.CreateAsync(otherPath, "Other project", target, baseLevel, entities);
             Equal(false, project.IsDirty, "new project is clean after creation");
+            var cachedFingerprint = project.CurrentFingerprint;
+            Equal(true, ReferenceEquals(cachedFingerprint, project.CurrentFingerprint),
+                "unchanged project fingerprint is memoized");
             Equal(ProjectPaletteOptimization.Default, project.Manifest.Target.PaletteOptimization,
                 "new projects store the default palette optimization profile");
             var defaultPaletteFingerprint = project.CurrentFingerprint;

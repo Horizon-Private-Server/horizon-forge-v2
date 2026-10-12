@@ -9,6 +9,7 @@ internal static class UyaEditorCapabilities
         const EditorTransformCapabilities all = EditorTransformCapabilities.Translate
             | EditorTransformCapabilities.Rotate | EditorTransformCapabilities.Scale;
         if (entity.Provenance is not { Game: "UYA" }) return EditorTransformCapabilities.None;
+        if (entity.Tfrag is not null) return all;
         if (entity.Collision is not null)
             return EditorTransformCapabilities.Translate | EditorTransformCapabilities.Rotate;
         if (entity.Camera is not null) return EditorTransformCapabilities.Translate | EditorTransformCapabilities.Rotate;

@@ -132,7 +132,12 @@ public static class OpaqueContentStore
         var opaqueRoot = ForgeProjectPersistence.ResolveRelativePath(projectRoot, RelativeRootPath);
         var manifest = inspection.Manifest!;
         var manifestBytes = ForgeProjectPersistence.Serialize(manifest);
-        return await staging.CommitAsync(plan, async (output, token) =>
+        var sectionsByBlob = manifest.Sections.GroupBy(value => value.Blob, StringComparer.Ordinal)
+            .ToDictionary(value => value.Key, value => value.ToArray(), StringComparer.Ordinal);
+        var expectedFiles = sectionsByBlob.Keys
+            .Append(ManifestFileName)
+            .ToHashSet(StringComparer.Ordinal);
+        return await staging.CommitFilesAsync(plan, async (output, token) =>
         {
             await ForgeProjectPersistence.WriteFileSafelyAsync(
                 Path.Combine(output, ManifestFileName),
@@ -145,18 +150,19 @@ public static class OpaqueContentStore
                 Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
                 await CopyFileAsync(source, destination, token);
             }
-        }, async (output, token) =>
+        }, expectedFiles, (relativePath, bytes, _) =>
         {
-            if (!(await File.ReadAllBytesAsync(Path.Combine(output, ManifestFileName), token)).SequenceEqual(manifestBytes))
-                throw new InvalidDataException("Opaque staged manifest changed during write.");
-            foreach (var section in manifest.Sections)
+            if (relativePath == ManifestFileName)
             {
-                var bytes = await File.ReadAllBytesAsync(
-                    ForgeProjectPersistence.ResolveRelativePath(output, section.Blob), token);
-                if (bytes.LongLength != section.Size
-                    || Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant() != section.Checksum)
-                    throw new InvalidDataException($"Opaque staged section {section.Name} failed size or checksum validation.");
+                if (!bytes.SequenceEqual(manifestBytes))
+                    throw new InvalidDataException("Opaque staged manifest changed during write.");
+                return ValueTask.CompletedTask;
             }
+            var checksum = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+            if (!sectionsByBlob.TryGetValue(relativePath, out var sections)
+                || sections.Any(value => bytes.LongLength != value.Size || checksum != value.Checksum))
+                throw new InvalidDataException($"Opaque staged blob {relativePath} failed size or checksum validation.");
+            return ValueTask.CompletedTask;
         }, cancellationToken);
     }
 

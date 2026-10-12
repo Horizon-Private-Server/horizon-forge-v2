@@ -6,11 +6,12 @@ import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 
 import { SceneProjection } from '../src/renderer/editor/SceneProjection.ts';
+import { addTfragTemplates, tfragSourceIndex } from '../src/renderer/editor/TfragTemplates.ts';
 import { SceneBillboardResources } from '../src/renderer/editor/SceneBillboardGizmo.ts';
 import {
   LevelSettingsOverlayProjection, levelSettingsPositionField,
 } from '../src/renderer/editor/LevelSettingsOverlayProjection.ts';
-import { verticalDragScale } from '../src/renderer/editor/TransformTool.ts';
+import { constrainTfragScale, verticalDragScale } from '../src/renderer/editor/TransformTool.ts';
 import {
   expandLinkedCollisionTransforms, indexLinkedCollisionTransforms, inspectTransformSelection,
 } from '../src/utils/TransformSelection.ts';
@@ -100,6 +101,10 @@ test('vertical gizmo drags provide stable scale control', () => {
   assert.equal(verticalDragScale(1, 200, null), 2);
   assert.equal(verticalDragScale(1, -200, null), 0.5);
   assert.equal(verticalDragScale(1, 30, 0.1), 1.1);
+  const transform = entity('tfrag-scale').transform;
+  transform.scale = { x: 2, y: 2.000001, z: 1.999999 };
+  constrainTfragScale(transform);
+  assert.deepEqual(transform.scale, { x: 2, y: 2, z: 2 });
 });
 
 test('group transform eligibility is atomic and deduplicated', () => {
@@ -772,8 +777,11 @@ test('scene projection merges matching parts, instances assets, and resolves ins
   assert.equal(mesh.count, 2);
   assert.notEqual(mesh.getColorAt(1, new THREE.Color()).getHexString(), 'ffffff');
   const selectionOutlines = projection.getSelectionOutlineObjects();
+  assert.equal(projection.getSelectionOutlineObjects(), selectionOutlines);
   assert.equal(selectionOutlines.length, 1);
   assert.equal(selectionOutlines[0].children.length, 2);
+  assert.equal((selectionOutlines[0].children[0] as THREE.Mesh).geometry, geometry);
+  assert.equal(projection.root.children.includes(selectionOutlines[0]), false);
   assert.equal(mesh.geometry.getAttribute('position').count, geometry.getAttribute('position').count * 2);
   assert.equal(projection.resolvePick([{ object: mesh, instanceId: 1 }] as unknown as THREE.Intersection[]), 'b');
   assert.ok(Math.abs(projection.getBounds('b')!.getCenter(new THREE.Vector3()).x - 10) < 1e-6);
@@ -788,6 +796,145 @@ test('scene projection merges matching parts, instances assets, and resolves ins
 
   projection.dispose();
   disposeObject(template);
+});
+
+test('tfrag source groups become local entity templates with exact picking and visibility', () => {
+  const scene = new THREE.Group();
+  const lod = new THREE.Group();
+  lod.name = 'lod_0';
+  const source = new THREE.Mesh(
+    new THREE.BoxGeometry(2, 2, 2).translate(10, 30, -20),
+    new THREE.MeshBasicMaterial(),
+  );
+  source.name = 'chunk_0007_lod_0';
+  lod.add(source);
+  scene.add(lod);
+  const piece = entity('piece');
+  piece.layer = 'tfrags';
+  piece.asset = { id: 'tfrag-asset', kind: 'Tfrag' };
+  piece.transform.position = { x: 14, y: 25, z: 35 };
+  piece.transform.rotation = { x: 0, y: 0, z: 0.38268343, w: 0.9238795 };
+  piece.transform.scale = { x: 1.5, y: 1.5, z: 1.5 };
+  piece.transformModes = [];
+  piece.tfrag = {
+    sourceArchive: 'level_wad/assets/asset_wad.bin', sourceKind: 'primary', sourceIndex: 0, groupIndex: 7,
+    occlusionIndex: -1, occlusionIndexStash: 0, textureIds: [3],
+    sourcePosition: { x: 10, y: 20, z: 30 },
+    bounds: { minimum: { x: -1, y: -1, z: -1 }, maximum: { x: 1, y: 1, z: 1 }, radius: 2 },
+  };
+  const repeatedPiece = structuredClone(piece);
+  repeatedPiece.id = 'repeated-piece';
+  repeatedPiece.transform.position.x = 24;
+  repeatedPiece.tfrag!.groupIndex = 8;
+  repeatedPiece.tfrag!.sourcePosition = { x: 20, y: 20, z: 30 };
+  const templates = new Map<string, THREE.Object3D>();
+  const result = addTfragTemplates(
+    scene, 'forge-asset://cache/assets/tfrag/tfrag.gltf', [piece, repeatedPiece], templates,
+  );
+  assert.equal(tfragSourceIndex('forge-asset://cache/assets/tfrag/chunks/chunk12/tfrag.gltf'), 12);
+  assert.deepEqual(result, { matched: 2, missingAssetIds: [] });
+
+  const projection = new SceneProjection();
+  projection.setAssetTemplates(templates);
+  projection.sync([piece, repeatedPiece]);
+  const mesh = projection.root.getObjectByProperty('isBatchedMesh', true) as THREE.BatchedMesh;
+  assert.ok(mesh);
+  assert.equal(mesh.instanceCount, 2);
+  assert.equal(mesh.getGeometryIdAt(0), mesh.getGeometryIdAt(1));
+  assert.equal(mesh.perObjectFrustumCulled, true);
+  assert.equal(mesh.sortObjects, false);
+  assert.equal(projection.resolvePick([
+    { object: mesh, batchId: 0 },
+  ] as unknown as THREE.Intersection[]), piece.id);
+  const center = projection.getBounds(piece.id)!.getCenter(new THREE.Vector3());
+  assert.ok(center.distanceTo(new THREE.Vector3(14, 35, -25)) < 1e-6);
+  projection.setTfragsVisible(false);
+  projection.sync([piece, repeatedPiece]);
+  assert.equal(mesh.getVisibleAt(0), false);
+  projection.setAssetTemplates(new Map());
+  assert.equal(projection.root.getObjectByProperty('isBatchedMesh', true), undefined);
+  projection.setAssetTemplates(templates);
+  projection.setTfragsVisible(true);
+  projection.sync([piece, repeatedPiece]);
+  const reloadedBatches: THREE.BatchedMesh[] = [];
+  projection.root.traverse((object) => {
+    if (object instanceof THREE.BatchedMesh) reloadedBatches.push(object);
+  });
+  assert.equal(reloadedBatches.length, 1);
+  projection.dispose();
+  disposeObject(scene);
+});
+
+test('largest observed complete-level tfrag count stays in shared material batches', () => {
+  const count = 1_006;
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute([
+    0, 0, 0, 1, 0, 0, 0, 1, 0,
+  ], 3));
+  geometry.setIndex([0, 1, 2]);
+  const material = new THREE.MeshBasicMaterial();
+  const templates = new Map<string, THREE.Object3D>();
+  const pieces = Array.from({ length: count }, (_, index) => {
+    const value = entity(`tfrag-${index}`, index);
+    value.layer = 'tfrags';
+    value.asset = { id: `tfrag-asset-${index}`, kind: 'Tfrag' };
+    value.transformModes = [];
+    value.tfrag = {
+      sourceArchive: 'level_wad/assets/asset_wad.bin', sourceKind: 'primary', sourceIndex: 0, groupIndex: index,
+      occlusionIndex: -1, occlusionIndexStash: 0, textureIds: [0],
+    };
+    templates.set(value.asset.id, new THREE.Mesh(geometry, material));
+    return value;
+  });
+  const projection = new SceneProjection();
+  projection.setAssetTemplates(templates);
+  const started = performance.now();
+  projection.sync(pieces, [pieces.at(-1)!.id]);
+  const elapsed = performance.now() - started;
+  const batches: THREE.BatchedMesh[] = [];
+  projection.root.traverse((object) => { if (object instanceof THREE.BatchedMesh) batches.push(object); });
+  assert.equal(batches.length, 1);
+  assert.equal(projection.root.children.length, 1);
+  assert.equal(batches[0].instanceCount, count);
+  assert.equal(projection.resolvePick([
+    { object: batches[0], batchId: count - 1 },
+  ] as unknown as THREE.Intersection[]), pieces.at(-1)!.id);
+  assert.ok(elapsed < 2_000, `projecting ${count} tfrag pieces took ${elapsed.toFixed(1)} ms`);
+  projection.dispose();
+  assert.equal(projection.root.children.length, 0);
+  geometry.dispose();
+  material.dispose();
+});
+
+test('large multi-selections keep tinting and use one bounded outline proxy', () => {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute([
+    0, 0, 0, 1, 0, 0, 0, 1, 0,
+  ], 3));
+  geometry.setIndex([0, 1, 2]);
+  const material = new THREE.MeshBasicMaterial();
+  const template = new THREE.Mesh(geometry, material);
+  const templates = new Map<string, THREE.Object3D>();
+  const pieces = Array.from({ length: 65 }, (_, index) => {
+    const value = entity(`bulk-tfrag-${index}`, index);
+    value.asset = { id: `bulk-tfrag-asset-${index}`, kind: 'Tfrag' };
+    value.tfrag = {
+      sourceArchive: 'level_wad/assets/asset_wad.bin', sourceKind: 'primary', sourceIndex: 0, groupIndex: index,
+      occlusionIndex: -1, occlusionIndexStash: 0, textureIds: [0],
+    };
+    templates.set(value.asset.id, template);
+    return value;
+  });
+  const projection = new SceneProjection();
+  projection.setAssetTemplates(templates);
+  projection.sync(pieces, pieces.map((piece) => piece.id));
+  assert.equal(projection.getSelectionOutlineObjects().length, 1);
+  assert.equal(projection.getSelectionOutlineObjects()[0].name, 'Selection bounds outline');
+  const batch = projection.root.getObjectByProperty('isBatchedMesh', true) as THREE.BatchedMesh;
+  assert.equal(batch.getColorAt(0, new THREE.Color()).getHexString(), 'fffeff');
+  projection.dispose();
+  geometry.dispose();
+  material.dispose();
 });
 
 test('asset template bounds use the visible rendered geometry', () => {
@@ -850,14 +997,11 @@ test('scene projection batches unique collision pieces and resolves batch picks'
 
   const meshes: THREE.BatchedMesh[] = [];
   projection.root.traverse((object) => { if (object instanceof THREE.BatchedMesh) meshes.push(object); });
-  const outlines = projection.getSelectionOutlineObjects();
   assert.equal(meshes.length, 1);
   assert.equal(meshes[0].instanceCount, 2);
-  assert.equal(meshes[0].getColorAt(1, new THREE.Color()).getHexString(), '22d3ee');
-  assert.equal(outlines.length, 1);
-  const outlineMesh = outlines[0].children[0] as THREE.Mesh;
-  assert.equal(outlineMesh.material instanceof THREE.MeshBasicMaterial, true);
-  assert.equal((outlineMesh.material as THREE.MeshBasicMaterial).colorWrite, false);
+  assert.equal(meshes[0].getColorAt(1, new THREE.Color()).getHexString(), 'fffeff');
+  assert.equal(projection.root.children.length, 1);
+  assert.equal(projection.getSelectionOutlineObjects().length, 1);
   assert.equal(projection.resolvePick([
     { object: meshes[0], batchId: 1 },
   ] as unknown as THREE.Intersection[]), 'b');
@@ -1091,7 +1235,7 @@ test('PS2 fog clamps to the game far intensity instead of increasing to full fog
 });
 
 test('player barrier materials receive a stable translucent stripe decorator', () => {
-  const material = new THREE.MeshBasicMaterial({ transparent: true });
+  const material = new THREE.MeshBasicMaterial({ transparent: true, side: THREE.DoubleSide });
   material.name = 'player_barrier';
   const root = new THREE.Mesh(new THREE.BoxGeometry(), material);
   configureCollisionMaterials(root, DEFAULT_UYA_COLLISION_VISUALIZATION);
@@ -1099,6 +1243,7 @@ test('player barrier materials receive a stable translucent stripe decorator', (
   configureCollisionMaterials(root, DEFAULT_UYA_COLLISION_VISUALIZATION);
   assert.equal(material.onBeforeCompile, compile);
   assert.equal(material.depthWrite, false);
+  assert.equal(material.side, THREE.FrontSide);
   assert.match(material.customProgramCacheKey(), /player-barrier-object-stripes/);
   const shader = {
     vertexShader: 'void main() {\n#include <begin_vertex>\n}',
@@ -1119,7 +1264,7 @@ test('solid collision materials combine live nibble palettes with a size-indepen
   geometry.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3));
   geometry.setAttribute('_collision_type', new THREE.Uint8BufferAttribute([11, 11, 11], 1));
   geometry.setAttribute('_sound_type', new THREE.Uint8BufferAttribute([10, 10, 10], 1));
-  const material = new THREE.MeshBasicMaterial();
+  const material = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide });
   material.name = 'solid_collision';
   const root = new THREE.Mesh(geometry, material);
   configureCollisionMaterials(root, DEFAULT_UYA_COLLISION_VISUALIZATION);
@@ -1133,9 +1278,23 @@ test('solid collision materials combine live nibble palettes with a size-indepen
   assert.match(shader.vertexShader, /_collision_type/);
   assert.match(shader.fragmentShader, /forgeSoundColors\[forgeSoundIndex\], 0\.2/);
   assert.match(shader.fragmentShader, /forgeFaceNormal.*cross/s);
-  assert.match(shader.fragmentShader, /mix\(forgeSurfaceColor, forgeSelectionColor, forgeSelected\).*forgeLight/s);
+  assert.match(shader.fragmentShader,
+    /mix\(forgeSurfaceColor, forgeCollisionObjectColor, forgeCollisionSelected\).*forgeLight/s);
   assert.equal(material.vertexColors, false);
+  assert.equal(material.side, THREE.FrontSide);
   assert.doesNotMatch(shader.fragmentShader, /gl_FragCoord/);
+
+  const selectedMaterial = createSelectionOverrideMaterial(material, new THREE.Color('#22d3ee'));
+  const selectedShader = {
+    vertexShader: 'void main() {\n#include <begin_vertex>\n#include <project_vertex>\n#include <color_vertex>\n}',
+    fragmentShader: 'void main() {\n#include <color_fragment>\n#include <opaque_fragment>\n}',
+    uniforms: {} as Record<string, { value: THREE.Color | THREE.Color[] }>,
+  };
+  selectedMaterial.onBeforeCompile(selectedShader as never, {} as never);
+  assert.match(selectedShader.fragmentShader, /uniform vec3 forgeSelectionColor;/);
+  assert.doesNotMatch(selectedShader.fragmentShader, /vec3 forgeSelectionColor =/);
+  assert.match(selectedShader.fragmentShader, /outgoingLight = forgeSelectionColor \* mix/);
+  selectedMaterial.dispose();
   const changed = {
     ...DEFAULT_UYA_COLLISION_VISUALIZATION,
     collisionTypeColors: [...DEFAULT_UYA_COLLISION_VISUALIZATION.collisionTypeColors],
@@ -1240,6 +1399,14 @@ test('PS2 blend materials normalize byte 127 to full opacity', () => {
   disposeObject(root);
 });
 
+test('tfrag materials render front faces only', () => {
+  const material = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide });
+  const root = new THREE.Mesh(new THREE.BufferGeometry(), material);
+  configurePs2MaterialAlpha(root, 'tfrag');
+  assert.equal(material.side, THREE.FrontSide);
+  disposeObject(root);
+});
+
 test('selected asset materials tint textured luminance while preserving alpha', () => {
   const source = new THREE.MeshBasicMaterial({ map: new THREE.Texture(), transparent: true });
   const selectionColor = new THREE.Color('#22d3ee');
@@ -1251,6 +1418,7 @@ test('selected asset materials tint textured luminance while preserving alpha', 
   };
   material.onBeforeCompile(shader as never, {} as never);
   assert.match(shader.vertexShader, /vForgeInstanceColor = instanceColor\.rgb/);
+  assert.match(shader.vertexShader, /vForgeInstanceColor = getBatchingColor\(getIndirectIndex\(gl_DrawID\)\)\.rgb/);
   assert.match(shader.fragmentShader, /distance\(vForgeInstanceColor, forgeInstanceSelectionMarker\) < 0\.001/);
   assert.match(shader.fragmentShader, /forgeSelectionLuminance = dot\(outgoingLight/);
   assert.match(shader.fragmentShader, /outgoingLight = forgeSelectionColor \* mix/);
@@ -1499,6 +1667,7 @@ test('mirrored instances use a culling-aware outer reflection without changing t
   mirroredMesh.getMatrixAt(0, instanceMatrix);
   assert.ok(instanceMatrix.determinant() > 0);
   assert.ok(mirroredMesh.matrix.clone().multiply(instanceMatrix).determinant() < 0);
+  assert.equal(mirroredMesh.getColorAt(0, new THREE.Color()).getHexString(), 'fffeff');
   assert.ok(projection.getSelectionOutlineObjects()[0].matrix.determinant() < 0);
   projection.dispose();
   disposeObject(template);

@@ -20,7 +20,8 @@ public sealed record ProjectInstancedCollisionRecipe(
     float SealOpeningSize = 0,
     float SurfaceOffset = 0,
     bool OpenBase = false,
-    int ProfileSections = 0);
+    int ProfileSections = 0,
+    float TargetFaceRatio = 1f);
 
 public sealed record ProjectCollisionFaceTypeOverride(int FaceIndex, byte RawType);
 
@@ -35,5 +36,5 @@ internal static class ProjectInstancedCollisionExtensions
 {
     public static bool IsInstancedCollisionSource(
         [NotNullWhen(true)] this ProjectAssetReference? asset) =>
-        asset?.Kind is AssetKind.Tie or AssetKind.Shrub;
+        asset?.Kind is AssetKind.Tie or AssetKind.Shrub or AssetKind.Tfrag;
 }

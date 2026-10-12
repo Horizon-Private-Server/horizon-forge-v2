@@ -14,20 +14,75 @@ public static class UyaBakeValidationService
         IReadOnlySet<string>? acknowledgedWarnings = null,
         bool rebuildAll = false,
         CancellationToken cancellationToken = default)
+        => (await PrepareAsync(projectRoot, catalog, context, acknowledgedWarnings,
+            rebuildAll, cancellationToken)).Validation;
+
+    internal static Task<UyaBakePreparation> PrepareAsync(
+        string projectRoot,
+        AssetCatalogStore catalog,
+        BakeFingerprintContext context,
+        IReadOnlySet<string>? acknowledgedWarnings,
+        bool rebuildAll,
+        CancellationToken cancellationToken) => PrepareAsync(
+            projectRoot, catalog, context, acknowledgedWarnings, rebuildAll, null, cancellationToken);
+
+    internal static async Task<UyaBakePreparation> PrepareAsync(
+        string projectRoot,
+        AssetCatalogStore catalog,
+        BakeFingerprintContext context,
+        IReadOnlySet<string>? acknowledgedWarnings,
+        bool rebuildAll,
+        IReadOnlySet<BakeLayerId>? includedLayers,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(context);
         var workspace = await ForgeProjectWorkspace.OpenAsync(projectRoot, cancellationToken);
         var staging = await BakeStagingStore.OpenAsync(projectRoot, cancellationToken);
-        var baseInputs = await UyaBaseLayerStore.CreateBakeInputsAsync(projectRoot, catalog, cancellationToken);
-        var staticInputs = await UyaStaticLayerStore.CreateBakeInputsAsync(projectRoot, catalog, cancellationToken);
-        var gameplay = await UyaGameplayLayerStore.CreateBakeInputAsync(projectRoot, cancellationToken);
-        var hud = await UyaHudBakeService.CreateBakeInputAsync(projectRoot, cancellationToken);
-        var fx = await UyaFxBakeService.CreateBakeInputAsync(projectRoot, cancellationToken);
+        var baseInspection = await UyaBaseLayerStore.InspectAsync(workspace, catalog, cancellationToken);
+        var baseInputs = await UyaBaseLayerStore.CreateBakeInputsAsync(
+            workspace, catalog, baseInspection, cancellationToken);
+        var staticInputs = await UyaStaticLayerStore.CreateBakeInputsAsync(workspace, catalog, cancellationToken);
+        var gameplay = await UyaGameplayLayerStore.CreateBakeInputAsync(workspace, cancellationToken);
+        var hud = await UyaHudBakeService.CreateBakeInputAsync(workspace, cancellationToken);
+        var fx = await UyaFxBakeService.CreateBakeInputAsync(workspace, cancellationToken);
         var opaque = await OpaqueContentStore.CreateBakeInputAsync(projectRoot, cancellationToken);
-        var inputs = baseInputs.Concat(staticInputs).Append(gameplay).Append(opaque).Append(hud).Append(fx).ToArray();
+        var inputs = baseInputs.Concat(staticInputs).Append(gameplay).Append(opaque).Append(hud).Append(fx).ToList();
         var target = workspace.Manifest.Target;
-        var plan = BakeLayerGraph.CreatePlan(context with { Target = target }, inputs, staging.Manifest, rebuildAll);
+        var fingerprintContext = context with { Target = target };
+        var plan = BakeLayerGraph.CreatePlan(fingerprintContext, inputs, staging.Manifest, rebuildAll);
+        IReadOnlyDictionary<string, byte[]>? tfragCompositions = null;
+        var tfragPlan = plan.Layers.Single(value => value.Layer == BakeLayerId.Tfrags);
+        if ((includedLayers?.Contains(BakeLayerId.Tfrags) ?? true)
+            && tfragPlan.State is (BakeLayerState.Dirty or BakeLayerState.DependencyInvalidated))
+        {
+            var record = baseInspection.Manifest?.Layers.SingleOrDefault(value => value.Layer == BakeLayerId.Tfrags);
+            if (record is not null)
+            {
+                try
+                {
+                    tfragCompositions = await UyaTfragBakeService.ComposeAsync(
+                        workspace, catalog, record, cancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception exception) when (exception is InvalidDataException or IOException
+                    or UnauthorizedAccessException or OverflowException or NotSupportedException)
+                {
+                    var index = inputs.FindIndex(value => value.Id == BakeLayerId.Tfrags);
+                    var input = inputs[index];
+                    inputs[index] = input with
+                    {
+                        Blockers = (input.Blockers ?? []).Append(
+                            $"Tfrag composition is invalid ({exception.Message}); "
+                            + "correct the identified piece transform and retry.").ToArray(),
+                    };
+                    plan = BakeLayerGraph.CreatePlan(fingerprintContext, inputs, staging.Manifest, rebuildAll);
+                }
+            }
+        }
         var warnings = new List<BakeDiagnostic>();
         var lighting = inputs.Single(value => value.Id == BakeLayerId.Lighting);
         if (lighting.AssetIds.Count == 0)
@@ -39,7 +94,10 @@ public static class UyaBakeValidationService
                 null,
                 "The source level has no native lighting payloads; Forge will bake the supported no-light fallback.",
                 "Acknowledge this warning to continue, or restore lighting from the source level."));
-        return Validate(target, plan, workspace.Content.Entities, warnings, acknowledgedWarnings);
+        return new(
+            Validate(target, plan, workspace.Content.Entities, warnings, acknowledgedWarnings),
+            workspace.CurrentFingerprint,
+            tfragCompositions);
     }
 
     public static BakeValidationResult Validate(
@@ -109,3 +167,8 @@ public static class UyaBakeValidationService
         return (blocker[..separator].TrimEnd('.'), blocker[(separator + 1)..].Trim());
     }
 }
+
+internal sealed record UyaBakePreparation(
+    BakeValidationResult Validation,
+    string ProjectFingerprint,
+    IReadOnlyDictionary<string, byte[]>? TfragCompositions);

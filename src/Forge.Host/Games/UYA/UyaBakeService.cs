@@ -15,8 +15,9 @@ public static class UyaBakeService
         CancellationToken cancellationToken = default)
     {
         await ReportAsync(progress, new(BakePhase.Preflight, null, 0, 0, "Validating bake inputs."));
-        var validation = await UyaBakeValidationService.PreflightAsync(
-            projectRoot, catalog, context, acknowledgedWarnings, rebuildAll, cancellationToken);
+        var preparation = await UyaBakeValidationService.PrepareAsync(
+            projectRoot, catalog, context, acknowledgedWarnings, rebuildAll, includedLayers, cancellationToken);
+        var validation = preparation.Validation;
         var staging = await BakeStagingStore.OpenAsync(projectRoot, cancellationToken);
         if (!validation.CanBake)
             return new(false, false, validation, staging.Manifest, [], staging.Manifest.PaletteReport);
@@ -36,7 +37,8 @@ public static class UyaBakeService
                 var layer = pending[index];
                 await ReportAsync(progress, new(
                     BakePhase.Staging, layer.Layer, index, pending.Length, $"Baking {layer.Layer}."));
-                written.Add(await StageAsync(projectRoot, catalog, staging, layer, cancellationToken));
+                written.Add(await StageAsync(
+                    projectRoot, catalog, staging, layer, preparation, cancellationToken));
                 await ReportAsync(progress, new(
                     BakePhase.Staging, layer.Layer, index + 1, pending.Length, $"Baked {layer.Layer}."));
             }
@@ -51,8 +53,9 @@ public static class UyaBakeService
             await ReportAsync(progress, new(
                 BakePhase.Validate, null, pending.Length, pending.Length, "Validating staged bake."));
             var finalStore = await BakeStagingStore.OpenAsync(projectRoot, cancellationToken);
-            var finalValidation = await UyaBakeValidationService.PreflightAsync(
-                projectRoot, catalog, context, acknowledgedWarnings, cancellationToken: cancellationToken);
+            var finalValidation = (await UyaBakeValidationService.PrepareAsync(
+                projectRoot, catalog, context, acknowledgedWarnings,
+                false, includedLayers, cancellationToken)).Validation;
             if (!finalValidation.CanBake
                 || finalValidation.Plan.Layers.Any(value => value.State != BakeLayerState.Clean
                     && (includedLayers?.Contains(value.Layer) ?? true))
@@ -85,11 +88,15 @@ public static class UyaBakeService
         AssetCatalogStore catalog,
         BakeStagingStore staging,
         BakeLayerPlan plan,
+        UyaBakePreparation preparation,
         CancellationToken cancellationToken) => plan.Layer switch
     {
         BakeLayerId.World or BakeLayerId.Sky or BakeLayerId.Tfrags
             or BakeLayerId.Collision or BakeLayerId.Lighting =>
-            UyaBaseLayerStore.StageAsync(projectRoot, catalog, staging, plan, cancellationToken),
+            UyaBaseLayerStore.StageAsync(
+                projectRoot, catalog, staging, plan,
+                plan.Layer == BakeLayerId.Tfrags ? preparation : null,
+                cancellationToken),
         BakeLayerId.Ties or BakeLayerId.Shrubs or BakeLayerId.Mobys =>
             UyaStaticLayerStore.StageAsync(projectRoot, catalog, staging, plan, cancellationToken),
         BakeLayerId.Gameplay => UyaGameplayLayerStore.StageAsync(projectRoot, staging, plan, cancellationToken),

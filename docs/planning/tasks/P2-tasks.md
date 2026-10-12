@@ -1045,6 +1045,16 @@ Acceptance:
 Verification: synthetic/boundary parser fixtures and all-level local inventory report
 without committed proprietary payloads.
 
+Completed: the native editable unit is one `0x40` table record plus its complete
+multi-LOD data range; renderer material primitives are not ownership boundaries. The
+SDK now rejects table-overlapping, repeated, unaligned, and allocation-sized group
+offsets/counts before allocation, retains no-edit source bytes, proves duplicate
+content with distinct occurrence provenance synthetically, and emits a low-memory
+primary/chunk inventory from optional local fixtures. Transform support is frozen to
+finite translation/rotation and positive uniform scale; non-uniform, mirrored, zero,
+and non-finite transforms have explicit preflight reasons. See
+[the UYA tfrag piece contract](../../features/uya-tfrag-pieces-v0.md).
+
 ### M12-002 — Add canonical tfrag-piece extraction in the SDK
 
 Requirements: FR-TFRAG-001, FR-ASSET-007, NFR-P2-002
@@ -1065,6 +1075,18 @@ Acceptance:
 
 Verification: malformed corpus, duplicate occurrence, deterministic snapshot, and
 largest-level extraction profile.
+
+Completed: the game-neutral SDK facade now dispatches bounded UYA primary/chunk
+payloads to the shared tfrag decoder and emits translation-neutral, versioned canonical
+geometry plus material/texture dependencies. SHA-256 content IDs deduplicate identical
+assets while deterministic occurrence keys preserve normalized archive, owner/group,
+and occlusion provenance for M12-003 to map to persistent Forge Entity IDs. The codec
+uses explicit little-endian ordering, finite quantized floats, allocation bounds, and
+strict semantic re-read; extraction is side-effect-free and cancellation returns no
+partial result. Synthetic malformed/dedup/shuffled-order fixtures pin the canonical
+snapshot. The largest complete local level profile covers 1,006 occurrences across
+primary plus two streamed chunks under a 1.5 GiB managed-heap cap. See
+[the UYA tfrag piece contract](../../features/uya-tfrag-pieces-v0.md).
 
 ### M12-003 — Import tfrag pieces as authoritative project entities
 
@@ -1087,6 +1109,18 @@ Acceptance:
 Verification: creation/migration/missing-source, entity identity, dedup, and portability
 tests.
 
+Completed: project creation now imports every primary/chunk native group as a `tfrags`
+entity with a persistent Entity ID, occurrence transform, canonical attached asset,
+texture dependencies, and normalized source/group/occlusion provenance. Canonical
+geometry deduplicates independently from occurrences and travels inside the project.
+Older projects hydrate only from catalog-verified base-layer sources; unavailable or
+invalid sources leave legacy terrain untouched and produce an actionable warning.
+Tfrag structural commands are not exposed, and delete, duplicate, disable, and layer
+changes are also rejected at the domain boundary. The project schema keeps occurrence
+transforms separate from immutable canonical bytes. Creation, migration,
+missing-source, identity, deduplication, transform separation, structural rules, and
+directory-move portability are covered by protocol tests.
+
 ### M12-004 — Render, select, and inspect individual tfrag pieces
 
 Requirements: FR-TFRAG-002, FR-SCENE-011, NFR-PERF-001, NFR-PERF-003
@@ -1108,6 +1142,18 @@ Acceptance:
 
 Verification: render/pick/projection/disposal tests and M6-baseline comparison.
 
+Completed: terrain-only UYA browser packages now retain native group nodes instead of
+merging them into material-wide monoliths. Forge maps each primary/chunk/group node to
+its persistent tfrag Entity ID and translation-neutral canonical Asset ID, then combines
+unique pieces into shared-material `BatchedMesh` projections. Picks, selection outlines,
+visibility, bounds, and transform previews stay occurrence-specific without rebuilding
+unrelated terrain. The scene tree groups pieces by primary/chunk/group, and Properties
+exposes provenance, material IDs, occlusion values, local bounds, decode counts, asset,
+and read-only transform capability. A headless 1,006-piece regression fixture projects
+into one shared-material batch under a two-second guard and verifies exact last-instance
+picking and synchronous projection cleanup; packaged M6 hardware capture remains part
+of M12-008 qualification.
+
 ### M12-005 — Support validated tfrag piece transforms
 
 Requirements: FR-TFRAG-002, FR-EDIT-001, NFR-P2-002
@@ -1127,6 +1173,18 @@ Acceptance:
 - One piece transform does not rewrite immutable source assets or unrelated entities.
 
 Verification: transform math/boundary/capability/history tests and visual preview check.
+
+Completed: tfrag entities now use the ordinary editor transform path for translation,
+rotation, snapping, grouped transforms, numeric entry, preview, cancel, undo/redo,
+autosave, and persistence. Scale input and gizmo deltas are constrained to positive
+uniform values whenever a tfrag participates in the selection; the host independently
+rejects non-finite, zero, mirrored, and non-uniform transforms before project mutation.
+The SDK validates the same frozen policy and transforms canonical positions, normals,
+light normals, winding, radius, and bounds in PS2-native basis with deterministic
+six-decimal rounding, cancellation checkpoints, overflow rejection, and immutable
+source geometry. Synthetic boundary tests cover transform order, normal handling,
+winding, bounds, repeatability, cancellation, unsupported scales, and overflow; Forge
+protocol tests cover capability exposure, atomic rejection, save/reopen, and history.
 
 ### M12-006 — Associate collision with tfrag pieces
 
@@ -1149,13 +1207,36 @@ Acceptance:
 Verification: strong/ambiguous/no-match golden fixtures, transform/reverse-link tests,
 and collision budget failure cases.
 
+Deferred: retail tfrag collision components are commonly much coarser than editable
+tfrag groups, so spatially assigning them to individual pieces produces misleading
+ownership and movement behavior. Tfrag editing therefore leaves world collision
+independent until a native collision-group ownership strategy is verified.
+
+Implemented separately: each tfrag piece can generate an individual or shared native
+collision proxy from its canonical local-space mesh. The ordinary collision composer
+applies the piece transform and validates combined octant limits, so generated collision
+tracks translate/rotate/scale edits without inferring ownership of coarse retail
+collision components.
+
 ### M12-007 — Implement target-native tfrag composition and staging
 
 Requirements: FR-TFRAG-004, FR-BAKE-001 through FR-BAKE-004, NFR-REL-002
 Depends on: M12-005, M12-006, M3-003
 
+Completed (2026-10-11): the SDK now composes finite translation, rotation, and
+positive uniform scale directly into verified native transform-bearing fields while
+preserving packet layout and every opaque byte. Forge preflights and stages primary and
+streamed payloads independently, fingerprints composer version/assets/provenance/
+transforms, and semantically re-reads output before atomic staging. Synthetic and local
+retail fixtures cover no-edit identity, one-piece isolation, multi-owner composition,
+repeated and clean-build determinism, cancellation/failure rollback, and combined
+translation/rotation/scale. A level09 chunk 2 regression covers simultaneous reduction
+with arbitrary rotation and enlargement against 445 retail groups. Packaged PCSX2 and
+Windows qualification remain for M12-008. Collision remains independent under the
+M12-006 deferral rather than being rewritten from an unproven spatial association.
+
 Add the SDK writer/composer for changed native pieces and integrate deterministic
-primary/chunk terrain and associated collision output with incremental staging.
+primary/chunk terrain output with incremental staging.
 
 Acceptance:
 
@@ -1163,8 +1244,8 @@ Acceptance:
   transforms once, rebuilds tables/packets/bounds/indexes, and semantically re-reads.
 - No-edit output meets the frozen identity contract; a one-piece change leaves
   unaffected payloads/groups semantically or byte identical as specified.
-- Fingerprints include piece assets/transforms/material refs/collision links and
-  writer version; unrelated layers remain clean.
+- Fingerprints include piece assets/transforms/material refs and writer version;
+  unrelated layers remain clean.
 - Failure/cancellation retains last successful staging and identifies Entity ID plus
   payload/chunk/group.
 
@@ -1176,13 +1257,22 @@ tests and largest-level allocation/throughput profile.
 Requirements: M12 exit gate, FR-BUILD-001, FR-PATCH-005
 Depends on: M12-007, M4-006
 
+In progress (2026-10-11): the automated Linux gate covers primary/streamed no-edit
+identity, supported transforms, semantic re-read, save/reopen, recovery, ZIP transfer,
+incremental and clean-build determinism, cancellation, last-good staging, exact picking,
+generated collision composition, and retail collision independence. Development
+walkthroughs have exercised primary terrain and level09 streamed groups; packaged
+Linux/Windows and retained streamed-PCSX2 evidence remain. See
+[the M12 qualification matrix](../../qualification/M12-tfrag-editing.md).
+
 Exercise representative primary and chunk pieces through translation, rotation, each
-supported scale mode, collision following, save/recovery, build, patch, and PCSX2.
+supported scale mode, save/recovery, build, patch, and PCSX2.
 
 Acceptance:
 
 - Renderer preview and game output agree within documented coordinate/rounding limits;
-  moved collision aligns and retains exact raw types.
+  generated collision follows the piece transform and retains exact raw types, while
+  independently authored retail collision remains unchanged.
 - Reopen and clean rebuild are deterministic on Linux and Windows; untouched terrain
   meets no-edit identity and project transfer resolves every piece asset.
 - Invalid target limits block before the development ISO is touched and recovery can

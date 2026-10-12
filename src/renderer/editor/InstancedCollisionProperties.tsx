@@ -16,10 +16,12 @@ import { EditorProperty, EditorPropertyGrid } from './EditorPrimitives.tsx';
 import { InstancedCollisionPainter } from './InstancedCollisionPainter.tsx';
 
 const INSTANCED_COLLISION_METHOD_OPTIONS = [
-  { value: 'surface-auto', label: 'Decimate (Automatic LOD)' },
-  { value: 'surface-0', label: 'Decimate High LOD' },
-  { value: 'surface-1', label: 'Decimate Med LOD' },
-  { value: 'surface-2', label: 'Decimate Low LOD' },
+  { value: 'surface-auto', label: 'Match Automatic LOD' },
+  { value: 'surface-0', label: 'Match LOD0 (High)' },
+  { value: 'surface-1', label: 'Match LOD1 (Medium)' },
+  { value: 'surface-2', label: 'Match LOD2 (Low)' },
+  { value: 'decimate-75', label: 'Decimate LOD0 — 75% target', tfragOnly: true },
+  { value: 'decimate-50', label: 'Decimate LOD0 — 50% target', tfragOnly: true },
   { value: 'hull', label: 'Shrinkwrap' },
 ];
 const INSTANCED_COLLISION_MODE_OPTIONS = [
@@ -27,7 +29,8 @@ const INSTANCED_COLLISION_MODE_OPTIONS = [
   { value: 'shared', label: 'Shared' },
 ];
 const DEFAULT_MAXIMUM_DEVIATION = 4;
-type InstancedCollisionMethod = 'surface-auto' | 'surface-0' | 'surface-1' | 'surface-2' | 'hull';
+type InstancedCollisionMethod = 'surface-auto' | 'surface-0' | 'surface-1' | 'surface-2'
+  | 'decimate-75' | 'decimate-50' | 'hull';
 const sourceSurfaceLodCache = new Map<string, number[]>();
 
 export function InstancedCollisionProperties({ entity, disabled }: { entity: EditorEntity; disabled: boolean }) {
@@ -108,6 +111,7 @@ export function InstancedCollisionProperties({ entity, disabled }: { entity: Edi
         profileSections: requestedProfileSections,
         surfaceLodIndex: surfaceLodIndex(requestedMethod),
         useHull: requestedMethod === 'hull',
+        targetFaceRatio: targetFaceRatio(requestedMethod),
       });
       if (generation.current !== request || next.sourceAssetId !== entity.asset?.id) return;
       const candidate = candidateForMethod(next.candidates, requestedMethod);
@@ -293,7 +297,7 @@ export function InstancedCollisionProperties({ entity, disabled }: { entity: Edi
       <Select label="Mode"
         value={entity.instancedCollisionEnabled === true ? 'shared' : 'individual'}
         data={INSTANCED_COLLISION_MODE_OPTIONS} allowDeselect={false}
-        description="Individual edits only this instance; Shared uses the class proxy."
+        description="Individual edits only this entity; Shared uses the asset proxy."
         disabled={disabled || busy || generating || entity.instancedCollisionEnabled === undefined}
         onChange={(value) => value && void setInstancedCollisionMode(value === 'shared')} />
       {generating && <Text size="xs" c="dimmed">Generating collision…</Text>}
@@ -381,6 +385,7 @@ export function InstancedCollisionProperties({ entity, disabled }: { entity: Edi
 
       <Select label="Collision method"
         value={method} data={INSTANCED_COLLISION_METHOD_OPTIONS.filter((option) => {
+          if (option.tfragOnly && entity.asset?.kind !== 'Tfrag') return false;
           const lodIndex = surfaceLodIndex(option.value as InstancedCollisionMethod);
           return lodIndex < 0 || surfaceLodIndices === undefined || surfaceLodIndices.includes(lodIndex);
         })} allowDeselect={false}
@@ -508,6 +513,8 @@ function instancedCollisionMethod(collision: EditorEntity['instancedCollision'])
   const recipe = collision?.recipe;
   if (!recipe) return 'surface-auto';
   if (recipe.kind !== 'surface') return 'hull';
+  if (recipe.targetFaceRatio <= 0.5) return 'decimate-50';
+  if (recipe.targetFaceRatio < 1) return 'decimate-75';
   if (recipe.lodIndex === 0) return 'surface-0';
   if (recipe.lodIndex === 1) return 'surface-1';
   if (recipe.lodIndex === 2) return 'surface-2';
@@ -515,10 +522,17 @@ function instancedCollisionMethod(collision: EditorEntity['instancedCollision'])
 }
 
 function surfaceLodIndex(method: InstancedCollisionMethod): number {
+  if (method === 'decimate-75' || method === 'decimate-50') return 0;
   if (method === 'surface-0') return 0;
   if (method === 'surface-1') return 1;
   if (method === 'surface-2') return 2;
   return -1;
+}
+
+function targetFaceRatio(method: InstancedCollisionMethod): number {
+  if (method === 'decimate-75') return 0.75;
+  if (method === 'decimate-50') return 0.5;
+  return 1;
 }
 
 function candidateForMethod(
@@ -531,7 +545,9 @@ function candidateForMethod(
 
 function formatRecipe(recipe: NonNullable<EditorEntity['instancedCollision']>['recipe']): string {
   const lod = ['High LOD', 'Med LOD', 'Low LOD'][recipe.lodIndex] ?? `LOD ${recipe.lodIndex}`;
-  if (recipe.kind === 'surface') return `Decimated mesh · ${lod}`;
+  if (recipe.kind === 'surface') return recipe.targetFaceRatio < 1
+    ? `Decimated mesh · ${Math.round(recipe.targetFaceRatio * 100)}% target · ${lod}`
+    : `Matched mesh · ${lod}`;
   if (recipe.kind === 'hull') return `Shrinkwrap · ${Math.max(1, recipe.profileSections)} sections · ${lod}`;
   return `Custom wrap · ${recipe.detailSize} detail · seals ${recipe.sealOpeningSize}`;
 }

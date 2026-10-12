@@ -257,6 +257,14 @@ export class TransformTool {
     const axis = this.controls.axis;
     if (!axis) return;
     const deltaPixels = this.scaleDragStartY - this.pointerY;
+    if (this.activeIds.some((id) => this.entitiesById.get(id)?.tfrag !== undefined)) {
+      this.proxy.scale.setScalar(verticalDragScale(
+        this.scaleDragStart.x,
+        deltaPixels,
+        this.controls.scaleSnap,
+      ));
+      return;
+    }
     for (const key of ['x', 'y', 'z'] as const) {
       if (!axis.includes(key.toUpperCase())) continue;
       this.proxy.scale[key] = verticalDragScale(
@@ -332,6 +340,7 @@ export class TransformTool {
       this.transformed.copy(this.delta).multiply(this.source);
       const transform = sceneMatrixToProjectTransform(this.transformed);
       clampScale(transform);
+      if (this.entitiesById.get(entityId)?.tfrag) constrainTfragScale(transform);
       return { entityId, transform };
     });
     return expandLinkedCollisionTransforms(this.collisionLinks, updates);
@@ -444,6 +453,11 @@ export class TransformTool {
 export function verticalDragScale(startScale: number, deltaPixels: number, snap: number | null): number {
   const scale = startScale * 2 ** (deltaPixels / SCALE_PIXELS_PER_DOUBLING);
   return snap ? Math.round(scale / snap) * snap || snap : scale;
+}
+
+export function constrainTfragScale(transform: ProjectTransform): void {
+  const scale = Math.max((transform.scale.x + transform.scale.y + transform.scale.z) / 3, 0.0001);
+  transform.scale = { x: scale, y: scale, z: scale };
 }
 
 function nonZeroSign(value: number, fallback: number): number {

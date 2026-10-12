@@ -75,6 +75,7 @@ public sealed partial class EditorRuntime
                     entity.Asset is not null && _missingAssets.Contains(entity.Asset.Id)),
                 entity.SkyShell,
                 entity.Collision,
+                entity.Tfrag,
                 entity.Asset is { } sharedAsset && sharedAsset.IsInstancedCollisionSource()
                     && bindings.TryGetValue((sharedAsset.Id, null), out var sharedBinding)
                         ? new(sharedBinding.ProxyAssetId, sharedBinding.Recipe, sharedBinding.FaceTypeOverrides)

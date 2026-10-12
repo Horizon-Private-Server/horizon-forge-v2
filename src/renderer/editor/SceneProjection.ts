@@ -35,6 +35,9 @@ const INSTANCE_MIRROR = new THREE.Matrix4().makeScale(-1, 1, 1);
 const SPLINE_LINE_WIDTH = 5;
 const SPLINE_NODE_SIZE = 12;
 const VOLUME_PICK_WIDTH = 8;
+const SELECTION_OUTLINE_OBJECT_BUDGET = 64;
+const SELECTION_OUTLINE_TRIANGLE_BUDGET = 250_000;
+const templateTriangleCounts = new WeakMap<THREE.Object3D, number>();
 
 interface InstancedAsset {
   root: THREE.Group;
@@ -46,30 +49,32 @@ interface InstancedAsset {
   hasMirrored: boolean;
 }
 
-interface CollisionBatchEntry {
+interface UniqueAssetBatchEntry {
   mesh: THREE.BatchedMesh;
   instanceId: number;
   geometryId: number;
 }
 
-interface CollisionBatchState {
+interface UniqueAssetBatchState {
   transform: EditorEntity['transform'];
   visible: boolean;
   selected: boolean;
 }
 
-interface CollisionBatch {
+interface UniqueAssetBatch {
   root: THREE.Group;
   meshes: THREE.BatchedMesh[];
+  materials: Set<THREE.Material>;
   entityIds: Set<string>;
-  entries: Map<string, CollisionBatchEntry[]>;
-  states: Map<string, CollisionBatchState>;
+  entries: Map<string, UniqueAssetBatchEntry[]>;
+  states: Map<string, UniqueAssetBatchState>;
   templates: Map<string, THREE.Object3D>;
   matrices: Map<string, THREE.Matrix4>;
 }
 
 export class SceneProjection {
   readonly root = new THREE.Group();
+  readonly outlineRoot = new THREE.Group();
 
   private readonly selectionColor = SELECTED_COLOR.clone();
   private readonly geometry = new THREE.BoxGeometry(16, 16, 16);
@@ -103,6 +108,7 @@ export class SceneProjection {
   private readonly ambientSoundMaterial = new THREE.MeshBasicMaterial({ wireframe: true, fog: false });
   private readonly volumePickerMaterial = new LineMaterial({ linewidth: VOLUME_PICK_WIDTH, visible: false });
   private readonly failedMaterial = new THREE.MeshBasicMaterial({ color: 0xe6194b, wireframe: true, fog: false });
+  private readonly selectionBoundsOutline = new THREE.Mesh(this.cuboidGeometry, this.assetMaterial);
   private readonly selectedMaterial = new THREE.MeshBasicMaterial({
     color: SELECTED_COLOR, wireframe: true, fog: false, side: THREE.DoubleSide,
   });
@@ -117,15 +123,12 @@ export class SceneProjection {
     size: SPLINE_NODE_SIZE, sizeAttenuation: false,
   });
   private readonly selectedLineMaterial = new THREE.LineBasicMaterial({ color: SELECTED_COLOR, fog: false });
-  private readonly selectionOutlineMaterial = new THREE.MeshBasicMaterial({
-    colorWrite: false, depthTest: false, depthWrite: false,
-  });
   private readonly billboardResources = new SceneBillboardResources();
   private readonly objects = new Map<string, THREE.Object3D>();
   private readonly instances = new Map<string, InstancedAsset>();
   private readonly selectionOutlines = new Map<string, THREE.Group>();
-  private directSelectionOutlines: THREE.Object3D[] = [];
-  private collisionBatch?: CollisionBatch;
+  private selectionOutlineObjects: THREE.Object3D[] = [];
+  private uniqueAssetBatch?: UniqueAssetBatch;
   private readonly templates = new Map<string, THREE.Object3D>();
   private readonly failedAssets = new Set<string>();
   private readonly pickable = new Set<string>();
@@ -139,10 +142,15 @@ export class SceneProjection {
   private readonly instanceBounds = new THREE.Box3();
   private entitiesById = new Map<string, EditorEntity>();
   private hoveredEntityId?: string;
+  private tfragsVisible = true;
   private disposed = false;
 
   constructor() {
     this.root.name = 'Forge project entities';
+    this.outlineRoot.name = 'Forge selection outlines';
+    this.selectionBoundsOutline.name = 'Selection bounds outline';
+    this.selectionBoundsOutline.matrixAutoUpdate = false;
+    this.selectionBoundsOutline.raycast = () => {};
     this.setGeometryColors(DEFAULT_SCENE_TREE_COLORS);
   }
 
@@ -170,7 +178,11 @@ export class SceneProjection {
     this.selectedSplineMaterial.color.copy(this.selectionColor);
     this.selectedSplineNodeMaterial.color.copy(this.selectionColor);
     this.selectedLineMaterial.color.copy(this.selectionColor);
-    this.collisionBatch?.states.clear();
+    this.uniqueAssetBatch?.states.clear();
+  }
+
+  setTfragsVisible(visible: boolean): void {
+    this.tfragsVisible = visible;
   }
 
   setViewportSize(width: number, height: number): void {
@@ -268,7 +280,7 @@ export class SceneProjection {
       else selectedPoints.set(point.entityId, [point.index]);
     });
     const staticGroups = new Map<string, EditorEntity[]>();
-    const collisionEntities: EditorEntity[] = [];
+    const uniqueAssetEntities: EditorEntity[] = [];
     const projected = new Set<string>();
     this.pickable.clear();
 
@@ -278,7 +290,7 @@ export class SceneProjection {
       const visible = this.isVisible(entity, Boolean(template), visibleLayers, showMarkers, visibleCollisionKinds);
       if (visible && !entity.state.locked) this.pickable.add(entity.id);
       if (entity.asset && template) {
-        if (entity.collision && !isMirrored(entity)) collisionEntities.push(entity);
+        if ((entity.collision || entity.tfrag) && !isMirrored(entity)) uniqueAssetEntities.push(entity);
         else {
           const group = staticGroups.get(templateKey!);
           if (group) group.push(entity);
@@ -338,22 +350,23 @@ export class SceneProjection {
       this.updateInstances(projection, group, selected, visibleLayers, visibleCollisionKinds);
     }
 
-    const collisionIds = new Set(collisionEntities.map((entity) => entity.id));
-    if (this.collisionBatch && !sameIds(this.collisionBatch.entityIds, collisionIds)) {
-      this.collisionBatch.root.removeFromParent();
-      disposeCollisionBatch(this.collisionBatch);
-      this.collisionBatch = undefined;
+    const uniqueAssetIds = new Set(uniqueAssetEntities.map((entity) => entity.id));
+    if (this.uniqueAssetBatch && !sameIds(this.uniqueAssetBatch.entityIds, uniqueAssetIds)) {
+      this.uniqueAssetBatch.root.removeFromParent();
+      disposeUniqueAssetBatch(this.uniqueAssetBatch);
+      this.uniqueAssetBatch = undefined;
       removed += 1;
     }
-    if (!this.collisionBatch && collisionEntities.length) {
-      this.collisionBatch = createCollisionBatch(collisionEntities, this.templates);
-      this.root.add(this.collisionBatch.root);
+    if (!this.uniqueAssetBatch && uniqueAssetEntities.length) {
+      this.uniqueAssetBatch = createUniqueAssetBatch(uniqueAssetEntities, this.templates, this.selectionColor);
+      this.root.add(this.uniqueAssetBatch.root);
       created += 1;
     }
-    if (this.collisionBatch)
-      this.updateCollisionBatch(this.collisionBatch, collisionEntities, selected, visibleLayers, visibleCollisionKinds);
+    if (this.uniqueAssetBatch)
+      this.updateUniqueAssetBatch(
+        this.uniqueAssetBatch, uniqueAssetEntities, selected, visibleLayers, visibleCollisionKinds,
+      );
     this.updateSelectionOutlines(renderedEntities, selected, visibleLayers, visibleCollisionKinds);
-
     return { created, updated, removed };
   }
 
@@ -388,14 +401,16 @@ export class SceneProjection {
         }
       }
 
-      const collisionBatch = this.collisionBatch;
-      if (collisionBatch) {
-        for (const entry of collisionBatch.entries.get(entity.id) ?? [])
+      const uniqueAssetBatch = this.uniqueAssetBatch;
+      if (uniqueAssetBatch) {
+        for (const entry of uniqueAssetBatch.entries.get(entity.id) ?? [])
           entry.mesh.setMatrixAt(entry.instanceId, matrix);
-        if (collisionBatch.entries.has(entity.id)) {
-          collisionBatch.matrices.set(entity.id, matrix.clone());
-          const state = collisionBatch.states.get(entity.id);
-          if (state) collisionBatch.states.set(entity.id, { ...state, transform: entity.transform });
+        if (uniqueAssetBatch.entries.has(entity.id)) {
+          const storedMatrix = uniqueAssetBatch.matrices.get(entity.id);
+          if (storedMatrix) storedMatrix.copy(matrix);
+          else uniqueAssetBatch.matrices.set(entity.id, matrix.clone());
+          const state = uniqueAssetBatch.states.get(entity.id);
+          if (state) state.transform = entity.transform;
         }
       }
 
@@ -404,6 +419,7 @@ export class SceneProjection {
         outline.matrix.copy(matrix);
         outline.matrixWorldNeedsUpdate = true;
       }
+
     }
     touchedInstances.forEach((mesh) => mesh.computeBoundingSphere());
   }
@@ -437,12 +453,12 @@ export class SceneProjection {
     for (const projection of this.instances.values())
       if (projection.meshes.some((mesh) => (mesh.userData[INSTANCE_IDS_KEY] as string[]).includes(entityId)))
         return projection.root;
-    if (this.collisionBatch?.entityIds.has(entityId)) return this.collisionBatch.root;
+    if (this.uniqueAssetBatch?.entityIds.has(entityId)) return this.uniqueAssetBatch.root;
     return undefined;
   }
 
   getSelectionOutlineObjects(): THREE.Object3D[] {
-    return [...this.directSelectionOutlines, ...this.selectionOutlines.values()];
+    return this.selectionOutlineObjects;
   }
 
   getBounds(entityId: string, target = new THREE.Box3()): THREE.Box3 | undefined {
@@ -465,9 +481,9 @@ export class SceneProjection {
           .applyMatrix4(this.instanceMatrix).applyMatrix4(mesh.matrix));
       }
     }
-    const collisionEntries = this.collisionBatch?.entries.get(entityId);
-    if (collisionEntries) {
-      for (const entry of collisionEntries) {
+    const uniqueAssetEntries = this.uniqueAssetBatch?.entries.get(entityId);
+    if (uniqueAssetEntries) {
+      for (const entry of uniqueAssetEntries) {
         const bounds = entry.mesh.getBoundingBoxAt(entry.geometryId, this.instanceBounds);
         if (!bounds) continue;
         entry.mesh.getMatrixAt(entry.instanceId, this.instanceMatrix);
@@ -552,8 +568,8 @@ export class SceneProjection {
       });
     }
     for (const id of selected) {
-      const template = this.collisionBatch?.templates.get(id);
-      const matrix = this.collisionBatch?.matrices.get(id);
+      const template = this.uniqueAssetBatch?.templates.get(id);
+      const matrix = this.uniqueAssetBatch?.matrices.get(id);
       if (!template || !matrix) continue;
       template.traverseVisible((child) => {
         if (child instanceof THREE.Mesh)
@@ -584,6 +600,7 @@ export class SceneProjection {
     this.disposed = true;
     this.clearProjection();
     this.root.removeFromParent();
+    this.outlineRoot.removeFromParent();
     this.geometry.dispose();
     this.cuboidGeometry.dispose();
     this.areaGeometry.dispose();
@@ -617,7 +634,6 @@ export class SceneProjection {
     this.selectedSplineMaterial.dispose();
     this.selectedSplineNodeMaterial.dispose();
     this.selectedLineMaterial.dispose();
-    this.selectionOutlineMaterial.dispose();
     this.billboardResources.dispose();
   }
 
@@ -795,8 +811,8 @@ export class SceneProjection {
     });
   }
 
-  private updateCollisionBatch(
-    batch: CollisionBatch,
+  private updateUniqueAssetBatch(
+    batch: UniqueAssetBatch,
     entities: readonly EditorEntity[],
     selected: ReadonlySet<string>,
     visibleLayers?: ReadonlySet<string>,
@@ -813,9 +829,11 @@ export class SceneProjection {
       for (const entry of batch.entries.get(entity.id) ?? []) {
         entry.mesh.setMatrixAt(entry.instanceId, matrix);
         entry.mesh.setVisibleAt(entry.instanceId, visible);
-        entry.mesh.setColorAt(entry.instanceId, isSelected ? this.selectionColor : NORMAL_COLOR);
+        entry.mesh.setColorAt(entry.instanceId, isSelected ? INSTANCE_SELECTION_MARKER : NORMAL_COLOR);
       }
-      batch.matrices.set(entity.id, matrix.clone());
+      const storedMatrix = batch.matrices.get(entity.id);
+      if (storedMatrix) storedMatrix.copy(matrix);
+      else batch.matrices.set(entity.id, matrix.clone());
       batch.states.set(entity.id, {
         transform: entity.transform,
         visible,
@@ -830,18 +848,18 @@ export class SceneProjection {
     visibleLayers?: ReadonlySet<string>,
     visibleCollisionKinds?: ReadonlySet<'solid' | 'playerBarrier'>,
   ): void {
-    const desired = new Map(entities.filter((entity) => entity.asset && this.templates.has(assetTemplateKey(entity)!)
+    const candidates = entities.filter((entity) => entity.asset && this.templates.has(assetTemplateKey(entity)!)
       && selected.has(entity.id)
-      && this.isVisible(entity, true, visibleLayers, true, visibleCollisionKinds))
-      .map((entity) => [entity.id, entity]));
-    this.directSelectionOutlines = entities.flatMap((entity) => {
-      if (!selected.has(entity.id) || desired.has(entity.id)) return [];
-      const object = this.objects.get(entity.id);
-      return object?.visible && !isSceneBillboardGizmo(object) ? [object] : [];
-    });
+      && this.isVisible(entity, true, visibleLayers, true, visibleCollisionKinds));
+    const withinBudget = candidates.length <= SELECTION_OUTLINE_OBJECT_BUDGET
+      && candidates.reduce((total, entity) => total
+        + templateTriangleCount(this.templates.get(assetTemplateKey(entity)!)!), 0)
+        <= SELECTION_OUTLINE_TRIANGLE_BUDGET;
+    const desired = new Map((withinBudget ? candidates : []).map((entity) => [entity.id, entity]));
+    this.selectionBoundsOutline.removeFromParent();
     for (const [id, outline] of this.selectionOutlines) {
       if (desired.has(id)) continue;
-      disposeSelectionOutline(outline);
+      outline.removeFromParent();
       this.selectionOutlines.delete(id);
     }
     for (const [id, entity] of desired) {
@@ -849,13 +867,29 @@ export class SceneProjection {
       if (!outline) {
         const template = this.templates.get(assetTemplateKey(entity)!);
         if (!template) continue;
-        outline = createSelectionOutline(template, this.selectionOutlineMaterial);
+        outline = createSelectionOutline(template);
         this.selectionOutlines.set(id, outline);
-        this.root.add(outline);
+        this.outlineRoot.add(outline);
       }
       outline.matrix.copy(this.projectedMatrix(entity));
       outline.matrixWorldNeedsUpdate = true;
     }
+    if (!withinBudget && candidates.length) {
+      const bounds = new THREE.Box3();
+      for (const entity of candidates) {
+        const entityBounds = this.getBounds(entity.id);
+        if (entityBounds) bounds.union(entityBounds);
+      }
+      if (!bounds.isEmpty()) {
+        const center = bounds.getCenter(new THREE.Vector3());
+        const scale = bounds.getSize(new THREE.Vector3()).multiplyScalar(0.5);
+        this.selectionBoundsOutline.matrix.compose(center, new THREE.Quaternion(), scale);
+        this.selectionBoundsOutline.matrixWorldNeedsUpdate = true;
+        this.outlineRoot.add(this.selectionBoundsOutline);
+      }
+    }
+    this.selectionOutlineObjects = [...this.selectionOutlines.values()];
+    if (this.selectionBoundsOutline.parent) this.selectionOutlineObjects.push(this.selectionBoundsOutline);
   }
 
   private projectedMatrix(entity: EditorEntity): THREE.Matrix4 {
@@ -887,6 +921,7 @@ export class SceneProjection {
     return !entity.state.hidden
       && !this.previewHidden.has(entity.id)
       && !entity.state.disabled
+      && (!entity.tfrag || this.tfragsVisible)
       && (visibleLayers?.has(entity.layer) ?? true)
       && (!entity.collision || visibleCollisionKinds?.has(entity.collision.kind) !== false)
       && (hasTemplate || showMarkers);
@@ -946,14 +981,15 @@ export class SceneProjection {
       disposeInstancedAsset(projection);
     });
     this.instances.clear();
-    if (this.collisionBatch) {
-      this.collisionBatch.root.removeFromParent();
-      disposeCollisionBatch(this.collisionBatch);
-      this.collisionBatch = undefined;
+    if (this.uniqueAssetBatch) {
+      this.uniqueAssetBatch.root.removeFromParent();
+      disposeUniqueAssetBatch(this.uniqueAssetBatch);
+      this.uniqueAssetBatch = undefined;
     }
-    this.selectionOutlines.forEach(disposeSelectionOutline);
+    this.selectionOutlines.forEach((outline) => outline.removeFromParent());
     this.selectionOutlines.clear();
-    this.directSelectionOutlines = [];
+    this.outlineRoot.clear();
+    this.selectionOutlineObjects = [];
     this.pickable.clear();
     this.hoveredEntityId = undefined;
     this.root.clear();
@@ -974,6 +1010,34 @@ export class SceneProjection {
   }
 }
 
+function createSelectionOutline(template: THREE.Object3D): THREE.Group {
+  const root = new THREE.Group();
+  root.name = 'Selected object outline';
+  root.matrixAutoUpdate = false;
+  template.updateMatrixWorld(true);
+  template.traverseVisible((object) => {
+    if (!isRenderableAssetMesh(object)) return;
+    const mesh = new THREE.Mesh(object.geometry, object.material);
+    mesh.matrix.copy(object.matrixWorld);
+    mesh.matrixAutoUpdate = false;
+    mesh.raycast = () => {};
+    root.add(mesh);
+  });
+  return root;
+}
+
+function templateTriangleCount(template: THREE.Object3D): number {
+  const cached = templateTriangleCounts.get(template);
+  if (cached !== undefined) return cached;
+  let count = 0;
+  template.traverseVisible((object) => {
+    if (!isRenderableAssetMesh(object)) return;
+    count += (object.geometry.index?.count ?? object.geometry.getAttribute('position')?.count ?? 0) / 3;
+  });
+  templateTriangleCounts.set(template, count);
+  return count;
+}
+
 export function assetTemplateKey(entity: EditorEntity): string | undefined {
   if (!entity.asset) return undefined;
   return entity.collision
@@ -986,27 +1050,6 @@ function createEdgePickerGeometry(source: THREE.BufferGeometry): LineSegmentsGeo
   const geometry = new LineSegmentsGeometry().fromEdgesGeometry(edges);
   edges.dispose();
   return geometry;
-}
-
-function createSelectionOutline(template: THREE.Object3D, material: THREE.Material): THREE.Group {
-  const root = new THREE.Group();
-  root.name = 'Selected object outline';
-  root.matrixAutoUpdate = false;
-  template.updateMatrixWorld(true);
-  template.traverseVisible((object) => {
-    if (!(object instanceof THREE.Mesh) || object.name === 'shrub_billboard' || isMobyMetalObject(object)) return;
-    const mesh = new THREE.Mesh(object.geometry.clone().applyMatrix4(object.matrixWorld), material);
-    mesh.raycast = () => {};
-    root.add(mesh);
-  });
-  return root;
-}
-
-function disposeSelectionOutline(root: THREE.Group): void {
-  root.removeFromParent();
-  root.traverse((object) => {
-    if (object instanceof THREE.Mesh) object.geometry.dispose();
-  });
 }
 
 function createSplineNodeTexture(): THREE.DataTexture {
@@ -1033,18 +1076,29 @@ function sameIds(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean
   return left.size === right.size && [...left].every((id) => right.has(id));
 }
 
-function createCollisionBatch(
+function createUniqueAssetBatch(
   entities: readonly EditorEntity[],
   templates: ReadonlyMap<string, THREE.Object3D>,
-): CollisionBatch {
-  interface Part { entityId: string; geometry: THREE.BufferGeometry }
+  selectionColor: THREE.Color,
+): UniqueAssetBatch {
+  interface Part { entityIds: string[]; geometry: THREE.BufferGeometry; staticTerrain: boolean }
   const buckets = new Map<THREE.Material, Map<string, Part[]>>();
   const entityIds = new Set(entities.map((entity) => entity.id));
   const entityTemplates = new Map<string, THREE.Object3D>();
+  const entitiesByTemplate = new Map<string, EditorEntity[]>();
   for (const entity of entities) {
-    const template = templates.get(assetTemplateKey(entity)!);
-    if (template) entityTemplates.set(entity.id, template);
-    template?.traverseVisible((object) => {
+    const key = assetTemplateKey(entity)!;
+    const matches = entitiesByTemplate.get(key);
+    if (matches) matches.push(entity);
+    else entitiesByTemplate.set(key, [entity]);
+  }
+  for (const [key, matchingEntities] of entitiesByTemplate) {
+    const template = templates.get(key);
+    if (!template) continue;
+    const matchingEntityIds = matchingEntities.map((entity) => entity.id);
+    const staticTerrain = matchingEntities.every((entity) => entity.tfrag !== undefined);
+    matchingEntities.forEach((entity) => entityTemplates.set(entity.id, template));
+    template.traverseVisible((object) => {
       if (!(object instanceof THREE.Mesh) || Array.isArray(object.material)) return;
       const geometry = object.geometry.clone();
       geometry.deleteAttribute('skinIndex');
@@ -1055,30 +1109,41 @@ function createCollisionBatch(
       buckets.set(object.material, byLayout);
       const signature = geometrySignature(geometry);
       const parts = byLayout.get(signature) ?? [];
-      parts.push({ entityId: entity.id, geometry });
+      parts.push({
+        entityIds: matchingEntityIds,
+        geometry,
+        staticTerrain,
+      });
       byLayout.set(signature, parts);
     });
   }
 
   const root = new THREE.Group();
-  root.name = 'Forge collision batch';
+  root.name = 'Forge unique asset batch';
   const meshes: THREE.BatchedMesh[] = [];
-  const entries = new Map<string, CollisionBatchEntry[]>();
+  const materials = new Set<THREE.Material>();
+  const entries = new Map<string, UniqueAssetBatchEntry[]>();
   for (const [material, byLayout] of buckets) {
+    const renderMaterial = createSelectionOverrideMaterial(material, selectionColor);
+    materials.add(renderMaterial);
     for (const parts of byLayout.values()) {
+      const instanceCount = parts.reduce((total, part) => total + part.entityIds.length, 0);
       const vertexCount = parts.reduce((total, part) => total + part.geometry.getAttribute('position').count, 0);
       const indexCount = parts.reduce((total, part) => total + (part.geometry.index?.count ?? 0), 0);
-      const mesh = new THREE.BatchedMesh(parts.length, vertexCount, indexCount, material);
+      const mesh = new THREE.BatchedMesh(instanceCount, vertexCount, indexCount, renderMaterial);
       const ids: string[] = [];
       mesh.frustumCulled = false;
-      mesh.sortObjects = material.transparent;
+      mesh.perObjectFrustumCulled = true;
+      mesh.sortObjects = !parts.every((part) => part.staticTerrain) && material.transparent;
       for (const part of parts) {
         const geometryId = mesh.addGeometry(part.geometry);
-        const instanceId = mesh.addInstance(geometryId);
-        ids[instanceId] = part.entityId;
-        const entityEntries = entries.get(part.entityId) ?? [];
-        entityEntries.push({ mesh, instanceId, geometryId });
-        entries.set(part.entityId, entityEntries);
+        for (const entityId of part.entityIds) {
+          const instanceId = mesh.addInstance(geometryId);
+          ids[instanceId] = entityId;
+          const entityEntries = entries.get(entityId) ?? [];
+          entityEntries.push({ mesh, instanceId, geometryId });
+          entries.set(entityId, entityEntries);
+        }
         part.geometry.dispose();
       }
       mesh.userData[INSTANCE_IDS_KEY] = ids;
@@ -1087,12 +1152,13 @@ function createCollisionBatch(
     }
   }
   return {
-    root, meshes, entityIds, entries, states: new Map(), templates: entityTemplates, matrices: new Map(),
+    root, meshes, materials, entityIds, entries, states: new Map(), templates: entityTemplates, matrices: new Map(),
   };
 }
 
-function disposeCollisionBatch(batch: CollisionBatch): void {
+function disposeUniqueAssetBatch(batch: UniqueAssetBatch): void {
   batch.meshes.forEach((mesh) => mesh.dispose());
+  batch.materials.forEach((material) => material.dispose());
 }
 
 function createInstancedAsset(

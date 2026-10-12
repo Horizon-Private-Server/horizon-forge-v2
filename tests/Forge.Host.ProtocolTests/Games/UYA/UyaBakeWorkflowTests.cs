@@ -289,7 +289,7 @@ internal static class UyaBakeWorkflowTests
             var packedSource = await UyaLevelPackService.PackAsync(project, catalog, sourceLevelWad, context);
             Equal(true, packedSource.Succeeded, "validated staging packs: "
                 + string.Join(" | ", packedSource.Diagnostics.Select(value => value.Cause)));
-            Equal("6dfca5b3de41d3f7d793e226f6182743af89396f5e933729ed4b914dbb9b3e9f",
+            Equal("5e7ce280e978c64307607205afb4694101d58999ccacf83a9a14e83de6c9c279",
                 packedSource.OutputSha256, "unchanged staged project golden WAD");
             _ = UyaLevelWadInventoryReader.Read(packedSource.OutputBytes!);
             var packedFiles = UyaLevelWadUnpacker.Unpack(packedSource.OutputBytes!).Files;
@@ -1009,12 +1009,13 @@ internal static class UyaBakeWorkflowTests
         var rotatedLinkedBytes = UyaBaseLayerService.Extract(
                 UyaLevelWadUnpacker.Unpack(rotatedLinkedPack.OutputBytes!))
             .Single(value => value.Layer == BakeLayerId.Collision && value.Name == "collision.bin").Bytes;
-        var rotatedEdits = UyaInstancedCollisionCompositionService.CreateEdits(
-            workspace, linkedPiece.Asset!.Id, source);
+        var rotatedEdits = UyaInstancedCollisionCompositionService.CreateCompleteState(
+            workspace, linkedPiece.Asset!.Id);
         Equal(true, rotatedEdits.Single(value => value.Kind == CollisionPieceKind.Solid
                 && value.SourcePieceIndex == 0).Rotation is not null,
             "linked collision emits a native rotation edit");
-        var expectedRotatedLinked = CollisionConverter.Compose(source, GameId.UYA, rotatedEdits).Bytes;
+        var expectedRotatedLinked = CollisionWork.ComposeComplete(
+            source, GameId.UYA, rotatedEdits, []).Bytes;
         Equal(true, rotatedLinkedBytes.SequenceEqual(expectedRotatedLinked),
             "linked collision bakes the connected TIE rotation directly");
 
@@ -1297,11 +1298,11 @@ internal static class UyaBakeWorkflowTests
             "a TIE whose link was cleared by deletion no longer invalidates collision");
         workspace.UpdateTransform(proxyInstances[0].EntityId, qualifiedTransform);
         await workspace.SaveAsync();
-        var expectedWithoutProxy = CollisionConverter.Compose(
+        var expectedWithoutProxy = CollisionWork.ComposeComplete(
             source,
             GameId.UYA,
-            UyaInstancedCollisionCompositionService.CreateEdits(
-                workspace, linkedPiece.Asset!.Id, source)).Bytes;
+            UyaInstancedCollisionCompositionService.CreateCompleteState(
+                workspace, linkedPiece.Asset!.Id), []).Bytes;
         var removedProxyBake = await UyaBakeService.BakeAsync(project, catalog, context);
         Equal(true, removedProxyBake.WrittenLayers.Select(value => value.Layer)
             .SequenceEqual([BakeLayerId.Collision]),

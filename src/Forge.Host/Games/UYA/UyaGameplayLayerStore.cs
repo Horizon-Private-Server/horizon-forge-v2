@@ -82,7 +82,16 @@ public static class UyaGameplayLayerStore
         string projectRoot,
         CancellationToken cancellationToken = default)
     {
-        var root = ForgeProjectPersistence.ResolveRelativePath(projectRoot, UyaGameplayLayerSchema.RelativeRootPath);
+        var workspace = await ForgeProjectWorkspace.OpenAsync(projectRoot, cancellationToken);
+        return await InspectAsync(workspace, cancellationToken);
+    }
+
+    internal static async Task<UyaGameplayInspection> InspectAsync(
+        ForgeProjectWorkspace workspace,
+        CancellationToken cancellationToken)
+    {
+        var root = ForgeProjectPersistence.ResolveRelativePath(
+            workspace.RootPath, UyaGameplayLayerSchema.RelativeRootPath);
         var path = Path.Combine(root, UyaGameplayLayerSchema.ManifestFileName);
         if (!File.Exists(path)) return Missing("Gameplay source metadata is missing");
         try
@@ -92,7 +101,6 @@ public static class UyaGameplayLayerStore
             RejectLink(path);
             var manifest = ForgeProjectPersistence.Deserialize<UyaGameplaySourceManifest>(
                 await File.ReadAllBytesAsync(path, cancellationToken), "UYA gameplay source");
-            var workspace = await ForgeProjectWorkspace.OpenAsync(projectRoot, cancellationToken);
             ValidateManifest(manifest, workspace);
             var blockers = new List<string>();
             foreach (var section in manifest.Sections)
@@ -159,7 +167,15 @@ public static class UyaGameplayLayerStore
         string projectRoot,
         CancellationToken cancellationToken = default)
     {
-        var prepared = await PrepareAsync(projectRoot, cancellationToken);
+        var workspace = await ForgeProjectWorkspace.OpenAsync(projectRoot, cancellationToken);
+        return await CreateBakeInputAsync(workspace, cancellationToken);
+    }
+
+    internal static async Task<BakeLayerInput> CreateBakeInputAsync(
+        ForgeProjectWorkspace workspace,
+        CancellationToken cancellationToken)
+    {
+        var prepared = await PrepareAsync(workspace, cancellationToken);
         return new(BakeLayerId.Gameplay, prepared.ManifestBytes, [], ReadOnlyMemory<byte>.Empty, prepared.Blockers);
     }
 
@@ -218,12 +234,20 @@ public static class UyaGameplayLayerStore
         CancellationToken cancellationToken)
     {
         var workspace = await ForgeProjectWorkspace.OpenAsync(projectRoot, cancellationToken);
-        var inspection = await InspectAsync(projectRoot, cancellationToken);
+        return await PrepareAsync(workspace, cancellationToken);
+    }
+
+    private static async Task<PreparedGameplay> PrepareAsync(
+        ForgeProjectWorkspace workspace,
+        CancellationToken cancellationToken)
+    {
+        var inspection = await InspectAsync(workspace, cancellationToken);
         var blockers = inspection.Blockers.ToList();
         var bytes = new Dictionary<string, byte[]>(StringComparer.Ordinal);
         if (inspection.IsValid)
         {
-            var root = ForgeProjectPersistence.ResolveRelativePath(projectRoot, UyaGameplayLayerSchema.RelativeRootPath);
+            var root = ForgeProjectPersistence.ResolveRelativePath(
+                workspace.RootPath, UyaGameplayLayerSchema.RelativeRootPath);
             foreach (var section in inspection.Manifest!.Sections)
                 bytes[section.Name] = await File.ReadAllBytesAsync(
                     ForgeProjectPersistence.ResolveRelativePath(root, section.Blob), cancellationToken);

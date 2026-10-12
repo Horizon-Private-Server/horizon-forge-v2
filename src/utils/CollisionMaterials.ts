@@ -19,16 +19,24 @@ export function configureCollisionMaterials(
     if (!(object instanceof THREE.Mesh)) return;
     for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
       if (material.name === 'player_barrier') {
+        configureCollisionFaceSide(material);
         const color = (material as THREE.Material & { color?: THREE.Color }).color;
         color?.set(visualization.playerBarrierColor);
         configurePlayerBarrierMaterial(material);
       } else if (material.name === 'solid_collision'
         && object.geometry.hasAttribute('_collision_type')
         && object.geometry.hasAttribute('_sound_type')) {
+        configureCollisionFaceSide(material);
         configureSolidCollisionMaterial(material, visualization);
       }
     }
   });
+}
+
+function configureCollisionFaceSide(material: THREE.Material): void {
+  if (material.side === THREE.FrontSide) return;
+  material.side = THREE.FrontSide;
+  material.needsUpdate = true;
 }
 
 function configurePlayerBarrierMaterial(material: THREE.Material): void {
@@ -119,17 +127,17 @@ void main() {`)
       .replace('#include <color_fragment>', `#include <color_fragment>
 int forgeCollisionIndex = int(clamp(floor(vForgeCollisionType + 0.5), 0.0, 15.0));
 int forgeSoundIndex = int(clamp(floor(vForgeSoundType + 0.5), 0.0, 15.0));
-vec3 forgeSelectionColor = vec3(1.0);
+vec3 forgeCollisionObjectColor = vec3(1.0);
 #if defined(USE_COLOR) || defined(USE_COLOR_ALPHA)
-  forgeSelectionColor = vColor.rgb;
+  forgeCollisionObjectColor = vColor.rgb;
 #endif
-float forgeSelected = step(0.001, distance(forgeSelectionColor, vec3(1.0)));
+float forgeCollisionSelected = step(0.001, distance(forgeCollisionObjectColor, vec3(1.0)));
 vec3 forgeFaceNormal = normalize(cross(
   dFdx(vForgeCollisionViewPosition), dFdy(vForgeCollisionViewPosition)));
 vec3 forgeViewDirection = normalize(-vForgeCollisionViewPosition);
 float forgeLight = 0.55 + 0.45 * abs(dot(forgeFaceNormal, forgeViewDirection));
 vec3 forgeSurfaceColor = mix(forgeCollisionColors[forgeCollisionIndex], forgeSoundColors[forgeSoundIndex], 0.2);
-diffuseColor.rgb = mix(forgeSurfaceColor, forgeSelectionColor, forgeSelected) * forgeLight;`);
+diffuseColor.rgb = mix(forgeSurfaceColor, forgeCollisionObjectColor, forgeCollisionSelected) * forgeLight;`);
   };
   material.customProgramCacheKey = () => `${previousCacheKey()}-forge-solid-collision-nibble-tint-lit`;
   material.userData[SOLID_COLLISION_TINT_KEY] = true;

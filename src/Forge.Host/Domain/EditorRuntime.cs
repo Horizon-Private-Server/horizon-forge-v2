@@ -650,7 +650,7 @@ public sealed partial class EditorRuntime : IAsyncDisposable
 
     private static bool IsDecodedSource(ProjectEntity entity) => entity.Geometry is not null
         || entity.Lighting is not null || entity.Camera is not null || entity.AmbientSound is not null
-        || entity.SkyShell is not null || entity.Collision is not null;
+        || entity.SkyShell is not null || entity.Collision is not null || entity.Tfrag is not null;
 
     private EditorTransformCapabilities TransformCapabilities(ProjectEntity entity)
     {

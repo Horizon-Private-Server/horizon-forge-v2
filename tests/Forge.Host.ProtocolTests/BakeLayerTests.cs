@@ -136,6 +136,14 @@ internal static class BakeLayerTests
                 (_, _) => throw new InvalidDataException("post-write validation failed")));
             Equal(second, store.Manifest.Layers.Single(value => value.Layer == BakeLayerId.World),
                 "validation failure retains prior snapshot");
+            await ThrowsAsync<InvalidDataException>(() => store.CommitFilesAsync(
+                invalidWorld,
+                (path, cancellationToken) =>
+                    File.WriteAllTextAsync(Path.Combine(path, "world.bin"), "incomplete", cancellationToken),
+                new HashSet<string>(["manifest.json", "world.bin"], StringComparer.Ordinal),
+                (_, _, _) => ValueTask.CompletedTask));
+            Equal(second, store.Manifest.Layers.Single(value => value.Layer == BakeLayerId.World),
+                "missing staged files retain prior snapshot");
 
             var lighting = Layer(initialPlan, BakeLayerId.Lighting);
             await store.CommitAsync(lighting, (path, cancellationToken) =>

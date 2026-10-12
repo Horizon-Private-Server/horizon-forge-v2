@@ -73,15 +73,18 @@ internal static class EditorPayloadCodec
             var profileSections = reader.ReadUInt32();
             var encodedSurfaceLodIndex = reader.ReadUInt32();
             var useHull = reader.ReadBoolean();
+            var targetFaceRatio = reader.ReadSingle();
             if (rawType > byte.MaxValue)
                 PayloadFormat.Malformed("Invalid instanced collision raw type");
             if (profileSections is < 1 or > 16)
                 PayloadFormat.Malformed("Invalid instanced collision profile sections");
             if (encodedSurfaceLodIndex > 3)
                 PayloadFormat.Malformed("Invalid instanced collision surface LOD");
+            if (!float.IsFinite(targetFaceRatio) || targetFaceRatio is < 0.1f or > 1f)
+                PayloadFormat.Malformed("Invalid instanced collision target face ratio");
             settings = new(
                 (byte)rawType, checked((int)profileSections),
-                checked((int)encodedSurfaceLodIndex) - 1, useHull);
+                checked((int)encodedSurfaceLodIndex) - 1, useHull, targetFaceRatio);
         }
         reader.Complete();
         return new(entityId, settings);
@@ -749,6 +752,38 @@ internal static class EditorPayloadCodec
             writer.WriteUInt32(checked((uint)linkedInstances.Count));
             foreach (var entityId in linkedInstances) writer.WriteString(entityId.ToString());
         }
+        writer.WriteBoolean(value.Tfrag is not null);
+        if (value.Tfrag is { } tfrag)
+        {
+            writer.WriteString(tfrag.SourceArchive);
+            writer.WriteUInt32((uint)tfrag.SourceKind);
+            writer.WriteUInt32(checked((uint)tfrag.SourceIndex));
+            writer.WriteUInt32(checked((uint)tfrag.GroupIndex));
+            writer.WriteInt32(tfrag.OcclusionIndex);
+            writer.WriteUInt32(tfrag.OcclusionIndexStash);
+            if (tfrag.TextureIds.Count > ProjectTfragSchema.MaximumTextureDependencies)
+                PayloadFormat.Malformed("Tfrag texture dependency list exceeds item limit");
+            writer.WriteUInt32(checked((uint)tfrag.TextureIds.Count));
+            foreach (var textureId in tfrag.TextureIds) writer.WriteUInt32(checked((uint)textureId));
+            writer.WriteBoolean(tfrag.SourcePosition is not null);
+            if (tfrag.SourcePosition is { } sourcePosition) WriteVector(writer, sourcePosition);
+            writer.WriteBoolean(tfrag.Bounds is not null);
+            if (tfrag.Bounds is { } bounds)
+            {
+                WriteVector(writer, bounds.Minimum);
+                WriteVector(writer, bounds.Maximum);
+                writer.WriteSingle(bounds.Radius);
+            }
+            writer.WriteBoolean(tfrag.Diagnostics is not null);
+            if (tfrag.Diagnostics is { } diagnostics)
+            {
+                writer.WriteUInt32(checked((uint)diagnostics.SourceDataLength));
+                writer.WriteUInt32(checked((uint)diagnostics.SourceVertexCount));
+                writer.WriteUInt32(checked((uint)diagnostics.SourceTriangleCount));
+                writer.WriteUInt32(checked((uint)diagnostics.DecodedVertexCount));
+                writer.WriteUInt32(checked((uint)diagnostics.DecodedTriangleCount));
+            }
+        }
         writer.WriteBoolean(value.InstancedCollision is not null);
         if (value.InstancedCollision is not null)
         {
@@ -823,6 +858,7 @@ internal static class EditorPayloadCodec
         writer.WriteSingle(value.SurfaceOffset);
         writer.WriteBoolean(value.OpenBase);
         writer.WriteUInt32(checked((uint)value.ProfileSections));
+        writer.WriteSingle(value.TargetFaceRatio);
     }
 
     private static EditorMobyPropertyValue ReadMobyPropertyValue(ref PayloadReader reader)

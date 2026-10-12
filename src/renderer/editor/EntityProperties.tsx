@@ -38,12 +38,13 @@ export function EntityProperties({ entity }: { entity: EditorEntity }) {
     {entity.mobyProperties && <MobyInstanceProperties entities={[entity]} disabled={disabled} />}
     {entity.mobyPVar && <MobyPVarProperties entity={entity} disabled={disabled} />}
     {entity.collision && <CollisionProperties entity={entity} />}
+    {entity.tfrag && <TfragProperties entity={entity} />}
     {linkedCollision.length > 0 && <LinkedEntities
       legend="Linked collision"
       owner={entity}
       targets={linkedCollision}
     />}
-    {(entity.asset?.kind === 'Tie' || entity.asset?.kind === 'Shrub')
+    {(entity.asset?.kind === 'Tie' || entity.asset?.kind === 'Shrub' || entity.asset?.kind === 'Tfrag')
       && <InstancedCollisionProperties entity={entity} disabled={disabled} />}
     {(entity.geometry?.kind === 'spline' || entity.geometry?.kind === 'grindPath')
       && <SplineProperties entity={entity} disabled={disabled} />}
@@ -72,6 +73,41 @@ export function EntityProperties({ entity }: { entity: EditorEntity }) {
       </Stack>
     </Fieldset>}
   </BaseEntityProperties>;
+}
+
+function TfragProperties({ entity }: { entity: EditorEntity }) {
+  const piece = entity.tfrag!;
+  const bounds = piece.bounds;
+  const diagnostics = piece.diagnostics;
+  return <Fieldset legend="Terrain piece">
+    <EditorPropertyGrid>
+      <EditorProperty label="Source">
+        {piece.sourceKind === 'primary' ? 'Primary terrain' : `Chunk ${piece.sourceIndex}`}
+      </EditorProperty>
+      <EditorProperty label="Group"><Code>#{piece.groupIndex}</Code></EditorProperty>
+      <EditorProperty label="Materials">
+        {piece.textureIds.length ? piece.textureIds.map((id) => `#${id}`).join(', ') : 'None'}
+      </EditorProperty>
+      <EditorProperty label="Occlusion">
+        {piece.occlusionIndex < 0
+          ? 'Unassigned'
+          : `Index ${piece.occlusionIndex} · stash ${piece.occlusionIndexStash}`}
+      </EditorProperty>
+      <EditorProperty label="Bounds">{bounds
+        ? `${formatVector(bounds.minimum)} → ${formatVector(bounds.maximum)} · radius ${bounds.radius.toFixed(2)}`
+        : 'Unavailable'}</EditorProperty>
+      <EditorProperty label="Geometry">{diagnostics
+        ? `${diagnostics.decodedTriangleCount.toLocaleString()} triangles · ${diagnostics.decodedVertexCount.toLocaleString()} vertices`
+        : 'Unavailable'}</EditorProperty>
+      {diagnostics && <EditorProperty label="Source payload">
+        {diagnostics.sourceDataLength.toLocaleString()} bytes · {diagnostics.sourceTriangleCount.toLocaleString()} declared triangles
+      </EditorProperty>}
+    </EditorPropertyGrid>
+  </Fieldset>;
+}
+
+function formatVector(value: ProjectVector3): string {
+  return `(${value.x.toFixed(2)}, ${value.y.toFixed(2)}, ${value.z.toFixed(2)})`;
 }
 
 function BaseEntityProperties({ entity, disabled, children }: {
@@ -211,9 +247,11 @@ function TransformEditor({ entity, disabled }: { entity: EditorEntity; disabled:
   useLayoutEffect(() => setTransform(cloneTransform(entity.transform)), [entity.id, source]);
   const values = [...Object.values(transform.position), ...Object.values(transform.rotation),
     ...Object.values(transform.scale)];
+  const tfragScaleValid = !entity.tfrag || isPositiveUniformScale(transform.scale);
   const valid = values.every(Number.isFinite)
     && Object.values(transform.scale).every((value) => value !== 0)
-    && Object.values(transform.rotation).some((value) => value !== 0);
+    && Object.values(transform.rotation).some((value) => value !== 0)
+    && tfragScaleValid;
   return <Stack gap="xs">
     <VectorInputs label="Position" value={transform.position}
       disabled={disabled || !entity.transformModes.includes('translate')}
@@ -221,15 +259,31 @@ function TransformEditor({ entity, disabled }: { entity: EditorEntity; disabled:
     <QuaternionInputs value={transform.rotation}
       disabled={disabled || !entity.transformModes.includes('rotate')}
       onChange={(rotation) => setTransform({ ...transform, rotation })} />
-    <VectorInputs label="Scale" value={transform.scale}
-      disabled={disabled || !entity.transformModes.includes('scale')}
-      onChange={(scale) => setTransform({ ...transform, scale })} />
+    {entity.tfrag
+      ? <NumberInput label="Uniform scale" value={transform.scale.x}
+        disabled={disabled || !entity.transformModes.includes('scale')}
+        min={0.0001}
+        onChange={(next) => {
+          const scale = typeof next === 'number' ? next : Number.NaN;
+          setTransform({ ...transform, scale: { x: scale, y: scale, z: scale } });
+        }} />
+      : <VectorInputs label="Scale" value={transform.scale}
+        disabled={disabled || !entity.transformModes.includes('scale')}
+        onChange={(scale) => setTransform({ ...transform, scale })} />}
     <Button size="xs" disabled={disabled || !valid || JSON.stringify(transform) === source}
       onClick={() => void execute({
         id: crypto.randomUUID(), kind: 'updateTransform', entityIds: [entity.id], transform,
       })}>Apply transform</Button>
-    {!valid && <Text size="xs" c="red">Values must be finite; scale and quaternion cannot be zero.</Text>}
+    {!valid && <Text size="xs" c="red">{entity.tfrag
+      ? 'Values must be finite; tfrag scale must be positive and uniform, and quaternion cannot be zero.'
+      : 'Values must be finite; scale and quaternion cannot be zero.'}</Text>}
   </Stack>;
+}
+
+function isPositiveUniformScale(scale: ProjectVector3): boolean {
+  const tolerance = 0.00001 * Math.max(1, Math.abs(scale.x), Math.abs(scale.y), Math.abs(scale.z));
+  return scale.x > 0 && scale.y > 0 && scale.z > 0
+    && Math.abs(scale.x - scale.y) <= tolerance && Math.abs(scale.x - scale.z) <= tolerance;
 }
 
 function VectorInputs({ label, value, disabled, onChange }: {

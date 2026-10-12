@@ -134,6 +134,10 @@ function setFogState(state: FogState, near: number, far: number, nearAmount: num
 }
 
 function configureMaterial(material: THREE.Material, family: Ps2MaterialFamily): void {
+  if (family === 'tfrag' && material.side !== THREE.FrontSide) {
+    material.side = THREE.FrontSide;
+    material.needsUpdate = true;
+  }
   if ((!material.transparent && material.alphaTest <= 0) || !materialMap(material)) return;
   const fullOpacity = resolveFullOpacity(material, family);
   if (material.userData[ALPHA_PATCH_KEY] === fullOpacity) return;

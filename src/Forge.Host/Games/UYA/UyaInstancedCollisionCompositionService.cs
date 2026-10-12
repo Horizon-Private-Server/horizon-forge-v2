@@ -11,66 +11,60 @@ internal static class UyaInstancedCollisionCompositionService
         IReadOnlyList<CollisionPieceEdit> Edits,
         IReadOnlyList<CollisionSolidAddition> Additions);
 
-    public static async Task<CollisionSource> ReadPrimaryAsync(
+    public static async Task<CollisionSource> ReadAsync(
         ForgeProjectWorkspace workspace,
         AssetCatalogStore catalog,
+        int sourcePayloadIndex,
         CancellationToken cancellationToken)
     {
-        var primaryEntities = workspace.Content.Entities
-            .Where(entity => entity.Collision?.SourcePayloadIndex == 0
-                && entity.Asset?.Kind == AssetKind.Collision)
-            .ToArray();
-        var assetIds = primaryEntities.Select(entity => entity.Asset!.Id).Distinct().ToArray();
-        if (assetIds.Length != 1)
-            throw new InvalidDataException(
-                $"Combined analysis requires one primary collision payload; found {assetIds.Length}.");
+        ArgumentOutOfRangeException.ThrowIfNegative(sourcePayloadIndex);
+        var inspection = await UyaBaseLayerStore.InspectAsync(
+            workspace, catalog, BakeLayerId.Collision, cancellationToken);
+        if (inspection.Manifest is null || inspection.Blockers[BakeLayerId.Collision].Count > 0)
+            throw new InvalidDataException(string.Join(' ', inspection.Blockers[BakeLayerId.Collision]));
+        var name = sourcePayloadIndex == 0 ? "collision.bin" : $"chunk-{sourcePayloadIndex}.bin";
+        var asset = inspection.Manifest.Layers.Single(value => value.Layer == BakeLayerId.Collision)
+            .Assets.SingleOrDefault(value => value.Name == name)
+            ?? throw new InvalidDataException($"Collision source {sourcePayloadIndex} has no matching payload.");
         var bytes = await ReadAssetAsync(
-            workspace, catalog, assetIds[0], AssetKind.Collision, cancellationToken);
+            workspace, catalog, asset.Asset.Id, AssetKind.Collision, cancellationToken);
         return new(
             bytes,
-            CreateEdits(workspace, assetIds[0], bytes, sourcePayloadIndex: 0),
+            CreateCompleteState(workspace, asset.Asset.Id, sourcePayloadIndex),
             []);
     }
 
-    public static IReadOnlyList<CollisionPieceEdit> CreateEdits(
+    public static IReadOnlyList<CollisionPieceEdit> CreateCompleteState(
         ForgeProjectWorkspace workspace,
         AssetId assetId,
-        byte[] source,
         int? sourcePayloadIndex = null)
     {
-        var pieces = CollisionConverter.Inspect(source, GameId.UYA).Pieces;
-        var sourceKeys = pieces.Select(value =>
-            (UyaCollisionAdapter.ToProjectKind(value.Kind), value.SourcePieceIndex)).ToHashSet();
         var entities = workspace.Content.Entities.Where(value =>
                 value.Asset?.Id == assetId
                 && value.Collision is not null
                 && (sourcePayloadIndex is null || value.Collision.SourcePayloadIndex == sourcePayloadIndex))
             .ToDictionary(value => (value.Collision!.Kind, value.Collision.SourcePieceIndex));
-        if (entities.Keys.Any(key => !sourceKeys.Contains(key)))
-            throw new InvalidDataException($"Collision asset {assetId} contains an unknown project piece.");
-        return pieces.Select(piece =>
-        {
-            var kind = UyaCollisionAdapter.ToProjectKind(piece.Kind);
-            if (!entities.TryGetValue((kind, piece.SourcePieceIndex), out var entity)
-                || entity.State?.Disabled == true)
-                return new CollisionPieceEdit(piece.Kind, piece.SourcePieceIndex, 0, 0, 0, Remove: true);
-            return new CollisionPieceEdit(
-                piece.Kind,
-                piece.SourcePieceIndex,
+        return entities.Values.OrderBy(value => value.Collision!.Kind)
+            .ThenBy(value => value.Collision!.SourcePieceIndex)
+            .Select(entity => new CollisionPieceEdit(
+                UyaCollisionAdapter.ToSdkKind(entity.Collision!.Kind),
+                entity.Collision.SourcePieceIndex,
                 entity.Transform.Position.X,
                 entity.Transform.Position.Y,
                 entity.Transform.Position.Z,
+                Remove: entity.State?.Disabled == true,
                 Rotation: new(
                     entity.Transform.Rotation.X,
                     entity.Transform.Rotation.Y,
                     entity.Transform.Rotation.Z,
-                    entity.Transform.Rotation.W));
-        }).ToArray();
+                    entity.Transform.Rotation.W)))
+            .ToArray();
     }
 
     public static async Task<IReadOnlyList<CollisionSolidAddition>> BuildAdditionsAsync(
         ForgeProjectWorkspace workspace,
         AssetCatalogStore catalog,
+        int sourcePayloadIndex,
         EntityId? replacementEntityId,
         AssetId? replacementSourceAssetId,
         byte[]? replacementProxyBytes,
@@ -89,18 +83,9 @@ internal static class UyaInstancedCollisionCompositionService
                 replacementProxyBytes, GameId.UYA, "preview", cancellationToken);
         }
 
-        var entities = workspace.Content.Entities.Where(entity =>
-                entity.Asset.IsInstancedCollisionSource()
-                && entity.State?.Disabled != true
-                && (entity.EntityId == replacementEntityId
-                    || entity.InstancedCollisionEnabled is not null
-                    && bindings.ContainsKey((
-                        entity.Asset.Id,
-                        entity.InstancedCollisionEnabled == false ? entity.EntityId : null)))
-                && (entity.Asset.Id == replacementSourceAssetId
-                    || bindings.ContainsKey((
-                        entity.Asset.Id,
-                        entity.InstancedCollisionEnabled == false ? entity.EntityId : null))))
+        var entities = SelectEntities(
+                workspace, bindings, replacementEntityId, replacementSourceAssetId)
+            .Where(entity => SourcePayloadIndex(entity) == sourcePayloadIndex)
             .OrderBy(entity => entity.EntityId.ToString(), StringComparer.Ordinal)
             .ToArray();
         var additions = new List<CollisionSolidAddition>(entities.Length);
@@ -161,6 +146,39 @@ internal static class UyaInstancedCollisionCompositionService
         }
         return additions;
     }
+
+    public static IReadOnlySet<int> RequiredSourcePayloadIndexes(ForgeProjectWorkspace workspace)
+    {
+        var bindings = workspace.Content.InstancedCollisionBindings.ToDictionary(
+            value => (value.SourceAssetId, value.InstanceEntityId));
+        return SelectEntities(workspace, bindings, null, null)
+            .Select(SourcePayloadIndex)
+            .ToHashSet();
+    }
+
+    private static IEnumerable<ProjectEntity> SelectEntities(
+        ForgeProjectWorkspace workspace,
+        IReadOnlyDictionary<(AssetId, EntityId?), ProjectInstancedCollisionBinding> bindings,
+        EntityId? replacementEntityId,
+        AssetId? replacementSourceAssetId) => workspace.Content.Entities.Where(entity =>
+            entity.Asset.IsInstancedCollisionSource()
+            && entity.State?.Disabled != true
+            && (entity.EntityId == replacementEntityId
+                || entity.InstancedCollisionEnabled is not null
+                && bindings.ContainsKey((
+                    entity.Asset.Id,
+                    entity.InstancedCollisionEnabled == false ? entity.EntityId : null)))
+            && (entity.Asset.Id == replacementSourceAssetId
+                || bindings.ContainsKey((
+                    entity.Asset.Id,
+                    entity.InstancedCollisionEnabled == false ? entity.EntityId : null))));
+
+    internal static int SourcePayloadIndex(ProjectEntity entity) => entity.Asset!.Kind switch
+    {
+        AssetKind.Tfrag when entity.Tfrag is not null => entity.Tfrag.SourceIndex,
+        AssetKind.Tie or AssetKind.Shrub => 0,
+        _ => throw new InvalidDataException($"Entity {entity.EntityId} has no collision payload owner."),
+    };
 
     public static async Task<byte[]> ReadAssetAsync(
         ForgeProjectWorkspace workspace,

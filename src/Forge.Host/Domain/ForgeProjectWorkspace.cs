@@ -9,6 +9,9 @@ public sealed partial class ForgeProjectWorkspace
     public const long MaxRecoveryBytes = ForgeProjectPersistence.MaxRecoveryBytes;
     public const long MaxAttachedAssetBytes = 256L * 1024 * 1024;
     private string _savedFingerprint;
+    private ForgeProjectManifest _fingerprintManifest;
+    private ForgeProjectContent _fingerprintContent;
+    private string _currentFingerprint;
     private byte[] _savedHudState;
     private byte[] _savedFxState;
 
@@ -20,7 +23,10 @@ public sealed partial class ForgeProjectWorkspace
         RootPath = rootPath;
         Manifest = manifest;
         Content = content;
-        _savedFingerprint = ForgeProjectPersistence.Fingerprint(manifest, content);
+        _fingerprintManifest = manifest;
+        _fingerprintContent = content;
+        _currentFingerprint = ForgeProjectPersistence.Fingerprint(manifest, content);
+        _savedFingerprint = _currentFingerprint;
         _savedHudState = SerializeHudState(content);
         _savedFxState = SerializeFxState(content);
     }
@@ -29,7 +35,20 @@ public sealed partial class ForgeProjectWorkspace
     public ForgeProjectManifest Manifest { get; private set; }
     public ForgeProjectContent Content { get; private set; }
     public string ContentFilePath => ForgeProjectPersistence.ResolveRelativePath(RootPath, Manifest.Content);
-    public string CurrentFingerprint => ForgeProjectPersistence.Fingerprint(Manifest, Content);
+    public string CurrentFingerprint
+    {
+        get
+        {
+            if (!ReferenceEquals(Manifest, _fingerprintManifest)
+                || !ReferenceEquals(Content, _fingerprintContent))
+            {
+                _currentFingerprint = ForgeProjectPersistence.Fingerprint(Manifest, Content);
+                _fingerprintManifest = Manifest;
+                _fingerprintContent = Content;
+            }
+            return _currentFingerprint;
+        }
+    }
     public bool IsDirty => CurrentFingerprint != _savedFingerprint;
     internal bool IsHudDirty => !_savedHudState.AsSpan().SequenceEqual(SerializeHudState(Content));
     internal bool IsFxDirty => !_savedFxState.AsSpan().SequenceEqual(SerializeFxState(Content));
@@ -268,8 +287,10 @@ public sealed partial class ForgeProjectWorkspace
         foreach (var update in updates)
         {
             ForgeProjectValidation.ValidateTransform(update.Transform);
-            if (!entities.ContainsKey(update.EntityId))
+            if (!entities.TryGetValue(update.EntityId, out var entity))
                 throw new KeyNotFoundException($"Entity {update.EntityId} is not present in the project.");
+            if (entity.Tfrag is { } tfrag)
+                ForgeProjectValidation.ValidateTfragTransform(update.Transform, tfrag.Bounds);
         }
         var transforms = updates.ToDictionary(update => update.EntityId, update => update.Transform);
         Content = Content with
@@ -313,6 +334,8 @@ public sealed partial class ForgeProjectWorkspace
     public void SetEntityLayer(IReadOnlyList<EntityId> entityIds, string layer)
     {
         ForgeProjectValidation.ValidateText(layer, nameof(layer));
+        if (GetEntities(entityIds).Any(entity => entity.Tfrag is not null))
+            throw new InvalidOperationException("Tfrag pieces cannot move to another layer.");
         UpdateEntities(entityIds, entity => entity with { Layer = layer.Trim() });
     }
 
@@ -320,19 +343,24 @@ public sealed partial class ForgeProjectWorkspace
         IReadOnlyList<EntityId> entityIds,
         bool? hidden,
         bool? disabled,
-        bool? locked) => UpdateEntities(entityIds, entity =>
+        bool? locked)
     {
-        var state = entity.State ?? new();
-        return entity with
+        if (disabled is not null && GetEntities(entityIds).Any(entity => entity.Tfrag is not null))
+            throw new InvalidOperationException("Tfrag pieces cannot be disabled before native composition is available.");
+        UpdateEntities(entityIds, entity =>
         {
-            State = state with
+            var state = entity.State ?? new();
+            return entity with
             {
-                Hidden = hidden ?? state.Hidden,
-                Disabled = disabled ?? state.Disabled,
-                Locked = locked ?? state.Locked,
-            },
-        };
-    });
+                State = state with
+                {
+                    Hidden = hidden ?? state.Hidden,
+                    Disabled = disabled ?? state.Disabled,
+                    Locked = locked ?? state.Locked,
+                },
+            };
+        });
+    }
 
     public ProjectEntity RemoveEntity(EntityId entityId)
     {
@@ -360,6 +388,8 @@ public sealed partial class ForgeProjectWorkspace
 
     public EntityId[] RemoveEntities(IReadOnlyList<EntityId> entityIds)
     {
+        if (GetEntities(entityIds).Any(entity => entity.Tfrag is not null))
+            throw new InvalidOperationException("Tfrag pieces cannot be deleted before native composition is available.");
         var indexes = EntityIndexes(entityIds);
         var analysis = AnalyzeDelete(entityIds);
         if (analysis.BlockingReferences.Count > 0)
@@ -447,6 +477,8 @@ public sealed partial class ForgeProjectWorkspace
     {
         ArgumentNullException.ThrowIfNull(entities);
         if (entities.Count == 0) throw new ArgumentException("At least one entity is required.", nameof(entities));
+        if (entities.Any(entity => entity.Tfrag is not null))
+            throw new InvalidOperationException("Tfrag pieces cannot be duplicated before native composition is available.");
         var nextSkyOrder = Content.Entities.Count(entity => entity.SkyShell is not null);
         var copies = entities.Select(entity => entity with
         {

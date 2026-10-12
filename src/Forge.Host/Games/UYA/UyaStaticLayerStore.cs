@@ -34,8 +34,17 @@ public static class UyaStaticLayerStore
         string projectRoot,
         CancellationToken cancellationToken = default)
     {
+        var workspace = await ForgeProjectWorkspace.OpenAsync(projectRoot, cancellationToken);
+        return await InspectAsync(workspace, cancellationToken);
+    }
+
+    internal static async Task<UyaStaticLayerInspection> InspectAsync(
+        ForgeProjectWorkspace workspace,
+        CancellationToken cancellationToken)
+    {
         var blockers = UyaStaticLayerSchema.Layers.ToDictionary(layer => layer, _ => new List<string>());
-        var path = ForgeProjectPersistence.ResolveRelativePath(projectRoot, UyaStaticLayerSchema.RelativeSourcePath);
+        var path = ForgeProjectPersistence.ResolveRelativePath(
+            workspace.RootPath, UyaStaticLayerSchema.RelativeSourcePath);
         if (!File.Exists(path)) return Missing(blockers, "Static-instance source metadata is missing");
         try
         {
@@ -43,7 +52,6 @@ public static class UyaStaticLayerStore
                 throw new InvalidDataException("Static-instance source metadata cannot be a symbolic link.");
             var manifest = ForgeProjectPersistence.Deserialize<UyaStaticLayerSourceManifest>(
                 await File.ReadAllBytesAsync(path, cancellationToken), "UYA static-instance source");
-            var workspace = await ForgeProjectWorkspace.OpenAsync(projectRoot, cancellationToken);
             ValidateSource(manifest, workspace);
             return new(manifest, blockers.ToDictionary(pair => pair.Key, pair => (IReadOnlyList<string>)pair.Value));
         }
@@ -64,13 +72,21 @@ public static class UyaStaticLayerStore
         CancellationToken cancellationToken = default)
     {
         var workspace = await ForgeProjectWorkspace.OpenAsync(projectRoot, cancellationToken);
-        var inspection = await InspectAsync(projectRoot, cancellationToken);
+        return await CreateBakeInputsAsync(workspace, catalog, cancellationToken);
+    }
+
+    internal static async Task<IReadOnlyList<BakeLayerInput>> CreateBakeInputsAsync(
+        ForgeProjectWorkspace workspace,
+        AssetCatalogStore catalog,
+        CancellationToken cancellationToken)
+    {
+        var inspection = await InspectAsync(workspace, cancellationToken);
         var result = new List<BakeLayerInput>(UyaStaticLayerSchema.Layers.Count);
         foreach (var layer in UyaStaticLayerSchema.Layers)
         {
             var prepared = await PrepareAsync(workspace, catalog, inspection, layer, cancellationToken);
             var references = layer is BakeLayerId.Ties or BakeLayerId.Shrubs
-                ? await UyaStaticReferenceStore.PrepareAsync(projectRoot, workspace, layer, cancellationToken)
+                ? await UyaStaticReferenceStore.PrepareAsync(workspace.RootPath, workspace, layer, cancellationToken)
                 : null;
             var relevantSettings = layer is BakeLayerId.Ties or BakeLayerId.Shrubs
                 ? ForgeProjectPersistence.Serialize(new
@@ -96,7 +112,7 @@ public static class UyaStaticLayerStore
         if (!UyaStaticLayerSchema.Layers.Contains(plan.Layer))
             throw new ArgumentException("Plan is not a UYA instance layer.", nameof(plan));
         var workspace = await ForgeProjectWorkspace.OpenAsync(projectRoot, cancellationToken);
-        var inspection = await InspectAsync(projectRoot, cancellationToken);
+        var inspection = await InspectAsync(workspace, cancellationToken);
         var prepared = await PrepareAsync(workspace, catalog, inspection, plan.Layer, cancellationToken);
         if (prepared.Blockers.Count > 0) throw new InvalidDataException(string.Join(' ', prepared.Blockers));
         var references = plan.Layer is BakeLayerId.Ties or BakeLayerId.Shrubs

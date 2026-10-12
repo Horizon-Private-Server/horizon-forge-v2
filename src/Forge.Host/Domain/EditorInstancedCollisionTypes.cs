@@ -10,7 +10,8 @@ public sealed record EditorInstancedCollisionGenerationSettings(
     byte RawType = 0x0f,
     int ProfileSections = 6,
     int SurfaceLodIndex = -1,
-    bool UseHull = false);
+    bool UseHull = false,
+    float TargetFaceRatio = 1f);
 
 public sealed record EditorCollisionOctantCost(
     int X,

@@ -156,6 +156,8 @@ function assertInstancedCollisionSettings(
     || settings.profileSections < 1 || settings.profileSections > 16
     || typeof settings.surfaceLodIndex !== 'number' || !Number.isInteger(settings.surfaceLodIndex)
     || settings.surfaceLodIndex < -1 || settings.surfaceLodIndex > 2
-    || typeof settings.useHull !== 'boolean')
+    || typeof settings.useHull !== 'boolean'
+    || typeof settings.targetFaceRatio !== 'number' || !Number.isFinite(settings.targetFaceRatio)
+    || settings.targetFaceRatio < 0.1 || settings.targetFaceRatio > 1)
     throw new TypeError('instanced collision settings are invalid');
 }

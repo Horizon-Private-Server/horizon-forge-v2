@@ -15,7 +15,7 @@ public static class UyaBaseLayerStore
     private const string PointLightsAssetName = "point-lights.bin";
     private const string TieAmbientAssetName = "tie-ambient-rgbas.bin";
     private const int SkyCompositionVersion = 2;
-    private const int CollisionCompositionVersion = 5;
+    private const int CollisionCompositionVersion = 9;
 
     internal static async Task WriteAsync(
         string projectRoot,
@@ -56,18 +56,32 @@ public static class UyaBaseLayerStore
         string projectRoot,
         AssetCatalogStore catalog,
         CancellationToken cancellationToken = default) =>
-        InspectAsync(projectRoot, catalog, null, cancellationToken);
+        InspectAsync(projectRoot, catalog, null, null, cancellationToken);
 
     internal static Task<UyaBaseLayerInspection> InspectAsync(
         string projectRoot,
         AssetCatalogStore catalog,
         BakeLayerId layer,
         CancellationToken cancellationToken) =>
-        InspectAsync(projectRoot, catalog, (BakeLayerId?)layer, cancellationToken);
+        InspectAsync(projectRoot, catalog, null, layer, cancellationToken);
+
+    internal static Task<UyaBaseLayerInspection> InspectAsync(
+        ForgeProjectWorkspace workspace,
+        AssetCatalogStore catalog,
+        CancellationToken cancellationToken) =>
+        InspectAsync(workspace.RootPath, catalog, workspace, null, cancellationToken);
+
+    internal static Task<UyaBaseLayerInspection> InspectAsync(
+        ForgeProjectWorkspace workspace,
+        AssetCatalogStore catalog,
+        BakeLayerId layer,
+        CancellationToken cancellationToken) =>
+        InspectAsync(workspace.RootPath, catalog, workspace, layer, cancellationToken);
 
     private static async Task<UyaBaseLayerInspection> InspectAsync(
         string projectRoot,
         AssetCatalogStore catalog,
+        ForgeProjectWorkspace? workspace,
         BakeLayerId? requestedLayer,
         CancellationToken cancellationToken)
     {
@@ -92,7 +106,7 @@ public static class UyaBaseLayerStore
             return Missing(blockers, $"UYA base-layer manifest is invalid ({exception.Message})");
         }
 
-        var workspace = await ForgeProjectWorkspace.OpenAsync(projectRoot, cancellationToken);
+        workspace ??= await ForgeProjectWorkspace.OpenAsync(projectRoot, cancellationToken);
         ValidateManifest(manifest, workspace, blockers);
         foreach (var layer in manifest.Layers ?? [])
         {
@@ -150,13 +164,26 @@ public static class UyaBaseLayerStore
         return manifest.Layers.SelectMany(layer => layer.Assets).Select(asset => asset.Asset.Id).Distinct().ToArray();
     }
 
-    internal static async Task<IReadOnlyList<UyaBaseLayerPayload>> ReadCollisionPayloadsAsync(
+    internal static Task<IReadOnlyList<UyaBaseLayerPayload>> ReadCollisionPayloadsAsync(
         ForgeProjectWorkspace workspace,
         AssetCatalogStore catalog,
+        CancellationToken cancellationToken) => ReadSourcePayloadsAsync(
+            workspace, catalog, BakeLayerId.Collision, CollisionSourceIndex, cancellationToken);
+
+    internal static Task<IReadOnlyList<UyaBaseLayerPayload>> ReadTfragPayloadsAsync(
+        ForgeProjectWorkspace workspace,
+        AssetCatalogStore catalog,
+        CancellationToken cancellationToken) => ReadSourcePayloadsAsync(
+            workspace, catalog, BakeLayerId.Tfrags, TfragSourceIndex, cancellationToken);
+
+    private static async Task<IReadOnlyList<UyaBaseLayerPayload>> ReadSourcePayloadsAsync(
+        ForgeProjectWorkspace workspace,
+        AssetCatalogStore catalog,
+        BakeLayerId layer,
+        Func<string, int> sourceIndexFromName,
         CancellationToken cancellationToken)
     {
-        var layer = BakeLayerId.Collision;
-        var inspection = await InspectAsync(workspace.RootPath, catalog, layer, cancellationToken);
+        var inspection = await InspectAsync(workspace, catalog, layer, cancellationToken);
         if (inspection.Manifest is null || inspection.Blockers[layer].Count > 0)
             throw new InvalidDataException(string.Join(" ", inspection.Blockers[layer]));
         var record = inspection.Manifest.Layers.Single(value => value.Layer == layer);
@@ -165,7 +192,7 @@ public static class UyaBaseLayerStore
         {
             cancellationToken.ThrowIfCancellationRequested();
             var entry = catalog.Query(new(Id: asset.Asset.Id)).Single();
-            var sourceIndex = CollisionSourceIndex(asset.Name);
+            var sourceIndex = sourceIndexFromName(asset.Name);
             var source = entry.Sources.Single(value =>
                 value.Game == inspection.Manifest.Source.Game
                 && value.Region == inspection.Manifest.Source.Region
@@ -186,10 +213,30 @@ public static class UyaBaseLayerStore
         AssetCatalogStore catalog,
         CancellationToken cancellationToken = default)
     {
-        var inspection = await InspectAsync(projectRoot, catalog, cancellationToken);
         var workspace = await ForgeProjectWorkspace.OpenAsync(projectRoot, cancellationToken);
+        return await CreateBakeInputsAsync(workspace, catalog, cancellationToken);
+    }
+
+    internal static async Task<IReadOnlyList<BakeLayerInput>> CreateBakeInputsAsync(
+        ForgeProjectWorkspace workspace,
+        AssetCatalogStore catalog,
+        CancellationToken cancellationToken)
+    {
+        var inspection = await InspectAsync(workspace, catalog, cancellationToken);
+        return await CreateBakeInputsAsync(workspace, catalog, inspection, cancellationToken);
+    }
+
+    internal static async Task<IReadOnlyList<BakeLayerInput>> CreateBakeInputsAsync(
+        ForgeProjectWorkspace workspace,
+        AssetCatalogStore catalog,
+        UyaBaseLayerInspection inspection,
+        CancellationToken cancellationToken)
+    {
         var blockers = inspection.Blockers.ToDictionary(pair => pair.Key, pair => pair.Value.ToList());
-        if (blockers[BakeLayerId.Sky].Count == 0)
+        var instancedCollisionSourceIds = workspace.Content.InstancedCollisionBindings
+            .Select(binding => binding.SourceAssetId).ToHashSet();
+        var skyRecord = inspection.Manifest?.Layers.SingleOrDefault(value => value.Layer == BakeLayerId.Sky);
+        if (blockers[BakeLayerId.Sky].Count == 0 && skyRecord?.Assets.Count > 0)
         {
             try
             {
@@ -222,6 +269,8 @@ public static class UyaBaseLayerStore
                 assetIds = assetIds.Concat(EnabledSkyShells(workspace)
                     .Where(value => value.Asset is not null)
                     .Select(value => workspace.ResolveAssetReference(value.Asset!).Id));
+            if (layer == BakeLayerId.Tfrags)
+                assetIds = assetIds.Concat(UyaTfragBakeService.AssetIds(workspace));
             if (layer == BakeLayerId.Collision)
                 assetIds = assetIds.Concat(workspace.Content.InstancedCollisionBindings
                     .SelectMany(value => new[] { value.SourceAssetId, value.ProxyAssetId }));
@@ -244,6 +293,7 @@ public static class UyaBaseLayerStore
                             value.SkyShell.AngularVelocityRadiansPerSecond,
                         }).ToArray(),
                     }),
+                    BakeLayerId.Tfrags => UyaTfragBakeService.CreateFingerprintSettings(workspace),
                     BakeLayerId.Collision => ForgeProjectPersistence.Serialize(new
                     {
                         CompositionVersion = CollisionCompositionVersion,
@@ -273,8 +323,7 @@ public static class UyaBaseLayerStore
                             }).ToArray(),
                         Instances = workspace.Content.Entities.Where(value =>
                                 value.Asset.IsInstancedCollisionSource()
-                                && workspace.Content.InstancedCollisionBindings.Any(
-                                    binding => binding.SourceAssetId == value.Asset.Id))
+                                && instancedCollisionSourceIds.Contains(value.Asset.Id))
                             .OrderBy(value => value.EntityId.ToString(), StringComparer.Ordinal)
                             .Select(value => new
                             {
@@ -304,13 +353,32 @@ public static class UyaBaseLayerStore
         BakeStagingStore staging,
         BakeLayerPlan plan,
         CancellationToken cancellationToken = default) =>
-        StageAsync(projectRoot, catalog, staging, plan, null, cancellationToken);
+        StageAsync(projectRoot, catalog, staging, plan, null, null, cancellationToken);
 
-    internal static async Task<BakeLayerSnapshot> StageAsync(
+    internal static Task<BakeLayerSnapshot> StageAsync(
         string projectRoot,
         AssetCatalogStore catalog,
         BakeStagingStore staging,
         BakeLayerPlan plan,
+        UyaBakePreparation? preparation,
+        CancellationToken cancellationToken) =>
+        StageAsync(projectRoot, catalog, staging, plan, preparation, null, cancellationToken);
+
+    internal static Task<BakeLayerSnapshot> StageAsync(
+        string projectRoot,
+        AssetCatalogStore catalog,
+        BakeStagingStore staging,
+        BakeLayerPlan plan,
+        Action<string>? fault,
+        CancellationToken cancellationToken) =>
+        StageAsync(projectRoot, catalog, staging, plan, null, fault, cancellationToken);
+
+    private static async Task<BakeLayerSnapshot> StageAsync(
+        string projectRoot,
+        AssetCatalogStore catalog,
+        BakeStagingStore staging,
+        BakeLayerPlan plan,
+        UyaBakePreparation? preparation,
         Action<string>? fault,
         CancellationToken cancellationToken)
     {
@@ -318,11 +386,13 @@ public static class UyaBaseLayerStore
         ArgumentNullException.ThrowIfNull(plan);
         if (!UyaBaseLayerSchema.Layers.Contains(plan.Layer))
             throw new ArgumentException("Plan is not a UYA base layer.", nameof(plan));
-        var inspection = await InspectAsync(projectRoot, catalog, cancellationToken);
+        var workspace = await ForgeProjectWorkspace.OpenAsync(projectRoot, cancellationToken);
+        if (preparation is not null && preparation.ProjectFingerprint != workspace.CurrentFingerprint)
+            throw new InvalidDataException("Project content changed after bake preflight.");
+        var inspection = await InspectAsync(workspace, catalog, plan.Layer, cancellationToken);
         var blockers = inspection.Blockers[plan.Layer];
         if (blockers.Count > 0) throw new InvalidDataException(string.Join(' ', blockers));
         var record = inspection.Manifest!.Layers.Single(value => value.Layer == plan.Layer);
-        var workspace = await ForgeProjectWorkspace.OpenAsync(projectRoot, cancellationToken);
         var layerManifest = inspection.Manifest with { Layers = [record] };
         var manifestBytes = ForgeProjectPersistence.Serialize(layerManifest);
         var skyComposition = plan.Layer == BakeLayerId.Sky
@@ -332,7 +402,16 @@ public static class UyaBaseLayerStore
         var collisionCompositions = plan.Layer == BakeLayerId.Collision
             ? await ComposeCollisionAsync(workspace, catalog, record, cancellationToken)
             : null;
-        return await staging.CommitAsync(plan, async (output, token) =>
+        if (plan.Layer == BakeLayerId.Tfrags && preparation?.TfragCompositions is not null)
+            await UyaTfragBakeService.ValidateEditedAssetsAsync(workspace, cancellationToken);
+        var tfragCompositions = plan.Layer == BakeLayerId.Tfrags
+            ? preparation?.TfragCompositions
+                ?? await UyaTfragBakeService.ComposeAsync(workspace, catalog, record, cancellationToken)
+            : null;
+        var expectedFiles = record.Assets.Select(value => value.Name)
+            .Append("manifest.json")
+            .ToHashSet(StringComparer.Ordinal);
+        return await staging.CommitFilesAsync(plan, async (output, token) =>
         {
             await ForgeProjectPersistence.WriteFileSafelyAsync(
                 Path.Combine(output, "manifest.json"),
@@ -357,6 +436,12 @@ public static class UyaBaseLayerStore
                     await ForgeProjectPersistence.WriteFileSafelyAsync(
                         Path.Combine(output, asset.Name), collisionCompositions![asset.Name], token);
                 }
+                else if (plan.Layer == BakeLayerId.Tfrags
+                    && tfragCompositions!.TryGetValue(asset.Name, out var tfragComposition))
+                {
+                    await ForgeProjectPersistence.WriteFileSafelyAsync(
+                        Path.Combine(output, asset.Name), tfragComposition, token);
+                }
                 else if (plan.Layer == BakeLayerId.Lighting && asset.Name == PointLightsAssetName)
                 {
                     await ForgeProjectPersistence.WriteFileSafelyAsync(
@@ -380,69 +465,76 @@ public static class UyaBaseLayerStore
                     await CopyFileAsync(source, Path.Combine(output, asset.Name), token);
                 }
             }
-        }, async (output, token) =>
-        {
             fault?.Invoke(output);
-            var stagedManifest = await File.ReadAllBytesAsync(Path.Combine(output, "manifest.json"), token);
-            if (!stagedManifest.SequenceEqual(manifestBytes))
-                throw new InvalidDataException($"{plan.Layer} staged manifest changed during write.");
-            foreach (var asset in record.Assets)
+        }, expectedFiles, async (relativePath, bytes, token) =>
+        {
+            if (relativePath == "manifest.json")
             {
-                var bytes = await File.ReadAllBytesAsync(Path.Combine(output, asset.Name), token);
-                ValidatePayload(plan.Layer, asset.Name, bytes);
-                if (plan.Layer == BakeLayerId.World && workspace.Content.LevelSettings is { } settings)
-                {
-                    var source = workspace.ResolveAssetPath(asset.Asset, catalog)
-                        ?? throw new FileNotFoundException($"Base-layer asset {asset.Asset.Id} disappeared during validation.");
-                    var expected = WriteLevelSettings(await File.ReadAllBytesAsync(source, token), settings, workspace);
-                    if (!bytes.SequenceEqual(expected))
-                        throw new InvalidDataException("World staged level settings changed during write.");
-                }
-                else if (plan.Layer == BakeLayerId.Sky && asset.Name == "sky.bin")
-                {
-                    if (!bytes.SequenceEqual(skyComposition!.Bytes))
-                        throw new InvalidDataException("Sky staged composition changed during write.");
-                }
-                else if (plan.Layer == BakeLayerId.Collision)
-                {
-                    if (!bytes.SequenceEqual(collisionCompositions![asset.Name]))
-                        throw new InvalidDataException($"Collision staged composition {asset.Name} changed during write.");
-                }
-                else if (plan.Layer == BakeLayerId.Lighting && asset.Name == PointLightsAssetName)
-                {
-                    var source = workspace.ResolveAssetPath(asset.Asset, catalog)
-                        ?? throw new FileNotFoundException($"Base-layer asset {asset.Asset.Id} disappeared during validation.");
-                    var expected = WritePointLights(await File.ReadAllBytesAsync(source, token), workspace);
-                    if (!bytes.SequenceEqual(expected))
-                        throw new InvalidDataException("Lighting staged point-light data changed during write.");
-                }
-                else if (plan.Layer == BakeLayerId.Lighting && asset.Name == DirectionalLightsAssetName)
-                {
-                    var source = workspace.ResolveAssetPath(asset.Asset, catalog)
-                        ?? throw new FileNotFoundException($"Base-layer asset {asset.Asset.Id} disappeared during validation.");
-                    var expected = WriteDirectionalLights(await File.ReadAllBytesAsync(source, token), workspace);
-                    if (!bytes.SequenceEqual(expected))
-                        throw new InvalidDataException("Lighting staged directional-light data changed during write.");
-                }
-                else if (plan.Layer == BakeLayerId.Lighting && asset.Name == TieAmbientAssetName)
-                {
-                    var source = workspace.ResolveAssetPath(asset.Asset, catalog)
-                        ?? throw new FileNotFoundException($"Base-layer asset {asset.Asset.Id} disappeared during validation.");
-                    var expected = WriteTieAmbientRgbas(await File.ReadAllBytesAsync(source, token), workspace);
-                    if (!bytes.SequenceEqual(expected))
-                        throw new InvalidDataException("Lighting staged tie ambient data changed during write.");
-                }
-                else
-                {
-                    var resolved = workspace.ResolveAsset(asset.Asset, catalog)
-                        ?? throw new FileNotFoundException(
-                            $"Base-layer asset {asset.Asset.Id} disappeared during validation.");
-                    if (resolved.CanonicalFormatVersion != asset.CanonicalFormatVersion
-                        || AssetId.Compute(asset.Asset.Kind, resolved.CanonicalFormatVersion, bytes)
-                            != resolved.Effective.Id)
-                        throw new InvalidDataException(
-                            $"{plan.Layer} staged asset {asset.Name} failed identity validation.");
-                }
+                if (!bytes.SequenceEqual(manifestBytes))
+                    throw new InvalidDataException($"{plan.Layer} staged manifest changed during write.");
+                return;
+            }
+            var asset = record.Assets.SingleOrDefault(value => value.Name == relativePath)
+                ?? throw new InvalidDataException($"{plan.Layer} staged an unexpected file {relativePath}.");
+            ValidatePayload(plan.Layer, asset.Name, bytes);
+            if (plan.Layer == BakeLayerId.World && workspace.Content.LevelSettings is { } settings)
+            {
+                var source = workspace.ResolveAssetPath(asset.Asset, catalog)
+                    ?? throw new FileNotFoundException($"Base-layer asset {asset.Asset.Id} disappeared during validation.");
+                var expected = WriteLevelSettings(await File.ReadAllBytesAsync(source, token), settings, workspace);
+                if (!bytes.SequenceEqual(expected))
+                    throw new InvalidDataException("World staged level settings changed during write.");
+            }
+            else if (plan.Layer == BakeLayerId.Sky && asset.Name == "sky.bin")
+            {
+                if (!bytes.SequenceEqual(skyComposition!.Bytes))
+                    throw new InvalidDataException("Sky staged composition changed during write.");
+            }
+            else if (plan.Layer == BakeLayerId.Collision)
+            {
+                if (!bytes.SequenceEqual(collisionCompositions![asset.Name]))
+                    throw new InvalidDataException($"Collision staged composition {asset.Name} changed during write.");
+            }
+            else if (plan.Layer == BakeLayerId.Tfrags
+                && tfragCompositions!.TryGetValue(asset.Name, out var tfragComposition))
+            {
+                if (!bytes.SequenceEqual(tfragComposition))
+                    throw new InvalidDataException($"Tfrag staged composition {asset.Name} changed during write.");
+            }
+            else if (plan.Layer == BakeLayerId.Lighting && asset.Name == PointLightsAssetName)
+            {
+                var source = workspace.ResolveAssetPath(asset.Asset, catalog)
+                    ?? throw new FileNotFoundException($"Base-layer asset {asset.Asset.Id} disappeared during validation.");
+                var expected = WritePointLights(await File.ReadAllBytesAsync(source, token), workspace);
+                if (!bytes.SequenceEqual(expected))
+                    throw new InvalidDataException("Lighting staged point-light data changed during write.");
+            }
+            else if (plan.Layer == BakeLayerId.Lighting && asset.Name == DirectionalLightsAssetName)
+            {
+                var source = workspace.ResolveAssetPath(asset.Asset, catalog)
+                    ?? throw new FileNotFoundException($"Base-layer asset {asset.Asset.Id} disappeared during validation.");
+                var expected = WriteDirectionalLights(await File.ReadAllBytesAsync(source, token), workspace);
+                if (!bytes.SequenceEqual(expected))
+                    throw new InvalidDataException("Lighting staged directional-light data changed during write.");
+            }
+            else if (plan.Layer == BakeLayerId.Lighting && asset.Name == TieAmbientAssetName)
+            {
+                var source = workspace.ResolveAssetPath(asset.Asset, catalog)
+                    ?? throw new FileNotFoundException($"Base-layer asset {asset.Asset.Id} disappeared during validation.");
+                var expected = WriteTieAmbientRgbas(await File.ReadAllBytesAsync(source, token), workspace);
+                if (!bytes.SequenceEqual(expected))
+                    throw new InvalidDataException("Lighting staged tie ambient data changed during write.");
+            }
+            else
+            {
+                var resolved = workspace.ResolveAsset(asset.Asset, catalog)
+                    ?? throw new FileNotFoundException(
+                        $"Base-layer asset {asset.Asset.Id} disappeared during validation.");
+                if (resolved.CanonicalFormatVersion != asset.CanonicalFormatVersion
+                    || AssetId.Compute(asset.Asset.Kind, resolved.CanonicalFormatVersion, bytes)
+                        != resolved.Effective.Id)
+                    throw new InvalidDataException(
+                        $"{plan.Layer} staged asset {asset.Name} failed identity validation.");
             }
         }, cancellationToken);
     }
@@ -454,27 +546,36 @@ public static class UyaBaseLayerStore
         CancellationToken cancellationToken)
     {
         var result = new Dictionary<string, byte[]>(StringComparer.Ordinal);
-        IReadOnlyList<CollisionSolidAddition> proxyAdditions = record.Assets.Any(asset => asset.Name == "collision.bin")
-            ? await UyaInstancedCollisionCompositionService.BuildAdditionsAsync(
-                workspace,
-                catalog,
-                replacementEntityId: null,
-                replacementSourceAssetId: null,
-                replacementProxyBytes: null,
-                decodedProxies: new Dictionary<AssetId, CollisionSolidAddition>(),
-                cancellationToken: cancellationToken)
-            : [];
+        var sourcePayloadIndexes = record.Assets.Select(asset => CollisionSourceIndex(asset.Name)).ToHashSet();
+        var missingSourcePayloadIndexes = UyaInstancedCollisionCompositionService
+            .RequiredSourcePayloadIndexes(workspace)
+            .Where(value => !sourcePayloadIndexes.Contains(value))
+            .Order()
+            .ToArray();
+        if (missingSourcePayloadIndexes.Length > 0)
+            throw new InvalidDataException(
+                $"Generated collision targets missing source payloads: {string.Join(", ", missingSourcePayloadIndexes)}.");
+        var decodedProxies = new Dictionary<AssetId, CollisionSolidAddition>();
         foreach (var asset in record.Assets)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            var sourcePayloadIndex = CollisionSourceIndex(asset.Name);
             var path = workspace.ResolveAssetPath(asset.Asset, catalog)
                 ?? throw new FileNotFoundException($"Collision source {asset.Asset.Id} is missing.");
             var source = await File.ReadAllBytesAsync(path, cancellationToken);
-            var edits = UyaInstancedCollisionCompositionService.CreateEdits(
-                workspace, asset.Asset.Id, source);
-            var assetAdditions = asset.Name == "collision.bin" ? proxyAdditions : [];
+            var edits = UyaInstancedCollisionCompositionService.CreateCompleteState(
+                workspace, asset.Asset.Id, sourcePayloadIndex);
+            var assetAdditions = await UyaInstancedCollisionCompositionService.BuildAdditionsAsync(
+                workspace,
+                catalog,
+                sourcePayloadIndex,
+                replacementEntityId: null,
+                replacementSourceAssetId: null,
+                replacementProxyBytes: null,
+                decodedProxies,
+                cancellationToken);
             var composition = await Task.Run(
-                () => CollisionWork.Compose(
+                () => CollisionWork.ComposeComplete(
                     source, GameId.UYA, edits, assetAdditions, cancellationToken),
                 cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
@@ -654,11 +755,22 @@ public static class UyaBaseLayerStore
     private static int CollisionSourceIndex(string name)
     {
         if (name == "collision.bin") return 0;
+        return ChunkSourceIndex(name, "Collision");
+    }
+
+    internal static int TfragSourceIndex(string name)
+    {
+        if (name == "primary.bin") return 0;
+        return ChunkSourceIndex(name, "Tfrag");
+    }
+
+    private static int ChunkSourceIndex(string name, string label)
+    {
         var stem = Path.GetFileNameWithoutExtension(name);
         if (!stem.StartsWith("chunk-", StringComparison.Ordinal)
             || !int.TryParse(stem.AsSpan("chunk-".Length), out var sourceIndex)
             || sourceIndex < 1)
-            throw new InvalidDataException($"Collision source name {name} is invalid.");
+            throw new InvalidDataException($"{label} source name {name} is invalid.");
         return sourceIndex;
     }
 

@@ -21,7 +21,7 @@ public sealed partial class ForgeProjectWorkspace
         var entity = GetEntities([instanceEntityId])[0];
         var sourceAssetId = entity.Asset is { } asset && asset.IsInstancedCollisionSource()
             ? asset.Id
-            : throw new InvalidOperationException("Individual collision requires a TIE or shrub entity.");
+            : throw new InvalidOperationException("Individual collision requires a TIE, shrub, or tfrag entity.");
         return await ApplyInstancedCollisionProxyCoreAsync(
             sourceAssetId, instanceEntityId, canonicalBytes, canonicalFormatVersion, recipe, cancellationToken);
     }
@@ -87,7 +87,7 @@ public sealed partial class ForgeProjectWorkspace
     {
         var entity = GetEntities([entityId])[0];
         if (!entity.Asset.IsInstancedCollisionSource())
-            throw new InvalidOperationException("Individual collision requires a TIE or shrub entity.");
+            throw new InvalidOperationException("Individual collision requires a TIE, shrub, or tfrag entity.");
         if (entity.InstancedCollisionEnabled != false) return RemoveInstancedCollisionProxy(entity.Asset.Id);
         var binding = Content.InstancedCollisionBindings.SingleOrDefault(value => value.InstanceEntityId == entityId)
             ?? throw new KeyNotFoundException($"Entity {entityId} has no individual collision proxy binding.");
@@ -107,7 +107,7 @@ public sealed partial class ForgeProjectWorkspace
     {
         var entities = GetEntities(entityIds);
         if (entities.Any(entity => !entity.Asset.IsInstancedCollisionSource()))
-            throw new InvalidOperationException("Only TIE and shrub entities can override generated collision.");
+            throw new InvalidOperationException("Only TIE, shrub, and tfrag entities can override generated collision.");
         UpdateEntities(entityIds, value => value with { InstancedCollisionEnabled = enabled });
     }
 
@@ -196,7 +196,7 @@ public sealed partial class ForgeProjectWorkspace
         var entity = GetEntities([entityId])[0];
         var assetId = entity.Asset is { } asset && asset.IsInstancedCollisionSource()
             ? asset.Id
-            : throw new InvalidOperationException("Instanced collision requires a TIE or shrub entity.");
+            : throw new InvalidOperationException("Instanced collision requires a TIE, shrub, or tfrag entity.");
         var instanceEntityId = entity.InstancedCollisionEnabled == false ? entityId : (EntityId?)null;
         return Content.InstancedCollisionBindings.SingleOrDefault(value =>
                 value.SourceAssetId == assetId && value.InstanceEntityId == instanceEntityId)

@@ -70,7 +70,7 @@ public sealed partial class EditorRuntime
                 ?? throw new ArgumentException("Instanced collision preview entity is not present in the project.", nameof(entityId));
             var sourceAssetId = entity.Asset is { } asset && asset.IsInstancedCollisionSource()
                 ? asset.Id
-                : throw new ArgumentException("Collision preview requires a TIE or shrub entity.", nameof(entityId));
+                : throw new ArgumentException("Collision preview requires a TIE, shrub, or tfrag entity.", nameof(entityId));
             var generated = await _instancedCollisionPreviewExecutor(
                 workspace, _catalogRootPath, entityId, sourceAssetId, settings, cancellationToken);
             if (generated.Count is 0 or > 16)
@@ -128,7 +128,7 @@ public sealed partial class EditorRuntime
                 ?? throw new ArgumentException("Instanced collision entity is not present in the project.", nameof(entityId));
             var sourceAssetId = entity.Asset is { } asset && asset.IsInstancedCollisionSource()
                 ? asset.Id
-                : throw new ArgumentException("Collision source inspection requires a TIE or shrub entity.", nameof(entityId));
+                : throw new ArgumentException("Collision source inspection requires a TIE, shrub, or tfrag entity.", nameof(entityId));
             return await _instancedCollisionSourceInspector(
                 workspace, _catalogRootPath, sourceAssetId, cancellationToken);
         }

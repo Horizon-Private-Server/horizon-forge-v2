@@ -14,6 +14,13 @@ internal static class UyaFxBakeService
         CancellationToken cancellationToken)
     {
         var workspace = await ForgeProjectWorkspace.OpenAsync(projectRoot, cancellationToken);
+        return await CreateBakeInputAsync(workspace, cancellationToken);
+    }
+
+    internal static async Task<BakeLayerInput> CreateBakeInputAsync(
+        ForgeProjectWorkspace workspace,
+        CancellationToken cancellationToken)
+    {
         if (workspace.Content.Fx is not { } fx)
             return new(BakeLayerId.Fx, ReadOnlyMemory<byte>.Empty, [], ReadOnlyMemory<byte>.Empty);
         var source = fx.SourceTextures.Select(value => value.Texture)

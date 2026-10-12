@@ -10,16 +10,21 @@ internal static class UyaProjectOpenHydrationService
         MobyDexCatalog mobyDex,
         CancellationToken cancellationToken)
     {
-        var pvars = await UyaMobyPVarService.HydrateFromSourceAsync(workspace, mobyDex, cancellationToken);
-        var collision = catalog is null
-            ? null
-            : await HydrateCollisionLinksAsync(workspace, catalog, cancellationToken);
-        if (pvars is null) return collision;
-        if (collision is null) return pvars;
+        var diagnostics = new List<EditorDiagnostic>();
+        Add(diagnostics, await UyaMobyPVarService.HydrateFromSourceAsync(workspace, mobyDex, cancellationToken));
+        Add(diagnostics, await UyaTfragProjectService.HydrateAsync(workspace, catalog, cancellationToken));
+        if (catalog is not null)
+            Add(diagnostics, await HydrateCollisionLinksAsync(workspace, catalog, cancellationToken));
+        if (diagnostics.Count == 0) return null;
         return new(
             "project.source-hydrated",
-            pvars.Severity >= collision.Severity ? pvars.Severity : collision.Severity,
-            $"{pvars.Message} {collision.Message}");
+            diagnostics.Max(value => value.Severity),
+            string.Join(' ', diagnostics.Select(value => value.Message)));
+    }
+
+    private static void Add(ICollection<EditorDiagnostic> diagnostics, EditorDiagnostic? diagnostic)
+    {
+        if (diagnostic is not null) diagnostics.Add(diagnostic);
     }
 
     private static async Task<EditorDiagnostic?> HydrateCollisionLinksAsync(
@@ -27,10 +32,11 @@ internal static class UyaProjectOpenHydrationService
         AssetCatalogStore catalog,
         CancellationToken cancellationToken)
     {
-        if (workspace.Manifest.Target.Game != "UYA"
-            || workspace.Content.Entities.Where(entity => entity.Collision?.Kind == ProjectCollisionPieceKind.Solid)
-                .All(entity => entity.Collision!.LinkedInstanceEntityIds is not null))
-            return null;
+        if (workspace.Manifest.Target.Game != "UYA") return null;
+        var missingLinks = workspace.Content.Entities
+            .Where(entity => entity.Collision?.Kind == ProjectCollisionPieceKind.Solid)
+            .Any(entity => entity.Collision!.LinkedInstanceEntityIds is null);
+        if (!missingLinks) return null;
         try
         {
             var entities = workspace.Content.Entities.ToList();
@@ -51,7 +57,7 @@ internal static class UyaProjectOpenHydrationService
                 "collision.links-source-hydrated",
                 EditorDiagnosticSeverity.Info,
                 $"Refreshed source collision links for {changed} collision component(s)"
-                + $" ({linked} linked). Save the project to persist them.");
+                + $" ({linked} linked). Save the project to persist the refresh.");
         }
         catch (OperationCanceledException)
         {

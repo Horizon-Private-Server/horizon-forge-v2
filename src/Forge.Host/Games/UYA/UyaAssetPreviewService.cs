@@ -15,6 +15,7 @@ public static class UyaAssetPreviewService
     public const int SchemaVersion = 1;
     private const int TextureRasterSchemaVersion = 2;
     private const int SkyRenderSchemaVersion = 2;
+    private const int CollisionRenderSchemaVersion = 2;
     private const string MarkerName = ".forge-asset-preview.json";
     // ponytail: bounded lock striping avoids per-key lock retention; increase stripes only if collisions profile hot.
     private static readonly SemaphoreSlim[] WriteLocks = Enumerable.Range(0, 16)
@@ -139,6 +140,7 @@ public static class UyaAssetPreviewService
         {
             AssetKind.Texture => TextureRasterSchemaVersion,
             AssetKind.Sky => SkyRenderSchemaVersion,
+            AssetKind.Collision => CollisionRenderSchemaVersion,
             _ => SchemaVersion,
         };
         var identity = $"{request.AssetId}\n{request.Kind}\n{request.ShellIndex}\n{sdkRevision}\n{schema}\n{request.ViewPreset}";

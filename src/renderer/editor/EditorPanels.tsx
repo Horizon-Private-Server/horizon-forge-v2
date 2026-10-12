@@ -128,9 +128,17 @@ export function SceneTreePanel() {
   const [filter, setFilter] = useState('');
   const model = useMemo(() => buildSceneEntityGroups(
     project.entities.filter((entity) => !entity.skyShell && !entity.collision
-      && entity.geometry?.kind !== 'area'), filter,
+      && !entity.tfrag && entity.geometry?.kind !== 'area'), filter,
   ), [filter, project.entities]);
-  const tfrags = useMemo(() => buildTerrainTreeItems(terrain?.urls ?? [], filter), [filter, terrain]);
+  const tfragEntities = useMemo(() => {
+    const query = filter.trim().toLocaleLowerCase();
+    return project.entities.filter((entity) => entity.tfrag
+      && (!query || `${entity.name} ${entity.tfrag!.sourceKind} ${entity.tfrag!.sourceIndex} group ${entity.tfrag!.groupIndex} tfrag terrain`
+        .toLocaleLowerCase().includes(query)));
+  }, [filter, project.entities]);
+  const legacyTfrags = useMemo(() => tfragEntities.length || project.entities.some((entity) => entity.tfrag)
+    ? []
+    : buildTerrainTreeItems(terrain?.urls ?? [], filter), [filter, project.entities, terrain, tfragEntities.length]);
   const sky = useMemo(() => {
     const query = filter.trim().toLocaleLowerCase();
     return project.entities.filter((entity) => entity.skyShell
@@ -145,10 +153,10 @@ export function SceneTreePanel() {
   }, [filter, project.entities, project.target.game]);
   const entityIds = useMemo(() => new Set(project.entities.map((entity) => entity.id)), [project.entities]);
   const nodes = useMemo<TreeNodeData[]>(() => [
-    ...(tfrags.length ? [{
+    ...(tfragEntities.length || legacyTfrags.length ? [{
       value: 'render:tfrags',
       label: <span className="scene-tree-node">
-        <SceneTreeLabel kind="tfrag">Terrain ({tfrags.length})</SceneTreeLabel>
+        <SceneTreeLabel kind="tfrag">Terrain ({tfragEntities.length || legacyTfrags.length})</SceneTreeLabel>
         <span className="scene-tree-actions">
           <ActionIcon
             aria-label={`${showTerrain ? 'Hide' : 'Show'} terrain`}
@@ -166,11 +174,32 @@ export function SceneTreePanel() {
           </ActionIcon>
         </span>
       </span>,
-      children: tfrags.map((item) => ({
-        ...item,
-        label: <SceneTreeLabel kind="tfrag" dot>{item.label.replace(/ tfrag$/i, '')}</SceneTreeLabel>,
-        nodeProps: { selectable: false },
-      })),
+      children: tfragEntities.length
+        ? [...new Set(tfragEntities.map((entity) => entity.tfrag!.sourceIndex))]
+          .sort((left, right) => left - right)
+          .map((sourceIndex) => {
+            const pieces = tfragEntities.filter((entity) => entity.tfrag!.sourceIndex === sourceIndex);
+            return {
+              value: `render:tfrags:${sourceIndex}`,
+              label: <SceneTreeNode entities={pieces} disabled={busy}>
+                <SceneTreeLabel kind="tfrag">
+                  {sourceIndex === 0 ? 'Primary' : `Chunk ${sourceIndex}`} ({pieces.length})
+                </SceneTreeLabel>
+              </SceneTreeNode>,
+              children: pieces.map((entity) => ({
+                value: entity.id,
+                label: <SceneTreeNode entities={[entity]} disabled={busy}>
+                  <SceneTreeLabel kind="tfrag" dot>Group #{entity.tfrag!.groupIndex}</SceneTreeLabel>
+                </SceneTreeNode>,
+                nodeProps: { selectable: true },
+              })),
+            };
+          })
+        : legacyTfrags.map((item) => ({
+          ...item,
+          label: <SceneTreeLabel kind="tfrag" dot>{item.label.replace(/ tfrag$/i, '')}</SceneTreeLabel>,
+          nodeProps: { selectable: false },
+        })),
     }] : []),
     ...(sky.length ? [{
       value: 'render:sky',
@@ -244,8 +273,8 @@ export function SceneTreePanel() {
           : undefined,
       })),
     })),
-  ], [busy, collision, model.groups, setShowTerrain, showTerrain, sky, tfrags]);
-  const renderItemCount = tfrags.length + sky.length + collision.length;
+  ], [busy, collision, legacyTfrags, model.groups, setShowTerrain, showTerrain, sky, tfragEntities]);
+  const renderItemCount = tfragEntities.length + legacyTfrags.length + sky.length + collision.length;
   const matched = model.matched + renderItemCount;
 
   return <EditorPanel label="Scene hierarchy">

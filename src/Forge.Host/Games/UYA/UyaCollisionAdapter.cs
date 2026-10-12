@@ -11,4 +11,11 @@ internal static class UyaCollisionAdapter
         CollisionPieceKind.PlayerBarrier => ProjectCollisionPieceKind.PlayerBarrier,
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unknown SDK collision piece kind."),
     };
+
+    public static CollisionPieceKind ToSdkKind(ProjectCollisionPieceKind kind) => kind switch
+    {
+        ProjectCollisionPieceKind.Solid => CollisionPieceKind.Solid,
+        ProjectCollisionPieceKind.PlayerBarrier => CollisionPieceKind.PlayerBarrier,
+        _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unknown project collision piece kind."),
+    };
 }

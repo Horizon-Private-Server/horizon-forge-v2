@@ -198,18 +198,18 @@ public sealed partial class EditorRuntime
                 || command.Transforms?.Count > 0
                 || !workspace.Content.Entities.Single(entity => entity.EntityId == command.EntityIds[0])
                     .Asset.IsInstancedCollisionSource():
-                throw new ArgumentException("Collision remove commands require one TIE or shrub entity.", nameof(command));
+                throw new ArgumentException("Collision remove commands require one TIE, shrub, or tfrag entity.", nameof(command));
             case EditorCommandKind.SetInstancedCollisionEnabled when command.EntityIds.Count == 0
                 || command.Transform is not null || command.Text is not null || command.State is not null
                 || command.Transforms?.Count > 0
                 || workspace.GetEntities(command.EntityIds).Any(entity =>
                     !entity.Asset.IsInstancedCollisionSource()):
-                throw new ArgumentException("Collision toggle commands require TIE or shrub entities.", nameof(command));
+                throw new ArgumentException("Collision toggle commands require TIE, shrub, or tfrag entities.", nameof(command));
             case EditorCommandKind.SetInstancedCollisionRawType when command.EntityIds.Count != 1
                 || command.Transform is not null || command.Text is not null || command.State is not null
                 || command.Transforms?.Count > 0 || command.InstancedCollisionRawType is null
                 || !HasSelectedInstancedCollisionBinding(workspace, command.EntityIds[0]):
-                throw new ArgumentException("Collision ID commands require one TIE or shrub with a collision proxy.", nameof(command));
+                throw new ArgumentException("Collision ID commands require one supported entity with a collision proxy.", nameof(command));
             case EditorCommandKind.SetInstancedCollisionFaceTypes when command.EntityIds.Count != 1
                 || command.Transform is not null || command.Text is not null || command.State is not null
                 || command.Transforms?.Count > 0 || command.InstancedCollisionProxyAssetId is null
@@ -221,7 +221,7 @@ public sealed partial class EditorRuntime
                 || !HasSelectedInstancedCollisionBinding(
                     workspace, command.EntityIds[0], command.InstancedCollisionProxyAssetId):
                 throw new ArgumentException(
-                    "Collision face commands require one TIE or shrub, its current proxy, and unique face assignments.",
+                    "Collision face commands require one supported entity, its current proxy, and unique face assignments.",
                     nameof(command));
             case EditorCommandKind.SetEntityReference when command.EntityIds.Count != 1
                 || command.Transform is not null || command.Text is not null || command.State is not null

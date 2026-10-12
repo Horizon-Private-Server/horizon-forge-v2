@@ -36,41 +36,66 @@ public static class UyaInstancedCollisionPreviewService
         var rawType = settings?.RawType ?? 0x0f;
         var profileSections = settings?.ProfileSections ?? 6;
         var surfaceLodIndex = settings?.SurfaceLodIndex ?? -1;
+        var targetFaceRatio = settings?.TargetFaceRatio ?? 1f;
+        if (targetFaceRatio < 1 && sourceKind != AssetKind.Tfrag)
+            throw new InvalidDataException("Surface decimation currently supports tfrag sources only.");
 
         var candidates = new List<EditorInstancedCollisionCandidate>();
         cancellationToken.ThrowIfCancellationRequested();
         if (settings?.UseHull == true)
         {
-            var hull = sourceKind == AssetKind.Tie
-                ? CollisionWork.GenerateTieConvexHullCandidate(
+            var hull = sourceKind switch
+            {
+                AssetKind.Tie => CollisionWork.GenerateTieConvexHullCandidate(
                     sourceBytes, GameId.UYA, "preview:hull", rawType: rawType,
-                    profileSections: profileSections, cancellationToken: cancellationToken)
-                : CollisionWork.GenerateShrubConvexHullCandidate(
+                    profileSections: profileSections, cancellationToken: cancellationToken),
+                AssetKind.Shrub => CollisionWork.GenerateShrubConvexHullCandidate(
                     sourceBytes, GameId.UYA, "preview:hull", rawType: rawType,
-                    profileSections: profileSections, cancellationToken: cancellationToken);
+                    profileSections: profileSections, cancellationToken: cancellationToken),
+                AssetKind.Tfrag => CollisionWork.GenerateTfragConvexHullCandidate(
+                    sourceBytes, GameId.UYA, "preview:hull",
+                    lodIndex: TfragLods(sourceBytes, cancellationToken)[0], rawType: rawType,
+                    profileSections: profileSections, cancellationToken: cancellationToken),
+                _ => throw new InvalidOperationException("Unsupported instanced collision source kind."),
+            };
             if (hull.Analysis.HardViolationCount == 0)
                 candidates.Add(CreateHull(hull, cancellationToken));
         }
         else
         {
-            var decimated = sourceKind == AssetKind.Shrub
-                ? CollisionWork.GenerateShrubSurfaceCandidate(
+            var decimated = sourceKind switch
+            {
+                AssetKind.Shrub => CollisionWork.GenerateShrubSurfaceCandidate(
                     sourceBytes, GameId.UYA, "preview:decimated", rawType: rawType,
-                    cancellationToken: cancellationToken)
-                : surfaceLodIndex < 0
-                    ? CollisionWork.GenerateTieDecimatedCandidate(
-                        sourceBytes, GameId.UYA, "preview:decimated", rawType: rawType,
-                        cancellationToken: cancellationToken)
-                    : CollisionWork.GenerateTieSurfaceCandidate(
-                        sourceBytes, GameId.UYA, "preview:decimated", lodIndex: surfaceLodIndex,
-                        rawType: rawType, cancellationToken: cancellationToken);
+                    cancellationToken: cancellationToken),
+                AssetKind.Tie when surfaceLodIndex < 0 => CollisionWork.GenerateTieDecimatedCandidate(
+                    sourceBytes, GameId.UYA, "preview:decimated", rawType: rawType,
+                    cancellationToken: cancellationToken),
+                AssetKind.Tie => CollisionWork.GenerateTieSurfaceCandidate(
+                    sourceBytes, GameId.UYA, "preview:decimated", lodIndex: surfaceLodIndex,
+                    rawType: rawType, cancellationToken: cancellationToken),
+                AssetKind.Tfrag when targetFaceRatio < 1 => CollisionWork.GenerateTfragDecimatedCandidate(
+                    sourceBytes, GameId.UYA, "preview:decimated", rawType: rawType,
+                    targetFaceRatio: targetFaceRatio,
+                    cancellationToken: cancellationToken),
+                AssetKind.Tfrag when surfaceLodIndex < 0 => CollisionWork.GenerateTfragSurfaceCandidate(
+                    sourceBytes, GameId.UYA, "preview:surface",
+                    lodIndex: TfragLods(sourceBytes, cancellationToken)[0], rawType: rawType,
+                    cancellationToken: cancellationToken),
+                AssetKind.Tfrag => CollisionWork.GenerateTfragSurfaceCandidate(
+                    sourceBytes, GameId.UYA, "preview:decimated", lodIndex: surfaceLodIndex,
+                    rawType: rawType, cancellationToken: cancellationToken),
+                _ => throw new InvalidOperationException("Unsupported instanced collision source kind."),
+            };
             if (decimated.Analysis.HardViolationCount == 0)
                 candidates.Add(CreateSurface(decimated, cancellationToken));
         }
         if (candidates.Count == 0)
             throw new InvalidDataException("No generated instanced collision candidate fits the native collision limits.");
-        var primary = await UyaInstancedCollisionCompositionService.ReadPrimaryAsync(
-            workspace, catalog, cancellationToken);
+        var sourceEntity = workspace.Content.Entities.Single(value => value.EntityId == sourceEntityId);
+        var sourcePayloadIndex = UyaInstancedCollisionCompositionService.SourcePayloadIndex(sourceEntity);
+        var collisionSource = await UyaInstancedCollisionCompositionService.ReadAsync(
+            workspace, catalog, sourcePayloadIndex, cancellationToken);
         var decodedProxies = new Dictionary<AssetId, CollisionSolidAddition>();
         for (var index = 0; index < candidates.Count; index++)
         {
@@ -79,7 +104,7 @@ public static class UyaInstancedCollisionPreviewService
             {
                 CombinedAnalysis = await AnalyzeCombinedAsync(
                     workspace, catalog, sourceEntityId, sourceAssetId,
-                    candidates[index], primary, decodedProxies, cancellationToken),
+                    sourcePayloadIndex, candidates[index], collisionSource, decodedProxies, cancellationToken),
             };
         }
         return candidates;
@@ -95,6 +120,8 @@ public static class UyaInstancedCollisionPreviewService
             workspace, catalogRootPath, sourceAssetId, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         if (sourceKind == AssetKind.Shrub) return new(sourceAssetId, [0]);
+        if (sourceKind == AssetKind.Tfrag)
+            return new(sourceAssetId, TfragLods(sourceBytes, cancellationToken));
         var tie = TieClassReader.Read(
             sourceBytes,
             TieClassReadOptions.ForGameProfile(TieGameProfile.ForGame(GameId.UYA)));
@@ -120,14 +147,35 @@ public static class UyaInstancedCollisionPreviewService
             throw new NotSupportedException("Instanced collision generation currently supports UYA NTSC-U 1.00 only.");
 
         var catalog = await AssetCatalogStore.OpenAsync(catalogRootPath, cancellationToken);
-        var entry = catalog.Query(new(Id: sourceAssetId)).SingleOrDefault()
-            ?? throw new FileNotFoundException($"Source asset {sourceAssetId} is not present in the catalog.");
-        if (entry.Kind is not (AssetKind.Tie or AssetKind.Shrub)
-            || entry.CanonicalFormatVersion != UyaAssetImportService.CanonicalFormatVersion)
-            throw new InvalidDataException("The selected asset is not a supported canonical UYA TIE or shrub.");
+        var sourceKinds = workspace.Content.Entities
+            .Where(entity => entity.Asset is { } asset && asset.Id == sourceAssetId)
+            .Select(entity => entity.Asset!.Kind)
+            .Distinct()
+            .ToArray();
+        if (sourceKinds.Length != 1 || sourceKinds[0] is not (AssetKind.Tie or AssetKind.Shrub or AssetKind.Tfrag))
+            throw new InvalidDataException("The selected asset is not a supported canonical UYA collision source.");
+        var sourceKind = sourceKinds[0];
+        var resolved = workspace.ResolveAsset(new(sourceAssetId, sourceKind), catalog)
+            ?? throw new FileNotFoundException($"Source asset {sourceAssetId} is missing.");
+        var expectedVersion = sourceKind == AssetKind.Tfrag
+            ? ProjectTfragSchema.CanonicalFormatVersion
+            : UyaAssetImportService.CanonicalFormatVersion;
+        if (resolved.CanonicalFormatVersion != expectedVersion)
+            throw new InvalidDataException($"The selected {sourceKind} asset uses an unsupported canonical version.");
         var canonicalBytes = await UyaInstancedCollisionCompositionService.ReadAssetAsync(
-            workspace, catalog, sourceAssetId, entry.Kind, cancellationToken);
-        return (catalog, UyaCanonicalAssetCodec.Decode(canonicalBytes).ModelBytes, entry.Kind);
+            workspace, catalog, sourceAssetId, sourceKind, cancellationToken);
+        var sourceBytes = sourceKind == AssetKind.Tfrag
+            ? canonicalBytes
+            : UyaCanonicalAssetCodec.Decode(canonicalBytes).ModelBytes;
+        return (catalog, sourceBytes, sourceKind);
+    }
+
+    private static int[] TfragLods(byte[] sourceBytes, CancellationToken cancellationToken)
+    {
+        var lods = CollisionWork.InspectTfragSurfaceLodIndices(sourceBytes, GameId.UYA, cancellationToken).ToArray();
+        return lods.Length > 0
+            ? lods
+            : throw new InvalidDataException("Tfrag piece contains no usable decoded surface LOD.");
     }
 
     public static async Task<AssetPreviewResult> PrepareRenderAsync(
@@ -168,13 +216,16 @@ public static class UyaInstancedCollisionPreviewService
         var encoded = CollisionWork.EncodeStandalone(GameId.UYA, [value.Addition], cancellationToken);
         return Create(
             EditorInstancedCollisionPreset.Surface,
-            $"Decimated mesh · LOD {value.Recipe.LodIndex}",
+            value.Recipe.TargetFaceRatio < 1
+                ? $"Decimated to {value.Recipe.TargetFaceRatio:P0} target · LOD {value.Recipe.LodIndex}"
+                : $"Matched LOD {value.Recipe.LodIndex}",
             new(
                 ProjectInstancedCollisionRecipeKind.Surface,
                 value.Recipe.Version,
                 RecipeVersion: 1,
                 value.Recipe.LodIndex,
-                value.Recipe.RawType),
+                value.Recipe.RawType,
+                TargetFaceRatio: value.Recipe.TargetFaceRatio),
             encoded.Bytes,
             value.GeneratedVertexCount,
             value.GeneratedFaceCount,
@@ -242,8 +293,9 @@ public static class UyaInstancedCollisionPreviewService
         AssetCatalogStore catalog,
         EntityId previewEntityId,
         AssetId previewSourceAssetId,
+        int sourcePayloadIndex,
         EditorInstancedCollisionCandidate candidate,
-        UyaInstancedCollisionCompositionService.CollisionSource primary,
+        UyaInstancedCollisionCompositionService.CollisionSource collisionSource,
         Dictionary<AssetId, CollisionSolidAddition> decodedProxies,
         CancellationToken cancellationToken)
     {
@@ -253,15 +305,16 @@ public static class UyaInstancedCollisionPreviewService
             var additions = await UyaInstancedCollisionCompositionService.BuildAdditionsAsync(
                 workspace,
                 catalog,
+                sourcePayloadIndex,
                 previewEntityId,
                 previewSourceAssetId,
                 candidate.CanonicalBytes,
                 decodedProxies,
                 cancellationToken);
             instanceCount = additions.Count;
-            var analysis = CollisionWork.AnalyzeComposition(
-                primary.Bytes, GameId.UYA, primary.Edits,
-                primary.Additions.Concat(additions).ToArray(), cancellationToken);
+            var analysis = CollisionWork.AnalyzeCompleteComposition(
+                collisionSource.Bytes, GameId.UYA, collisionSource.Edits,
+                collisionSource.Additions.Concat(additions).ToArray(), cancellationToken);
             return new(
                 instanceCount,
                 analysis.LogicalFaceCount,

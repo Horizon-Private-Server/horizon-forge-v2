@@ -392,6 +392,7 @@ public sealed record EditorEntitySnapshot(
     EditorEntityStatus State,
     ProjectSkyShell? SkyShell,
     ProjectCollisionPiece? Collision,
+    ProjectTfragPiece? Tfrag,
     EditorInstancedCollisionBindingSnapshot? InstancedCollision,
     EditorInstancedCollisionBindingSnapshot? IndividualInstancedCollision,
     bool? InstancedCollisionEnabled,

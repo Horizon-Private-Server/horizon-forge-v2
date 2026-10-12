@@ -39,6 +39,7 @@ test('instanced collision recommendation respects hard failures and measured dev
     recipe: {
       kind: 'surface', generatorVersion: 2, recipeVersion: 1, lodIndex: 0, rawType: 0,
       detailSize: 0, sealOpeningSize: 0, surfaceOffset: 0, openBase: false, profileSections: 0,
+      targetFaceRatio: 1,
     },
     encodedByteCount: worstBytes * 2,
     vertexCount: 3,
@@ -186,4 +187,3 @@ test('asset explorer keeps sky shells under separate cards', () => {
   });
   assert.deepEqual(families.map((family) => family.displayLabel), ['Sky shell 0', 'Sky shell 1']);
 });
-

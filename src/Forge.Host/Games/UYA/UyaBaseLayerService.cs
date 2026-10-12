@@ -52,7 +52,7 @@ internal static class UyaBaseLayerService
             LevelAssetReader.ReadAssetSlice(assetBytes, header.SkyOffset, offsets));
         Add(payloads, BakeLayerId.Tfrags, "primary.bin", AssetKind.Tfrag,
             "level_wad/assets/asset_wad.bin", 0,
-            LevelAssetReader.ReadAssetSlice(assetBytes, header.TerrainOffset, offsets));
+            LevelAssetReader.ReadAssetSlice(assetBytes, header.TerrainOffset, offsets, allowZeroOffset: true));
         Add(payloads, BakeLayerId.Collision, "collision.bin", AssetKind.Collision,
             "level_wad/assets/asset_wad.bin", 0,
             LevelAssetReader.ReadAssetSlice(assetBytes, header.CollisionOffset, offsets));

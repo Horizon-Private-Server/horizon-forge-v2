@@ -96,7 +96,8 @@ public static class UyaProjectService
         if (!request.AllowPartial && warnings.Count > 0) throw new InvalidDataException(string.Join(' ', warnings));
         await ReportAsync(progress, 2, 4);
         var entities = baseData.Entities;
-        if (entities.Count == 0) throw new InvalidDataException($"UYA level {request.Level} does not contain any supported base instances.");
+        if (entities.Count + baseData.Tfrags.Entities.Count == 0)
+            throw new InvalidDataException($"UYA level {request.Level} does not contain any supported base instances.");
         await ReportAsync(progress, 3, 4);
 
         var workspace = await ForgeProjectWorkspace.CreateAsync(
@@ -111,6 +112,8 @@ public static class UyaProjectService
             baseData.Fx,
             baseData.MobyPVars,
             cancellationToken);
+        await UyaTfragProjectService.ApplyAsync(workspace, baseData.Tfrags, cancellationToken);
+        await workspace.SaveAsync(cancellationToken);
         await OpaqueContentStore.WriteAsync(
             workspace.RootPath,
             OpaqueSource(request.Revision, request.Level, request.Fingerprint),

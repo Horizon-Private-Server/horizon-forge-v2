@@ -287,6 +287,7 @@ export function encodeInstancedCollisionPreviewRequest(
     writer.writeUInt32(settings.profileSections);
     writer.writeUInt32(settings.surfaceLodIndex + 1);
     writer.writeBoolean(settings.useHull);
+    writer.writeFloat32(settings.targetFaceRatio);
   }
   return writer.toBuffer();
 }
@@ -726,6 +727,28 @@ function readEntity(reader: PayloadReader): EditorEntity {
     };
     value.collision.linkedInstanceEntityIds = readStrings(reader, 256);
   }
+  if (reader.readBoolean()) {
+    value.tfrag = {
+      sourceArchive: reader.readString(),
+      sourceKind: enumValue({ 1: 'primary', 2: 'chunk' }, reader.readUInt32(), 'tfrag source kind'),
+      sourceIndex: reader.readUInt32(),
+      groupIndex: reader.readUInt32(),
+      occlusionIndex: reader.readInt32(),
+      occlusionIndexStash: reader.readUInt32(),
+      textureIds: readList(reader, 4_096, () => reader.readUInt32()),
+    };
+    if (reader.readBoolean()) value.tfrag.sourcePosition = readVector(reader);
+    if (reader.readBoolean()) value.tfrag.bounds = {
+      minimum: readVector(reader), maximum: readVector(reader), radius: reader.readFloat32(),
+    };
+    if (reader.readBoolean()) value.tfrag.diagnostics = {
+      sourceDataLength: reader.readUInt32(),
+      sourceVertexCount: reader.readUInt32(),
+      sourceTriangleCount: reader.readUInt32(),
+      decodedVertexCount: reader.readUInt32(),
+      decodedTriangleCount: reader.readUInt32(),
+    };
+  }
   if (reader.readBoolean()) value.instancedCollision = {
     proxyAssetId: reader.readString(),
     recipe: readInstancedCollisionRecipe(reader),
@@ -904,6 +927,7 @@ function readInstancedCollisionRecipe(reader: PayloadReader): EditorInstancedCol
     surfaceOffset: reader.readFloat32(),
     openBase: reader.readBoolean(),
     profileSections: reader.readUInt32(),
+    targetFaceRatio: reader.readFloat32(),
   };
 }
 

@@ -135,6 +135,7 @@ export interface EditorInstancedCollisionRecipe {
   surfaceOffset: number;
   openBase: boolean;
   profileSections: number;
+  targetFaceRatio: number;
 }
 
 export interface EditorCollisionFaceType {
@@ -147,6 +148,7 @@ export interface EditorInstancedCollisionGenerationSettings {
   profileSections: number;
   surfaceLodIndex: number;
   useHull: boolean;
+  targetFaceRatio: number;
 }
 
 export interface EditorCollisionOctantCost {
@@ -241,6 +243,24 @@ export interface EditorEntity {
   };
   skyShell?: EditorSkyShell;
   collision?: EditorCollisionPiece;
+  tfrag?: {
+    sourceArchive: string;
+    sourceKind: 'primary' | 'chunk';
+    sourceIndex: number;
+    groupIndex: number;
+    occlusionIndex: number;
+    occlusionIndexStash: number;
+    textureIds: number[];
+    sourcePosition?: ProjectVector3;
+    bounds?: { minimum: ProjectVector3; maximum: ProjectVector3; radius: number };
+    diagnostics?: {
+      sourceDataLength: number;
+      sourceVertexCount: number;
+      sourceTriangleCount: number;
+      decodedVertexCount: number;
+      decodedTriangleCount: number;
+    };
+  };
   instancedCollision?: EditorInstancedCollisionBinding;
   individualInstancedCollision?: EditorInstancedCollisionBinding;
   instancedCollisionEnabled?: boolean;

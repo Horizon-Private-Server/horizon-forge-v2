@@ -101,6 +101,7 @@ internal static class UyaBaseLevelService
         var baseLayers = UyaBaseLayerService.Extract(package);
         AddSkyShells(entities, baseLayers, level);
         AddCollisionPieces(entities, baseLayers, level);
+        var tfrags = UyaTfragProjectService.Create(baseLayers, level);
         _ = UyaInstancedCollisionLinkRecoveryService.Recover(entities, baseLayers, catalog);
         var mobyPVars = UyaMobyPVarService.Import(
             entities,
@@ -115,8 +116,8 @@ internal static class UyaBaseLevelService
             + MissingClasses(shrubs.Select(value => value.ClassId), shrubClasses, shrubAssets);
         return new(
             entities,
-            entities.Count,
-            entities.Count(entity => entity.Asset is not null),
+            entities.Count + tfrags.Entities.Count,
+            entities.Count(entity => entity.Asset is not null) + tfrags.Entities.Count,
             mobys.Count(instance => !mobyClasses.Contains(instance.ClassId)),
             missing,
             missingClasses,
@@ -135,7 +136,8 @@ internal static class UyaBaseLevelService
             levelSettings is null ? null : ProjectSettings(levelSettings, entities),
             hud,
             fx,
-            mobyPVars);
+            mobyPVars,
+            tfrags);
     }
 
     private static void AddCollisionPieces(
@@ -725,4 +727,5 @@ internal sealed record UyaBaseLevelData(
     ProjectLevelSettings? LevelSettings,
     ProjectHudState? Hud,
     ProjectFxState? Fx,
-    ProjectMobyPVarState? MobyPVars);
+    ProjectMobyPVarState? MobyPVars,
+    UyaTfragProjectImport Tfrags);

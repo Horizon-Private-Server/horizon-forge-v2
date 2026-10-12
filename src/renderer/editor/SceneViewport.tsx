@@ -48,6 +48,7 @@ import { buildGroundPlacement, createGroundSurfaceRaycast } from './ScenePlaceme
 import { assetTemplateKey, SceneProjection } from './SceneProjection.ts';
 import { resolvePointerSnapTarget } from './SceneSnapping.ts';
 import { TransformTool } from './TransformTool.ts';
+import { addTfragTemplates } from './TfragTemplates.ts';
 import type { EditorTransformMode, EditorTransformSpace } from './TransformTool.ts';
 import { InstancedCollisionOverlayProjection } from './InstancedCollisionOverlayProjection.ts';
 import {
@@ -235,6 +236,7 @@ export function SceneViewport({
     sky.name = 'Sky';
     const currentProjection = new SceneProjection();
     currentProjection.setSelectionColor(selectionColor);
+    currentProjection.setTfragsVisible(showTerrain);
     const levelSettingsOverlay = new LevelSettingsOverlayProjection();
     levelSettingsOverlay.setDeathPlaneVisible(showDeathHeight);
     levelSettingsOverlay.sync(currentLevelSceneSettings.current);
@@ -264,7 +266,9 @@ export function SceneViewport({
     const scenePass = new RenderPass(scene, camera);
     scenePass.clear = false;
     scenePass.clearDepth = true;
-    const outlinePass = new OutlinePass(new THREE.Vector2(1, 1), scene, camera);
+    const outlineScene = new THREE.Scene();
+    outlineScene.add(currentProjection.outlineRoot);
+    const outlinePass = new OutlinePass(new THREE.Vector2(1, 1), outlineScene, camera);
     setOutlineColor(outlinePass, selectionColor);
     outlinePass.edgeStrength = 4;
     outlinePass.edgeThickness = 3;
@@ -903,25 +907,35 @@ export function SceneViewport({
           (asset.url ? loader.loadAsync(asset.url) : Promise.reject(new Error(asset.error ?? 'Asset has no render payload')))
             .finally(reportLoaded))),
       ]);
-      const loaded = terrainResults.flatMap((result) => result.status === 'fulfilled' ? [result.value.scene] : []);
+      const loaded = terrainResults.flatMap((result, index) => result.status === 'fulfilled'
+        ? [{ scene: result.value.scene, url: terrainSource.urls[index] }]
+        : []);
       if (disposed || !viewport.current) {
-        for (const scene of loaded) disposeObject(scene);
+        for (const { scene } of loaded) disposeObject(scene);
         for (const result of assetResults) if (result.status === 'fulfilled') disposeObject(result.value.scene);
         return;
       }
       if (!loaded.length) throw terrainResults.find((result) => result.status === 'rejected')?.reason
         ?? new Error('Could not load terrain');
-      for (const scene of loaded) {
+      const templates = new Map<string, THREE.Object3D>();
+      const failedAssets = new Set<string>();
+      const tfragEntities = currentEntities.current.filter((entity) => entity.tfrag);
+      let matchedTfrags = 0;
+      viewport.current.terrainBounds.makeEmpty();
+      for (const { scene, url } of loaded) {
         configurePs2MaterialAlpha(scene, 'tfrag');
         configurePs2MaterialFog(scene, currentEnvironment.current);
         scene.traverse((object) => { if (/^lod_[1-9]/i.test(object.name)) object.visible = false; });
-        viewport.current.terrain.add(scene);
+        scene.updateMatrixWorld(true);
+        viewport.current.terrainBounds.expandByObject(scene);
+        if (tfragEntities.length) {
+          const result = addTfragTemplates(scene, url, tfragEntities, templates);
+          matchedTfrags += result.matched;
+          result.missingAssetIds.forEach((assetId) => failedAssets.add(assetId));
+        } else viewport.current.terrain.add(scene);
         loadedScenes.push(scene);
       }
-      viewport.current.terrainBounds.setFromObject(viewport.current.terrain);
       viewport.current.syncLevelSettingsBounds();
-      const templates = new Map<string, THREE.Object3D>();
-      const failedAssets = new Set<string>();
       const collisionEntitiesByAsset = new Map<string, EditorEntity[]>();
       for (const entity of currentEntities.current) {
         if (!entity.collision || !entity.asset) continue;
@@ -958,6 +972,7 @@ export function SceneViewport({
           failedAssets.add(asset.assetId);
         }
       });
+      templates.forEach((_template, assetId) => failedAssets.delete(assetId));
       viewport.current.projection.setAssetTemplates(templates, failedAssets);
       viewport.current.projection.sync(
         currentEntities.current,
@@ -980,6 +995,8 @@ export function SceneViewport({
         ?? String((assetResults[firstAssetFailure] as PromiseRejectedResult).reason);
       const failures = [
         terrainFailures && `${terrainFailures} terrain section${terrainFailures === 1 ? '' : 's'}`,
+        tfragEntities.length > matchedTfrags
+          && `${tfragEntities.length - matchedTfrags} tfrag piece${tfragEntities.length - matchedTfrags === 1 ? '' : 's'}`,
         ...failedAssetFamilies(terrainSource, assetResults),
       ].filter(Boolean);
       loadProgressChanged.current(failures.length ? {
@@ -1132,7 +1149,20 @@ export function SceneViewport({
     });
   }, [sceneTreeColors]);
   useEffect(() => { if (viewport.current) viewport.current.occlusion.visible = showOcclusionOctants; }, [showOcclusionOctants]);
-  useEffect(() => { if (viewport.current) viewport.current.terrain.visible = showTerrain; }, [showTerrain]);
+  useEffect(() => {
+    const current = viewport.current;
+    if (!current) return;
+    current.terrain.visible = showTerrain;
+    current.projection.setTfragsVisible(showTerrain);
+    current.projection.sync(
+      currentEntities.current,
+      currentSelection.current,
+      undefined,
+      true,
+      currentCollisionVisibility.current,
+    );
+    current.syncTransforms();
+  }, [showTerrain]);
   useEffect(() => viewport.current?.levelSettingsOverlay.setDeathPlaneVisible(showDeathHeight), [showDeathHeight]);
 
   useEffect(() => { if (!showStats) setStats(undefined); }, [showStats]);

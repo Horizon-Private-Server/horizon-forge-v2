@@ -20,6 +20,13 @@ internal static class UyaHudBakeService
         CancellationToken cancellationToken = default)
     {
         var workspace = await ForgeProjectWorkspace.OpenAsync(projectRoot, cancellationToken);
+        return await CreateBakeInputAsync(workspace, cancellationToken);
+    }
+
+    internal static async Task<BakeLayerInput> CreateBakeInputAsync(
+        ForgeProjectWorkspace workspace,
+        CancellationToken cancellationToken)
+    {
         var hud = workspace.Content.Hud;
         var overrides = RelevantOverrides(workspace, hud);
         var sourceFiles = new List<UyaHudSourceFingerprint>();
@@ -28,7 +35,7 @@ internal static class UyaHudBakeService
         {
             try
             {
-                var source = await ReadSourceAsync(projectRoot, cancellationToken);
+                var source = await ReadSourceAsync(workspace.RootPath, cancellationToken);
                 sourceFiles.AddRange(source.Records.Select(value =>
                     new UyaHudSourceFingerprint(value.Name, value.Checksum, value.Size)));
                 _ = ReadHud(source.Header, source.Banks);

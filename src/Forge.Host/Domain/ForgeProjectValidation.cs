@@ -123,6 +123,7 @@ internal static partial class ForgeProjectValidation
             if (asset.Id == asset.ParentId)
                 throw new InvalidDataException($"Project asset {asset.Id} cannot derive from itself.");
         }
+        ValidateTfrags(content.Tfrags, content.Entities, content.Assets);
         if (content.AssetOverrides.Any(binding => binding is null))
             throw new InvalidDataException("Project asset overrides cannot contain null entries.");
         if (content.AssetOverrides.Select(binding => binding.Source).Distinct().Count()
@@ -261,7 +262,8 @@ internal static partial class ForgeProjectValidation
         ArgumentNullException.ThrowIfNull(recipe);
         if (!Enum.IsDefined(recipe.Kind) || recipe.GeneratorVersion < 1 || recipe.RecipeVersion < 1
             || recipe.LodIndex < 0 || !float.IsFinite(recipe.DetailSize)
-            || !float.IsFinite(recipe.SealOpeningSize) || !float.IsFinite(recipe.SurfaceOffset))
+            || !float.IsFinite(recipe.SealOpeningSize) || !float.IsFinite(recipe.SurfaceOffset)
+            || !float.IsFinite(recipe.TargetFaceRatio) || recipe.TargetFaceRatio is < 0.1f or > 1f)
             throw new InvalidDataException("Instanced collision recipe is invalid.");
         if (recipe.ProfileSections is < 0 or > 16
             || recipe.Kind == ProjectInstancedCollisionRecipeKind.Surface
@@ -269,9 +271,10 @@ internal static partial class ForgeProjectValidation
                 || recipe.SurfaceOffset != 0 || recipe.OpenBase || recipe.ProfileSections != 0)
             || recipe.Kind == ProjectInstancedCollisionRecipeKind.Hull
             && (recipe.DetailSize != 0 || recipe.SealOpeningSize != 0
-                || recipe.SurfaceOffset != 0 || recipe.OpenBase)
+                || recipe.SurfaceOffset != 0 || recipe.OpenBase || recipe.TargetFaceRatio != 1)
             || recipe.Kind == ProjectInstancedCollisionRecipeKind.Wrap
-            && (recipe.DetailSize <= 0 || recipe.SealOpeningSize < 0 || recipe.ProfileSections != 0))
+            && (recipe.DetailSize <= 0 || recipe.SealOpeningSize < 0 || recipe.ProfileSections != 0
+                || recipe.TargetFaceRatio != 1))
             throw new InvalidDataException("Instanced collision recipe parameters do not match its generator.");
     }
 

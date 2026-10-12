@@ -123,6 +123,8 @@ public static class UyaLevelPackService
         ReadOnlyMemory<byte>? terrain = null;
         ReadOnlyMemory<byte>? sky = null;
         ReadOnlyMemory<byte>? collision = null;
+        var maximumTerrainLength = 0;
+        var maximumCollisionLength = 0;
         var chunkReplacements = new Dictionary<int, byte[]>();
         foreach (var layer in UyaBaseLayerSchema.Layers)
         {
@@ -133,6 +135,10 @@ public static class UyaLevelPackService
                 var bytes = await File.ReadAllBytesAsync(Path.Combine(root, asset.Name), cancellationToken);
                 if (!sourceBase.TryGetValue((layer, asset.Name), out var source))
                     throw new InvalidDataException($"{layer} asset {asset.Name} is absent from the base level.");
+                if (layer == BakeLayerId.Tfrags)
+                    maximumTerrainLength = Math.Max(maximumTerrainLength, bytes.Length);
+                else if (layer == BakeLayerId.Collision)
+                    maximumCollisionLength = Math.Max(maximumCollisionLength, bytes.Length);
                 var path = GameplayPath(layer, asset.Name);
                 if (path is not null)
                 {
@@ -170,6 +176,11 @@ public static class UyaLevelPackService
                 }
             }
         }
+        // UYA streams every chunk through the primary terrain and collision buffers.
+        terrain = ExpandPrimaryStreamBuffer(
+            terrain, sourceBase[(BakeLayerId.Tfrags, "primary.bin")].Bytes, maximumTerrainLength);
+        collision = ExpandPrimaryStreamBuffer(
+            collision, sourceBase[(BakeLayerId.Collision, "collision.bin")].Bytes, maximumCollisionLength);
         foreach (var (chunkIndex, bytes) in chunkReplacements)
             replacements.Add($"level_wad/chunks/chunk{chunkIndex}.wad", bytes);
 
@@ -474,6 +485,18 @@ public static class UyaLevelPackService
             && name.EndsWith(".bin", StringComparison.Ordinal)
             && int.TryParse(name.AsSpan(6, name.Length - 10), out index)
             && index > 0;
+    }
+
+    internal static ReadOnlyMemory<byte>? ExpandPrimaryStreamBuffer(
+        ReadOnlyMemory<byte>? replacement,
+        ReadOnlyMemory<byte> source,
+        int requiredLength)
+    {
+        var payload = replacement ?? source;
+        if (requiredLength <= payload.Length) return replacement;
+        var reserved = new byte[requiredLength];
+        payload.Span.CopyTo(reserved);
+        return reserved;
     }
 
     private static TextureAssetFamily TextureFamily(BakeLayerId layer) => layer switch

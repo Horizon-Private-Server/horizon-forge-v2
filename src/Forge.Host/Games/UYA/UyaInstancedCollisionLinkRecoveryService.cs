@@ -11,7 +11,7 @@ internal static class UyaInstancedCollisionLinkRecoveryService
         IReadOnlyList<UyaBaseLayerPayload> payloads,
         AssetCatalogStore catalog)
     {
-        var sourceGroups = entities.Where(entity => entity.Asset.IsInstancedCollisionSource())
+        var sourceGroups = entities.Where(entity => entity.Asset?.Kind is AssetKind.Tie or AssetKind.Shrub)
             .GroupBy(entity => (entity.Asset!.Id, entity.Asset.Kind)).ToArray();
         var collisionIndexes = entities.Select((entity, index) => (entity, index))
             .Where(value => value.entity.Collision?.Kind == ProjectCollisionPieceKind.Solid)

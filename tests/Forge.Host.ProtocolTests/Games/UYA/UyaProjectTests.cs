@@ -53,6 +53,8 @@ internal static class UyaProjectTests
             Equal(17, descriptor.EntityCount, "base entity count");
             Equal(0, descriptor.MissingAssetCount, "base missing assets");
             var workspace = await ForgeProjectWorkspace.OpenAsync(projectPath);
+            Equal(true, workspace.Content.Tfrags is not null,
+                "project creation records authoritative tfrag import state");
             Equal(new ProjectRgb24(0, 0, 0), workspace.Content.LevelSettings!.BackgroundColor,
                 "level settings imported into project content");
             Equal(0f, workspace.Content.LevelSettings.FogNearDistance, "level settings distance uses editor units");
@@ -84,6 +86,8 @@ internal static class UyaProjectTests
             var baseInspection = await UyaBaseLayerStore.InspectAsync(projectPath, catalog);
             Equal(true, baseInspection.IsValid, "target-native base layers captured");
             Equal(7, baseInspection.Manifest!.Layers.Sum(layer => layer.Assets.Count), "base layer asset count");
+            Equal(1, baseInspection.Manifest.Layers.Single(layer => layer.Layer == BakeLayerId.Tfrags).Assets.Count,
+                "offset-zero primary terrain is captured as a tfrag source");
             Equal(3, baseInspection.Manifest.Layers.Single(layer => layer.Layer == BakeLayerId.Lighting).Assets.Count,
                 "native lighting asset count");
             Equal(false, opaque.Manifest.Sections.Any(section => section.Name == "gameplay/directional_lights"),
@@ -489,7 +493,7 @@ internal static class UyaProjectTests
         WriteByteBlock(levelData, 0x48, 0x300, 0xc0);
         new byte[] { 0xde, 0xad, 0xbe, 0xef }.CopyTo(levelData[0x80..]);
         var assetHeader = levelData[0x100..];
-        WriteInt32(assetHeader, 0x08, 0x40);
+        WriteInt32(assetHeader, 0x08, 0);
         WriteInt32(assetHeader, 0x10, 0x80);
         WriteInt32(assetHeader, 0x14, 0xa0);
         WriteInt32(assetHeader, 0x18, 1);
@@ -498,18 +502,18 @@ internal static class UyaProjectTests
         WriteInt32(assetHeader, 0x24, 0xe0);
         WriteInt32(assetHeader, 0x28, 1);
         WriteInt32(assetHeader, 0x2c, 0x100);
-        WriteInt32(assetHeader, 0xc0, 0x10);
+        WriteInt32(assetHeader, 0xc0, 0x40);
         WriteInt32(assetHeader, 0xc4, 100);
         assetHeader.Slice(0xd0, 0x10).Fill(byte.MaxValue);
-        WriteInt32(assetHeader, 0xe0, 0x20);
+        WriteInt32(assetHeader, 0xe0, 0x50);
         WriteInt32(assetHeader, 0xe4, 200);
         assetHeader.Slice(0xf0, 0x10).Fill(byte.MaxValue);
-        WriteInt32(assetHeader, 0x100, 0x30);
+        WriteInt32(assetHeader, 0x100, 0x60);
         WriteInt32(assetHeader, 0x104, 300);
         assetHeader.Slice(0x110, 0x10).Fill(byte.MaxValue);
 
         var assets = levelData[0x300..0x3c0];
-        WriteInt32(assets, 0x40, 0x40);
+        WriteInt32(assets, 0, 0x40);
         WriteInt32(assets, 0xa0, 8);
 
         var gameplay = wad[(2 * UyaLevelConstants.SectorSize)..];

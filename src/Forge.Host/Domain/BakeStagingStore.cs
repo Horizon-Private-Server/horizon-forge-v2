@@ -40,13 +40,32 @@ public sealed class BakeStagingStore
         BakeLayerPlan plan,
         Func<string, CancellationToken, Task> writeOutput,
         CancellationToken cancellationToken = default)
-        => await CommitAsync(plan, writeOutput, null, cancellationToken);
+        => await CommitCoreAsync(plan, writeOutput, null, null, null, cancellationToken);
 
     public async Task<BakeLayerSnapshot> CommitAsync(
         BakeLayerPlan plan,
         Func<string, CancellationToken, Task> writeOutput,
         Func<string, CancellationToken, Task>? validateOutput,
         CancellationToken cancellationToken = default)
+        => await CommitCoreAsync(plan, writeOutput, validateOutput, null, null, cancellationToken);
+
+    public async Task<BakeLayerSnapshot> CommitFilesAsync(
+        BakeLayerPlan plan,
+        Func<string, CancellationToken, Task> writeOutput,
+        IReadOnlySet<string> expectedFiles,
+        Func<string, byte[], CancellationToken, ValueTask> validateFile,
+        CancellationToken cancellationToken = default)
+        => await CommitCoreAsync(plan, writeOutput, null,
+            expectedFiles ?? throw new ArgumentNullException(nameof(expectedFiles)),
+            validateFile ?? throw new ArgumentNullException(nameof(validateFile)), cancellationToken);
+
+    private async Task<BakeLayerSnapshot> CommitCoreAsync(
+        BakeLayerPlan plan,
+        Func<string, CancellationToken, Task> writeOutput,
+        Func<string, CancellationToken, Task>? validateOutput,
+        IReadOnlySet<string>? expectedFiles,
+        Func<string, byte[], CancellationToken, ValueTask>? validateFile,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(writeOutput);
@@ -63,7 +82,8 @@ public sealed class BakeStagingStore
             cancellationToken.ThrowIfCancellationRequested();
             if (validateOutput is not null) await validateOutput(temporary, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
-            var (outputFingerprint, size) = await FingerprintDirectoryAsync(temporary, cancellationToken);
+            var (outputFingerprint, size) = await FingerprintDirectoryAsync(
+                temporary, expectedFiles, validateFile, cancellationToken);
             var relativePath = $"layers/{plan.Layer.ToString().ToLowerInvariant()}/{plan.InputFingerprint}";
             var destination = ForgeProjectPersistence.ResolveRelativePath(RootPath, relativePath);
             Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
@@ -221,6 +241,13 @@ public sealed class BakeStagingStore
 
     private static async Task<(string Fingerprint, long Size)> FingerprintDirectoryAsync(
         string path,
+        CancellationToken cancellationToken) =>
+        await FingerprintDirectoryAsync(path, null, null, cancellationToken);
+
+    private static async Task<(string Fingerprint, long Size)> FingerprintDirectoryAsync(
+        string path,
+        IReadOnlySet<string>? expectedFiles,
+        Func<string, byte[], CancellationToken, ValueTask>? validateFile,
         CancellationToken cancellationToken)
     {
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
@@ -228,7 +255,22 @@ public sealed class BakeStagingStore
         long size = 0;
         var files = EnumerateFilesSafely(path)
             .Select(file => (Path: file, Relative: Path.GetRelativePath(path, file).Replace(Path.DirectorySeparatorChar, '/')))
-            .OrderBy(value => value.Relative, StringComparer.Ordinal);
+            .OrderBy(value => value.Relative, StringComparer.Ordinal)
+            .ToArray();
+        if (expectedFiles is not null)
+        {
+            var actualFiles = files.Select(value => value.Relative).ToHashSet(StringComparer.Ordinal);
+            if (!actualFiles.SetEquals(expectedFiles))
+            {
+                var missing = expectedFiles.Where(value => !actualFiles.Contains(value))
+                    .Order(StringComparer.Ordinal);
+                var unexpected = actualFiles.Where(value => !expectedFiles.Contains(value))
+                    .Order(StringComparer.Ordinal);
+                throw new InvalidDataException(
+                    $"Staged output file inventory is invalid (missing: {string.Join(", ", missing)}; "
+                    + $"unexpected: {string.Join(", ", unexpected)}).");
+            }
+        }
         foreach (var file in files)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -237,6 +279,13 @@ public sealed class BakeStagingStore
             var info = new FileInfo(file.Path);
             AppendLong(hash, info.Length);
             size = checked(size + info.Length);
+            if (validateFile is not null)
+            {
+                var bytes = await File.ReadAllBytesAsync(file.Path, cancellationToken);
+                hash.AppendData(bytes);
+                await validateFile(file.Relative, bytes, cancellationToken);
+                continue;
+            }
             await using var stream = new FileStream(file.Path, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024,
                 FileOptions.Asynchronous | FileOptions.SequentialScan);
             var buffer = new byte[64 * 1024];

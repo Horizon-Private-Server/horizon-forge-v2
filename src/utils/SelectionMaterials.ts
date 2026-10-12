@@ -22,6 +22,8 @@ vForgeInstanceColor = vec3(1.0);`)
       .replace('#include <color_vertex>', `#include <color_vertex>
 #ifdef USE_INSTANCING_COLOR
   vForgeInstanceColor = instanceColor.rgb;
+#elif defined(USE_BATCHING_COLOR)
+  vForgeInstanceColor = getBatchingColor(getIndirectIndex(gl_DrawID)).rgb;
 #endif`);
     shader.fragmentShader = shader.fragmentShader
       .replace('void main() {', `uniform vec3 forgeSelectionColor;
