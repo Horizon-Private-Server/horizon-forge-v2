@@ -1529,7 +1529,7 @@ failure/rollback variants; the full desktop, host, and integration suite passes.
 
 ### M13-006 — Qualify secure full-package updates
 
-Status: 🚧 In progress — the corrected packaged A baseline is built and downloaded;
+Status: 🚧 In progress — the serialized single-instance updater baseline is published;
 the next signed nightly is the A→B self-update candidate, with the remaining
 qualification matrix still pending
 
