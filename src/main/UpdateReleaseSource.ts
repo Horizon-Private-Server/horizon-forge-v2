@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto';
 import { open, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
-import { net } from 'electron';
 
 import type {
   AvailableUpdate,
@@ -139,8 +138,9 @@ export async function fetchGithubJson(url: string): Promise<unknown> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15_000);
   try {
-    const response = await net.fetch(url, {
+    const response = await fetch(url, {
       headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'Horizon-Forge' },
+      redirect: 'error',
       signal: controller.signal,
     });
     if (!response.ok) throw new Error(`Trusted update source returned HTTP ${response.status}.`);
@@ -153,40 +153,28 @@ export async function fetchGithubJson(url: string): Promise<unknown> {
 }
 
 export async function fetchReleaseAsset(url: string, maximumBytes: number): Promise<Uint8Array> {
-  let current = new URL(url);
-  if (!isTrustedGitHubUpdateUrl(current, false)) throw new Error('Release asset URL is not trusted.');
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15_000);
   try {
-    for (let redirects = 0; redirects <= 5; redirects += 1) {
-      const response = await net.fetch(current.href, { signal: controller.signal, redirect: 'manual' });
-      if ([301, 302, 303, 307, 308].includes(response.status)) {
-        const location = response.headers.get('location');
-        if (!location) throw new Error('Release asset redirect has no destination.');
-        current = new URL(location, current);
-        if (!isTrustedGitHubUpdateUrl(current, true)) throw new Error('Release asset redirect is not trusted.');
-        continue;
-      }
-      if (!response.ok || !response.body) throw new Error(`Trusted update source returned HTTP ${response.status}.`);
-      const reader = response.body.getReader();
-      const chunks: Uint8Array[] = [];
-      let total = 0;
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        total += value.byteLength;
-        if (total > maximumBytes) throw new Error('Release asset is larger than allowed.');
-        chunks.push(value);
-      }
-      const bytes = new Uint8Array(total);
-      let offset = 0;
-      for (const chunk of chunks) {
-        bytes.set(chunk, offset);
-        offset += chunk.byteLength;
-      }
-      return bytes;
+    const response = await fetchTrustedRelease(url, controller.signal);
+    if (!response.ok || !response.body) throw new Error(`Trusted update source returned HTTP ${response.status}.`);
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maximumBytes) throw new Error('Release asset is larger than allowed.');
+      chunks.push(value);
     }
-    throw new Error('Release asset followed too many redirects.');
+    const bytes = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return bytes;
   } finally {
     clearTimeout(timeout);
   }
@@ -202,7 +190,7 @@ export async function downloadVerifiedPackage(
   const timeout = setTimeout(() => controller.abort(), 10 * 60_000);
   const handle = await open(temporary, 'wx');
   try {
-    const response = await net.fetch(url, { signal: controller.signal });
+    const response = await fetchTrustedRelease(url, controller.signal);
     if (!response.ok || !response.body) throw new Error(`Package download returned HTTP ${response.status}.`);
     const hash = createHash('sha256');
     let size = 0;
@@ -229,6 +217,20 @@ export async function downloadVerifiedPackage(
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function fetchTrustedRelease(url: string, signal: AbortSignal): Promise<Response> {
+  let current = new URL(url);
+  if (!isTrustedGitHubUpdateUrl(current, false)) throw new Error('Release asset URL is not trusted.');
+  for (let redirects = 0; redirects <= 5; redirects += 1) {
+    const response = await fetch(current.href, { signal, redirect: 'manual' });
+    if (![301, 302, 303, 307, 308].includes(response.status)) return response;
+    const location = response.headers.get('location');
+    if (!location) throw new Error('Release asset redirect has no destination.');
+    current = new URL(location, current);
+    if (!isTrustedGitHubUpdateUrl(current, true)) throw new Error('Release asset redirect is not trusted.');
+  }
+  throw new Error('Release asset followed too many redirects.');
 }
 
 export function parseGitHubRelease(value: unknown): GitHubRelease | undefined {

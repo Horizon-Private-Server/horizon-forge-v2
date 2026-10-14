@@ -93,6 +93,9 @@ async function fixtureServer() {
     } else if (request.url === '/redirect') {
       response.writeHead(302, { location: 'https://example.com/untrusted' });
       response.end();
+    } else if (request.url === '/trusted-redirect') {
+      response.writeHead(302, { location: '/package' });
+      response.end();
     } else if (request.url === '/oversize') {
       response.writeHead(200, { 'transfer-encoding': 'chunked' });
       response.write(packageBytes);
@@ -126,6 +129,9 @@ test('verified downloads commit atomically and restart revalidates the complete 
   assert.equal((await manager.start({ envelope, downloadUrl: `${server.url}/package` })).state, 'ready');
   assert.deepEqual([...new Set(changes.map(({ state }) => state))], ['downloading', 'verifying', 'ready']);
   assert.equal((await createManager(root, server.url).recover()).state, 'ready');
+
+  await manager.cleanupReady();
+  assert.equal((await manager.start({ envelope, downloadUrl: `${server.url}/trusted-redirect` })).state, 'ready');
 
   const ready = JSON.parse(await readFile(path.join(root, 'ready.json'), 'utf8'));
   await writeFile(path.join(root, ready.file), Buffer.alloc(packageBytes.length, 0x11));

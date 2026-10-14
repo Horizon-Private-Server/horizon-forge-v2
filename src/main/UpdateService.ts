@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { app, dialog, net, shell } from 'electron';
+import { app, dialog, shell } from 'electron';
 import type { BrowserWindow } from 'electron';
 
 import type {
@@ -54,6 +54,7 @@ export class UpdateService {
   private retryPhase?: 'check' | 'download' | 'stage' | 'install';
   private installing = false;
   private handingOff = false;
+  private startupRecovery: Promise<void> = Promise.resolve();
 
   private constructor(private readonly options: UpdateServiceOptions) {
     this.lifecycle = new UpdateLifecycleCoordinator({
@@ -110,7 +111,7 @@ export class UpdateService {
         currentVersion: options.version,
         platform,
         trustedKeys,
-        fetch: (url, init) => net.fetch(url, init),
+        fetch,
         isTrustedUrl: isTrustedGitHubUpdateUrl,
         onChange: (snapshot) => service.publishDownloadState(snapshot),
       });
@@ -129,12 +130,9 @@ export class UpdateService {
         if (await service.activationManager.recover()) return service;
         if (service.activationManager.hasStartupHealthRequest) return service;
       }
-      const downloadState = await service.downloadManager.recover();
-      const download = downloadState.state === 'ready'
-        ? await service.downloadManager.getReadyDownload().catch(() => undefined)
-        : undefined;
-      const stageState = await service.stageManager.recover(download);
-      if (download && stageState.state === 'idle') void service.prepareDownloadedUpdate();
+      service.startupRecovery = service.recoverDownloadedUpdate().catch((error) => {
+        console.error('Forge update recovery failed', error);
+      });
     }
     return service;
   }
@@ -177,6 +175,7 @@ export class UpdateService {
       message: `Checking the trusted ${channel} release channel.`, severity: 'info', channel, actions: [],
     }, false);
     try {
+      await this.startupRecovery;
       const update = await findGitHubUpdate({
         channel,
         installedChannel: this.options.channel,
@@ -221,6 +220,16 @@ export class UpdateService {
     } finally {
       this.checking = false;
     }
+  }
+
+  private async recoverDownloadedUpdate(): Promise<void> {
+    if (!this.downloadManager || !this.stageManager) return;
+    const downloadState = await this.downloadManager.recover();
+    const download = downloadState.state === 'ready'
+      ? await this.downloadManager.getReadyDownload().catch(() => undefined)
+      : undefined;
+    const stageState = await this.stageManager.recover(download);
+    if (download && stageState.state === 'idle') void this.prepareDownloadedUpdate();
   }
 
   private publishUpdate(update: ResolvedUpdate): void {
