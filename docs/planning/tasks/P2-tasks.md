@@ -1529,8 +1529,8 @@ failure/rollback variants; the full desktop, host, and integration suite passes.
 
 ### M13-006 — Qualify secure full-package updates
 
-Status: 🚧 In progress — the corrected signed nightly baseline is published and
-downloaded; the next nightly is the packaged A→B candidate, with the remaining
+Status: 🚧 In progress — the corrected packaged A baseline is built and downloaded;
+the next signed nightly is the A→B self-update candidate, with the remaining
 qualification matrix still pending
 
 Requirements: FR-UPD-004, FR-UPD-005, NFR-SEC-004, NFR-REL-001
