@@ -132,6 +132,11 @@ body {
   overflow: hidden;
 }
 
+.app-header-status {
+  flex: none;
+  margin-left: auto;
+}
+
 .ribbon-action,
 .notification-action {
   width: var(--forge-ui-compact-height);
@@ -156,7 +161,63 @@ body {
   position: relative;
   display: inline-flex;
   flex: none;
-  margin-left: auto;
+}
+
+.update-status-trigger {
+  display: inline-flex;
+  flex: none;
+  max-width: min(20rem, 40vw);
+  border-radius: var(--mantine-radius-xl);
+}
+
+.update-status-trigger:focus-visible {
+  outline: 2px solid var(--mantine-primary-color-filled);
+  outline-offset: 2px;
+}
+
+.update-status-badge {
+  max-width: 100%;
+  cursor: pointer;
+}
+
+.update-status-badge svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.update-status-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.update-status-menu {
+  max-width: calc(100vw - 1rem);
+}
+
+.update-status-message {
+  max-height: min(20rem, 45vh);
+  overflow-y: auto;
+  white-space: pre-line;
+}
+
+.update-status-spinner {
+  animation: update-status-spin 1s linear infinite;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@keyframes update-status-spin {
+  to { transform: rotate(360deg); }
 }
 
 .notification-action svg {

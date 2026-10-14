@@ -16,6 +16,9 @@ jobs:
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
+    environment:
+      name: Nightly
+      deployment: false
     strategy:
       fail-fast: false
       matrix:
@@ -83,6 +86,8 @@ jobs:
         shell: bash
         env:
           FORGE_COMMIT: ${{ github.sha }}
+          FORGE_UPDATE_KEY_ID: ${{ vars.FORGE_UPDATE_KEY_ID }}
+          FORGE_UPDATE_PUBLIC_KEY_SPKI: ${{ vars.FORGE_UPDATE_PUBLIC_KEY_SPKI }}
         run: npm run package:linux 2>&1 | tee artifacts/ci-logs/package.log
 
       - name: Package Windows app
@@ -90,6 +95,8 @@ jobs:
         shell: bash
         env:
           FORGE_COMMIT: ${{ github.sha }}
+          FORGE_UPDATE_KEY_ID: ${{ vars.FORGE_UPDATE_KEY_ID }}
+          FORGE_UPDATE_PUBLIC_KEY_SPKI: ${{ vars.FORGE_UPDATE_PUBLIC_KEY_SPKI }}
         run: npm run package:windows 2>&1 | tee artifacts/ci-logs/package.log
 
       - name: Smoke packaged Linux app
@@ -106,7 +113,8 @@ jobs:
         working-directory: artifacts
         run: |
           archive="horizon-forge-${FORGE_VERSION}-linux-x64.tar.gz"
-          tar -czf "$archive" horizon-forge-linux-x64
+          tar --format=ustar -czf "$archive" horizon-forge-linux-x64
+          cp horizon-forge-linux-x64/forge-package.json "$archive.package.json"
           sha256sum "$archive" > "$archive.sha256"
 
       - name: Archive Windows release package
@@ -116,6 +124,7 @@ jobs:
         run: |
           $archive = "horizon-forge-$env:FORGE_VERSION-windows-x64.zip"
           Compress-Archive -Path horizon-forge-windows-x64 -DestinationPath $archive -CompressionLevel Optimal
+          Copy-Item horizon-forge-windows-x64/forge-package.json "$archive.package.json"
           $hash = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant()
           "$hash  $archive" | Out-File -FilePath "$archive.sha256" -Encoding ascii -NoNewline
 
@@ -127,8 +136,10 @@ jobs:
           path: |
             artifacts/horizon-forge-*.tar.gz
             artifacts/horizon-forge-*.tar.gz.sha256
+            artifacts/horizon-forge-*.tar.gz.package.json
             artifacts/horizon-forge-*.zip
             artifacts/horizon-forge-*.zip.sha256
+            artifacts/horizon-forge-*.zip.package.json
           if-no-files-found: error
           retention-days: 14
 
@@ -147,6 +158,7 @@ jobs:
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    environment: Nightly
     permissions:
       actions: read
       contents: write
@@ -189,6 +201,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           NIGHTLY_TAG: ${{ steps.nightly.outputs.tag }}
           NIGHTLY_VERSION: ${{ steps.nightly.outputs.version }}
+          FORGE_UPDATE_KEY_ID: ${{ vars.FORGE_UPDATE_KEY_ID }}
+          FORGE_UPDATE_PUBLIC_KEY_SPKI: ${{ vars.FORGE_UPDATE_PUBLIC_KEY_SPKI }}
+          FORGE_UPDATE_SIGNING_KEY_PEM: ${{ secrets.FORGE_UPDATE_SIGNING_KEY_PEM }}
         run: |
           sdk_revision=$(tr -d '[:space:]' < ratchet-sdk.version)
           node scripts/release-manifest.mjs release-assets "$NIGHTLY_VERSION" nightly \
@@ -260,6 +275,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           STABLE_VERSION: ${{ steps.stable.outputs.version }}
           PREVIOUS_STABLE_TAG: ${{ steps.stable.outputs.previous_tag }}
+          FORGE_UPDATE_KEY_ID: ${{ vars.FORGE_UPDATE_KEY_ID }}
+          FORGE_UPDATE_PUBLIC_KEY_SPKI: ${{ vars.FORGE_UPDATE_PUBLIC_KEY_SPKI }}
+          FORGE_UPDATE_SIGNING_KEY_PEM: ${{ secrets.FORGE_UPDATE_SIGNING_KEY_PEM }}
         run: |
           sdk_revision=$(tr -d '[:space:]' < ratchet-sdk.version)
           node scripts/release-manifest.mjs release-assets "$STABLE_VERSION" stable \

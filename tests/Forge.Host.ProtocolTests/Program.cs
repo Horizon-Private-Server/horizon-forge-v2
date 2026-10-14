@@ -52,6 +52,7 @@ internal static class Program
             await UyaArchiveBuildTests.RunAsync();
             await UyaStaticLayerTests.RunAsync();
             await UyaGameplayLayerTests.RunAsync();
+            await UpdaterActivationTests.RunAsync();
             Console.WriteLine("C# bridge and domain contract checks passed");
             return 0;
         }

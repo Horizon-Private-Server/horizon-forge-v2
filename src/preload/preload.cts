@@ -13,6 +13,8 @@ import type {
   ForgeNotification,
   Progress,
   SetupProgress,
+  UpdateLifecycleAction,
+  UpdateLifecycleSnapshot,
 } from '../types/ForgeApi.js';
 
 const forgeApi = Object.freeze({
@@ -25,6 +27,8 @@ const forgeApi = Object.freeze({
   clearRenderCache: () => ipcRenderer.invoke('forge:render-cache-clear'),
   reloadMobyDexDataset: () => ipcRenderer.invoke('forge:mobydex-reload'),
   checkForUpdates: () => ipcRenderer.invoke('forge:updates-check'),
+  getUpdateLifecycle: () => ipcRenderer.invoke('forge:updates-lifecycle'),
+  runUpdateAction: (action: UpdateLifecycleAction) => ipcRenderer.invoke('forge:updates-action', action),
   getNotifications: () => ipcRenderer.invoke('forge:notifications-get'),
   dismissNotification: (id: string) => ipcRenderer.invoke('forge:notifications-dismiss', id),
   runNotificationAction: (id: string) => ipcRenderer.invoke('forge:notifications-action', id),
@@ -113,6 +117,11 @@ const forgeApi = Object.freeze({
     const handler = (_event: Electron.IpcRendererEvent, notifications: ForgeNotification[]) => listener(notifications);
     ipcRenderer.on('forge:notifications-changed', handler);
     return () => ipcRenderer.removeListener('forge:notifications-changed', handler);
+  },
+  onUpdateLifecycleChanged: (listener: (snapshot: UpdateLifecycleSnapshot) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, snapshot: UpdateLifecycleSnapshot) => listener(snapshot);
+    ipcRenderer.on('forge:updates-changed', handler);
+    return () => ipcRenderer.removeListener('forge:updates-changed', handler);
   },
 }) satisfies ForgeApi;
 

@@ -6,7 +6,7 @@ import { createApplicationPaths } from '../utils/ApplicationPaths.js';
 import { applicationTitle } from '../utils/ApplicationTitle.js';
 import { isAllowedNavigation } from '../utils/Security.js';
 import type { UpdateChannel } from '../types/Updates.js';
-import { installApplicationMenu, isEditorDirty } from './ApplicationMenu.js';
+import { installApplicationMenu, isEditorDirty, setEditorMenuState } from './ApplicationMenu.js';
 import { registerIpcHandlers } from './IpcHandlers.js';
 import { NotificationCenter } from './NotificationCenter.js';
 import { RecentProjects } from './RecentProjects.js';
@@ -32,7 +32,7 @@ protocol.registerSchemesAsPrivileged([{
   privileges: { secure: true, standard: true, supportFetchAPI: true, corsEnabled: true },
 }]);
 
-function createWindow(installedChannel?: UpdateChannel): void {
+function createWindow(installedChannel?: UpdateChannel): { window: BrowserWindow; loaded: Promise<void> } {
   const window = new BrowserWindow({
     title: applicationTitle(app.isPackaged, app.getVersion(), installedChannel),
     width: 1280,
@@ -59,7 +59,7 @@ function createWindow(installedChannel?: UpdateChannel): void {
   window.on('closed', () => {
     if (mainWindow === window) mainWindow = undefined;
   });
-  void window.loadFile(applicationPath);
+  return { window, loaded: window.loadFile(applicationPath) };
 }
 
 app.whenReady().then(async () => {
@@ -69,6 +69,8 @@ app.whenReady().then(async () => {
     version: app.getVersion(),
     getMainWindow: () => mainWindow,
     isProjectDirty: isEditorDirty,
+    saveProject: async () => setEditorMenuState(await (await host.saveEditorProject()).result),
+    requestQuit: () => app.quit(),
     notifications,
   }, path.join(app.getAppPath(), 'package.json'));
   const settings = new SettingsStore(createApplicationPaths(
@@ -90,8 +92,9 @@ app.whenReady().then(async () => {
     getMainWindow: () => mainWindow,
   });
   installApplicationMenu((action) => mainWindow?.webContents.send('forge:action', action));
-  createWindow(updates.installedChannel);
-  void host.start().catch((error) => console.error('Forge host failed to start', error));
+  const initialWindow = createWindow(updates.installedChannel);
+  await Promise.all([initialWindow.loaded, host.start()]);
+  await updates.markStartupHealthy().catch((error) => console.error('Forge update health check failed', error));
   if (app.isPackaged) {
     const checkForUpdates = async () => {
       const snapshot = await settings.getSnapshot();
@@ -105,7 +108,7 @@ app.whenReady().then(async () => {
   }
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow(updates.installedChannel);
+    if (BrowserWindow.getAllWindows().length === 0) void createWindow(updates.installedChannel).loaded;
   });
 });
 

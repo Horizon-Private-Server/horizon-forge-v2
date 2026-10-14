@@ -16,7 +16,7 @@ before downstream project schemas or UI are implemented.
 | M10 — Groups | ✅ Complete | None |
 | M11 — Scene semantics | 🚧 Implementation complete | Packaged Linux/Windows and PCSX2 qualification in M11-005 |
 | M12 — Editable tfrags | 🚧 Implementation complete | Packaged Linux/Windows and streamed-piece PCSX2 qualification in M12-008 |
-| M13 — Full-package updater | ⏳ Not started | M13-001 through M13-007 |
+| M13 — Full-package updater | 🚧 In progress | M13-001 key/VM evidence, M13-005 packaged walkthrough, then M13-006 through M13-007 |
 
 ## M7 — Authoring foundations and workspace chrome
 
@@ -1342,7 +1342,8 @@ Verification: packaged-app qualification report and PCSX2 evidence reference.
 
 ### M13-001 — Freeze the install and update package contract
 
-Status: ⏳ Not started
+Status: 🚧 In progress — contract, package manifest, layout detection, and opt-in signed
+envelope publishing implemented; signing-key provisioning and packaged VM evidence remain
 
 Requirements: FR-UPD-003 through FR-UPD-005, FR-RELENG-004, NFR-SEC-004
 Depends on: M6-001, M6-002, M6-003, M6-004
@@ -1366,9 +1367,20 @@ Acceptance:
 Verification: contract fixtures, threat review, packaging dry runs, and clean-VM layout
 matrix.
 
+Implementation: [`updater-package-contract-v1.md`](../../features/updater-package-contract-v1.md)
+freezes the portable roots, embedded file manifest, signed release envelope, read-only
+layout classification, external activation/rollback, limits, and qualification matrix.
+Packaging now writes a streamed, content-hashed `forge-package.json`; the Electron main
+process classifies development, managed, package-manager, read-only, unknown, and staged
+layouts without a write probe. Focused fixtures cover bounded/path-safe manifests and
+every layout kind. Release packaging carries exact embedded-manifest sidecars and the
+publisher emits a raw Ed25519-signed schema 2 envelope when matching private/public key
+configuration is present; unsigned deployments stay on schema 1/manual handoff.
+M13-006 retains signing-key provisioning and the clean-VM activation/rollback matrix.
+
 ### M13-002 — Download verified full packages with progress/cancellation
 
-Status: ⏳ Not started
+Status: ✅ Complete
 
 Requirements: FR-UPD-004, FR-UPD-002, NFR-REL-003, NFR-SEC-004
 Depends on: M13-001, M6-004
@@ -1391,9 +1403,20 @@ Acceptance:
 Verification: local fake-release server tests for success, cancellation, corruption,
 redirect, timeout, oversize, disk error, concurrency, and resume-state discovery.
 
+Implementation: signed schema 2 validation pins Ed25519 DER-SPKI keys and binds channel,
+version, tag, provenance, platform, architecture, archive limits, and embedded package
+manifest identity. Managed same-channel installs download through an app-owned state
+machine with bounded progress, trusted redirect checks, timeout/cancellation/retry,
+atomic completion records, and streamed size/SHA-256 verification. Startup removes
+partial downloads and revalidates both the signed envelope and complete archive before
+restoring ready state; altered state is rejected. Focused local fake-release tests cover
+success/restart, tampering, cancellation, corruption, redirect rejection, timeout,
+oversize, disk failure, and duplicate requests. Schema 1, unsupported layouts, and
+channel switches remain manual handoffs.
+
 ### M13-003 — Extract and validate a staged installation safely
 
-Status: ⏳ Not started
+Status: ✅ Complete
 
 Requirements: FR-UPD-004, NFR-SEC-003, NFR-REL-002, NFR-P2-004
 Depends on: M13-002
@@ -1416,9 +1439,21 @@ Acceptance:
 Verification: malicious archive corpus, manifest mismatch, cancellation/crash injection,
 and Linux/Windows clean-package tests.
 
+Implementation: bounded TAR.GZ and ZIP metadata readers reject unsafe roots/paths,
+duplicates, case collisions, file-prefix conflicts, encryption, links, special entries,
+unsupported methods, malformed headers, excessive count/size/ratio, and missing package
+metadata before the platform extractor runs. Extraction targets a new nonce-owned partial
+directory; every resulting regular file, executable bit, size, and SHA-256 plus the raw
+embedded manifest and complete release/package identity are revalidated before an atomic
+ready record is written. Cancellation and launch recovery remove recognizable partial or
+orphan stages without touching the active install; the record is bound to a fully
+validated active-package manifest fingerprint. Focused fixtures cover clean Linux
+TAR and Windows ZIP packages, restart/tamper recovery, unsafe/colliding paths, TAR/ZIP
+links and special entries, and cancellation cleanup.
+
 ### M13-004 — Activate updates out of process with rollback
 
-Status: ⏳ Not started
+Status: ✅ Complete
 
 Requirements: FR-UPD-005, FR-UPD-002, NFR-REL-001, NFR-REL-002
 Depends on: M13-003
@@ -1441,9 +1476,23 @@ Acceptance:
 Verification: state-machine tests, checkpoint fault injection, file-lock/permission
 matrix, rollback launch, and clean Linux/Windows VM upgrades.
 
+Implementation: packaged builds include a single-file `Forge.Updater` helper that is
+copied into nonce-owned user data before launch. Electron binds a revalidated stage,
+active-install fingerprint, exact target, version, executable, platform, and health
+timeout into a hashed handoff, then quits only after the external process starts. The
+helper waits for the originating PID, revalidates the old/staged/candidate packages,
+copies on the target filesystem, checkpoints the two directory renames, launches the
+new executable, and restores/relaunches the prior version when startup health is absent.
+Forge marks health only after settings, host handshake, and the first window load.
+Dirty projects require Save and restart, explicit Discard and restart, or Cancel.
+Focused tests cover handoff recovery/health plus real successful and failed-startup
+helper runs; the file-lock/permission/power-loss and clean Windows/Linux package matrix
+remains part of M13-006.
+
 ### M13-005 — Add update badge and lifecycle UI
 
-Status: ⏳ Not started
+Status: 🚧 In progress — implementation and automated verification complete; packaged
+update walkthrough remains under M13-006
 
 Requirements: FR-UPD-004, FR-UPD-005, FR-UI-008, NFR-UX-001
 Depends on: M7-001, M13-002, M13-003, M13-004
@@ -1464,6 +1513,19 @@ Acceptance:
   automatic restart occurred.
 
 Verification: state/component/accessibility tests and packaged update walkthrough.
+
+Implementation: one main-process lifecycle coordinator now owns available, download,
+verification, preparation, ready, deferred, failed, restart, rollback, and successful
+update states. It projects the same snapshot and action dispatcher into Notifications
+and a keyboard-focusable compact ribbon menu, preventing the two surfaces from starting
+independent operations. The available state uses the exact **Forge update available**
+red badge, Phosphor download icon, and version/channel/size/trusted-source details;
+subsequent states expose bounded progress and only their valid cancel/retry/defer/install
+or handoff actions. Dirty-project and unsupported-layout text distinguishes managed
+restart from manual handoff. Focus survives visible async transitions and a polite live
+region announces concise state/progress changes. Focused lifecycle tests cover shared
+notification dispatch, deferral/resume state, exact presentation, bounded progress, and
+failure/rollback variants; the full desktop, host, and integration suite passes.
 
 ### M13-006 — Qualify secure full-package updates
 

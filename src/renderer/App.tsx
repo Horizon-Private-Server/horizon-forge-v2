@@ -21,6 +21,7 @@ import { EditorWorkspace } from './editor/EditorWorkspace.tsx';
 import { useForgeActions } from './hooks/UseForgeActions.ts';
 import { useKeyboardContext } from './hooks/UseKeyboardContext.ts';
 import { useNotifications } from './hooks/UseNotifications.ts';
+import { useUpdateLifecycle } from './hooks/UseUpdateLifecycle.ts';
 import { ProjectHub } from './projects/ProjectHub.tsx';
 import { SettingsModal } from './settings/SettingsModal.tsx';
 import { SetupWizard } from './setup/SetupWizard.tsx';
@@ -28,6 +29,7 @@ import { ForgeMenuBar } from './shell/ForgeMenuBar.tsx';
 import { NotificationMenu } from './shell/NotificationMenu.tsx';
 import { createForgeTheme } from './theme.ts';
 import { UpdateCheckModal } from './updates/UpdateCheckModal.tsx';
+import { UpdateStatusMenu } from './updates/UpdateStatusMenu.tsx';
 import { isUiSize } from '../utils/UiSize.ts';
 import { DEFAULT_SELECTION_COLOR, readSelectionColor } from '../utils/SelectionVisualization.ts';
 
@@ -65,6 +67,7 @@ function ForgeApp({ uiSize, onUiSizeChange }: { uiSize: UiSize; onUiSizeChange(v
   } = useForgeActions(setSetupOpened, setSettingsOpened, setUpdateCheckOpened);
   useKeyboardContext(keybindings, handleForgeAction);
   const notificationCenter = useNotifications();
+  const updateLifecycle = useUpdateLifecycle();
 
   useEffect(() => {
     let mounted = true;
@@ -143,11 +146,14 @@ function ForgeApp({ uiSize, onUiSizeChange }: { uiSize: UiSize; onUiSizeChange(v
               {activeProject.projectName}
             </Text>
           </Group>}
-          <NotificationMenu
-            notifications={notificationCenter.notifications}
-            onDismiss={notificationCenter.dismiss}
-            onAction={notificationCenter.runAction}
-          />
+          <Group className="app-header-status" gap="xs" wrap="nowrap">
+            <UpdateStatusMenu snapshot={updateLifecycle.snapshot} onAction={updateLifecycle.runAction} />
+            <NotificationMenu
+              notifications={notificationCenter.notifications}
+              onDismiss={notificationCenter.dismiss}
+              onAction={notificationCenter.runAction}
+            />
+          </Group>
         </Group>
       </header>
       <div className="app-content">

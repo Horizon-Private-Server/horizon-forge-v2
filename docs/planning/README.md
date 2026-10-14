@@ -73,6 +73,7 @@ them in a milestone-wide task register would split one implementation plan:
 - [FX texture inventory and label contract v0](../features/fx-texture-contract-v0.md) — M8-006 through M8-008
 - [UYA moby instance contract v0](../features/uya-moby-instance-contract-v0.md) — M9-001 through M9-003
 - [MobyDex entry schema v1](../features/mobydex-v1.md) — M9-004 onward
+- [Updater package and install contract v1](../features/updater-package-contract-v1.md) — M13-001 onward
 
 ## Task conventions
 

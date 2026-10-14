@@ -25,6 +25,14 @@ dotnet publish "$forge_root/src/Forge.Host/Forge.Host.csproj" \
   -p:Version="$version" \
   -p:InformationalVersion="$version+$commit" \
   -p:IncludeSourceRevisionInInformationalVersion=false
+dotnet publish "$forge_root/src/Forge.Updater/Forge.Updater.csproj" \
+  --configuration Release \
+  --runtime "$runtime" \
+  --self-contained true \
+  --output "$stage/resources/updater" \
+  -p:Version="$version" \
+  -p:InformationalVersion="$version+$commit" \
+  -p:IncludeSourceRevisionInInformationalVersion=false
 
 cp -a "$forge_root/node_modules/electron/dist/." "$stage/"
 mv "$stage/$electron_binary" "$stage/$app_binary"
@@ -37,6 +45,19 @@ npm --prefix "$stage/resources/app" pkg set \
   "forge.sdkRevision=$sdk_revision" \
   "forge.bridgeProtocol=1" \
   "forge.platform=$platform"
+
+update_key_id=${FORGE_UPDATE_KEY_ID:-}
+update_public_key=${FORGE_UPDATE_PUBLIC_KEY_SPKI:-}
+if [[ -n "$update_key_id" || -n "$update_public_key" ]]; then
+  [[ -n "$update_key_id" && -n "$update_public_key" ]] \
+    || { echo "update key ID and public key must be configured together" >&2; exit 1; }
+  npm --prefix "$stage/resources/app" pkg set \
+    "forge.updateKeys[0].id=$update_key_id" \
+    "forge.updateKeys[0].publicKeySpkiBase64=$update_public_key"
+fi
+
+node "$forge_root/scripts/package-manifest.mjs" \
+  "$stage" "$version" "$channel" "$commit" "$sdk_revision" "$platform" "$app_binary"
 
 rm -rf -- "$output"
 mkdir -p "$(dirname "$output")"

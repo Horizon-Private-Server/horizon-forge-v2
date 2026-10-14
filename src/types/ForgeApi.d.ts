@@ -4,7 +4,7 @@ import type {
 } from './EditorRuntime.js';
 import type { AssetExplorerPage, AssetExplorerQuery, AssetModelKind, AssetPreviewKind, AssetPreviewSource } from './AssetExplorer.js';
 import type { ForgeNotification } from './Notifications.js';
-import type { UpdateCheckResult } from './Updates.js';
+import type { UpdateCheckResult, UpdateLifecycleAction, UpdateLifecycleSnapshot } from './Updates.js';
 
 export type {
   EditorCommand, EditorCommandResult, EditorEvent, EditorSnapshot, EditorInstancedCollisionGenerationSettings, EditorInstancedCollisionPreview,
@@ -12,6 +12,7 @@ export type {
 } from './EditorRuntime.js';
 export type { AssetExplorerPage, AssetExplorerQuery, AssetModelKind, AssetPreviewKind, AssetPreviewSource } from './AssetExplorer.js';
 export type { ForgeNotification } from './Notifications.js';
+export type { UpdateLifecycleAction, UpdateLifecycleSnapshot } from './Updates.js';
 
 export interface ForgeHostStatus {
   hostVersion: string;
@@ -317,6 +318,8 @@ export interface ForgeApi {
   clearRenderCache(): Promise<boolean>;
   reloadMobyDexDataset(): Promise<string | undefined>;
   checkForUpdates(): Promise<UpdateCheckResult>;
+  getUpdateLifecycle(): Promise<UpdateLifecycleSnapshot>;
+  runUpdateAction(action: UpdateLifecycleAction): Promise<void>;
   getNotifications(): Promise<ForgeNotification[]>;
   dismissNotification(id: string): Promise<void>;
   runNotificationAction(id: string): Promise<void>;
@@ -376,4 +379,5 @@ export interface ForgeApi {
   onSetupProgress(listener: (progress: SetupProgress) => void): () => void;
   onForgeAction(listener: (action: ForgeAction) => void): () => void;
   onNotificationsChanged(listener: (notifications: ForgeNotification[]) => void): () => void;
+  onUpdateLifecycleChanged(listener: (snapshot: UpdateLifecycleSnapshot) => void): () => void;
 }

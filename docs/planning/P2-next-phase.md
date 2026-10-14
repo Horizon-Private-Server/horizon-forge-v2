@@ -1,6 +1,7 @@
 # P2 — Advanced authoring
 
-Status: In progress — M7 through M12 implemented; cross-platform qualification and M13 remain
+Status: In progress — M7 through M12 and the M13 updater implementation are substantially complete;
+cross-platform qualification and the M13 release gates remain
 Priority: P2
 Depends on: P0 release contracts, P1 project-attached assets where noted
 Task register: [P2 tasks](tasks/P2-tasks.md)
@@ -511,7 +512,8 @@ identity.
 
 ### M13 — Full-package updater and P2 qualification
 
-Status: not started
+Status: in progress — package/install contract, signed download, safe staging,
+out-of-process activation/rollback, and lifecycle UI implemented
 
 Deliver an explicit install-layout contract, secure full-package download/extraction,
 out-of-process activation/rollback, ribbon update state, and the combined release gate.
@@ -559,8 +561,16 @@ application.
   editable tfrag unit. M12-002 through M12-007 now cover canonical extraction,
   project entities, rendering, transforms, explicit generated collision, and native
   composition; packaged cross-platform and PCSX2 evidence remains under M12-008.
-- M13-001 must freeze which packaged install layouts can be replaced and rolled back
-  safely before implementation begins.
+- M13-001 froze which packaged install layouts can be replaced and rolled back safely
+  in [`updater-package-contract-v1.md`](../features/updater-package-contract-v1.md).
+  M13-002 adds opt-in signed schema 2 publishing plus verified, cancellable app-owned
+  download/restart recovery. M13-003 adds preflighted TAR.GZ/ZIP extraction and complete
+  staged-package validation. M13-004 adds a copied single-file activation helper,
+  nonce-bound handoff/checkpoints, full candidate revalidation, startup health, and
+  automatic rollback. M13-005 adds one shared lifecycle state/action path for the compact
+  ribbon and Notifications, with accessible progress, defer/retry/install/manual-handoff,
+  failure, success, and rollback presentation. Signing-key provisioning and packaged VM
+  evidence remain.
 
 ## P2 release gate
 

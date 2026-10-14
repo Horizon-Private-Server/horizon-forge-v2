@@ -21,7 +21,7 @@
     "test:keybindings": "node --experimental-strip-types --test tests/keybindings.test.ts",
     "test:scene-projection": "node --experimental-strip-types --test tests/scene-projection.test.ts",
     "test:release": "node --test tests/nightly-version.test.mjs",
-    "test:updates": "node --experimental-strip-types --test tests/updates.test.ts",
+    "test:updates": "tsc -p tsconfig.electron.json && node --experimental-strip-types --test tests/updates.test.ts tests/update-download.test.mjs tests/update-stage.test.mjs tests/update-activation.test.mjs tests/update-lifecycle.test.ts",
     "test:notifications": "node --experimental-strip-types --test tests/notifications.test.ts",
     "test:performance": "node --test tests/performance-report.test.mjs",
     "test:bridge:cs": "dotnet run --project tests/Forge.Host.ProtocolTests/Forge.Host.ProtocolTests.csproj --configuration Release -p:BuildInParallel=false -m:1",
