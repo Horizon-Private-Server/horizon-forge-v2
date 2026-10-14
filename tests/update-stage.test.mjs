@@ -170,7 +170,9 @@ async function createFixture(directory, platform) {
   await writeFile(path.join(packageRoot, 'forge-package.json'), manifestBytes);
   const archivePath = path.join(directory, `${platform}-package.${platform === 'windows' ? 'zip' : 'tar.gz'}`);
   if (platform === 'linux') {
-    await run('tar', ['--format=ustar', '-czf', archivePath, '-C', path.dirname(packageRoot), rootName]);
+    await run('tar', ['--format=ustar', '-czf', path.basename(archivePath), '-C', `${platform}-package`, rootName], {
+      cwd: directory,
+    });
   } else {
     const entries = [
       { name: `${rootName}/forge-package.json`, bytes: manifestBytes },
