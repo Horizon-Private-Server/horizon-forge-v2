@@ -1529,9 +1529,9 @@ failure/rollback variants; the full desktop, host, and integration suite passes.
 
 ### M13-006 — Qualify secure full-package updates
 
-Status: 🚧 In progress — the ASAR-safe updater baseline is published for manual
-installation; the next signed nightly is the B→C self-update candidate, with the
-remaining qualification matrix still pending
+Status: 🚧 In progress — ASAR validation and stale-stage cleanup fixes are implemented;
+the next signed nightly is the B→C self-update retry candidate, with the remaining
+qualification matrix still pending
 
 Requirements: FR-UPD-004, FR-UPD-005, NFR-SEC-004, NFR-REL-001
 Depends on: M13-004, M13-005
