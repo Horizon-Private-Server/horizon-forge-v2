@@ -23,31 +23,33 @@ test('Linux and Windows packages stage completely and restart rejects a changed 
   const directory = await mkdtemp(path.join(tmpdir(), 'forge-stage-'));
   context.after(() => rm(directory, { recursive: true }));
 
-  const linux = await createFixture(directory, 'linux');
-  const linuxStaging = path.join(directory, 'linux-staging');
-  const linuxChanges = [];
-  const linuxStager = new UpdatePackageStager({
-    root: linuxStaging,
-    targetRoot: linux.packageRoot,
-    platform: 'linux',
-    onChange: (snapshot) => linuxChanges.push(snapshot),
-  });
-  assert.equal((await linuxStager.stage(linux.download)).state, 'ready');
-  assert.deepEqual([...new Set(linuxChanges.map(({ state }) => state))], [
-    'inspecting', 'extracting', 'validating', 'ready',
-  ]);
-  assert.equal((await new UpdatePackageStager({ root: linuxStaging, targetRoot: linux.packageRoot, platform: 'linux' })
-    .recover(linux.download)).state, 'ready');
-  await writeFile(path.join(linux.packageRoot, 'horizon-forge'), 'changed');
-  assert.equal((await new UpdatePackageStager({ root: linuxStaging, targetRoot: linux.packageRoot, platform: 'linux' })
-    .recover(linux.download)).state, 'error');
-  await writeFile(path.join(linux.packageRoot, 'horizon-forge'), 'app');
-  await chmod(path.join(linux.packageRoot, 'horizon-forge'), 0o755);
-  assert.equal((await linuxStager.stage(linux.download)).state, 'ready');
-  const linuxRecord = JSON.parse(await readFile(path.join(linuxStaging, 'ready.json'), 'utf8'));
-  await writeFile(path.join(linuxStaging, linuxRecord.directory, linux.rootName, 'horizon-forge'), 'changed');
-  assert.equal((await new UpdatePackageStager({ root: linuxStaging, targetRoot: linux.packageRoot, platform: 'linux' })
-    .recover(linux.download)).state, 'error');
+  if (process.platform === 'linux') {
+    const linux = await createFixture(directory, 'linux');
+    const linuxStaging = path.join(directory, 'linux-staging');
+    const linuxChanges = [];
+    const linuxStager = new UpdatePackageStager({
+      root: linuxStaging,
+      targetRoot: linux.packageRoot,
+      platform: 'linux',
+      onChange: (snapshot) => linuxChanges.push(snapshot),
+    });
+    assert.equal((await linuxStager.stage(linux.download)).state, 'ready');
+    assert.deepEqual([...new Set(linuxChanges.map(({ state }) => state))], [
+      'inspecting', 'extracting', 'validating', 'ready',
+    ]);
+    assert.equal((await new UpdatePackageStager({ root: linuxStaging, targetRoot: linux.packageRoot, platform: 'linux' })
+      .recover(linux.download)).state, 'ready');
+    await writeFile(path.join(linux.packageRoot, 'horizon-forge'), 'changed');
+    assert.equal((await new UpdatePackageStager({ root: linuxStaging, targetRoot: linux.packageRoot, platform: 'linux' })
+      .recover(linux.download)).state, 'error');
+    await writeFile(path.join(linux.packageRoot, 'horizon-forge'), 'app');
+    await chmod(path.join(linux.packageRoot, 'horizon-forge'), 0o755);
+    assert.equal((await linuxStager.stage(linux.download)).state, 'ready');
+    const linuxRecord = JSON.parse(await readFile(path.join(linuxStaging, 'ready.json'), 'utf8'));
+    await writeFile(path.join(linuxStaging, linuxRecord.directory, linux.rootName, 'horizon-forge'), 'changed');
+    assert.equal((await new UpdatePackageStager({ root: linuxStaging, targetRoot: linux.packageRoot, platform: 'linux' })
+      .recover(linux.download)).state, 'error');
+  }
 
   const windows = await createFixture(directory, 'windows');
   const windowsStager = new UpdatePackageStager({
