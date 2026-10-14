@@ -60,7 +60,8 @@ test('Linux and Windows packages stage completely and restart rejects a changed 
       await cp(windows.packageRoot, path.join(destination, windows.rootName), { recursive: true });
     },
   });
-  assert.equal((await windowsStager.stage(windows.download)).state, 'ready');
+  const windowsState = await windowsStager.stage(windows.download);
+  assert.equal(windowsState.state, 'ready', windowsState.message);
 });
 
 test('archive preflight rejects unsafe paths, collisions, links, and cancellation cleans partial stages', async (context) => {

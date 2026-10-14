@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
 import { createApplicationPaths } from '../src/utils/ApplicationPaths.ts';
+import { isDirectDirectory } from '../src/utils/FileSystem.ts';
 import { clearRenderCache, SettingsStore } from '../src/main/Settings.ts';
 import { createForgeTheme } from '../src/renderer/theme.ts';
 import { DEFAULT_SCENE_TREE_COLORS } from '../src/utils/SceneTreeColors.ts';
@@ -140,6 +141,21 @@ test('render cache clearing cannot remove other application data', async () => {
     await assert.rejects(access(path.join(paths.renderCache, 'preview.bin')));
     await access(assetPath);
     await assert.rejects(clearRenderCache({ ...paths, renderCache: paths.data }), /unsafe/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('direct directory checks reject symbolic path components', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'forge-direct-directory-'));
+  try {
+    const target = path.join(directory, 'target');
+    const indirect = path.join(directory, 'indirect');
+    await mkdir(target);
+    await symlink(target, indirect, process.platform === 'win32' ? 'junction' : 'dir');
+    assert.equal(await isDirectDirectory(target), true);
+    assert.equal(await isDirectDirectory(indirect), false);
+    assert.equal(await isDirectDirectory(path.join(directory, 'missing')), false);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

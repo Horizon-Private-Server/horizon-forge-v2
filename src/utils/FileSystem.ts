@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { access, mkdir, rename, statfs, unlink, writeFile } from 'node:fs/promises';
+import { access, lstat, mkdir, rename, statfs, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 export async function fileExists(candidate: string): Promise<boolean> {
@@ -24,6 +24,24 @@ export async function availableBytes(directory: string): Promise<number | undefi
     return Number(fileSystem.bavail * fileSystem.bsize);
   } catch {
     return undefined;
+  }
+}
+
+export async function isDirectDirectory(candidate: string): Promise<boolean> {
+  const resolved = path.resolve(candidate);
+  const root = path.parse(resolved).root;
+  let current = root;
+  try {
+    const rootMetadata = await lstat(current);
+    if (!rootMetadata.isDirectory() || rootMetadata.isSymbolicLink()) return false;
+    for (const segment of resolved.slice(root.length).split(path.sep).filter(Boolean)) {
+      current = path.join(current, segment);
+      const metadata = await lstat(current);
+      if (!metadata.isDirectory() || metadata.isSymbolicLink()) return false;
+    }
+    return true;
+  } catch {
+    return false;
   }
 }
 

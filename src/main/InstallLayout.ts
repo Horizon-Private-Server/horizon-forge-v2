@@ -1,8 +1,9 @@
 import { constants } from 'node:fs';
-import { access, lstat, readFile, realpath } from 'node:fs/promises';
+import { access, lstat, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import type { ForgePackageManifest, InstallLayoutAssessment } from '../types/Updates.js';
+import { isDirectDirectory } from '../utils/FileSystem.js';
 import { classifyInstallLayout, validateForgePackageManifest } from '../utils/UpdateValidation.js';
 
 const packageManifestName = 'forge-package.json';
@@ -50,13 +51,7 @@ export async function detectInstallLayout(
   const identityMatches = !!expectedPlatform
     && manifest.platform === expectedPlatform
     && path.basename(options.execPath) === manifest.executable;
-  let safeRoot = false;
-  try {
-    const metadata = await lstat(root);
-    safeRoot = metadata.isDirectory()
-      && !metadata.isSymbolicLink()
-      && samePath(await realpath(root), root, options.platform);
-  } catch { /* Classification reports the unsafe root. */ }
+  const safeRoot = await isDirectDirectory(root);
   return classifyInstallLayout({
     root,
     isPackaged: true,
@@ -109,12 +104,4 @@ function externalInstallReason(root: string, platform: NodeJS.Platform, environm
 function isWithin(parent: string, candidate: string): boolean {
   const relative = path.relative(path.resolve(parent), path.resolve(candidate));
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
-}
-
-function samePath(left: string, right: string, platform: NodeJS.Platform): boolean {
-  const normalizedLeft = path.resolve(left);
-  const normalizedRight = path.resolve(right);
-  return platform === 'win32'
-    ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase()
-    : normalizedLeft === normalizedRight;
 }
