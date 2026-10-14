@@ -53,7 +53,7 @@ test('Linux and Windows packages stage completely and restart rejects a changed 
   }
 
   const windows = await createFixture(directory, 'windows');
-  await assertElectronValidatesAsarFile(windows.packageRoot);
+  await assertElectronHandlesAsarFiles(windows.packageRoot, path.join(directory, 'electron-staging'));
   const physicalStaging = path.join(directory, 'windows-staging-root');
   const indirectStaging = path.join(directory, 'windows-staging-link');
   await mkdir(physicalStaging);
@@ -144,22 +144,41 @@ test('archive preflight rejects unsafe paths, collisions, links, and cancellatio
   assert.match(mismatch.message, /extra 1: unexpected\.bin/);
 });
 
-async function assertElectronValidatesAsarFile(packageRoot) {
+async function assertElectronHandlesAsarFiles(packageRoot, stagingRoot) {
+  const staleResources = path.join(
+    stagingRoot,
+    '.partial-00000000-0000-4000-8000-000000000000',
+    'horizon-forge-windows-x64',
+    'resources',
+  );
+  await mkdir(staleResources, { recursive: true });
+  await writeFile(
+    path.join(staleResources, 'default_app.asar'),
+    await readFile(new URL('../node_modules/electron/dist/resources/default_app.asar', import.meta.url)),
+  );
   const executable = path.resolve(
     'node_modules/electron/dist',
     process.platform === 'win32' ? 'electron.exe' : 'electron',
   );
   const validator = pathToFileURL(path.resolve('dist-electron/main/UpdatePackageValidation.js')).href;
+  const stager = pathToFileURL(path.resolve('dist-electron/main/UpdatePackageStager.js')).href;
   const script = "const { fingerprintInstalledPackage } = await import(process.env.FORGE_TEST_VALIDATOR); "
-    + "await fingerprintInstalledPackage(process.env.FORGE_TEST_PACKAGE_ROOT, 'windows')";
+    + "await fingerprintInstalledPackage(process.env.FORGE_TEST_PACKAGE_ROOT, 'windows'); "
+    + "const { UpdatePackageStager } = await import(process.env.FORGE_TEST_STAGER); "
+    + "const state = await new UpdatePackageStager({ root: process.env.FORGE_TEST_STAGING_ROOT, "
+    + "targetRoot: process.env.FORGE_TEST_PACKAGE_ROOT, platform: 'windows' }).recover(); "
+    + "if (state.state !== 'idle') throw new Error(`Unexpected recovery state: ${state.state}`)";
   await run(executable, ['--input-type=module', '-e', script], {
     env: {
       ...process.env,
       ELECTRON_RUN_AS_NODE: '1',
       FORGE_TEST_PACKAGE_ROOT: packageRoot,
+      FORGE_TEST_STAGER: stager,
+      FORGE_TEST_STAGING_ROOT: stagingRoot,
       FORGE_TEST_VALIDATOR: validator,
     },
   });
+  assert.deepEqual(await readdir(stagingRoot), []);
 }
 
 async function createFixture(directory, platform) {

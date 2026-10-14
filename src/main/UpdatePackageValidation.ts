@@ -1,18 +1,14 @@
 import { createHash } from 'node:crypto';
-import * as nodeFileSystem from 'node:fs';
-import { createRequire } from 'node:module';
 import path from 'node:path';
 
 import type { ForgePackageManifest } from '../types/Updates.js';
 import { isDirectDirectory, isDirectDirectoryWithin } from '../utils/FileSystem.js';
 import { validateForgePackageManifest } from '../utils/UpdateValidation.js';
 import type { VerifiedUpdateDownload } from './UpdateDownloadManager.js';
+import { updateFileSystem } from './UpdateFileSystem.js';
 
-const fileSystem = process.versions.electron
-  ? createRequire(import.meta.url)('original-fs') as typeof nodeFileSystem
-  : nodeFileSystem;
-const { createReadStream } = fileSystem;
-const { lstat, readFile, readdir } = fileSystem.promises;
+const { createReadStream } = updateFileSystem;
+const { lstat, readFile, readdir } = updateFileSystem.promises;
 
 export async function validateStagedPackage(
   root: string,

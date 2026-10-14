@@ -1,21 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import {
-  lstat,
-  mkdir,
-  readFile,
-  readdir,
-  rename,
-  rm,
-  stat,
-  writeFile,
-} from 'node:fs/promises';
 import path from 'node:path';
 
 import type { ForgePackageManifest, UpdateStageSnapshot } from '../types/Updates.js';
 import { inspectUpdateArchive } from './UpdateArchiveInspector.js';
 import type { VerifiedUpdateDownload } from './UpdateDownloadManager.js';
+import { updateFileSystem } from './UpdateFileSystem.js';
 import { fingerprintInstalledPackage, validateStagedPackage } from './UpdatePackageValidation.js';
+
+const { lstat, mkdir, readFile, readdir, rename, rm, stat, writeFile } = updateFileSystem.promises;
 
 const readyRecordName = 'ready.json';
 const maximumRecordBytes = 4 * 1024;
@@ -260,9 +253,13 @@ export class UpdatePackageStager {
     for (const entry of await readdir(this.options.root, { withFileTypes: true })) {
       const removable = entry.isDirectory() && (entry.name.startsWith('.partial-') || noncePattern.test(entry.name));
       if (removable && entry.name !== keep) {
-        await rm(path.join(this.options.root, entry.name), { recursive: true, force: true });
+        await rm(path.join(this.options.root, entry.name), { recursive: true, force: true }).catch((error) => {
+          console.warn('Could not remove stale update staging directory', error);
+        });
       } else if (entry.isFile() && entry.name.startsWith(`.${readyRecordName}.`) && entry.name.endsWith('.tmp')) {
-        await rm(path.join(this.options.root, entry.name), { force: true });
+        await rm(path.join(this.options.root, entry.name), { force: true }).catch((error) => {
+          console.warn('Could not remove stale update staging record', error);
+        });
       }
     }
   }
