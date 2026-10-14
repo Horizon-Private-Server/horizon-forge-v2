@@ -14,10 +14,9 @@ static async Task<int> RunAsync(string[] arguments)
             || !int.TryParse(arguments[3], out var sourceProcessId)
             || sourceProcessId <= 0)
             throw new ArgumentException("Usage: Forge.Updater <handoff> <nonce> <sha256> <source-pid>");
-        var handoffPath = Path.GetFullPath(arguments[0]);
+        var handoffPath = PhysicalPath.Resolve(arguments[0]);
         var expectedPath = Path.Combine(AppContext.BaseDirectory, "handoff.json");
-        if (!handoffPath.Equals(expectedPath, OperatingSystem.IsWindows()
-            ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
+        if (!PhysicalPath.Equals(handoffPath, expectedPath))
             throw new InvalidDataException("Update handoff must be beside the updater helper.");
         var bytes = await File.ReadAllBytesAsync(handoffPath);
         var digest = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();

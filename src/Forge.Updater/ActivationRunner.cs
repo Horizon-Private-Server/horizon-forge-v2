@@ -12,6 +12,8 @@ internal sealed class ActivationRunner
     private readonly string directory;
     private readonly string statePath;
     private readonly string healthPath;
+    private readonly string targetRoot;
+    private readonly string stageRoot;
     private readonly string candidateRoot;
     private readonly string rollbackRoot;
 
@@ -21,8 +23,10 @@ internal sealed class ActivationRunner
         this.directory = directory;
         statePath = Path.Combine(directory, "state.json");
         healthPath = Path.Combine(directory, "health.json");
-        var parent = Path.GetDirectoryName(handoff.TargetRoot)!;
-        var name = Path.GetFileName(handoff.TargetRoot);
+        targetRoot = PhysicalPath.Resolve(handoff.TargetRoot);
+        stageRoot = PhysicalPath.Resolve(handoff.StageRoot);
+        var parent = Path.GetDirectoryName(targetRoot)!;
+        var name = Path.GetFileName(targetRoot);
         candidateRoot = Path.Combine(parent, $".{name}.forge-candidate-{handoff.Nonce}");
         rollbackRoot = Path.Combine(parent, $".{name}.forge-rollback");
     }
@@ -32,12 +36,12 @@ internal sealed class ActivationRunner
         ValidateHandoff();
         await WriteStateAsync("waiting-for-exit", null);
         await WaitForExitAsync(sourceProcessId, TimeSpan.FromMinutes(5));
-        var targetFingerprint = Directory.Exists(handoff.TargetRoot)
-            ? PackageVerifier.ManifestFingerprint(handoff.TargetRoot) : null;
+        var targetFingerprint = Directory.Exists(targetRoot)
+            ? PackageVerifier.ManifestFingerprint(targetRoot) : null;
 
         if (FixedEquals(targetFingerprint, handoff.ExpectedPackageManifestSha256) && Directory.Exists(rollbackRoot))
         {
-            await PackageVerifier.VerifyAsync(handoff.TargetRoot, handoff.ExpectedPackageManifestSha256,
+            await PackageVerifier.VerifyAsync(targetRoot, handoff.ExpectedPackageManifestSha256,
                 handoff.ExpectedVersion);
             await PackageVerifier.VerifyAsync(rollbackRoot, handoff.ExpectedTargetPackageManifestSha256);
         }
@@ -52,7 +56,7 @@ internal sealed class ActivationRunner
             return;
         }
         await WriteStateAsync("activated", null);
-        var process = StartPackage(handoff.TargetRoot, [
+        var process = StartPackage(targetRoot, [
             "--forge-update-health", healthPath,
             "--forge-update-nonce", handoff.Nonce,
         ]);
@@ -77,9 +81,9 @@ internal sealed class ActivationRunner
         {
             if (!FixedEquals(targetFingerprint, handoff.ExpectedTargetPackageManifestSha256))
                 throw new InvalidDataException("Active installation changed after staging.");
-            await PackageVerifier.VerifyAsync(handoff.TargetRoot, handoff.ExpectedTargetPackageManifestSha256);
+            await PackageVerifier.VerifyAsync(targetRoot, handoff.ExpectedTargetPackageManifestSha256);
         }
-        await PackageVerifier.VerifyAsync(handoff.StageRoot, handoff.ExpectedPackageManifestSha256,
+        await PackageVerifier.VerifyAsync(stageRoot, handoff.ExpectedPackageManifestSha256,
             handoff.ExpectedVersion);
 
         if (Directory.Exists(candidateRoot))
@@ -88,12 +92,12 @@ internal sealed class ActivationRunner
             Directory.Delete(candidateRoot, true);
         }
         await WriteStateAsync("copying", null);
-        await PackageVerifier.CopyAsync(handoff.StageRoot, candidateRoot);
+        await PackageVerifier.CopyAsync(stageRoot, candidateRoot);
         await PackageVerifier.VerifyAsync(candidateRoot, handoff.ExpectedPackageManifestSha256,
             handoff.ExpectedVersion);
         await WriteStateAsync("candidate-ready", null);
 
-        if (Directory.Exists(handoff.TargetRoot))
+        if (Directory.Exists(targetRoot))
         {
             if (Directory.Exists(rollbackRoot))
             {
@@ -101,20 +105,20 @@ internal sealed class ActivationRunner
                 await PackageVerifier.VerifyAsync(rollbackRoot, PackageVerifier.ManifestFingerprint(rollbackRoot));
                 Directory.Delete(rollbackRoot, true);
             }
-            Directory.Move(handoff.TargetRoot, rollbackRoot);
+            Directory.Move(targetRoot, rollbackRoot);
             await WriteStateAsync("old-renamed", null);
         }
         try
         {
-            Directory.Move(candidateRoot, handoff.TargetRoot);
+            Directory.Move(candidateRoot, targetRoot);
         }
         catch
         {
-            if (!Directory.Exists(handoff.TargetRoot) && Directory.Exists(rollbackRoot))
-                Directory.Move(rollbackRoot, handoff.TargetRoot);
+            if (!Directory.Exists(targetRoot) && Directory.Exists(rollbackRoot))
+                Directory.Move(rollbackRoot, targetRoot);
             throw;
         }
-        await PackageVerifier.VerifyAsync(handoff.TargetRoot, handoff.ExpectedPackageManifestSha256,
+        await PackageVerifier.VerifyAsync(targetRoot, handoff.ExpectedPackageManifestSha256,
             handoff.ExpectedVersion);
     }
 
@@ -125,18 +129,18 @@ internal sealed class ActivationRunner
         {
             if (!Directory.Exists(rollbackRoot)) throw new DirectoryNotFoundException("Rollback installation is missing.");
             await PackageVerifier.VerifyAsync(rollbackRoot, handoff.ExpectedTargetPackageManifestSha256);
-            await PackageVerifier.VerifyAsync(handoff.TargetRoot, handoff.ExpectedPackageManifestSha256,
+            await PackageVerifier.VerifyAsync(targetRoot, handoff.ExpectedPackageManifestSha256,
                 handoff.ExpectedVersion);
             if (Directory.Exists(candidateRoot))
             {
                 PackageVerifier.AssertSafeRemovalRoot(candidateRoot);
                 Directory.Delete(candidateRoot, true);
             }
-            if (Directory.Exists(handoff.TargetRoot)) Directory.Move(handoff.TargetRoot, candidateRoot);
-            Directory.Move(rollbackRoot, handoff.TargetRoot);
+            if (Directory.Exists(targetRoot)) Directory.Move(targetRoot, candidateRoot);
+            Directory.Move(rollbackRoot, targetRoot);
             if (Directory.Exists(candidateRoot)) Directory.Delete(candidateRoot, true);
-            await PackageVerifier.VerifyAsync(handoff.TargetRoot, handoff.ExpectedTargetPackageManifestSha256);
-            StartPackage(handoff.TargetRoot, []).Dispose();
+            await PackageVerifier.VerifyAsync(targetRoot, handoff.ExpectedTargetPackageManifestSha256);
+            StartPackage(targetRoot, []).Dispose();
             await WriteStateAsync("rolled-back", "The previous Forge version was restored and launched.");
         }
         catch (Exception exception)
@@ -160,20 +164,13 @@ internal sealed class ActivationRunner
             || !Path.IsPathFullyQualified(handoff.TargetRoot) || !Path.IsPathFullyQualified(handoff.StageRoot)
             || !Path.GetFullPath(handoff.TargetRoot).Equals(handoff.TargetRoot, PathComparison)
             || !Path.GetFullPath(handoff.StageRoot).Equals(handoff.StageRoot, PathComparison)
-            || handoff.TargetRoot.Equals(handoff.StageRoot, PathComparison)
-            || handoff.TargetRoot.Equals(Path.GetPathRoot(handoff.TargetRoot), PathComparison)
+            || targetRoot.Equals(stageRoot, PathComparison)
+            || targetRoot.Equals(Path.GetPathRoot(targetRoot), PathComparison)
             || activationDirectory.Name != handoff.Nonce || activationRoot?.Name != "activation"
-            || stagingRoot is null || !IsWithin(stagingRoot, handoff.StageRoot)
-            || (updatesRoot is not null && IsWithin(updatesRoot.FullName, handoff.TargetRoot))
+            || stagingRoot is null || !PhysicalPath.IsWithin(stagingRoot, stageRoot)
+            || (updatesRoot is not null && PhysicalPath.IsWithin(updatesRoot.FullName, targetRoot))
             || Path.GetFileName(handoff.Executable) != handoff.Executable)
             throw new InvalidDataException("Update activation handoff is invalid.");
-    }
-
-    private static bool IsWithin(string parent, string candidate)
-    {
-        var relative = Path.GetRelativePath(Path.GetFullPath(parent), Path.GetFullPath(candidate));
-        return relative == "." || (!relative.StartsWith($"..{Path.DirectorySeparatorChar}", PathComparison)
-            && relative != ".." && !Path.IsPathFullyQualified(relative));
     }
 
     private Process StartPackage(string root, IReadOnlyList<string> arguments)

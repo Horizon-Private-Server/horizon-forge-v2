@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { chmod, copyFile, lstat, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, lstat, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import type { InstallLayoutAssessment, UpdateActivationSnapshot } from '../types/Updates.js';
@@ -67,6 +67,13 @@ export class UpdateActivationManager {
       if (!entry.isDirectory() || !noncePattern.test(entry.name)) continue;
       const directory = path.join(this.options.root, entry.name);
       try {
+        try {
+          await readBounded(path.join(directory, 'failure.txt'));
+          this.fail('The previous update activation failed. Forge kept the current installation and will remain open.');
+          continue;
+        } catch (error) {
+          if (!isRecord(error) || error.code !== 'ENOENT') throw error;
+        }
         const checkpoint = await readCheckpoint(path.join(directory, 'state.json'));
         if (checkpoint === 'healthy') continue;
         if (checkpoint === 'rolled-back') {
@@ -126,7 +133,7 @@ export class UpdateActivationManager {
     const directory = path.join(this.options.root, nonce);
     try {
       await this.ensureSafeRoot();
-      if (path.resolve(stage.root) === path.resolve(this.options.installLayout.root)) {
+      if (await samePath(stage.root, this.options.installLayout.root, this.options.platform)) {
         throw new Error('The staged and active installations must be separate.');
       }
       this.update({
@@ -174,13 +181,13 @@ export class UpdateActivationManager {
     await this.ensureSafeRoot();
     const { nonce, healthPath } = this.startupHealth;
     const directory = path.join(this.options.root, nonce);
-    if (!samePath(healthPath, path.join(directory, 'health.json'), this.options.platform)) {
+    if (!(await samePath(healthPath, path.join(directory, 'health.json'), this.options.platform))) {
       throw new Error('Update startup health path is invalid.');
     }
     const handoff = await readHandoff(path.join(directory, handoffName));
     const checkpoint = await readCheckpoint(path.join(directory, 'state.json'));
     if (handoff.nonce !== nonce
-      || !samePath(handoff.targetRoot, this.options.installLayout.root, this.options.platform)
+      || !(await samePath(handoff.targetRoot, this.options.installLayout.root, this.options.platform))
       || handoff.expectedVersion !== this.options.currentVersion
       || checkpoint !== 'launched') {
       throw new Error('Update startup health request does not match this installation.');
@@ -201,7 +208,7 @@ export class UpdateActivationManager {
     const bytes = await readBounded(handoffPath);
     const handoff = parseHandoff(JSON.parse(bytes.toString('utf8')));
     if (handoff.nonce !== nonce
-      || !samePath(handoff.targetRoot, this.options.installLayout.root, this.options.platform)) {
+      || !(await samePath(handoff.targetRoot, this.options.installLayout.root, this.options.platform))) {
       throw new Error('Pending update handoff does not match this installation.');
     }
     const helperPath = path.join(directory, this.options.platform === 'windows' ? 'Forge.Updater.exe' : 'Forge.Updater');
@@ -298,12 +305,23 @@ function parseStartupHealthRequest(arguments_: readonly string[]): StartupHealth
   return { healthPath: path.resolve(healthPath), nonce };
 }
 
-function samePath(left: string, right: string, platform: 'linux' | 'windows'): boolean {
-  const normalizedLeft = path.resolve(left);
-  const normalizedRight = path.resolve(right);
+async function samePath(left: string, right: string, platform: 'linux' | 'windows'): Promise<boolean> {
+  const normalizedLeft = await physicalPath(left);
+  const normalizedRight = await physicalPath(right);
   return platform === 'windows'
     ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase()
     : normalizedLeft === normalizedRight;
+}
+
+async function physicalPath(value: string): Promise<string> {
+  const resolved = path.resolve(value);
+  try {
+    return await realpath(resolved);
+  } catch (error) {
+    if (!isRecord(error) || error.code !== 'ENOENT') throw error;
+    const parent = path.dirname(resolved);
+    return parent === resolved ? resolved : path.join(await physicalPath(parent), path.basename(resolved));
+  }
 }
 
 function idleSnapshot(): UpdateActivationSnapshot {

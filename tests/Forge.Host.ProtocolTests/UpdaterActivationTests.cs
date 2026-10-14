@@ -8,6 +8,7 @@ internal static class UpdaterActivationTests
     {
         if (!OperatingSystem.IsLinux()) return;
         await VerifySuccessfulActivationAsync();
+        await VerifySymlinkAliasActivationAsync();
         await VerifyInterruptedRenameRecoveryAsync();
         await VerifyFailedStartupRollsBackAsync();
     }
@@ -51,6 +52,27 @@ internal static class UpdaterActivationTests
         }
     }
 
+    private static async Task VerifySymlinkAliasActivationAsync()
+    {
+        var fixture = await CreateFixtureAsync("#!/bin/sh\nhealth=\"$2\"\nnonce=\"$4\"\n"
+            + "printf '{\"schemaVersion\":1,\"nonce\":\"%s\",\"version\":\"2.1.0\"}\\n' \"$nonce\" > \"$health\"\n",
+            "symlink-alias", useSymlinkAlias: true);
+        try
+        {
+            if (!PhysicalPath.Equals(fixture.AliasRoot!, fixture.Root))
+                throw new InvalidOperationException("Physical path comparison did not resolve the directory alias.");
+            await fixture.Runner.RunAsync(int.MaxValue);
+            Equal("2.1.0", ReadVersion(fixture.TargetRoot), "symlink-alias activated version");
+            Equal("healthy", ReadCheckpoint(fixture.ActivationRoot), "symlink-alias activation checkpoint");
+        }
+        finally
+        {
+            await Task.Delay(250);
+            Directory.Delete(fixture.AliasRoot!, false);
+            Directory.Delete(fixture.Root, true);
+        }
+    }
+
     private static async Task VerifyInterruptedRenameRecoveryAsync()
     {
         var fixture = await CreateFixtureAsync("#!/bin/sh\nhealth=\"$2\"\nnonce=\"$4\"\n"
@@ -71,7 +93,7 @@ internal static class UpdaterActivationTests
         }
     }
 
-    private static async Task<Fixture> CreateFixtureAsync(string newExecutable, string name)
+    private static async Task<Fixture> CreateFixtureAsync(string newExecutable, string name, bool useSymlinkAlias = false)
     {
         var root = Path.Combine(Path.GetTempPath(), $"forge-updater-{name}-{Guid.NewGuid():N}");
         var nonce = Guid.NewGuid().ToString();
@@ -82,10 +104,17 @@ internal static class UpdaterActivationTests
         var oldHash = await WritePackageAsync(target, "2.0.0", "#!/bin/sh\nexit 0\n");
         var newHash = await WritePackageAsync(stage, "2.1.0", newExecutable);
         Directory.CreateDirectory(activation);
+        string? aliasRoot = null;
+        if (useSymlinkAlias)
+        {
+            aliasRoot = $"{root}-alias";
+            Directory.CreateSymbolicLink(aliasRoot, root);
+            stage = Path.Combine(aliasRoot, Path.GetRelativePath(root, stage));
+        }
         var handoff = new ActivationHandoff(1, nonce, target, stage, oldHash, newHash, "2.1.0",
             "horizon-forge", "linux", 10);
         var rollback = Path.Combine(root, ".forge.forge-rollback");
-        return new Fixture(root, target, rollback, activation, new ActivationRunner(handoff, activation));
+        return new Fixture(root, target, rollback, activation, aliasRoot, new ActivationRunner(handoff, activation));
     }
 
     private static async Task<string> WritePackageAsync(string root, string version, string executableContents)
@@ -128,5 +157,6 @@ internal static class UpdaterActivationTests
         string TargetRoot,
         string RollbackRoot,
         string ActivationRoot,
+        string? AliasRoot,
         ActivationRunner Runner);
 }

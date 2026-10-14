@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -8,6 +8,7 @@ import { UpdateActivationManager } from '../dist-electron/main/UpdateActivationM
 
 test('activation handoff is nonce-bound, recoverable, and health-marked', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'forge-activation-'));
+  let aliasRoot;
   try {
     const activationRoot = path.join(root, 'activation');
     const targetRoot = path.join(root, 'forge');
@@ -50,12 +51,31 @@ test('activation handoff is nonce-bound, recoverable, and health-marked', async 
     assert.equal(recoveryCalls.length, 1);
     assert.equal(quitRequests, 2);
 
+    await writeFile(path.join(activationRoot, nonce, 'failure.txt'), 'Updater failed before activation.');
+    const failedRecoveryCalls = [];
+    const failedRecovery = new UpdateActivationManager({
+      ...options,
+      requestQuit: () => { quitRequests += 1; },
+      spawnHelper: async (...args) => { failedRecoveryCalls.push(args); },
+    });
+    assert.equal(await failedRecovery.recover(), false);
+    assert.equal(failedRecovery.state.state, 'error');
+    assert.equal(failedRecoveryCalls.length, 0);
+    assert.equal(quitRequests, 2);
+    await rm(path.join(activationRoot, nonce, 'failure.txt'));
+
     const healthPath = path.join(activationRoot, nonce, 'health.json');
+    let healthArgument = healthPath;
+    if (process.platform === 'linux') {
+      aliasRoot = `${root}-alias`;
+      await symlink(root, aliasRoot, 'dir');
+      healthArgument = path.join(aliasRoot, 'activation', nonce, 'health.json');
+    }
     await writeFile(path.join(activationRoot, nonce, 'state.json'), JSON.stringify({ checkpoint: 'launched' }));
     const restarted = new UpdateActivationManager({
       ...options,
       currentVersion: '2.1.0',
-      arguments: ['--forge-update-health', healthPath, '--forge-update-nonce', nonce],
+      arguments: ['--forge-update-health', healthArgument, '--forge-update-nonce', nonce],
     });
     assert.equal(await restarted.recover(), false);
     assert.equal(await restarted.markStartupHealthy(), true);
@@ -63,6 +83,7 @@ test('activation handoff is nonce-bound, recoverable, and health-marked', async 
     assert.equal(health.nonce, nonce);
     assert.equal(health.version, '2.1.0');
   } finally {
+    if (aliasRoot) await rm(aliasRoot, { force: true });
     await rm(root, { recursive: true, force: true });
   }
 });
