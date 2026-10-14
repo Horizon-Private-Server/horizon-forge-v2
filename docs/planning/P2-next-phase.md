@@ -513,7 +513,8 @@ identity.
 ### M13 — Full-package updater and P2 qualification
 
 Status: in progress — package/install contract, signed download, safe staging,
-out-of-process activation/rollback, and lifecycle UI implemented
+out-of-process activation/rollback, and lifecycle UI implemented; the first signed
+nightly baseline is packaged for the A→B walkthrough
 
 Deliver an explicit install-layout contract, secure full-package download/extraction,
 out-of-process activation/rollback, ribbon update state, and the combined release gate.
@@ -569,7 +570,8 @@ application.
   nonce-bound handoff/checkpoints, full candidate revalidation, startup health, and
   automatic rollback. M13-005 adds one shared lifecycle state/action path for the compact
   ribbon and Notifications, with accessible progress, defer/retry/install/manual-handoff,
-  failure, success, and rollback presentation. Signing-key provisioning and packaged VM
+  failure, success, and rollback presentation. Signing-key provisioning and the first
+  signed nightly package are verified; the packaged A→B walkthrough and remaining VM
   evidence remain.
 
 ## P2 release gate

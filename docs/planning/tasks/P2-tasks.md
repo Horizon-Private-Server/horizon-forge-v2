@@ -1342,8 +1342,8 @@ Verification: packaged-app qualification report and PCSX2 evidence reference.
 
 ### M13-001 — Freeze the install and update package contract
 
-Status: 🚧 In progress — contract, package manifest, layout detection, and opt-in signed
-envelope publishing implemented; signing-key provisioning and packaged VM evidence remain
+Status: 🚧 In progress — contract, package manifest, layout detection, signed envelope
+publishing, and the first signed nightly package are verified; packaged VM evidence remains
 
 Requirements: FR-UPD-003 through FR-UPD-005, FR-RELENG-004, NFR-SEC-004
 Depends on: M6-001, M6-002, M6-003, M6-004
@@ -1376,7 +1376,7 @@ layouts without a write probe. Focused fixtures cover bounded/path-safe manifest
 every layout kind. Release packaging carries exact embedded-manifest sidecars and the
 publisher emits a raw Ed25519-signed schema 2 envelope when matching private/public key
 configuration is present; unsigned deployments stay on schema 1/manual handoff.
-M13-006 retains signing-key provisioning and the clean-VM activation/rollback matrix.
+M13-006 retains the clean-VM activation/rollback matrix.
 
 ### M13-002 — Download verified full packages with progress/cancellation
 
@@ -1529,7 +1529,8 @@ failure/rollback variants; the full desktop, host, and integration suite passes.
 
 ### M13-006 — Qualify secure full-package updates
 
-Status: ⏳ Not started
+Status: 🚧 In progress — the signed nightly baseline is published and downloaded; the
+packaged A→B update walkthrough and remaining qualification matrix are pending
 
 Requirements: FR-UPD-004, FR-UPD-005, NFR-SEC-004, NFR-REL-001
 Depends on: M13-004, M13-005
