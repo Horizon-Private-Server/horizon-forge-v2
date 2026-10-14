@@ -87,7 +87,7 @@ export function UpdateStatusMenu({ snapshot, onAction }: UpdateStatusMenuProps) 
 function StatusIcon({ state, busy }: Pick<UpdateLifecycleSnapshot, 'state'> & { busy: boolean }) {
   if (busy) return <CircleNotchIcon className="update-status-spinner" weight="bold" />;
   if (state === 'available') return <DownloadIcon weight="bold" />;
-  if (state === 'ready' || state === 'updated') return <CheckCircleIcon weight="bold" />;
+  if (state === 'current' || state === 'ready' || state === 'updated') return <CheckCircleIcon weight="bold" />;
   if (state === 'deferred') return <PauseIcon weight="bold" />;
   if (state === 'failed' || state === 'rolled-back') return <WarningIcon weight="bold" />;
   return <ArrowClockwiseIcon weight="bold" />;

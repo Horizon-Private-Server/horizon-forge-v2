@@ -54,7 +54,7 @@ export class UpdateService {
   private retryPhase?: 'check' | 'download' | 'stage' | 'install';
   private installing = false;
   private handingOff = false;
-  private startupRecovery: Promise<void> = Promise.resolve();
+  private startupRecovery?: Promise<void>;
 
   private constructor(private readonly options: UpdateServiceOptions) {
     this.lifecycle = new UpdateLifecycleCoordinator({
@@ -130,11 +130,15 @@ export class UpdateService {
         if (await service.activationManager.recover()) return service;
         if (service.activationManager.hasStartupHealthRequest) return service;
       }
-      service.startupRecovery = service.recoverDownloadedUpdate().catch((error) => {
-        console.error('Forge update recovery failed', error);
-      });
     }
     return service;
+  }
+
+  startBackgroundRecovery(): void {
+    if (this.startupRecovery) return;
+    this.startupRecovery = this.recoverDownloadedUpdate().catch((error) => {
+      console.error('Forge update recovery failed', error);
+    });
   }
 
   getLifecycleState(): UpdateLifecycleSnapshot {
@@ -175,6 +179,7 @@ export class UpdateService {
       message: `Checking the trusted ${channel} release channel.`, severity: 'info', channel, actions: [],
     }, false);
     try {
+      this.startBackgroundRecovery();
       await this.startupRecovery;
       const update = await findGitHubUpdate({
         channel,
@@ -185,7 +190,12 @@ export class UpdateService {
         architecture: process.arch,
       });
       if (!update) {
-        if (showChecking) this.lifecycle.clear();
+        if (showChecking) this.lifecycle.publish({
+          state: 'current', title: 'Horizon Forge is up to date',
+          message: `Channel: ${channel}\nVersion: ${this.options.version}\nTrusted source: ${trustedReleaseSource}`,
+          severity: 'info', version: this.options.version, channel, source: trustedReleaseSource,
+          actions: [{ action: 'dismiss', label: 'Dismiss' }],
+        });
         return {
           status: 'current',
           title: 'Horizon Forge is up to date',

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { createHash, generateKeyPairSync, sign } from 'node:crypto';
-import { chmod, cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { chmod, cp, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -52,8 +52,12 @@ test('Linux and Windows packages stage completely and restart rejects a changed 
   }
 
   const windows = await createFixture(directory, 'windows');
+  const physicalStaging = path.join(directory, 'windows-staging-root');
+  const indirectStaging = path.join(directory, 'windows-staging-link');
+  await mkdir(physicalStaging);
+  await symlink(physicalStaging, indirectStaging, process.platform === 'win32' ? 'junction' : 'dir');
   const windowsStager = new UpdatePackageStager({
-    root: path.join(directory, 'windows-staging'),
+    root: path.join(indirectStaging, 'staging'),
     targetRoot: windows.packageRoot,
     platform: 'windows',
     extract: async (_archive, destination) => {

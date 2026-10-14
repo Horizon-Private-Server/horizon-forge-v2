@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { createApplicationPaths } from '../src/utils/ApplicationPaths.ts';
-import { isDirectDirectory } from '../src/utils/FileSystem.ts';
+import { isDirectDirectory, isDirectDirectoryWithin } from '../src/utils/FileSystem.ts';
 import { clearRenderCache, SettingsStore } from '../src/main/Settings.ts';
 import { createForgeTheme } from '../src/renderer/theme.ts';
 import { DEFAULT_SCENE_TREE_COLORS } from '../src/utils/SceneTreeColors.ts';
@@ -156,6 +156,25 @@ test('direct directory checks reject symbolic path components', async () => {
     assert.equal(await isDirectDirectory(target), true);
     assert.equal(await isDirectDirectory(indirect), false);
     assert.equal(await isDirectDirectory(path.join(directory, 'missing')), false);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('bounded directory checks trust indirect system ancestors but reject indirect descendants', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'forge-bounded-directory-'));
+  try {
+    const physical = path.join(directory, 'physical');
+    const indirect = path.join(directory, 'indirect');
+    const staging = path.join(indirect, 'staging');
+    const extracted = path.join(staging, 'extracted');
+    await mkdir(path.join(physical, 'staging', 'extracted'), { recursive: true });
+    await symlink(physical, indirect, process.platform === 'win32' ? 'junction' : 'dir');
+    assert.equal(await isDirectDirectory(extracted), false);
+    assert.equal(await isDirectDirectoryWithin(staging, extracted), true);
+    await symlink(extracted, path.join(staging, 'linked'), process.platform === 'win32' ? 'junction' : 'dir');
+    assert.equal(await isDirectDirectoryWithin(staging, path.join(staging, 'linked')), false);
+    assert.equal(await isDirectDirectoryWithin(staging, directory), false);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

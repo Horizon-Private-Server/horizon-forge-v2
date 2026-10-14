@@ -140,9 +140,14 @@ export class UpdatePackageStager {
       this.update({ ...this.snapshot, state: 'validating', message: 'Validating every staged application file…' });
       await assertSingleArchiveRoot(partialDirectory, download.envelope.artifact.topLevelDirectory);
       const root = path.join(partialDirectory, download.envelope.artifact.topLevelDirectory);
-      const manifest = await validateStagedPackage(root, download, this.options.platform, controller.signal, (completed) => {
-        this.update({ ...this.snapshot, completedFiles: completed });
-      });
+      const manifest = await validateStagedPackage(
+        root,
+        download,
+        this.options.platform,
+        controller.signal,
+        (completed) => this.update({ ...this.snapshot, completedFiles: completed }),
+        this.options.root,
+      );
       const targetPackageManifestSha256 = await fingerprintInstalledPackage(
         this.options.targetRoot, this.options.platform, controller.signal,
       );
@@ -217,7 +222,9 @@ export class UpdatePackageStager {
     targetPackageManifestSha256: string,
   ): Promise<VerifiedUpdateStage> {
     const root = path.join(this.resolveStageDirectory(directory), download.envelope.artifact.topLevelDirectory);
-    const manifest = await validateStagedPackage(root, download, this.options.platform);
+    const manifest = await validateStagedPackage(
+      root, download, this.options.platform, undefined, undefined, this.options.root,
+    );
     if (await fingerprintInstalledPackage(this.options.targetRoot, this.options.platform)
       !== targetPackageManifestSha256) {
       throw new Error('Active installation changed after this update was staged.');

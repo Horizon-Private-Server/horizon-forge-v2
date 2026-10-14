@@ -9,6 +9,7 @@ export interface UpdateLifecycleView {
 
 const labels: Record<Exclude<UpdateLifecycleState, 'idle'>, string> = {
   checking: 'Checking for updates',
+  current: 'Forge is up to date',
   available: 'Forge update available',
   downloading: 'Downloading update',
   verifying: 'Verifying update',
@@ -26,7 +27,7 @@ export function describeUpdateLifecycle(snapshot: UpdateLifecycleSnapshot): Upda
   const busy = ['checking', 'downloading', 'verifying', 'preparing', 'restarting'].includes(snapshot.state);
   const color = snapshot.state === 'failed' ? 'red'
     : snapshot.state === 'available' ? 'red'
-      : snapshot.state === 'ready' || snapshot.state === 'updated' ? 'green'
+      : snapshot.state === 'current' || snapshot.state === 'ready' || snapshot.state === 'updated' ? 'green'
         : snapshot.state === 'deferred' || snapshot.state === 'rolled-back' ? 'yellow' : 'blue';
   const showProgress = snapshot.state === 'downloading' || snapshot.state === 'verifying'
     || snapshot.state === 'preparing';

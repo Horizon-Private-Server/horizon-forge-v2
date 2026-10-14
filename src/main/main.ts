@@ -35,6 +35,7 @@ protocol.registerSchemesAsPrivileged([{
 function createWindow(installedChannel?: UpdateChannel): { window: BrowserWindow; loaded: Promise<void> } {
   const window = new BrowserWindow({
     title: applicationTitle(app.isPackaged, app.getVersion(), installedChannel),
+    show: false,
     width: 1280,
     height: 800,
     minWidth: 800,
@@ -48,7 +49,10 @@ function createWindow(installedChannel?: UpdateChannel): { window: BrowserWindow
     },
   });
   mainWindow = window;
-  window.maximize();
+  window.once('ready-to-show', () => {
+    window.maximize();
+    window.show();
+  });
   window.setMenuBarVisibility(false);
 
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -95,6 +99,7 @@ app.whenReady().then(async () => {
   const initialWindow = createWindow(updates.installedChannel);
   await Promise.all([initialWindow.loaded, host.start()]);
   await updates.markStartupHealthy().catch((error) => console.error('Forge update health check failed', error));
+  updates.startBackgroundRecovery();
   if (app.isPackaged) {
     const checkForUpdates = async () => {
       const snapshot = await settings.getSnapshot();

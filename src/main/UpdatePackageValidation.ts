@@ -4,7 +4,7 @@ import { lstat, readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 
 import type { ForgePackageManifest } from '../types/Updates.js';
-import { isDirectDirectory } from '../utils/FileSystem.js';
+import { isDirectDirectory, isDirectDirectoryWithin } from '../utils/FileSystem.js';
 import { validateForgePackageManifest } from '../utils/UpdateValidation.js';
 import type { VerifiedUpdateDownload } from './UpdateDownloadManager.js';
 
@@ -14,8 +14,11 @@ export async function validateStagedPackage(
   platform: 'linux' | 'windows',
   signal?: AbortSignal,
   progress?: (completed: number) => void,
+  stagingRoot?: string,
 ): Promise<ForgePackageManifest> {
-  await assertDirectRoot(root, 'Extracted update');
+  if (!await (stagingRoot ? isDirectDirectoryWithin(stagingRoot, root) : isDirectDirectory(root))) {
+    throw new Error('Extracted update root is indirect or invalid.');
+  }
   const manifestPath = path.join(root, 'forge-package.json');
   const manifestMetadata = await lstat(manifestPath);
   const artifact = download.envelope.artifact;

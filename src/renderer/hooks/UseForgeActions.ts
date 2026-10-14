@@ -7,7 +7,6 @@ import { applyEditorCommandResult } from '../../utils/EditorCommandResult.ts';
 export function useForgeActions(
   setSetupOpened: (value: boolean) => void,
   setSettingsOpened: (value: boolean) => void,
-  setUpdateCheckOpened: (value: boolean) => void,
 ) {
   const [activeProject, setActiveProject] = useState<EditorSnapshot>();
   const [editorError, setEditorError] = useState<string>();
@@ -18,7 +17,9 @@ export function useForgeActions(
   const handleForgeAction = useCallback((action: ForgeAction) => {
     if (action === 'setup') setSetupOpened(true);
     else if (action === 'settings') setSettingsOpened(true);
-    else if (action === 'checkUpdates') setUpdateCheckOpened(true);
+    else if (action === 'checkUpdates') {
+      void window.forge.checkForUpdates().catch((error) => setEditorError(errorMessage(error)));
+    }
     else if (action === 'reloadMobyDex') {
       void window.forge.reloadMobyDexDataset()
         .then(async (result) => {
@@ -81,7 +82,7 @@ export function useForgeActions(
         setHubAction({ id: Date.now(), action });
       }).catch((error) => setEditorError(errorMessage(error)));
     }
-  }, [activeProject, isSaving, setSettingsOpened, setSetupOpened, setUpdateCheckOpened]);
+  }, [activeProject, isSaving, setSettingsOpened, setSetupOpened]);
 
   const openProject = useCallback((path: string) => {
     void window.forge.openEditorProject(path).then((snapshot) => {

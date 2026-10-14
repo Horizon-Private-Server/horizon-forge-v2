@@ -168,6 +168,7 @@ export interface UpdateActivationSnapshot {
 export type UpdateLifecycleState =
   | 'idle'
   | 'checking'
+  | 'current'
   | 'available'
   | 'downloading'
   | 'verifying'

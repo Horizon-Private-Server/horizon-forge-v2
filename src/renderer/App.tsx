@@ -28,7 +28,6 @@ import { SetupWizard } from './setup/SetupWizard.tsx';
 import { ForgeMenuBar } from './shell/ForgeMenuBar.tsx';
 import { NotificationMenu } from './shell/NotificationMenu.tsx';
 import { createForgeTheme } from './theme.ts';
-import { UpdateCheckModal } from './updates/UpdateCheckModal.tsx';
 import { UpdateStatusMenu } from './updates/UpdateStatusMenu.tsx';
 import { isUiSize } from '../utils/UiSize.ts';
 import { DEFAULT_SELECTION_COLOR, readSelectionColor } from '../utils/SelectionVisualization.ts';
@@ -52,7 +51,6 @@ function ForgeApp({ uiSize, onUiSizeChange }: { uiSize: UiSize; onUiSizeChange(v
   );
   const [keybindings, setKeybindings] = useState<KeybindingMap>(() => resolveKeybindings({}));
   const [setupOpened, setSetupOpened] = useState(false);
-  const [updateCheckOpened, setUpdateCheckOpened] = useState(false);
   const [hubRefresh, setHubRefresh] = useState(0);
   const {
     activeProject,
@@ -64,7 +62,7 @@ function ForgeApp({ uiSize, onUiSizeChange }: { uiSize: UiSize; onUiSizeChange(v
     openProject,
     setActiveProject,
     clearEditorError,
-  } = useForgeActions(setSetupOpened, setSettingsOpened, setUpdateCheckOpened);
+  } = useForgeActions(setSetupOpened, setSettingsOpened);
   useKeyboardContext(keybindings, handleForgeAction);
   const notificationCenter = useNotifications();
   const updateLifecycle = useUpdateLifecycle();
@@ -196,7 +194,6 @@ function ForgeApp({ uiSize, onUiSizeChange }: { uiSize: UiSize; onUiSizeChange(v
         setSetupOpened(false);
         setHubRefresh((value) => value + 1);
       }} />
-      <UpdateCheckModal opened={updateCheckOpened} onClose={() => setUpdateCheckOpened(false)} />
     </main>
   );
 }

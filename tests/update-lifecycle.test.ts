@@ -64,5 +64,8 @@ test('lifecycle presentation keeps the required label, severity color, progress,
     ...available, state: 'downloading', completed: 120,
   }), { label: 'Downloading update', color: 'blue', busy: true, progress: 100 });
   assert.equal(describeUpdateLifecycle({ ...available, state: 'failed' })?.color, 'red');
+  assert.deepEqual(describeUpdateLifecycle({ ...available, state: 'current' }), {
+    label: 'Forge is up to date', color: 'green', busy: false, progress: undefined,
+  });
   assert.equal(describeUpdateLifecycle({ ...available, state: 'rolled-back' })?.label, 'Update rolled back');
 });

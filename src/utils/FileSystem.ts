@@ -45,6 +45,26 @@ export async function isDirectDirectory(candidate: string): Promise<boolean> {
   }
 }
 
+export async function isDirectDirectoryWithin(parent: string, candidate: string): Promise<boolean> {
+  const resolvedParent = path.resolve(parent);
+  const resolvedCandidate = path.resolve(candidate);
+  const relative = path.relative(resolvedParent, resolvedCandidate);
+  if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return false;
+  let current = resolvedParent;
+  try {
+    const parentMetadata = await lstat(current);
+    if (!parentMetadata.isDirectory() || parentMetadata.isSymbolicLink()) return false;
+    for (const segment of relative.split(path.sep).filter(Boolean)) {
+      current = path.join(current, segment);
+      const metadata = await lstat(current);
+      if (!metadata.isDirectory() || metadata.isSymbolicLink()) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function writeJsonSafely(file: string, value: unknown): Promise<void> {
   await mkdir(path.dirname(file), { recursive: true });
   const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`;
