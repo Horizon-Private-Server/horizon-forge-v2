@@ -26,6 +26,16 @@ const hostPath = app.isPackaged
 const host = app.isPackaged ? new HostClient(hostPath, []) : new HostClient('dotnet', [hostPath]);
 let mainWindow: BrowserWindow | undefined;
 let quitting = false;
+const primaryInstance = app.requestSingleInstanceLock();
+
+if (!primaryInstance) app.quit();
+
+app.on('second-instance', () => {
+  if (!mainWindow) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+});
 
 protocol.registerSchemesAsPrivileged([{
   scheme: 'forge-asset',
@@ -67,6 +77,7 @@ function createWindow(installedChannel?: UpdateChannel): { window: BrowserWindow
 }
 
 app.whenReady().then(async () => {
+  if (!primaryInstance) return;
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
   const notifications = new NotificationCenter(() => mainWindow);
   const updates = await UpdateService.create({

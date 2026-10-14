@@ -239,7 +239,7 @@ export class UpdateService {
       ? await this.downloadManager.getReadyDownload().catch(() => undefined)
       : undefined;
     const stageState = await this.stageManager.recover(download);
-    if (download && stageState.state === 'idle') void this.prepareDownloadedUpdate();
+    if (download && stageState.state === 'idle') await this.prepareDownloadedUpdate();
   }
 
   private publishUpdate(update: ResolvedUpdate): void {

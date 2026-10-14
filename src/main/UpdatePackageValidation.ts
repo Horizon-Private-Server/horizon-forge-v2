@@ -78,11 +78,17 @@ async function validatePackageFiles(
   progress?: (completed: number) => void,
 ): Promise<void> {
   const files = await collectRegularFiles(root, signal);
-  if (files.length !== manifest.fileCount) throw new Error(`${label} contains extra or missing files.`);
   const actualPaths = files.map((file) => file.relativePath);
   const expectedPaths = manifest.files.map((file) => file.path);
-  if (actualPaths.some((filePath, index) => filePath !== expectedPaths[index])) {
-    throw new Error(`${label} file set does not match its manifest.`);
+  const actualSet = new Set(actualPaths);
+  const expectedSet = new Set(expectedPaths);
+  const missing = expectedPaths.filter((filePath) => !actualSet.has(filePath));
+  const extra = actualPaths.filter((filePath) => !expectedSet.has(filePath));
+  if (missing.length > 0 || extra.length > 0) {
+    throw new Error(`${label} file set does not match its manifest (${[
+      describePathMismatch('missing', missing),
+      describePathMismatch('extra', extra),
+    ].filter(Boolean).join('; ')}).`);
   }
   const executablePaths: string[] = [];
   for (let index = 0; index < files.length; index += 1) {
@@ -100,6 +106,12 @@ async function validatePackageFiles(
       || executablePaths.some((filePath, index) => filePath !== manifest.executablePaths[index]))) {
     throw new Error(`${label} executable permissions do not match its manifest.`);
   }
+}
+
+function describePathMismatch(kind: 'missing' | 'extra', paths: string[]): string {
+  if (paths.length === 0) return '';
+  const shown = paths.slice(0, 3).join(', ');
+  return `${kind} ${paths.length}: ${shown}${paths.length > 3 ? ` (+${paths.length - 3} more)` : ''}`;
 }
 
 async function collectRegularFiles(root: string, signal?: AbortSignal): Promise<{

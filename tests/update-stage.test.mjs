@@ -126,6 +126,20 @@ test('archive preflight rejects unsafe paths, collisions, links, and cancellatio
   assert.equal(stager.cancel(), true);
   assert.equal((await operation).state, 'cancelled');
   assert.ok((await readdir(staging)).every((name) => !name.startsWith('.partial-')));
+
+  const mismatched = new UpdatePackageStager({
+    root: path.join(directory, 'mismatched-staging'),
+    targetRoot: fixture.packageRoot,
+    platform: 'linux',
+    extract: async (_archive, destination) => {
+      const root = path.join(destination, fixture.rootName);
+      await cp(fixture.packageRoot, root, { recursive: true });
+      await writeFile(path.join(root, 'unexpected.bin'), 'extra');
+    },
+  });
+  const mismatch = await mismatched.stage(fixture.download);
+  assert.equal(mismatch.state, 'error');
+  assert.match(mismatch.message, /extra 1: unexpected\.bin/);
 });
 
 async function createFixture(directory, platform) {

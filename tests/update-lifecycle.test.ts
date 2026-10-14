@@ -4,6 +4,7 @@ import test from 'node:test';
 import { NotificationCenter } from '../src/main/NotificationCenter.ts';
 import { UpdateLifecycleCoordinator } from '../src/main/UpdateLifecycleCoordinator.ts';
 import type { UpdateLifecycleSnapshot } from '../src/types/Updates.js';
+import { formatBytes } from '../src/utils/Format.ts';
 import { describeUpdateLifecycle } from '../src/utils/UpdateLifecycle.ts';
 
 const available: UpdateLifecycleSnapshot = {
@@ -68,4 +69,9 @@ test('lifecycle presentation keeps the required label, severity color, progress,
     label: 'Forge is up to date', color: 'green', busy: false, progress: undefined,
   });
   assert.equal(describeUpdateLifecycle({ ...available, state: 'rolled-back' })?.label, 'Update rolled back');
+});
+
+test('download sizes stay in MiB until they reach one GiB', () => {
+  assert.equal(formatBytes(188_406_585), '179.7 MiB');
+  assert.equal(formatBytes(1024 ** 3), '1.00 GiB');
 });
