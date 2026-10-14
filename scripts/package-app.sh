@@ -36,6 +36,8 @@ dotnet publish "$forge_root/src/Forge.Updater/Forge.Updater.csproj" \
 
 cp -a "$forge_root/node_modules/electron/dist/." "$stage/"
 mv "$stage/$electron_binary" "$stage/$app_binary"
+# Forge supplies resources/app, so Electron's fallback app is unused and must not enter update archives.
+rm -f -- "$stage/resources/default_app.asar"
 mkdir -p "$stage/resources/app"
 cp -a "$forge_root/dist" "$forge_root/dist-electron" "$forge_root/package.json" "$stage/resources/app/"
 npm --prefix "$stage/resources/app" pkg set \

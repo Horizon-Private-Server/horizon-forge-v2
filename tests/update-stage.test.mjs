@@ -4,6 +4,7 @@ import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import { chmod, cp, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import { gzipSync } from 'node:zlib';
 import test from 'node:test';
@@ -52,6 +53,7 @@ test('Linux and Windows packages stage completely and restart rejects a changed 
   }
 
   const windows = await createFixture(directory, 'windows');
+  await assertElectronValidatesAsarFile(windows.packageRoot);
   const physicalStaging = path.join(directory, 'windows-staging-root');
   const indirectStaging = path.join(directory, 'windows-staging-link');
   await mkdir(physicalStaging);
@@ -142,9 +144,30 @@ test('archive preflight rejects unsafe paths, collisions, links, and cancellatio
   assert.match(mismatch.message, /extra 1: unexpected\.bin/);
 });
 
+async function assertElectronValidatesAsarFile(packageRoot) {
+  const executable = path.resolve(
+    'node_modules/electron/dist',
+    process.platform === 'win32' ? 'electron.exe' : 'electron',
+  );
+  const validator = pathToFileURL(path.resolve('dist-electron/main/UpdatePackageValidation.js')).href;
+  const script = "const { fingerprintInstalledPackage } = await import(process.env.FORGE_TEST_VALIDATOR); "
+    + "await fingerprintInstalledPackage(process.env.FORGE_TEST_PACKAGE_ROOT, 'windows')";
+  await run(executable, ['--input-type=module', '-e', script], {
+    env: {
+      ...process.env,
+      ELECTRON_RUN_AS_NODE: '1',
+      FORGE_TEST_PACKAGE_ROOT: packageRoot,
+      FORGE_TEST_VALIDATOR: validator,
+    },
+  });
+}
+
 async function createFixture(directory, platform) {
   const rootName = `horizon-forge-${platform}-x64`;
   const packageRoot = path.join(directory, `${platform}-package`, rootName);
+  const defaultApp = platform === 'windows'
+    ? await readFile(new URL('../node_modules/electron/dist/resources/default_app.asar', import.meta.url))
+    : undefined;
   const files = platform === 'linux' ? [
     { path: 'horizon-forge', bytes: Buffer.from('app'), executable: true },
     { path: 'resources/app/package.json', bytes: Buffer.from('{}') },
@@ -152,6 +175,7 @@ async function createFixture(directory, platform) {
   ] : [
     { path: 'horizon-forge.exe', bytes: Buffer.from('app') },
     { path: 'resources/app/package.json', bytes: Buffer.from('{}') },
+    { path: 'resources/default_app.asar', bytes: defaultApp },
     { path: 'resources/host/Forge.Host.exe', bytes: Buffer.from('host') },
   ];
   for (const file of files) {
