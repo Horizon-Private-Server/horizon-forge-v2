@@ -1533,6 +1533,8 @@ Status: 🚧 In progress — ASAR validation and stale-stage cleanup fixes are i
 the next signed nightly is the B→C self-update retry candidate, with the remaining
 qualification matrix still pending
 
+iteration test number: 7
+
 Requirements: FR-UPD-004, FR-UPD-005, NFR-SEC-004, NFR-REL-001
 Depends on: M13-004, M13-005
 
