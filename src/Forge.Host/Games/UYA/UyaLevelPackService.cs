@@ -59,7 +59,7 @@ public static class UyaLevelPackService
                     throw new InvalidDataException("Staged palette report does not match the staged static assets.");
             }
             var replacements = await CreateReplacementsAsync(
-                catalog, staging, sourceLevelWad, sourcePackage, workspace.Manifest.BaseLevel,
+                catalog, staging, sourceLevelWad, sourcePackage, workspace,
                 allowStalePaletteReport,
                 cancellationToken);
             var archive = await Task.Run(
@@ -113,10 +113,11 @@ public static class UyaLevelPackService
         BakeStagingStore staging,
         ReadOnlyMemory<byte> sourceLevelWad,
         UyaLevelWadPackage sourcePackage,
-        ProjectBaseLevel baseLevel,
+        ForgeProjectWorkspace workspace,
         bool allowStalePaletteReport,
         CancellationToken cancellationToken)
     {
+        var baseLevel = workspace.Manifest.BaseLevel;
         var replacements = new Dictionary<string, ReadOnlyMemory<byte>>(StringComparer.Ordinal);
         var sourceBase = UyaBaseLayerService.Extract(sourcePackage)
             .ToDictionary(value => (value.Layer, value.Name));
@@ -214,13 +215,16 @@ public static class UyaLevelPackService
             foreach (var definition in manifest.Definitions)
             {
                 var entry = catalog.Query(new(Id: definition.Asset.Id)).SingleOrDefault();
-                if (entry is null || entry.CanonicalFormatVersion != UyaAssetImportService.CanonicalFormatVersion)
+                var custom = layer == BakeLayerId.Ties
+                    && workspace.Content.CustomModels.Models.Any(model => model.Canonical == definition.Asset);
+                if (!custom && (entry is null
+                    || entry.CanonicalFormatVersion != UyaAssetImportService.CanonicalFormatVersion))
                     throw new InvalidDataException($"{layer} definition {definition.ClassId:X4} has no current canonical asset.");
-                var fromSourceLevel = entry.Sources.Any(value =>
+                var fromSourceLevel = entry?.Sources.Any(value =>
                     value.Game == baseLevel.Game
                     && value.Region == baseLevel.Region
                     && value.Revision == baseLevel.Revision
-                    && value.Level == sourceLevel);
+                    && value.Level == sourceLevel) == true;
                 staticAssetsChanged |= !fromSourceLevel;
                 var path = ForgeProjectPersistence.ResolveRelativePath(root, definition.Resource);
                 var canonical = UyaCanonicalAssetCodec.Decode(await File.ReadAllBytesAsync(path, cancellationToken));

@@ -52,6 +52,8 @@ internal static class Program
             await UyaArchiveBuildTests.RunAsync();
             await UyaStaticLayerTests.RunAsync();
             await UyaGameplayLayerTests.RunAsync();
+            await UyaCustomTieClassTests.RunAsync();
+            await UyaCustomTieProjectTests.RunAsync();
             await UpdaterActivationTests.RunAsync();
             Console.WriteLine("C# bridge and domain contract checks passed");
             return 0;
@@ -312,7 +314,8 @@ internal static class Program
         Equal(assetPreviewRequest, BridgePayloadCodec.DecodeAssetPreviewRequest(
             BridgePayloadCodec.EncodeAssetPreviewRequest(assetPreviewRequest)), "asset-preview request payload");
         var assetPreviewResult = new AssetPreviewResultPayload(
-            "render-cache/uya-preview-key", "uya-preview-key", "model.gltf", true);
+            "render-cache/uya-preview-key", "uya-preview-key", "model.gltf", true,
+            "preview-details.json", "diagnostic-target.glb");
         Equal(assetPreviewResult, BridgePayloadCodec.DecodeAssetPreviewResult(
             BridgePayloadCodec.EncodeAssetPreviewResult(assetPreviewResult)), "asset-preview result payload");
 
@@ -384,6 +387,7 @@ internal static class Program
         collisionFaceCommandWriter.WriteBoolean(false);
         collisionFaceCommandWriter.WriteBoolean(false);
         collisionFaceCommandWriter.WriteBoolean(false);
+        collisionFaceCommandWriter.WriteBoolean(false);
         var collisionFaceCommand = EditorPayloadCodec.DecodeCommand(collisionFaceCommandWriter.ToArray());
         Equal(collisionFaceCommandId, collisionFaceCommand.Id, "collision face command ID payload");
         Equal(EditorCommandKind.SetInstancedCollisionFaceTypes, collisionFaceCommand.Kind,
@@ -406,6 +410,7 @@ internal static class Program
         referenceCommandWriter.WriteInt32(-1);
         referenceCommandWriter.WriteBoolean(true);
         referenceCommandWriter.WriteString(parentEntityId.ToString());
+        referenceCommandWriter.WriteBoolean(false);
         referenceCommandWriter.WriteBoolean(false);
         referenceCommandWriter.WriteBoolean(false);
         referenceCommandWriter.WriteBoolean(false);
@@ -440,6 +445,7 @@ internal static class Program
         hudCommandWriter.WriteBoolean(false);
         hudCommandWriter.WriteBoolean(false);
         hudCommandWriter.WriteBoolean(false);
+        hudCommandWriter.WriteBoolean(false);
         var hudCommand = EditorPayloadCodec.DecodeCommand(hudCommandWriter.ToArray());
         Equal(EditorCommandKind.ReplaceHudTexture, hudCommand.Kind, "HUD command kind payload");
         Equal(AssetId.Parse(hudSourceId), hudCommand.HudEdit!.SourceAssetId, "HUD command source payload");
@@ -457,6 +463,7 @@ internal static class Program
         mobyPropertyCommandWriter.WriteUInt32(0x400);
         mobyPropertyCommandWriter.WriteUInt32((uint)EditorMobyPropertyValueKind.Integer);
         mobyPropertyCommandWriter.WriteInt32(42);
+        mobyPropertyCommandWriter.WriteBoolean(false);
         mobyPropertyCommandWriter.WriteBoolean(false);
         mobyPropertyCommandWriter.WriteBoolean(false);
         mobyPropertyCommandWriter.WriteBoolean(false);
@@ -482,6 +489,7 @@ internal static class Program
         mobyDexCommandWriter.WriteBoolean(true);
         mobyDexCommandWriter.WriteBoolean(true);
         mobyDexCommandWriter.WriteBytes(mobyDexJson, MobyDexSchema.MaximumJsonBytes);
+        mobyDexCommandWriter.WriteBoolean(false);
         mobyDexCommandWriter.WriteBoolean(false);
         mobyDexCommandWriter.WriteBoolean(false);
         mobyDexCommandWriter.WriteBoolean(false);

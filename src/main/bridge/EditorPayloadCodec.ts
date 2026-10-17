@@ -77,6 +77,9 @@ const commandKinds = {
   reorderGroup: 42,
   addGroupMembers: 43,
   removeGroupMembers: 44,
+  importCustomTie: 45,
+  reimportCustomTie: 46,
+  deleteCustomTie: 47,
 } as const;
 const mobyPropertyKinds = {
   integer: 1,
@@ -264,6 +267,26 @@ export function encodeEditorCommand(value: EditorCommand): Buffer {
     if (hasGroupId) writer.writeString(value.groupId);
     writer.writeBoolean(value.kind === 'reorderGroup');
     if (value.kind === 'reorderGroup') writer.writeUInt32(value.destinationOrder);
+  }
+  const isCustomTie = value.kind === 'importCustomTie' || value.kind === 'reimportCustomTie'
+    || value.kind === 'deleteCustomTie';
+  writer.writeBoolean(isCustomTie);
+  if (isCustomTie) {
+    const hasModel = value.kind !== 'importCustomTie';
+    writer.writeBoolean(hasModel);
+    if (hasModel) writer.writeString(value.modelAssetId);
+    const hasImport = value.kind !== 'deleteCustomTie';
+    writer.writeBoolean(hasImport);
+    if (hasImport) {
+      writer.writeString(value.import.sourceName);
+      writer.writeBytes(value.import.sourceBytes, 16 * 1024 * 1024);
+      writer.writeUInt32(value.import.dependencies.length);
+      value.import.dependencies.forEach((dependency) => {
+        writer.writeString(dependency.uri);
+        writer.writeBytes(dependency.bytes, 64 * 1024 * 1024);
+      });
+      writer.writeBoolean(value.import.forceBackfaceCulling);
+    }
   }
   return writer.toBuffer();
 }
@@ -456,6 +479,24 @@ export function decodeEditorSnapshot(payload: Uint8Array): EditorSnapshot {
   const levelSettings = reader.readBoolean() ? readLevelSettings(reader) : undefined;
   const hud = reader.readBoolean() ? readHud(reader) : undefined;
   const fx = reader.readBoolean() ? readFx(reader) : undefined;
+  const customModels = readList(reader, 16_384, () => ({
+    assetId: reader.readString(),
+    nativeAssetId: reader.readString(),
+    sourceName: reader.readString(),
+    classId: reader.readUInt32(),
+    vertexCount: reader.readUInt32(),
+    triangleCount: reader.readUInt32(),
+    packetCount: reader.readUInt32(),
+    materialCount: reader.readUInt32(),
+    textureCount: reader.readUInt32(),
+    paletteCount: reader.readUInt32(),
+    bounds: {
+      minimum: { x: reader.readFloat32(), y: reader.readFloat32(), z: reader.readFloat32() },
+      maximum: { x: reader.readFloat32(), y: reader.readFloat32(), z: reader.readFloat32() },
+    },
+    lodPolicy: reader.readString(),
+    diagnostics: reader.readStrings(),
+  }));
   const entities = readList(reader, MAX_ENTITIES, () => readEntity(reader));
   const references = readList(reader, MAX_REFERENCES, () => readReference(reader));
   const groups = readList(reader, MAX_GROUPS, () => {
@@ -512,7 +553,7 @@ export function decodeEditorSnapshot(payload: Uint8Array): EditorSnapshot {
   }));
   reader.complete();
   return {
-    projectPath, projectId, projectName, target, baseLevel, levelSettings, hud, fx, entities, references, groups, mapGroups, groupTemplates, selection, isDirty,
+    projectPath, projectId, projectName, target, baseLevel, levelSettings, hud, fx, customModels, entities, references, groups, mapGroups, groupTemplates, selection, isDirty,
     canUndo, canRedo, canPaste, lastEventSequence, capabilities, tools, diagnostics,
   };
 }

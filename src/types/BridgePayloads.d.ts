@@ -127,6 +127,8 @@ export interface AssetPreviewResult {
   cacheKey: string;
   modelPath: string;
   cacheHit: boolean;
+  detailsPath?: string;
+  diagnosticGlbPath?: string;
 }
 
 export interface UyaBuildPatchRequest {

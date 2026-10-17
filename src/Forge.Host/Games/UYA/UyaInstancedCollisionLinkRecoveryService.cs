@@ -9,9 +9,11 @@ internal static class UyaInstancedCollisionLinkRecoveryService
     public static bool Recover(
         IList<ProjectEntity> entities,
         IReadOnlyList<UyaBaseLayerPayload> payloads,
-        AssetCatalogStore catalog)
+        AssetCatalogStore catalog,
+        IReadOnlySet<AssetId>? ignoredAssetIds = null)
     {
         var sourceGroups = entities.Where(entity => entity.Asset?.Kind is AssetKind.Tie or AssetKind.Shrub)
+            .Where(entity => ignoredAssetIds is null || !ignoredAssetIds.Contains(entity.Asset!.Id))
             .GroupBy(entity => (entity.Asset!.Id, entity.Asset.Kind)).ToArray();
         var collisionIndexes = entities.Select((entity, index) => (entity, index))
             .Where(value => value.entity.Collision?.Kind == ProjectCollisionPieceKind.Solid)

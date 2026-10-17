@@ -80,7 +80,8 @@ internal static class AssetCatalogTests
         Equal(1u, searchedSkyPage.Items.Single().ShellIndex, "explorer sky shell search");
         var fullSkyPage = await QueryExplorerAsync(skyRequest with { CurrentSkyShellCount = 8, Limit = 64 });
         Equal(true, fullSkyPage.Items.All(item => !item.CanPlace
-            && item.PlacementDisabledReason == "UYA skyboxes support at most 8 shells."),
+            && item.PlacementDisabledReason == "Maximum of 8 sky shells reached. " +
+                "Delete an existing shell before adding another."),
             "explorer sky shell limit reason");
         File.Delete(store.ResolveBlobPath(sky.Id)!);
         var missingSkyPage = await QueryExplorerAsync(skyRequest with { Limit = 64 });

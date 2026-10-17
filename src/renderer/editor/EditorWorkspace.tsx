@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { KeybindingMap } from '../../types/Keybindings.js';
 import type { AssetExplorerCategory, AssetExplorerFamily } from '../../types/AssetExplorer.js';
 import type {
-  EditorCommand, EditorSnapshot, EditorInstancedCollisionGenerationSettings, EditorGroupTemplateRequest,
+  EditorCommand, EditorEntity, EditorSnapshot, EditorInstancedCollisionGenerationSettings, EditorGroupTemplateRequest,
   ProjectVector4,
 } from '../../types/EditorRuntime.js';
 import type { SceneTreeColors } from '../../types/SceneTree.js';
@@ -29,6 +29,7 @@ import { EditorContext, type InstancedCollisionOverlay } from './EditorContext.t
 import { BuildPanel } from './BuildPanel.tsx';
 import { AssetExplorerPanel } from './AssetExplorerPanel.tsx';
 import { AssetPreviewPanel } from './AssetPreviewPanel.tsx';
+import { AssetThumbnailRuntime } from './AssetThumbnailRuntime.ts';
 import {
   createDefaultEditorLayout,
   decodeEditorLayout,
@@ -49,6 +50,7 @@ import { EditorStatusBar } from './EditorStatusBar.tsx';
 import { ReferencesPanel } from './ReferencesPanel.tsx';
 import { HudBankPanel } from './HudBankPanel.tsx';
 import { FxTexturePanel } from './FxTexturePanel.tsx';
+import { CustomAssetsPanel } from './CustomAssetsPanel.tsx';
 
 interface EditorWorkspaceProps {
   project: EditorSnapshot;
@@ -72,6 +74,7 @@ const components = {
   diagnostics: DiagnosticsPanel,
   build: BuildPanel,
   assetExplorer: AssetExplorerPanel,
+  customAssets: CustomAssetsPanel,
   assetPreview: AssetPreviewPanel,
   hudBank: HudBankPanel,
   fxTextures: FxTexturePanel,
@@ -107,6 +110,7 @@ export function EditorWorkspace({
   const [showPlayerBarriers, setShowPlayerBarriers] = useState(true);
   const [showDeathHeight, setShowDeathHeight] = useState(true);
   const [assetPreview, setAssetPreview] = useState<AssetExplorerFamily>();
+  const [assetThumbnails, setAssetThumbnails] = useState<AssetThumbnailRuntime | null>();
   const [instancedCollisionOverlay, setInstancedCollisionOverlay] = useState<InstancedCollisionOverlay>();
   const [renderedInstancedCollisionEntityIds, setRenderedInstancedCollisionEntityIds] = useState<Set<string>>(
     () => new Set(),
@@ -115,6 +119,16 @@ export function EditorWorkspace({
   const projectRef = useRef(project);
   projectRef.current = project;
   const onReady = useCallback((event: DockviewReadyEvent) => setApi(event.api), []);
+
+  useEffect(() => {
+    try {
+      const runtime = new AssetThumbnailRuntime(project.target.game);
+      setAssetThumbnails(runtime);
+      return () => runtime.dispose();
+    } catch {
+      setAssetThumbnails(null);
+    }
+  }, [project.target.game]);
 
   useEffect(() => {
     let disposed = false;
@@ -174,6 +188,10 @@ export function EditorWorkspace({
         if (!api.getPanel('groups')) showEditorPanel(api, 'groups');
         if (!api.getPanel('levelSettings')) showEditorPanel(api, 'levelSettings');
         if (!api.getPanel('build')) showEditorPanel(api, 'build');
+        if (!api.getPanel('customAssets')) {
+          showEditorPanel(api, 'customAssets');
+          migratedLayout = true;
+        }
         const levelSettings = api.getPanel('levelSettings');
         const properties = api.getPanel('properties');
         const sceneTree = api.getPanel('sceneTree');
@@ -242,9 +260,9 @@ export function EditorWorkspace({
     }
   }, [onProjectChange]);
 
-  const inspectAsset = useCallback((family: AssetExplorerFamily, activate = true) => {
+  const inspectAsset = useCallback((family?: AssetExplorerFamily, activate = true) => {
     setAssetPreview(family);
-    if (activate && api) showEditorPanel(api, 'assetPreview');
+    if (family && activate && api) showEditorPanel(api, 'assetPreview');
   }, [api]);
 
   const execute = useCallback(async (command: EditorCommand) => {
@@ -290,7 +308,27 @@ export function EditorWorkspace({
         region: project.target.region,
         revision: project.target.revision,
         level: project.baseLevel.level,
-      })[0] : assetKind === 'Texture' && projectTextureIds(project).has(assetId) ? {
+      })[0] : assetKind === 'Tie' && project.customModels.some((model) => model.assetId === assetId) ? {
+        familyId: `project-custom-tie:${assetId}`,
+        category: 'ties' as const,
+        displayLabel: `Custom TIE ${assetId.slice(0, 12)}`,
+        classId: project.customModels.find((model) => model.assetId === assetId)?.classId,
+        variants: [{
+          assetId,
+          category: 'ties' as const,
+          displayLabel: `Custom TIE ${assetId.slice(0, 12)}`,
+          canonicalFormatVersion: 2,
+          byteSize: 0,
+          aliases: [],
+          tags: ['tie', 'custom-model', 'project-attached'],
+          sources: [],
+          classIds: [project.customModels.find((model) => model.assetId === assetId)!.classId],
+          previewState: 'notCached' as const,
+          canPlace: true,
+          previewRevision: project.customModels.find((model) => model.assetId === assetId)!.nativeAssetId,
+        }],
+        representativeAssetId: assetId,
+      } : assetKind === 'Texture' && projectTextureIds(project).has(assetId) ? {
         familyId: `project-texture:${assetId}`,
         category: 'textures' as const,
         displayLabel: `Project texture ${assetId.slice(0, 12)}`,
@@ -315,7 +353,19 @@ export function EditorWorkspace({
     } catch (cause) {
       setError(errorMessage(cause));
     }
-  }, [inspectAsset, project.baseLevel.level, project.target]);
+  }, [inspectAsset, project.baseLevel.level, project.customModels, project.target]);
+
+  const selectedPreviewEntity = project.selection.length === 1
+    ? project.entities.find((entity) => entity.id === project.selection[0])
+    : undefined;
+  const selectedCustomModel = selectedPreviewEntity?.asset?.kind === 'Tie'
+    ? project.customModels.find((model) => model.assetId === selectedPreviewEntity.asset?.id)
+    : undefined;
+  useEffect(() => {
+    inspectAsset(sceneEntityAssetFamily(project, selectedPreviewEntity), false);
+  }, [inspectAsset, project.projectId, selectedCustomModel, selectedPreviewEntity?.asset?.id,
+    selectedPreviewEntity?.asset?.kind, selectedPreviewEntity?.id, selectedPreviewEntity?.name, selectedPreviewEntity?.sourceClassId,
+    selectedPreviewEntity?.skyShell?.sourceShellIndex]);
 
   const showReferences = useCallback(() => {
     if (api) showEditorPanel(api, 'references');
@@ -467,6 +517,7 @@ export function EditorWorkspace({
     showDeathHeight,
     setShowDeathHeight,
     assetPreview,
+    assetThumbnails,
     inspectAsset,
     inspectReferencedAsset,
     navigateToEntity,
@@ -496,7 +547,7 @@ export function EditorWorkspace({
       catch (cause) { setError(errorMessage(cause)); }
       finally { setBusy(false); }
     },
-  }), [applyGroupTemplatePreview, applyInstancedCollisionPreview, assetPreview, buildAndPatch, buildProgress, buildResult, busy, cameraFocus,
+  }), [applyGroupTemplatePreview, applyInstancedCollisionPreview, assetPreview, assetThumbnails, buildAndPatch, buildProgress, buildResult, busy, cameraFocus,
     cancelGroupTemplatePreview,
     cancelInstancedCollisionPreview, execute,
     hostStatus, inspectAsset, inspectReferencedAsset, navigateToEntity, showReferences, keybindings,
@@ -535,6 +586,44 @@ function referenceAssetCategory(kind: string): AssetExplorerCategory | undefined
     Tie: 'ties', Shrub: 'shrubs', Moby: 'mobys', Sky: 'skyShells', Texture: 'textures',
   };
   return categories[kind];
+}
+
+function sceneEntityAssetFamily(
+  project: EditorSnapshot,
+  entity: EditorEntity | undefined,
+): AssetExplorerFamily | undefined {
+  if (!entity?.asset) return undefined;
+  const category = referenceAssetCategory(entity.asset.kind);
+  if (!category) return undefined;
+  const customModel = entity.asset.kind === 'Tie'
+    ? project.customModels.find((model) => model.assetId === entity.asset?.id)
+    : undefined;
+  const classId = customModel?.classId ?? entity.sourceClassId;
+  const shellIndex = entity.skyShell?.sourceShellIndex;
+  const displayLabel = customModel?.sourceName ?? entity.name;
+  const item = {
+    assetId: entity.asset.id,
+    category,
+    displayLabel,
+    canonicalFormatVersion: customModel ? 2 : 0,
+    byteSize: 0,
+    aliases: [],
+    tags: customModel ? ['tie', 'custom-model', 'project-attached'] : ['project-attached'],
+    sources: [],
+    classIds: classId === undefined ? [] : [classId],
+    previewState: 'notCached' as const,
+    canPlace: classId !== undefined && category !== 'skyShells' && category !== 'textures',
+    ...(shellIndex === undefined ? {} : { shellIndex }),
+    ...(customModel ? { previewRevision: customModel.nativeAssetId } : {}),
+  };
+  return {
+    familyId: `scene:${entity.asset.id}:${shellIndex ?? ''}`,
+    category,
+    displayLabel,
+    classId,
+    variants: [item],
+    representativeAssetId: item.assetId,
+  };
 }
 
 function projectTextureIds(project: EditorSnapshot): Set<string> {

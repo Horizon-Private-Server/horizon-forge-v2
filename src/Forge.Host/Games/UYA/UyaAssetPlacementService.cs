@@ -21,6 +21,27 @@ public static class UyaAssetPlacementService
         if (placement.ClassId is < 0 or > ushort.MaxValue)
             throw new ArgumentOutOfRangeException(nameof(placement), "Asset class ID is outside the UYA range.");
 
+        var custom = workspace.Content.CustomModels.Models.SingleOrDefault(
+            model => model.Canonical.Id == placement.AssetId);
+        if (custom is not null)
+        {
+            if (placement.Kind != AssetKind.Tie)
+                throw new InvalidDataException("A project custom model can only be placed as a TIE.");
+            var allocation = workspace.Content.CustomClasses.Allocations.Single(
+                value => value.Asset == custom.Canonical);
+            if (allocation.ClassId != placement.ClassId)
+                throw new InvalidDataException("The custom TIE class allocation changed; refresh the asset selection.");
+            var native = UyaCustomTieNativeCodec.Read(await workspace.ReadAttachedAssetVerifiedAsync(
+                custom.Native, ForgeProjectWorkspace.MaxAttachedAssetBytes, cancellationToken));
+            var ambientSize = TieClassReader.Read(native.ModelBytes).Header.AmbientSize;
+            return CreateEntity(
+                workspace,
+                placement,
+                custom.Canonical,
+                UyaTieLightingDefaults.Create(workspace.Content.Entities, placement.Transform.Position, ambientSize),
+                Path.GetFileNameWithoutExtension(custom.SourceName));
+        }
+
         var catalog = await AssetCatalogStore.OpenAsync(catalogRootPath, cancellationToken);
         var entry = catalog.Query(new(Id: placement.AssetId)).SingleOrDefault()
             ?? throw new FileNotFoundException($"Asset {placement.AssetId} is not present in the catalog.");
@@ -35,6 +56,20 @@ public static class UyaAssetPlacementService
         if (canonical.DefinitionBytes.Length != (placement.Kind == AssetKind.Shrub ? 0x30 : 0x20))
             throw new InvalidDataException("The asset canonical definition does not match its kind.");
 
+        var tieLighting = placement.Kind == AssetKind.Tie
+            ? UyaTieLightingDefaults.Create(workspace.Content.Entities, placement.Transform.Position,
+                TieClassReader.Read(canonical.ModelBytes).Header.AmbientSize)
+            : null;
+        return CreateEntity(workspace, placement, new(entry.Id, entry.Kind), tieLighting);
+    }
+
+    private static ProjectEntity CreateEntity(
+        ForgeProjectWorkspace workspace,
+        EditorAssetPlacement placement,
+        ProjectAssetReference asset,
+        ProjectTieLighting? tieLighting,
+        string? name = null)
+    {
         var layer = placement.Kind.ToString().ToLowerInvariant() + "s";
         var record = placement.Kind switch
         {
@@ -46,16 +81,12 @@ public static class UyaAssetPlacementService
                     value => UyaMobyInstancesReader.ReadInstance(value).Uid)),
             _ => throw new InvalidOperationException("Unsupported UYA placement kind."),
         };
-        var tieLighting = placement.Kind == AssetKind.Tie
-            ? new ProjectTieLighting(0, UyaGameplayInstanceTemplates.CreateNeutralTieAmbient(
-                TieClassReader.Read(canonical.ModelBytes).Header.AmbientSize))
-            : null;
         return new(
             EntityId.New(),
-            $"{placement.Kind.ToString().ToLowerInvariant()}:0x{placement.ClassId:X4}",
+            name ?? $"{placement.Kind.ToString().ToLowerInvariant()}:0x{placement.ClassId:X4}",
             layer,
             placement.Transform,
-            new(entry.Id, entry.Kind),
+            asset,
             Source: new(placement.ClassId, record),
             TieLighting: tieLighting);
     }

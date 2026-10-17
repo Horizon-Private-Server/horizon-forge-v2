@@ -46,6 +46,7 @@ internal static class AuthoringFoundationQualificationTests
             if (version <= 8) MakeLegacyCollisionFields(content);
             if (version < 10) content.Remove("assetOverrides");
             if (version < 11) MakeLegacyAreaLinks(content);
+            if (version < 20) content.Remove("customClasses");
             if (version is >= 2 and <= 7)
                 manifest["baseLevel"]!.AsObject()["entityVersion"] = 13;
 
@@ -68,6 +69,8 @@ internal static class AuthoringFoundationQualificationTests
             Equal(true, opened.Content.Entities.Single(entity => entity.EntityId == ids.TieId)
                 .InstancedCollisionEnabled, $"v{version} collision flag");
             Equal(false, opened.IsDirty, $"v{version} opens cleanly");
+            Equal(0, opened.Content.CustomClasses.Allocations.Count,
+                $"v{version} custom class registry migration");
             var manifestAfterOpen = await File.ReadAllBytesAsync(
                 Path.Combine(fixturePath, ForgeProjectWorkspace.ManifestFileName));
             var contentAfterOpen = await File.ReadAllBytesAsync(contentPath);

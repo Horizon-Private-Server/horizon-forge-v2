@@ -231,6 +231,8 @@ public sealed record ForgeProjectContent(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ProjectTfragState? Tfrags = null)
 {
     public IReadOnlyList<ProjectGroup> Groups { get; init; } = [];
+    public ProjectCustomClassRegistry CustomClasses { get; init; } = ProjectCustomClassRegistry.Empty;
+    public ProjectCustomModelState CustomModels { get; init; } = ProjectCustomModelState.Empty;
 }
 
 public sealed record ProjectRecoverySnapshot(

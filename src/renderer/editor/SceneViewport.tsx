@@ -1288,6 +1288,10 @@ export function SceneViewport({
     setSkyDropActive(false);
     if (asset.kind === 'sky') {
       current.dropGhost.visible = false;
+      if (asset.dropError) {
+        setNotice(asset.dropError);
+        return;
+      }
       void assetDropped.current(asset).then((placed) => {
         setNotice(placed ? 'Sky shell added.' : 'Sky shell addition failed.');
       });

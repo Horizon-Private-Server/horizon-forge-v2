@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { useLayoutEffect, useMemo, useState } from 'react';
 
 import type {
-  EditorEntity, EditorReference, ProjectQuaternion, ProjectTransform, ProjectVector3,
+  EditorEntity, EditorReference, EditorSnapshot, ProjectQuaternion, ProjectTransform, ProjectVector3,
 } from '../../types/EditorRuntime.js';
 import { formatCollisionType } from '../../utils/CollisionFormat.ts';
 import { editorEntityDisplayName } from '../../utils/EntityDisplay.ts';
@@ -31,10 +31,14 @@ export function EntityProperties({ entity }: { entity: EditorEntity }) {
   const entityById = useMemo(() => new Map(project.entities.map((value) => [value.id, value])), [project.entities]);
   const linkedCollision = useMemo(() => project.entities.filter((candidate) =>
     candidate.collision?.linkedInstanceEntityIds?.includes(entity.id)), [entity.id, project.entities]);
+  const customModel = entity.asset?.kind === 'Tie'
+    ? project.customModels.find((model) => model.assetId === entity.asset?.id)
+    : undefined;
   if (entity.skyShell) return <SkyShellProperties entity={entity} />;
   const disabled = busy || entity.state.locked || entity.state.readOnly;
   const fields = references.slice(0, 50);
   return <BaseEntityProperties entity={entity} disabled={disabled}>
+    {customModel && <CustomTieProperties entity={entity} model={customModel} />}
     {entity.mobyProperties && <MobyInstanceProperties entities={[entity]} disabled={disabled} />}
     {entity.mobyPVar && <MobyPVarProperties entity={entity} disabled={disabled} />}
     {entity.collision && <CollisionProperties entity={entity} />}
@@ -73,6 +77,35 @@ export function EntityProperties({ entity }: { entity: EditorEntity }) {
       </Stack>
     </Fieldset>}
   </BaseEntityProperties>;
+}
+
+function CustomTieProperties({
+  entity,
+  model,
+}: {
+  entity: EditorEntity;
+  model: EditorSnapshot['customModels'][number];
+}) {
+  const collision = entity.instancedCollisionEnabled === true
+    ? entity.instancedCollision
+    : entity.instancedCollisionEnabled === false ? entity.individualInstancedCollision : undefined;
+  return <Fieldset legend="Custom TIE">
+    <EditorPropertyGrid>
+      <EditorProperty label="Source">{model.sourceName}</EditorProperty>
+      <EditorProperty label="Class ID"><Code>0x{model.classId.toString(16).toUpperCase().padStart(4, '0')}</Code></EditorProperty>
+      <EditorProperty label="Asset ID"><Code>{model.assetId}</Code></EditorProperty>
+      <EditorProperty label="Target geometry limits">
+        {model.vertexCount.toLocaleString()} / 4,096 vertices · {model.triangleCount.toLocaleString()} / 1,365 triangles · {
+          model.packetCount.toLocaleString()} / 255 packets
+      </EditorProperty>
+      <EditorProperty label="Target material limit">
+        {model.materialCount} / 16 materials · {model.textureCount} textures · {model.paletteCount} palettes
+      </EditorProperty>
+      <EditorProperty label="LOD">{model.lodPolicy}</EditorProperty>
+      <EditorProperty label="Collision">{collision ? 'Generated collision assigned' : 'No collision assigned'}</EditorProperty>
+      <EditorProperty label="Occlusion">Always visible until occlusion is rebuilt</EditorProperty>
+    </EditorPropertyGrid>
+  </Fieldset>;
 }
 
 function TfragProperties({ entity }: { entity: EditorEntity }) {

@@ -2,6 +2,7 @@ using Forge.Host.Domain;
 using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text.Json;
+using RatchetPs2.Core.Ties;
 using RatchetPs2.Games.UYA.Gameplay;
 
 namespace Forge.Host.Games.UYA;
@@ -138,9 +139,10 @@ public static class UyaStaticLayerStore
             Directory.CreateDirectory(resourceRoot);
             foreach (var definition in prepared.Manifest!.Definitions)
             {
-                var source = workspace.ResolveAssetPath(definition.Asset, catalog)
-                    ?? throw new FileNotFoundException($"Static asset {definition.Asset.Id} disappeared during bake.");
-                await CopyAsync(source, Path.Combine(output, definition.Resource), token);
+                if (!prepared.Resources.TryGetValue(definition.Resource, out var bytes))
+                    throw new FileNotFoundException($"Static asset {definition.Asset.Id} disappeared during bake.");
+                await ForgeProjectPersistence.WriteFileSafelyAsync(
+                    Path.Combine(output, definition.Resource), bytes, token);
             }
         }, (output, token) => ValidateOutputAsync(output, prepared, references, plan.Layer, token), cancellationToken);
     }
@@ -239,7 +241,7 @@ public static class UyaStaticLayerStore
             {
                 if (layer == BakeLayerId.Mobys && entity.Source.ModelLess)
                 {
-                    resolved.Add(new(entity, null, entity.Source.ClassId));
+                    resolved.Add(new(entity, entity.Source.ClassId));
                     continue;
                 }
                 blockers.Add($"{entity.Name} ({entity.EntityId}) has no {kind} asset reference.");
@@ -248,6 +250,40 @@ public static class UyaStaticLayerStore
             if (entity.Asset.Kind != kind)
             {
                 blockers.Add($"{entity.Name} ({entity.EntityId}) references {entity.Asset.Kind}, expected {kind}.");
+                continue;
+            }
+            var custom = kind == AssetKind.Tie
+                ? workspace.Content.CustomModels.Models.SingleOrDefault(model => model.Canonical == entity.Asset)
+                : null;
+            if (custom is not null)
+            {
+                var allocation = workspace.Content.CustomClasses.Allocations.Single(
+                    value => value.Asset == custom.Canonical);
+                if (entity.Source.ClassId != allocation.ClassId)
+                {
+                    blockers.Add($"{entity.Name} ({entity.EntityId}) has stale custom class 0x{entity.Source.ClassId:X4}; "
+                        + $"expected 0x{allocation.ClassId:X4}.");
+                    continue;
+                }
+                try
+                {
+                    var customBytes = await BuildCustomCanonicalAsync(workspace, custom, cancellationToken);
+                    var effective = new ProjectAssetReference(
+                        AssetId.Compute(AssetKind.Tie, UyaStaticLayerSchema.CanonicalFormatVersion, customBytes),
+                        AssetKind.Tie);
+                    resolved.Add(new(
+                        entity,
+                        allocation.ClassId,
+                        custom.Canonical,
+                        effective,
+                        UyaStaticLayerSchema.CanonicalFormatVersion,
+                        customBytes));
+                }
+                catch (Exception exception) when (exception is InvalidDataException or IOException
+                    or ArgumentException or OverflowException)
+                {
+                    blockers.Add($"{entity.Name} ({entity.EntityId}) custom TIE is invalid ({exception.Message}).");
+                }
                 continue;
             }
             var entry = catalog.Query(new(Id: entity.Asset.Id)).SingleOrDefault();
@@ -293,33 +329,41 @@ public static class UyaStaticLayerStore
                 blockers.Add($"{entity.Name} ({entity.EntityId}) asset {entity.Asset.Id} has invalid canonical data.");
                 continue;
             }
-            resolved.Add(new(entity, entry, classId.Value, resolvedAsset));
+            resolved.Add(new(
+                entity,
+                classId.Value,
+                new(entry.Id, kind),
+                resolvedAsset.Effective,
+                resolvedAsset.CanonicalFormatVersion,
+                bytes));
         }
 
-        foreach (var conflict in resolved.Where(value => value.Entry is not null).GroupBy(value => value.ClassId)
-            .Where(group => group.Select(value => value.Entry!.Id).Distinct().Count() > 1))
+        foreach (var conflict in resolved.Where(value => value.Asset is not null).GroupBy(value => value.ClassId)
+            .Where(group => group.Select(value => value.Asset!.Id).Distinct().Count() > 1))
             blockers.Add($"{kind} class 0x{conflict.Key:X4} resolves to multiple assets.");
         if (blockers.Count > 0 || source is null)
-            return new(null, [], ForgeProjectPersistence.Serialize(new { layer }), [], blockers);
+            return new(null, [], ForgeProjectPersistence.Serialize(new { layer }), [], blockers,
+                new Dictionary<string, byte[]>(StringComparer.Ordinal));
 
-        var definitions = resolved.Where(value => value.Entry is not null)
-            .Select(value => (value.ClassId, Entry: value.Entry!, Asset: value.Asset!))
-            .DistinctBy(value => (value.ClassId, value.Entry.Id))
+        var definitionValues = resolved.Where(value => value.Asset is not null)
+            .DistinctBy(value => (value.ClassId, value.Asset!.Id))
             .OrderBy(value => value.ClassId)
-            .ThenBy(value => value.Entry.Id.ToString(), StringComparer.Ordinal)
+            .ThenBy(value => value.Asset!.Id.ToString(), StringComparer.Ordinal)
+            .ToArray();
+        var definitions = definitionValues
             .Select((value, index) => new UyaStaticBakeDefinition(
                 index,
                 value.ClassId,
-                new(value.Entry.Id, kind),
-                value.Asset.Effective,
-                value.Asset.CanonicalFormatVersion,
-                $"resources/{index:D4}-{value.Entry.Id}.hfuya"))
+                value.Asset!,
+                value.EffectiveAsset!,
+                value.CanonicalFormatVersion,
+                $"resources/{index:D4}-{value.Asset!.Id}.hfuya"))
             .ToArray();
         var definitionIndexes = definitions.ToDictionary(value => (value.ClassId, value.Asset.Id), value => value.TargetIndex);
         var instances = resolved.Select((value, index) => new UyaStaticBakeInstance(
             index,
             value.Entity.EntityId,
-            value.Entry is null ? -1 : definitionIndexes[(value.ClassId, value.Entry.Id)],
+            value.Asset is null ? -1 : definitionIndexes[(value.ClassId, value.Asset.Id)],
             value.ClassId)).ToArray();
         var pvarIndexes = layer == BakeLayerId.Mobys
             ? UyaMobyPVarService.NativeIndexes(workspace.Content)
@@ -353,7 +397,54 @@ public static class UyaStaticLayerStore
             instances);
         return new(manifest, instanceBytes, ForgeProjectPersistence.Serialize(manifest),
             resolved.Where(value => value.Asset is not null)
-                .Select(value => value.Asset!.Effective.Id).Distinct().ToArray(), []);
+                .SelectMany(value => new[] { value.Asset!.Id, value.EffectiveAsset!.Id }).Distinct().ToArray(), [],
+            definitions.Zip(definitionValues).ToDictionary(
+                value => value.First.Resource,
+                value => value.Second.CanonicalBytes!,
+                StringComparer.Ordinal));
+    }
+
+    private static async Task<byte[]> BuildCustomCanonicalAsync(
+        ForgeProjectWorkspace workspace,
+        ProjectCustomModel model,
+        CancellationToken cancellationToken)
+    {
+        var native = UyaCustomTieNativeCodec.Read(await workspace.ReadAttachedAssetVerifiedAsync(
+            model.Native, MaxAssetBytes, cancellationToken));
+        ValidateCustomTieModel(native.ModelBytes);
+        var textures = await UyaCustomTieTextureReader.ReadMaterialTexturesAsync(
+            workspace, model, cancellationToken);
+        return UyaCanonicalAssetCodec.Encode(native.DefinitionBytes, native.ModelBytes, textures);
+    }
+
+    private static void ValidateCustomTieModel(byte[] modelBytes)
+    {
+        var tie = TieClassReader.Read(modelBytes);
+        var packets = tie.PacketTables.SelectMany(table => table.Packets).ToArray();
+        if (tie.PacketTables[0].Offset == 0
+            || tie.PacketTables[0].Packets.Count == 0
+            || tie.PacketTables.Skip(1).Any(table => table.Offset != 0 || table.Packets.Count != 0)
+            || packets.Any(packet => packet.LodIndex != 0)
+            || packets.Select(packet => packet.AbsoluteDataOffset).Distinct().Count() != packets.Length)
+            throw new InvalidDataException(
+                "native custom TIE must contain independent LOD0 packets with higher LODs disabled; re-import the source model before baking");
+        if (packets.Any(packet => packet.RgbaCount != packet.VertexSize)
+            || tie.PacketDataBlocks.Any(block =>
+                BinaryPrimitives.ReadInt32LittleEndian(modelBytes.AsSpan(block.Offset + 0x0c, sizeof(int))) != -9
+                || block.UnpackHeader is not
+                {
+                    Unknown0: 1,
+                    Unknown1: 1,
+                    Unknown2: 6,
+                    Unknown4: 7,
+                    Unknown5: 0,
+                    Unknown6: 0,
+                    Unknown7: 0,
+                    FatVerticesSize: 6,
+                    Unknown11: 0,
+                }))
+            throw new InvalidDataException(
+                "native packet metadata is from an incompatible converter; re-import the source model before baking");
     }
 
     private static UyaStaticInstanceEdit ToStaticEdit(ProjectEntity entity, int classId) => new(
@@ -506,27 +597,19 @@ public static class UyaStaticLayerStore
         return bytes;
     }
 
-    private static async Task CopyAsync(string source, string destination, CancellationToken cancellationToken)
-    {
-        await using var input = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024,
-            FileOptions.Asynchronous | FileOptions.SequentialScan);
-        await using var output = new FileStream(destination, FileMode.CreateNew, FileAccess.Write, FileShare.None, 64 * 1024,
-            FileOptions.Asynchronous | FileOptions.WriteThrough);
-        await input.CopyToAsync(output, cancellationToken);
-        await output.FlushAsync(cancellationToken);
-        output.Flush(flushToDisk: true);
-    }
-
     private sealed record ResolvedEntity(
         ProjectEntity Entity,
-        AssetCatalogEntry? Entry,
         int ClassId,
-        ProjectResolvedAsset? Asset = null);
+        ProjectAssetReference? Asset = null,
+        ProjectAssetReference? EffectiveAsset = null,
+        uint CanonicalFormatVersion = 0,
+        byte[]? CanonicalBytes = null);
 
     private sealed record PreparedLayer(
         UyaStaticBakeManifest? Manifest,
         byte[] InstanceBytes,
         ReadOnlyMemory<byte> AuthoritativeContent,
         IReadOnlyList<AssetId> AssetIds,
-        IReadOnlyList<string> Blockers);
+        IReadOnlyList<string> Blockers,
+        IReadOnlyDictionary<string, byte[]> Resources);
 }

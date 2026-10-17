@@ -1,6 +1,8 @@
 import { ipcMain } from 'electron';
+import path from 'node:path';
 
 import type { AssetPreviewKind } from '../types/ForgeApi.js';
+import { showSaveDialog } from '../utils/ElectronDialogs.js';
 import type { RenderAssetProtocol } from './RenderAssetProtocol.js';
 import type { SettingsStore } from './Settings.js';
 import type { HostClient } from './bridge/HostClient.js';
@@ -11,11 +13,14 @@ interface RenderIpcHandlersOptions {
   renderAssets: RenderAssetProtocol;
   getEditorTargetGame(): string | undefined;
   getEditorProjectPath(): string | undefined;
+  getMainWindow(): Electron.BrowserWindow | undefined;
   assertSender(senderId: number): void;
 }
 
 export function registerRenderIpcHandlers(options: RenderIpcHandlersOptions): void {
-  const { host, settings, renderAssets, getEditorTargetGame, getEditorProjectPath, assertSender } = options;
+  const {
+    host, settings, renderAssets, getEditorTargetGame, getEditorProjectPath, getMainWindow, assertSender,
+  } = options;
   let activeRequestId: number | undefined;
   const activePreviewRequests = new Map<string, number>();
   let terrainLoading = false;
@@ -76,11 +81,14 @@ export function registerRenderIpcHandlers(options: RenderIpcHandlersOptions): vo
   });
 
   ipcMain.handle('forge:asset-preview', async (
-    event, assetId: unknown, kind: unknown, requestToken: unknown, shellIndex: unknown,
+    event, assetId: unknown, kind: unknown, requestToken: unknown, shellIndex: unknown, customView: unknown,
   ) => {
     assertSender(event.sender.id);
     assertPreview(assetId, kind, shellIndex);
     assertRequestToken(requestToken);
+    if (customView !== undefined && (kind !== 'tie'
+      || (customView !== 'source' && customView !== 'target' && customView !== 'thumbnail')))
+      throw new TypeError('Custom model preview view is invalid');
     if (activePreviewRequests.has(requestToken)) throw new Error('Asset preview request token is already active');
     const targetGame = getEditorTargetGame();
     if (targetGame !== 'UYA') throw new Error('Asset previews currently require a UYA project');
@@ -91,7 +99,8 @@ export function registerRenderIpcHandlers(options: RenderIpcHandlersOptions): vo
       assetId,
       kind: kind as AssetPreviewKind,
       targetGame,
-      viewPreset: kind === 'texture' ? 'texture-default' : kind === 'sky' ? 'sky-default' : 'model-default',
+      viewPreset: customView ? `custom-${customView}`
+        : kind === 'texture' ? 'texture-default' : kind === 'sky' ? 'sky-default' : 'model-default',
       ...(shellIndex !== undefined ? { shellIndex: shellIndex as number } : {}),
     });
     activePreviewRequests.set(requestToken, request.requestId);
@@ -107,6 +116,27 @@ export function registerRenderIpcHandlers(options: RenderIpcHandlersOptions): vo
     assertRequestToken(requestToken);
     const requestId = activePreviewRequests.get(requestToken);
     if (requestId !== undefined) await host.cancel(requestId);
+  });
+
+  ipcMain.handle('forge:asset-preview-export-diagnostic', async (
+    event, sourceUrl: unknown, sourceName: unknown,
+  ) => {
+    assertSender(event.sender.id);
+    if (typeof sourceUrl !== 'string' || sourceUrl.length > 4_096
+      || typeof sourceName !== 'string' || !sourceName.trim() || sourceName.length > 1_024
+      || sourceName.includes('/') || sourceName.includes('\\'))
+      throw new TypeError('Diagnostic export request is invalid');
+    const baseName = sourceName.replace(/\.(gltf|glb)$/i, '').replace(/[^a-zA-Z0-9._ -]/g, '_');
+    const selection = await showSaveDialog(getMainWindow(), {
+      title: 'Export diagnostic GLB',
+      defaultPath: `${baseName || 'custom-model'}.target-debug.glb`,
+      filters: [{ name: 'glTF binary', extensions: ['glb'] }],
+    });
+    if (selection.canceled || !selection.filePath) return false;
+    const destination = path.extname(selection.filePath).toLowerCase() === '.glb'
+      ? selection.filePath : `${selection.filePath}.glb`;
+    await renderAssets.exportDiagnostic(sourceUrl, destination);
+    return true;
   });
 
   ipcMain.handle('forge:editor-instanced-collision-model', async (

@@ -40,7 +40,8 @@ public static class BridgeHost
                     ? workspace.ResolveMobyDexEntry(mobyDex, "UYA", source.ClassId)?.Entry.Name
                     : null,
             groupTemplateEvaluator: UyaGroupTemplateService.EvaluateAsync,
-            groupTemplates: UyaGroupTemplateService.Definitions);
+            groupTemplates: UyaGroupTemplateService.Definitions,
+            customModelCommandExecutor: UyaCustomTieProjectService.ExecuteAsync);
         var requests = new ConcurrentDictionary<uint, CancellationTokenSource>();
         var tasks = new ConcurrentDictionary<uint, Task>();
 
@@ -198,6 +199,7 @@ public static class BridgeHost
                         await RenderBridgeHandlers.PrepareAssetPreviewAsync(
                             frame.Payload,
                             handshake.SdkRevision,
+                            editor,
                             requestCancellation.Token)), hostCancellation);
                     break;
                 case BridgeOpcode.PrepareInstancedCollisionPreview:

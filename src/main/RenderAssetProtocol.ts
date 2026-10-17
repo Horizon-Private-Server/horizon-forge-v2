@@ -1,5 +1,6 @@
 import { nativeImage, net, protocol } from 'electron';
-import { realpath } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { copyFile, realpath, rename, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -60,7 +61,12 @@ export class RenderAssetProtocol {
 
   async addPreview(value: AssetPreviewResult): Promise<AssetPreviewSource> {
     const url = await this.registerRoot(value.cacheKey, value.rootPath);
-    return { url: url(value.modelPath), cacheHit: value.cacheHit };
+    return {
+      url: url(value.modelPath),
+      cacheHit: value.cacheHit,
+      ...(value.detailsPath ? { detailsUrl: url(value.detailsPath) } : {}),
+      ...(value.diagnosticGlbPath ? { diagnosticGlbUrl: url(value.diagnosticGlbPath) } : {}),
+    };
   }
 
   async getThumbnail(
@@ -87,6 +93,24 @@ export class RenderAssetProtocol {
     const value = await this.thumbnails.store(targetGame, assetId, kind, sdkRevision, bytes, shellIndex);
     const url = await this.registerRoot(value.cacheKey, value.rootPath);
     return { url: url(value.path), cacheHit: false };
+  }
+
+  async exportDiagnostic(sourceUrl: string, destinationPath: string): Promise<void> {
+    const source = new URL(sourceUrl);
+    if (source.protocol !== 'forge-asset:' || source.pathname !== '/diagnostic-target.glb')
+      throw new Error('Diagnostic export source is invalid');
+    const root = this.roots.get(source.hostname);
+    if (!root) throw new Error('Diagnostic export source has expired');
+    const candidate = await realpath(path.join(root, 'diagnostic-target.glb'));
+    if (!isPathInside(root, candidate) || (await stat(candidate)).size > 128 * 1024 * 1024)
+      throw new Error('Diagnostic export source is invalid');
+    const partial = `${destinationPath}.${randomUUID()}.partial`;
+    try {
+      await copyFile(candidate, partial);
+      await rename(partial, destinationPath);
+    } finally {
+      await rm(partial, { force: true });
+    }
   }
 
   private async registerRoot(cacheKey: string, rootPath: string): Promise<(entry: string) => string> {

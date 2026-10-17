@@ -50,4 +50,10 @@ public sealed record AssetPreviewRequest(
     int? ShellIndex = null,
     string ProjectPath = "");
 
-public sealed record AssetPreviewResult(string RootPath, string CacheKey, string ModelPath, bool CacheHit);
+public sealed record AssetPreviewResult(
+    string RootPath,
+    string CacheKey,
+    string ModelPath,
+    bool CacheHit,
+    string? DetailsPath = null,
+    string? DiagnosticGlbPath = null);

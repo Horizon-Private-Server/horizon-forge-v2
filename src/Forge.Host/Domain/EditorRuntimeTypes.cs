@@ -46,6 +46,9 @@ public enum EditorCommandKind : byte
     ReorderGroup = 42,
     AddGroupMembers = 43,
     RemoveGroupMembers = 44,
+    ImportCustomTie = 45,
+    ReimportCustomTie = 46,
+    DeleteCustomTie = 47,
 }
 
 public enum EditorEventKind : byte
@@ -91,7 +94,17 @@ public sealed record EditorCommand(
     EditorMobyPropertyEdit? MobyPropertyEdit = null,
     EditorMobyDexEdit? MobyDexEdit = null,
     EditorMobyPVarEdit? MobyPVarEdit = null,
-    EditorGroupEdit? GroupEdit = null);
+    EditorGroupEdit? GroupEdit = null,
+    EditorCustomModelEdit? CustomModelEdit = null);
+
+public sealed record EditorCustomModelEdit(
+    AssetId? ModelAssetId = null,
+    ProjectCustomModelImportRequest? Import = null);
+
+public delegate Task EditorCustomModelCommandExecutor(
+    ForgeProjectWorkspace workspace,
+    EditorCommand command,
+    CancellationToken cancellationToken);
 
 public sealed record EditorGroupEdit(
     GroupId? GroupId = null,
@@ -508,6 +521,13 @@ public sealed record EditorMapGroupSnapshot(
     IReadOnlyList<EntityId> Members,
     IReadOnlyList<int> MissingSourceIndices);
 
+public sealed record EditorCustomModelSnapshot(
+    AssetId AssetId,
+    AssetId NativeAssetId,
+    string SourceName,
+    int ClassId,
+    ProjectCustomModelMetadata Metadata);
+
 public sealed record EditorSnapshot(
     string ProjectPath,
     EntityId ProjectId,
@@ -517,6 +537,7 @@ public sealed record EditorSnapshot(
     ProjectLevelSettings? LevelSettings,
     EditorHudSnapshot? Hud,
     EditorFxSnapshot? Fx,
+    IReadOnlyList<EditorCustomModelSnapshot> CustomModels,
     IReadOnlyList<EditorEntitySnapshot> Entities,
     IReadOnlyList<EditorReferenceSnapshot> References,
     IReadOnlyList<EditorGroupSnapshot> Groups,

@@ -18,6 +18,7 @@ import type {
   EditorLoadProgress,
   EditorTerrainSource,
 } from '../../types/ForgeApi.js';
+import type { AssetThumbnailRuntime } from './AssetThumbnailRuntime.ts';
 
 export interface EditorContextValue {
   project: EditorSnapshot;
@@ -46,7 +47,8 @@ export interface EditorContextValue {
   showDeathHeight: boolean;
   setShowDeathHeight(value: boolean): void;
   assetPreview?: AssetExplorerFamily;
-  inspectAsset(family: AssetExplorerFamily, activate?: boolean): void;
+  assetThumbnails: AssetThumbnailRuntime | null | undefined;
+  inspectAsset(family?: AssetExplorerFamily, activate?: boolean): void;
   inspectReferencedAsset(assetId: string, assetKind: string): Promise<void>;
   navigateToEntity(entityId: string, action: 'select' | 'reveal' | 'focus'): Promise<void>;
   showReferences(): void;

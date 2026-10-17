@@ -180,7 +180,9 @@ public sealed record AssetPreviewResultPayload(
     string RootPath,
     string CacheKey,
     string ModelPath,
-    bool CacheHit);
+    bool CacheHit,
+    string? DetailsPath = null,
+    string? DiagnosticGlbPath = null);
 public sealed record FxTextureInventoryItemPayload(
     int Index,
     string Label,

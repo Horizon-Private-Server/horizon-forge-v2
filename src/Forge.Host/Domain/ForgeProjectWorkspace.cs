@@ -628,6 +628,8 @@ public sealed partial class ForgeProjectWorkspace
     public bool IsAssetReferenced(AssetId id) => Content.Entities.Any(entity => entity.Asset?.Id == id)
         || Content.InstancedCollisionBindings.Any(binding => binding.ProxyAssetId == id)
         || Content.AssetOverrides.Any(binding => binding.Replacement.Id == id)
+        || Content.CustomClasses.Allocations.Any(allocation => allocation.Asset.Id == id)
+        || Content.CustomModels.Models.Any(model => CustomModelAssetIds(model).Contains(id))
         || Content.Hud?.Additions.Any(addition => addition.Texture.Id == id) == true
         || Content.Fx?.Additions.Any(addition => addition.Texture.Id == id) == true;
 
@@ -645,6 +647,22 @@ public sealed partial class ForgeProjectWorkspace
             contents.Add(loaded.Content);
         }
 
+        var retainedImportedClasses = contents.SelectMany(content => content.CustomModels.Models)
+            .Select(model => model.Canonical.Id)
+            .Concat(contents.SelectMany(content => content.Entities)
+                .Where(entity => entity.Asset?.Kind == AssetKind.Tie)
+                .Select(entity => entity.Asset!.Id))
+            .ToHashSet();
+        var cleanedRegistry = Content.CustomClasses with
+        {
+            Allocations = Content.CustomClasses.Allocations.Where(allocation =>
+                allocation.Provenance.Origin != ProjectCustomClassOrigin.ImportedModel
+                || Content.Assets.SingleOrDefault(asset => asset.Id == allocation.Asset.Id)
+                    is not { CanonicalFormatVersion: ProjectCustomModelSchema.CanonicalFormatVersion }
+                || retainedImportedClasses.Contains(allocation.Asset.Id)).ToArray(),
+        };
+        contents[0] = Content with { CustomClasses = cleanedRegistry };
+
         var referenced = contents
             .SelectMany(content => content.Entities)
             .Where(entity => entity.Asset is not null)
@@ -653,6 +671,10 @@ public sealed partial class ForgeProjectWorkspace
                 .Select(binding => binding.ProxyAssetId))
             .Concat(contents.SelectMany(content => content.AssetOverrides)
                 .Select(binding => binding.Replacement.Id))
+            .Concat(contents.SelectMany(content => content.CustomClasses.Allocations)
+                .Select(allocation => allocation.Asset.Id))
+            .Concat(contents.SelectMany(content => content.CustomModels.Models)
+                .SelectMany(CustomModelAssetIds))
             .Concat(contents.SelectMany(content => content.Hud?.Additions ?? [])
                 .Select(addition => addition.Texture.Id))
             .Concat(contents.SelectMany(content => content.Fx?.Additions ?? [])
@@ -666,7 +688,10 @@ public sealed partial class ForgeProjectWorkspace
             .Any(referenced.Add)) { }
 
         var candidates = Content.Assets.Where(asset => !referenced.Contains(asset.Id)).ToArray();
-        if (candidates.Length == 0) return [];
+        var knownAssetIds = assets.Select(asset => asset.Id).ToHashSet();
+        var orphanBlobs = EnumerateOrphanAssetBlobs(knownAssetIds).ToArray();
+        var registryChanged = cleanedRegistry.Allocations.Count != Content.CustomClasses.Allocations.Count;
+        if (candidates.Length == 0 && orphanBlobs.Length == 0 && !registryChanged) return [];
 
         cancellationToken.ThrowIfCancellationRequested();
         var previousContent = Content;
@@ -675,6 +700,7 @@ public sealed partial class ForgeProjectWorkspace
             Content = Content with
             {
                 Assets = Content.Assets.Where(asset => referenced.Contains(asset.Id)).ToArray(),
+                CustomClasses = cleanedRegistry,
             };
             await SaveAsync(cancellationToken);
         }
@@ -684,7 +710,39 @@ public sealed partial class ForgeProjectWorkspace
             throw;
         }
         foreach (var candidate in candidates) File.Delete(AssetBlobPath(candidate.Id));
-        return candidates.Select(asset => asset.Id).ToArray();
+        foreach (var orphan in orphanBlobs) File.Delete(orphan.Path);
+        return candidates.Select(asset => asset.Id).Concat(orphanBlobs.Select(orphan => orphan.Id))
+            .Distinct().OrderBy(id => id.ToString(), StringComparer.Ordinal).ToArray();
+    }
+
+    private static IEnumerable<AssetId> CustomModelAssetIds(ProjectCustomModel model) =>
+        model.Dependencies.Select(dependency => dependency.Asset.Id)
+            .Prepend(model.Source.Id)
+            .Append(model.Canonical.Id)
+            .Append(model.Native.Id)
+            .Concat(model.Textures.Select(texture => texture.Id));
+
+    private IEnumerable<(AssetId Id, string Path)> EnumerateOrphanAssetBlobs(IReadOnlySet<AssetId> knownIds)
+    {
+        var root = Path.Combine(RootPath, "assets");
+        if (!Directory.Exists(root)) yield break;
+        foreach (var directory in Directory.EnumerateDirectories(root))
+        {
+            var info = new DirectoryInfo(directory);
+            var prefix = info.Name;
+            if (info.LinkTarget is not null || prefix.Length != 2
+                || prefix.Any(character => !char.IsAsciiHexDigitLower(character)))
+                continue;
+            foreach (var path in Directory.EnumerateFiles(directory, "*.blob", SearchOption.TopDirectoryOnly))
+            {
+                var name = Path.GetFileNameWithoutExtension(path);
+                if (name.Length != AssetId.TextLength || !name.StartsWith(prefix, StringComparison.Ordinal)
+                    || name.Any(character => !char.IsAsciiHexDigitLower(character)))
+                    continue;
+                var id = AssetId.Parse(name);
+                if (!knownIds.Contains(id)) yield return (id, path);
+            }
+        }
     }
 
     internal string? ResolveAttachedAssetPath(AssetId id)

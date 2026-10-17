@@ -5,26 +5,17 @@ import { ActionIcon, Group, Stack, Text } from '@mantine/core';
 import { useEffect, useState } from 'react';
 
 import type { EditorEntity } from '../../types/EditorRuntime.js';
-import { AssetThumbnailRuntime } from './AssetThumbnailRuntime.ts';
+import type { AssetThumbnailRuntime } from './AssetThumbnailRuntime.ts';
 import { useEditor } from './EditorContext.ts';
 import { EditorEmptyState } from './EditorPrimitives.tsx';
 
 const SKY_SHELL_MIME = 'application/x-horizon-forge-sky-shell';
 
 export function SkyCompositionProperties() {
-  const { project, execute, busy, setSkyCompositionSelected } = useEditor();
+  const { assetThumbnails, project, execute, busy, setSkyCompositionSelected } = useEditor();
   const shells = project.entities.filter((entity) => entity.skyShell)
     .sort((left, right) => left.skyShell!.order - right.skyShell!.order);
-  const [runtime, setRuntime] = useState<AssetThumbnailRuntime>();
   const [dropTarget, setDropTarget] = useState<string>();
-
-  useEffect(() => {
-    let next: AssetThumbnailRuntime | undefined;
-    try { next = new AssetThumbnailRuntime(project.target.game); }
-    catch { return; }
-    setRuntime(next);
-    return () => next?.dispose();
-  }, [project.target.game]);
 
   const reorder = (entity: EditorEntity, destinationOrder: number) => {
     if (busy || entity.state.locked || entity.state.readOnly || entity.skyShell!.order === destinationOrder) return;
@@ -77,7 +68,7 @@ export function SkyCompositionProperties() {
               id: crypto.randomUUID(), kind: 'setSelection', entityIds: [entity.id],
             }).then((committed) => { if (committed) setSkyCompositionSelected(false); })}
           >
-            <SkyShellThumbnail entity={entity} runtime={runtime} />
+            <SkyShellThumbnail entity={entity} runtime={assetThumbnails ?? undefined} />
           </button>
           <Text className="sky-composition-name" size="xs" title={entity.name}>
             {index + 1}. {entity.name}

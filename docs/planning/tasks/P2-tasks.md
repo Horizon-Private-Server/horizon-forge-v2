@@ -16,7 +16,7 @@ before downstream project schemas or UI are implemented.
 | M10 — Groups | ✅ Complete | None |
 | M11 — Scene semantics | 🚧 Implementation complete | Packaged Linux/Windows and PCSX2 qualification in M11-005 |
 | M12 — Editable tfrags | 🚧 Implementation complete | Packaged Linux/Windows and streamed-piece PCSX2 qualification in M12-008 |
-| M13 — Full-package updater | 🚧 In progress | M13-001 key/VM evidence, M13-005 packaged walkthrough, then M13-006 through M13-007 |
+| M13 — Full-package updater | 🚧 In progress | M13-001/M13-006 Windows, rollback, interruption, and unsupported-layout evidence, then M13-007 |
 
 ## M7 — Authoring foundations and workspace chrome
 
@@ -1491,8 +1491,7 @@ remains part of M13-006.
 
 ### M13-005 — Add update badge and lifecycle UI
 
-Status: 🚧 In progress — implementation and automated verification complete; packaged
-update walkthrough remains under M13-006
+Status: ✅ Complete
 
 Requirements: FR-UPD-004, FR-UPD-005, FR-UI-008, NFR-UX-001
 Depends on: M7-001, M13-002, M13-003, M13-004
@@ -1525,15 +1524,14 @@ or handoff actions. Dirty-project and unsupported-layout text distinguishes mana
 restart from manual handoff. Focus survives visible async transitions and a polite live
 region announces concise state/progress changes. Focused lifecycle tests cover shared
 notification dispatch, deferral/resume state, exact presentation, bounded progress, and
-failure/rollback variants; the full desktop, host, and integration suite passes.
+failure/rollback variants; the full desktop, host, and integration suite passes. A
+packaged Linux managed-install self-update walkthrough was reported passing on
+2026-10-14; broader updater qualification remains in M13-006.
 
 ### M13-006 — Qualify secure full-package updates
 
-Status: 🚧 In progress — ASAR validation and stale-stage cleanup fixes are implemented;
-the next signed nightly is the B→C self-update retry candidate, with the remaining
-qualification matrix still pending
-
-iteration test number: 7
+Status: 🚧 In progress — automated fixtures and one packaged Linux managed-install
+self-update pass; Windows, rollback, interruption, and unsupported-layout evidence remain
 
 Requirements: FR-UPD-004, FR-UPD-005, NFR-SEC-004, NFR-REL-001
 Depends on: M13-004, M13-005
@@ -1555,6 +1553,8 @@ Acceptance:
 
 Verification: clean VM matrix, malicious fixture suite, checkpoint fault injection,
 and signed qualification report.
+
+Qualification: [`M13-full-package-updater.md`](../../qualification/M13-full-package-updater.md)
 
 ### M13-007 — Run the P2 release qualification gate
 

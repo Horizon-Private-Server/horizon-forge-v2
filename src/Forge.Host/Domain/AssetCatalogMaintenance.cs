@@ -141,6 +141,8 @@ public static class AssetCatalogMaintenance
             ids.Add(binding.Source.Id);
             ids.Add(binding.Replacement.Id);
         }
+        foreach (var allocation in workspace.Content.CustomClasses.Allocations)
+            ids.Add(allocation.Asset.Id);
         if (workspace.Content.Hud is { } hud)
         {
             foreach (var frame in hud.SourceIcons.SelectMany(icon => icon.Frames))

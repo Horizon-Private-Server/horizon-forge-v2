@@ -29,16 +29,19 @@ public static class UyaTextureInventoryService
             foreach (var definition in manifest.Definitions.OrderBy(value => value.TargetIndex))
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var catalogEntry = catalog.Query(new(Id: definition.Asset.Id)).SingleOrDefault()
-                    ?? throw new InvalidDataException($"Staged {layer} asset {definition.Asset.Id} is absent from the catalog.");
-                if (catalogEntry.Tags.Contains("texture:placeholder", StringComparer.Ordinal))
+                var catalogEntry = catalog.Query(new(Id: definition.Asset.Id)).SingleOrDefault();
+                var custom = layer == BakeLayerId.Ties
+                    && project.Content.CustomModels.Models.Any(model => model.Canonical == definition.Asset);
+                if (catalogEntry is null && !custom)
+                    throw new InvalidDataException($"Staged {layer} asset {definition.Asset.Id} is absent from the catalog and project.");
+                if (catalogEntry?.Tags.Contains("texture:placeholder", StringComparer.Ordinal) == true)
                     throw new InvalidDataException(
                         $"{layer} class 0x{definition.ClassId:X4} uses placeholder texture data and cannot be optimized or injected.");
-                var preserveTextureIndexes = catalogEntry.Sources.Any(value =>
+                var preserveTextureIndexes = catalogEntry?.Sources.Any(value =>
                     value.Game == project.Manifest.BaseLevel.Game
                     && value.Region == project.Manifest.BaseLevel.Region
                     && value.Revision == project.Manifest.BaseLevel.Revision
-                    && value.Level == sourceLevel);
+                    && value.Level == sourceLevel) == true;
                 var path = ForgeProjectPersistence.ResolveRelativePath(root, definition.Resource);
                 var canonical = UyaCanonicalAssetCodec.Decode(await File.ReadAllBytesAsync(path, cancellationToken));
                 var materialIndex = 0;

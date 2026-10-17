@@ -43,6 +43,8 @@ internal static class EditorPayloadCodec
     private const uint MaxMobyPVarFields = MobyDexSchema.MaximumArrayCount;
     private const uint MaxMobyPVarValues = 16;
     private const int MaxMobyPVarMaskBytes = (MobyDexSchema.MaximumPVarBytes + 7) / 8;
+    private const int MaxCustomModelDocumentBytes = 16 * 1024 * 1024;
+    private const int MaxCustomModelDependencyBytes = 64 * 1024 * 1024;
 
     public static EditorOpenRequest DecodeOpenRequest(ReadOnlySpan<byte> payload)
     {
@@ -371,12 +373,39 @@ internal static class EditorPayloadCodec
             int? groupOrder = reader.ReadBoolean() ? checked((int)reader.ReadUInt32()) : null;
             groupEdit = new(groupId, groupOrder);
         }
+        EditorCustomModelEdit? customModelEdit = null;
+        if (reader.ReadBoolean())
+        {
+            var modelAssetId = reader.ReadBoolean() ? AssetId.Parse(reader.ReadString()) : (AssetId?)null;
+            ProjectCustomModelImportRequest? import = null;
+            if (reader.ReadBoolean())
+            {
+                var sourceName = reader.ReadString();
+                var sourceBytes = reader.ReadBytes(MaxCustomModelDocumentBytes);
+                var count = reader.ReadUInt32();
+                if (count > ProjectCustomModelSchema.MaximumDependencies)
+                    PayloadFormat.Malformed("Custom model dependency list exceeds item limit");
+                var dependencies = new ProjectCustomModelImportFile[count];
+                long totalBytes = 0;
+                for (var index = 0; index < dependencies.Length; index++)
+                {
+                    var uri = reader.ReadString();
+                    var bytes = reader.ReadBytes(MaxCustomModelDependencyBytes);
+                    totalBytes += bytes.LongLength;
+                    if (totalBytes > BridgeFrameCodec.MaxPayloadLength)
+                        PayloadFormat.Malformed("Custom model dependencies exceed payload limit");
+                    dependencies[index] = new(uri, bytes);
+                }
+                import = new(sourceName, sourceBytes, dependencies, reader.ReadBoolean());
+            }
+            customModelEdit = new(modelAssetId, import);
+        }
         reader.Complete();
         return new(
             id, kind, entities, transform, text, state, transforms, levelSettings, points, placement,
             skyShellSource, skyShellUpdate, destinationOrder, instancedCollisionEnabled, instancedCollisionRawType,
             instancedCollisionProxyAssetId, instancedCollisionFaceTypes, referenceUpdate, paletteOptimization, hudEdit,
-            fxEdit, mobyPropertyEdit, mobyDexEdit, mobyPVarEdit, groupEdit);
+            fxEdit, mobyPropertyEdit, mobyDexEdit, mobyPVarEdit, groupEdit, customModelEdit);
     }
 
     public static byte[] EncodeSnapshot(EditorSnapshot value)
@@ -393,6 +422,30 @@ internal static class EditorPayloadCodec
         if (value.Hud is not null) WriteHud(writer, value.Hud);
         writer.WriteBoolean(value.Fx is not null);
         if (value.Fx is not null) WriteFx(writer, value.Fx);
+        if (value.CustomModels.Count > ProjectCustomModelSchema.MaximumModels)
+            PayloadFormat.Malformed("Custom model list exceeds item limit");
+        writer.WriteUInt32((uint)value.CustomModels.Count);
+        foreach (var model in value.CustomModels)
+        {
+            writer.WriteString(model.AssetId.ToString());
+            writer.WriteString(model.NativeAssetId.ToString());
+            writer.WriteString(model.SourceName);
+            writer.WriteUInt32(checked((uint)model.ClassId));
+            writer.WriteUInt32(checked((uint)model.Metadata.VertexCount));
+            writer.WriteUInt32(checked((uint)model.Metadata.TriangleCount));
+            writer.WriteUInt32(checked((uint)model.Metadata.PacketCount));
+            writer.WriteUInt32(checked((uint)model.Metadata.MaterialCount));
+            writer.WriteUInt32(checked((uint)model.Metadata.TextureCount));
+            writer.WriteUInt32(checked((uint)model.Metadata.PaletteCount));
+            writer.WriteSingle(model.Metadata.Bounds.MinimumX);
+            writer.WriteSingle(model.Metadata.Bounds.MinimumY);
+            writer.WriteSingle(model.Metadata.Bounds.MinimumZ);
+            writer.WriteSingle(model.Metadata.Bounds.MaximumX);
+            writer.WriteSingle(model.Metadata.Bounds.MaximumY);
+            writer.WriteSingle(model.Metadata.Bounds.MaximumZ);
+            writer.WriteString(model.Metadata.LodPolicy);
+            writer.WriteStrings(model.Metadata.Diagnostics.ToArray());
+        }
         if (value.Entities.Count > MaxEntities) PayloadFormat.Malformed("Entity list exceeds item limit");
         writer.WriteUInt32((uint)value.Entities.Count);
         foreach (var entity in value.Entities) WriteEntity(writer, entity);

@@ -233,7 +233,7 @@ canonical metadata rather than cloning an unrelated instance.
 A new tie needs more than its 0x60 instance record:
 
 - class ID, identity transform, conservative draw distance, and unique UID;
-- neutral directional-light selection;
+- the nearest source-authored tie's directional-light selection;
 - per-instance ambient data sized for the selected tie class;
 - no source tie-group membership; and
 - a verified always-visible or neutral occlusion mapping that does not borrow an
@@ -241,8 +241,8 @@ A new tie needs more than its 0x60 instance record:
 
 Preliminary format evidence shows that the tie model header's `AmbientSize` is the
 authoritative byte count. Ambient indices and remap recipes exported from the model
-must fit that count; size must not be guessed from render vertex count. The neutral
-packed-color candidate is:
+must fit that count; size must not be guessed from render vertex count. When a level
+has no source-authored tie lighting to sample, the neutral fallback is:
 
 - word 0: base red/green = 128/128 (`0x8080`);
 - word 1: base blue = 128 with shift 0 (`0x0080`); and
@@ -422,9 +422,9 @@ Acceptance:
   kind, canonical version, and selected class identity before mutation.
 - A successful drop adds and selects one entity; undo/redo preserves its Entity ID,
   generated UID, source template, supplemental data, and Asset ID.
-- UYA ties receive model-sized neutral ambient data, a neutral directional selector,
-  no group membership, and verified neutral visibility data without borrowing an
-  unrelated source tie's occlusion.
+- UYA ties receive model-sized ambient data whose base color and directional selector
+  come from the nearest source-authored tie, with neutral per-normal deltas, no group
+  membership, and verified neutral visibility data without borrowing source occlusion.
 - UYA shrubs receive fresh neutral native records and shade values. UYA mobys
   receive fresh neutral records with Pvar index `-1` plus a visible diagnostic that
   class-specific Pvar behavior is not generated.
@@ -439,7 +439,7 @@ payloads, cross-level asset injection, deterministic bake, and recorded in-game 
 
 Implementation: the game-neutral drag token, viewport surface/Z=0 ghost, validated
 editor command, atomic add/select, stable undo/redo, and concrete UYA tie/shrub/moby
-record generators are wired. New ties receive model-sized neutral ambient data and
+record generators are wired. New ties receive model-sized locally matched ambient data and
 share a free visibility bit that Forge marks in every existing occlusion mask; native
 tie mappings remain unchanged and new ties inherit no source group membership.
 
@@ -587,7 +587,7 @@ key. Retained integration and soak coverage remain open.
   compatibility information.
 - Compatible tie, shrub, and moby drops create selected, undoable, saveable,
   bakeable entities with deterministic target-native defaults.
-- Tie ambient data fits the selected model and decodes to neutral light; inserted
-  ties inherit no unrelated ambient or visibility data.
+- Tie ambient data fits the selected model and inherits the nearest native ambient
+  base without copying model-specific per-normal or visibility data.
 - Cross-game, sky-shell, texture, ambiguous, missing, and malformed cases remain
   visible without silently creating invalid project state.

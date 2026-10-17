@@ -431,6 +431,38 @@ test('group commands validate stable IDs, names, order, and unique membership', 
   }), false);
 });
 
+test('custom TIE commands validate portable bounded source payloads', () => {
+  const imported = {
+    id: '50000000-0000-4000-8000-000000000001',
+    kind: 'importCustomTie' as const,
+    entityIds: [] as [],
+    import: {
+      sourceName: 'model.gltf',
+      sourceBytes: new Uint8Array([1, 2, 3]),
+      dependencies: [{ uri: 'textures/albedo.png', bytes: new Uint8Array([4, 5]) }],
+      forceBackfaceCulling: true,
+    },
+  };
+  assert.equal(isEditorCommand(imported), true);
+  assert.equal(isEditorCommand({
+    ...imported,
+    import: { ...imported.import, dependencies: [{ uri: '../escape.bin', bytes: new Uint8Array([1]) }] },
+  }), false);
+  assert.equal(isEditorCommand({
+    id: '50000000-0000-4000-8000-000000000002',
+    kind: 'reimportCustomTie',
+    entityIds: ['first', 'first'],
+    modelAssetId: 'a'.repeat(64),
+    import: imported.import,
+  }), false);
+  assert.equal(isEditorCommand({
+    id: '50000000-0000-4000-8000-000000000003',
+    kind: 'deleteCustomTie',
+    entityIds: [],
+    modelAssetId: 'a'.repeat(64),
+  }), true);
+});
+
 test('group template requests validate identifiers, stable IDs, and unique parameters', () => {
   const request = {
     templateId: 'uya.node-cluster',
@@ -716,6 +748,8 @@ test('operation payloads round trip and reject trailing data', () => {
     cacheKey: 'uya-preview-key',
     modelPath: 'model.gltf',
     cacheHit: true,
+    detailsPath: 'preview-details.json',
+    diagnosticGlbPath: 'diagnostic-target.glb',
   };
   assert.deepEqual(
     decodeAssetPreviewResult(encodeAssetPreviewResult(assetPreviewResult)),

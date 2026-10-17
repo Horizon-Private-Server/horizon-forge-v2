@@ -7,11 +7,14 @@ import test from 'node:test';
 import { AssetThumbnailCache } from '../src/main/AssetThumbnailCache.ts';
 import type { AssetExplorerItem } from '../src/types/AssetExplorer.js';
 import type { EditorInstancedCollisionCandidate } from '../src/types/EditorRuntime.js';
-import { createAssetPlacementCommand, createSkyShellAddCommand } from '../src/utils/AssetPlacement.ts';
+import {
+  ASSET_PLACEMENT_MIME, createAssetPlacementCommand, createSkyShellAddCommand, readAssetPlacementDrag,
+} from '../src/utils/AssetPlacement.ts';
 import {
   assetExplorerFilterCount, assetExplorerQueryKey, buildAssetFamilies,
   isStaleAssetExplorerCursor, retainAssetExplorerPageDepth,
 } from '../src/utils/AssetExplorer.ts';
+import { parseCustomModelPreviewDetails } from '../src/utils/CustomModelPreview.ts';
 import { recommendInstancedCollisionCandidate } from '../src/utils/InstancedCollision.ts';
 import { applyTextureChannel, formatTextureDimensions } from '../src/utils/TexturePreview.ts';
 
@@ -154,6 +157,17 @@ test('sky shell addition uses the source shell without a spatial transform', () 
   assert.deepEqual(command.source, { assetId: 'b'.repeat(64), shellIndex: 3 });
 });
 
+test('sky shell drag preserves a bounded drop error', () => {
+  const value = {
+    assetId: 'b'.repeat(64), kind: 'sky', shellIndex: 3,
+    dropError: 'Maximum of 8 sky shells reached. Delete an existing shell before adding another.',
+  };
+  const data = {
+    getData: (type: string) => type === ASSET_PLACEMENT_MIME ? JSON.stringify(value) : '',
+  } as DataTransfer;
+  assert.deepEqual(readAssetPlacementDrag(data), value);
+});
+
 test('asset explorer groups exact variants by target class and prefers the base-level source', () => {
   const variant = (assetId: string, classIds: number[], level: string, revision = '1.00'): AssetExplorerItem => ({
     assetId, category: 'mobys', displayLabel: 'moby:0x000B', canonicalFormatVersion: 1, byteSize: 100,
@@ -174,6 +188,21 @@ test('asset explorer groups exact variants by target class and prefers the base-
   assert.equal(families[1].variants[0].sources[0].revision, '2.00');
 });
 
+test('asset explorer retains project-attached class assets without vanilla sources', () => {
+  const custom: AssetExplorerItem = {
+    assetId: 'e'.repeat(64), category: 'ties', displayLabel: 'orb.glb',
+    canonicalFormatVersion: 2, byteSize: 0, aliases: ['tie:36864'],
+    tags: ['tie', 'custom-model', 'project-attached'], sources: [], classIds: [0x9000],
+    previewState: 'notCached', canPlace: true,
+  };
+  const families = buildAssetFamilies([custom], {
+    game: 'UYA', region: 'NTSC-U', revision: '1.00', level: 41,
+  });
+  assert.equal(families.length, 1);
+  assert.equal(families[0].classId, 0x9000);
+  assert.equal(families[0].representativeAssetId, custom.assetId);
+});
+
 test('asset explorer keeps sky shells under separate cards', () => {
   const shell = (shellIndex: number): AssetExplorerItem => ({
     assetId: 'a'.repeat(64), category: 'skyShells', displayLabel: `Sky shell ${shellIndex}`,
@@ -186,4 +215,29 @@ test('asset explorer keeps sky shells under separate cards', () => {
     game: 'UYA', region: 'NTSC-U', revision: '1.00', level: 3,
   });
   assert.deepEqual(families.map((family) => family.displayLabel), ['Sky shell 0', 'Sky shell 1']);
+});
+
+test('custom model preview metadata keeps source-to-target mappings bounded and typed', () => {
+  const details = parseCustomModelPreviewDetails({
+    schemaVersion: 1,
+    authoritative: false,
+    sourceName: 'fixture.gltf',
+    targetClassId: 0x2600,
+    vertexCount: 3,
+    triangleCount: 1,
+    packetCount: 1,
+    materialCount: 1,
+    textureCount: 1,
+    paletteCount: 1,
+    bounds: { minimumX: 0, minimumY: 0, minimumZ: 0, maximumX: 1, maximumY: 1, maximumZ: 0 },
+    lodPolicy: 'LOD0 reused for native slots',
+    primitives: [{
+      sourceMeshIndex: 0, sourcePrimitiveIndex: 0, nativeMaterialIndex: 0,
+      firstTriangle: 0, triangleCount: 1, firstPacket: 0, packetCount: 1,
+    }],
+    diagnostics: [],
+  });
+  assert.equal(details.primitives[0].nativeMaterialIndex, 0);
+  assert.throws(() => parseCustomModelPreviewDetails({ ...details, packetCount: -1 }), /metadata is invalid/);
+  assert.throws(() => parseCustomModelPreviewDetails({ ...details, authoritative: true }), /metadata is invalid/);
 });

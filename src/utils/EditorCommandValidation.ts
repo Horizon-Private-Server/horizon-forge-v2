@@ -21,6 +21,7 @@ const commandKinds = new Set([
   'setMobyPVarField',
   'createGroup', 'renameGroup', 'deleteGroup', 'reorderGroup',
   'addGroupMembers', 'removeGroupMembers',
+  'importCustomTie', 'reimportCustomTie', 'deleteCustomTie',
 ]);
 
 export function isEditorCommand(value: unknown): value is EditorCommand {
@@ -132,7 +133,43 @@ export function isEditorCommand(value: unknown): value is EditorCommand {
     return hasExactKeys(command, ['id', 'kind', 'entityIds', 'groupId'])
       && command.entityIds.length > 0 && command.entityIds.length <= 100_000
       && new Set(command.entityIds).size === command.entityIds.length && isUuid(command.groupId);
+  if (command.kind === 'importCustomTie')
+    return hasExactKeys(command, ['id', 'kind', 'entityIds', 'import'])
+      && command.entityIds.length === 0 && isCustomModelImport(command.import);
+  if (command.kind === 'reimportCustomTie')
+    return hasExactKeys(command, ['id', 'kind', 'entityIds', 'modelAssetId', 'import'])
+      && new Set(command.entityIds).size === command.entityIds.length
+      && isAssetId(command.modelAssetId) && isCustomModelImport(command.import);
+  if (command.kind === 'deleteCustomTie')
+    return hasExactKeys(command, ['id', 'kind', 'entityIds', 'modelAssetId'])
+      && command.entityIds.length === 0 && isAssetId(command.modelAssetId);
   return true;
+}
+
+function isCustomModelImport(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const model = value as Record<string, unknown>;
+  if (!hasExactKeys(model, ['sourceName', 'sourceBytes', 'dependencies', 'forceBackfaceCulling'])
+    || typeof model.sourceName !== 'string'
+    || !/^[^/\\]{1,1024}$/.test(model.sourceName)
+    || !(model.sourceBytes instanceof Uint8Array)
+    || model.sourceBytes.byteLength === 0 || model.sourceBytes.byteLength > 16 * 1024 * 1024
+    || !Array.isArray(model.dependencies) || model.dependencies.length > 64
+    || typeof model.forceBackfaceCulling !== 'boolean') return false;
+  let totalBytes = 0;
+  const uris = new Set<string>();
+  for (const dependency of model.dependencies) {
+    if (!dependency || typeof dependency !== 'object') return false;
+    const file = dependency as Record<string, unknown>;
+    if (!hasExactKeys(file, ['uri', 'bytes']) || typeof file.uri !== 'string'
+      || file.uri.length === 0 || file.uri.length > 1024 || file.uri.includes('\\')
+      || file.uri.startsWith('/') || file.uri.split('/').includes('..')
+      || uris.has(file.uri) || !(file.bytes instanceof Uint8Array)
+      || file.bytes.byteLength === 0 || file.bytes.byteLength > 64 * 1024 * 1024) return false;
+    uris.add(file.uri);
+    totalBytes += file.bytes.byteLength;
+  }
+  return totalBytes <= 48 * 1024 * 1024;
 }
 
 export function isUuid(value: unknown): value is string {

@@ -1,6 +1,8 @@
 # P3 — Content expansion and runtime fidelity
 
-Status: Draft — requirements and task inventory ready; implementation not started
+Status: In progress — M14-001 identity/allocation, M14-002 bounded canonical import,
+M14-003 native UYA TIE conversion, M14-004 project attachment/lifecycle, and M14-005
+source-versus-target preview, and M14-006 placement/edit/bake integration complete
 Priority: P3
 Depends on: P2 authoring contracts by task; P2 release qualification before P3 release
 Task register: [P3 tasks](tasks/P3-tasks.md)
@@ -492,8 +494,10 @@ hardware checks while failures retain the last known-good project and staging ou
 - The runtime's chunk loader makes `sound.bnk` structural similarity plausible, not
   proven. M15-001 compares actual UYA containers and does not label the layouts
   identical until offsets, versions, relocations, and playback graphs agree.
-- M14-001 must prove the adapter maximum and every place a class ID is serialized
-  before reserving `0x9000+` in writable output.
+- M14-001 proved that the adapter accepts `0xFFFF`, froze all four class-ID rewrite
+  locations, and found no `0x9000+` use across the hashed 45-level NTSC-U corpus. The
+  versioned project registry and deterministic donor conflict rules are recorded in
+  [`uya-custom-tie-class-contract-v1.md`](../features/uya-custom-tie-class-contract-v1.md).
 - M16-001 must freeze each family closure and native append/remove capability. A family
   remains disabled when Forge can display it but cannot reconstruct it safely.
 - M18-001 must freeze native visibility semantics and performance baselines before a

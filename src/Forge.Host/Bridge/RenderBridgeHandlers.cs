@@ -21,7 +21,8 @@ internal static class RenderBridgeHandlers
             candidate.CanonicalBytes,
             cancellationToken);
         return BridgePayloadCodec.EncodeAssetPreviewResult(new(
-            result.RootPath, result.CacheKey, result.ModelPath, result.CacheHit));
+            result.RootPath, result.CacheKey, result.ModelPath, result.CacheHit,
+            result.DetailsPath, result.DiagnosticGlbPath));
     }
 
     public static async Task<byte[]> PrepareAppliedInstancedCollisionAsync(
@@ -41,12 +42,14 @@ internal static class RenderBridgeHandlers
             bytes,
             cancellationToken);
         return BridgePayloadCodec.EncodeAssetPreviewResult(new(
-            result.RootPath, result.CacheKey, result.ModelPath, result.CacheHit));
+            result.RootPath, result.CacheKey, result.ModelPath, result.CacheHit,
+            result.DetailsPath, result.DiagnosticGlbPath));
     }
 
     public static async Task<byte[]> PrepareAssetPreviewAsync(
         byte[] payload,
         string sdkRevision,
+        EditorRuntime runtime,
         CancellationToken cancellationToken)
     {
         var request = BridgePayloadCodec.DecodeAssetPreviewRequest(payload);
@@ -60,7 +63,7 @@ internal static class RenderBridgeHandlers
             "sky" => AssetKind.Sky,
             _ => throw new ArgumentException($"Unknown asset preview kind: {request.Kind}."),
         };
-        var result = await UyaAssetPreviewService.PrepareAsync(new(
+        var nativeRequest = new AssetPreviewRequest(
             request.CacheRootPath,
             request.CatalogRootPath,
             AssetId.Parse(request.AssetId),
@@ -68,9 +71,18 @@ internal static class RenderBridgeHandlers
             request.TargetGame,
             request.ViewPreset,
             request.ShellIndex is { } shellIndex ? checked((int)shellIndex) : null,
-            request.ProjectPath), sdkRevision, cancellationToken);
+            request.ProjectPath);
+        var result = string.IsNullOrWhiteSpace(request.ProjectPath)
+            ? await UyaAssetPreviewService.PrepareAsync(
+                nativeRequest, sdkRevision, cancellationToken)
+            : await runtime.ReadWorkspaceAsync(
+                request.ProjectPath,
+                (workspace, token) => UyaAssetPreviewService.PrepareAsync(
+                    nativeRequest, sdkRevision, token, workspace),
+                cancellationToken);
         return BridgePayloadCodec.EncodeAssetPreviewResult(new(
-            result.RootPath, result.CacheKey, result.ModelPath, result.CacheHit));
+            result.RootPath, result.CacheKey, result.ModelPath, result.CacheHit,
+            result.DetailsPath, result.DiagnosticGlbPath));
     }
 
     public static async Task<byte[]> PrepareUyaAsync(

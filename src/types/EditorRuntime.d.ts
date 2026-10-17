@@ -568,7 +568,28 @@ export type EditorCommand =
   | { id: string; kind: 'renameGroup'; entityIds: []; groupId: string; text: string }
   | { id: string; kind: 'deleteGroup'; entityIds: []; groupId: string }
   | { id: string; kind: 'reorderGroup'; entityIds: []; groupId: string; destinationOrder: number }
-  | { id: string; kind: 'addGroupMembers' | 'removeGroupMembers'; entityIds: string[]; groupId: string };
+  | { id: string; kind: 'addGroupMembers' | 'removeGroupMembers'; entityIds: string[]; groupId: string }
+  | {
+    id: string;
+    kind: 'importCustomTie';
+    entityIds: [];
+    import: EditorCustomModelImport;
+  }
+  | {
+    id: string;
+    kind: 'reimportCustomTie';
+    entityIds: string[];
+    modelAssetId: string;
+    import: EditorCustomModelImport;
+  }
+  | { id: string; kind: 'deleteCustomTie'; entityIds: []; modelAssetId: string };
+
+export interface EditorCustomModelImport {
+  sourceName: string;
+  sourceBytes: Uint8Array;
+  dependencies: { uri: string; bytes: Uint8Array }[];
+  forceBackfaceCulling: boolean;
+}
 
 export interface EditorEvent {
   sequence: number;
@@ -602,6 +623,21 @@ export interface EditorSnapshot {
   levelSettings?: EditorLevelSettings;
   hud?: EditorHud;
   fx?: EditorFx;
+  customModels: {
+    assetId: string;
+    nativeAssetId: string;
+    sourceName: string;
+    classId: number;
+    vertexCount: number;
+    triangleCount: number;
+    packetCount: number;
+    materialCount: number;
+    textureCount: number;
+    paletteCount: number;
+    bounds: { minimum: ProjectVector3; maximum: ProjectVector3 };
+    lodPolicy: string;
+    diagnostics: string[];
+  }[];
   entities: EditorEntity[];
   references: EditorReference[];
   groups: EditorGroup[];

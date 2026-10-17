@@ -41,14 +41,24 @@ public static partial class BridgePayloadCodec
         writer.WriteString(value.CacheKey);
         writer.WriteString(value.ModelPath);
         writer.WriteBoolean(value.CacheHit);
+        writer.WriteBoolean(value.DetailsPath is not null);
+        if (value.DetailsPath is not null) writer.WriteString(value.DetailsPath);
+        writer.WriteBoolean(value.DiagnosticGlbPath is not null);
+        if (value.DiagnosticGlbPath is not null) writer.WriteString(value.DiagnosticGlbPath);
         return writer.ToArray();
     }
 
     public static AssetPreviewResultPayload DecodeAssetPreviewResult(ReadOnlySpan<byte> payload)
     {
         var reader = new PayloadReader(payload);
+        var rootPath = reader.ReadString();
+        var cacheKey = reader.ReadString();
+        var modelPath = reader.ReadString();
+        var cacheHit = reader.ReadBoolean();
+        var detailsPath = reader.ReadBoolean() ? reader.ReadString() : null;
+        var diagnosticGlbPath = reader.ReadBoolean() ? reader.ReadString() : null;
         var value = new AssetPreviewResultPayload(
-            reader.ReadString(), reader.ReadString(), reader.ReadString(), reader.ReadBoolean());
+            rootPath, cacheKey, modelPath, cacheHit, detailsPath, diagnosticGlbPath);
         reader.Complete();
         return value;
     }

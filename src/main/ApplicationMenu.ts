@@ -94,6 +94,7 @@ export function installApplicationMenu(runAction: (action: ForgeAction) => void)
             { label: 'Diagnostics', click: () => runAction('showDiagnostics') },
             { label: 'Build', click: () => runAction('showBuild') },
             { label: 'Asset Explorer', click: () => runAction('showAssetExplorer') },
+            { label: 'Custom Assets', click: () => runAction('showCustomAssets') },
             { label: 'Asset Preview', click: () => runAction('showAssetPreview') },
             { label: 'HUD Bank', click: () => runAction('showHudBank') },
             { label: 'FX Textures', click: () => runAction('showFxTextures') },

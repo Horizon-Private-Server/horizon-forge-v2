@@ -10,8 +10,17 @@ export function readAssetPlacementDrag(data: DataTransfer): AssetPlacementDragDa
   try {
     const value = JSON.parse(data.getData(ASSET_PLACEMENT_MIME)) as Record<string, unknown>;
     if (typeof value.assetId !== 'string' || !/^[0-9a-f]{64}$/.test(value.assetId)) return undefined;
-    if (value.kind === 'sky') return Number.isInteger(value.shellIndex) && Number(value.shellIndex) >= 0
-      ? value as unknown as AssetSkyShellDragData : undefined;
+    if (value.kind === 'sky') {
+      if (!Number.isInteger(value.shellIndex) || Number(value.shellIndex) < 0
+        || value.dropError !== undefined && (typeof value.dropError !== 'string' || value.dropError.length > 512))
+        return undefined;
+      return {
+        assetId: value.assetId,
+        kind: 'sky',
+        shellIndex: Number(value.shellIndex),
+        ...(value.dropError ? { dropError: value.dropError as string } : {}),
+      };
+    }
     return ['tie', 'shrub', 'moby'].includes(String(value.kind))
       && Number.isInteger(value.classId) && Number(value.classId) >= 0 && Number(value.classId) <= 0xffff
       ? value as unknown as AssetModelPlacementDragData : undefined;

@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-import type { AssetModelKind } from '../../types/AssetExplorer.js';
+import type { AssetModelKind, AssetPreviewSource } from '../../types/AssetExplorer.js';
 import { errorMessage } from '../../utils/Errors.ts';
 import { configurePs2AssetPreview } from '../../utils/Ps2Materials.ts';
 import { disposeObject, frameCameraOnObject } from '../../utils/Scene.ts';
@@ -16,17 +16,34 @@ interface AssetModelPreviewProps {
   kind: AssetModelKind | 'sky';
   label: string;
   shellIndex?: number;
+  customView?: 'source' | 'target';
+  previewRevision?: string;
+  onSource?: (source: AssetPreviewSource) => void;
 }
 
-export function AssetModelPreview({ assetId, kind, label, shellIndex }: AssetModelPreviewProps) {
+export function AssetModelPreview({
+  assetId, kind, label, shellIndex, customView, previewRevision, onSource,
+}: AssetModelPreviewProps) {
   const container = useRef<HTMLDivElement>(null);
   const resetView = useRef<() => void>(() => undefined);
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [error, setError] = useState('');
+  const [retry, setRetry] = useState(0);
+  const [visible, setVisible] = useState(false);
 
   useEffect(() => {
     const element = container.current;
     if (!element) return;
+    const observer = new IntersectionObserver((entries) => {
+      setVisible(entries.some((entry) => entry.isIntersecting));
+    }, { rootMargin: '128px' });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const element = container.current;
+    if (!element || !visible) return;
     let disposed = false;
     let root: THREE.Object3D | undefined;
     let updateSky: ((deltaSeconds: number) => void) | undefined;
@@ -92,8 +109,9 @@ export function AssetModelPreview({ assetId, kind, label, shellIndex }: AssetMod
       event.preventDefault();
     };
     renderer.domElement.addEventListener('keydown', keyDown);
-    void window.forge.getAssetPreview(assetId, kind, requestToken, shellIndex).then((source) => {
+    void window.forge.getAssetPreview(assetId, kind, requestToken, shellIndex, customView).then((source) => {
       if (disposed) return;
+      onSource?.(source);
       return new GLTFLoader().loadAsync(source.url);
     }).then((gltf) => {
       if (!gltf) return;
@@ -128,7 +146,7 @@ export function AssetModelPreview({ assetId, kind, label, shellIndex }: AssetMod
       renderer.forceContextLoss();
       renderer.domElement.remove();
     };
-  }, [assetId, kind, label, shellIndex]);
+  }, [assetId, customView, kind, label, onSource, previewRevision, retry, shellIndex, visible]);
 
   return <div className="asset-model-preview">
     <div className="asset-model-preview-canvas" ref={container} />
@@ -140,12 +158,12 @@ export function AssetModelPreview({ assetId, kind, label, shellIndex }: AssetMod
       {error || 'Preview unavailable.'}
     </Text>}
     <ActionIcon
-      aria-label="Reset model preview view"
+      aria-label={state === 'error' ? 'Retry model preview' : 'Reset model preview view'}
       className="asset-model-preview-reset"
-      disabled={state !== 'ready'}
-      title="Reset view"
+      disabled={state === 'loading'}
+      title={state === 'error' ? 'Retry preview' : 'Reset view'}
       variant="default"
-      onClick={() => resetView.current()}
+      onClick={() => state === 'error' ? setRetry((value) => value + 1) : resetView.current()}
     >
       <ArrowCounterClockwiseIcon />
     </ActionIcon>

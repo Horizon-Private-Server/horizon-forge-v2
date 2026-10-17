@@ -32,7 +32,7 @@ test('default editor layout matches the established three-column workspace', () 
   } as never);
   assert.deepEqual(panels.map((panel) => panel.id), [
     'sceneTree', 'viewport', 'build', 'levelSettings', 'diagnostics', 'groups',
-    'properties', 'hudBank', 'fxTextures', 'assetPreview', 'references', 'assetExplorer',
+    'properties', 'hudBank', 'fxTextures', 'assetPreview', 'references', 'assetExplorer', 'customAssets',
   ]);
   assert.deepEqual(panels.find((panel) => panel.id === 'viewport'), {
     id: 'viewport', component: 'viewport', title: 'Viewport', initialWidth: 2194,
@@ -55,6 +55,8 @@ test('default editor layout matches the established three-column workspace', () 
   assert.equal(panels.find((panel) => panel.id === 'properties')?.initialHeight, 669);
   assert.deepEqual(panels.find((panel) => panel.id === 'assetExplorer')?.position,
     { referencePanel: 'diagnostics', direction: 'within' });
+  assert.deepEqual(panels.find((panel) => panel.id === 'customAssets')?.position,
+    { referencePanel: 'assetExplorer', direction: 'within' });
 });
 
 test('reopened Asset Explorer rejoins the Diagnostics group', () => {
@@ -64,6 +66,15 @@ test('reopened Asset Explorer rejoins the Diagnostics group', () => {
     addPanel: (panel: Record<string, unknown>) => { added = panel; },
   } as never, 'assetExplorer');
   assert.deepEqual(added?.position, { referencePanel: 'diagnostics', direction: 'within' });
+});
+
+test('reopened Custom Assets rejoins the Asset Explorer group', () => {
+  let added: Record<string, unknown> | undefined;
+  showEditorPanel({
+    getPanel: (id: string) => id === 'assetExplorer' ? { id } : undefined,
+    addPanel: (panel: Record<string, unknown>) => { added = panel; },
+  } as never, 'customAssets');
+  assert.deepEqual(added?.position, { referencePanel: 'assetExplorer', direction: 'within' });
 });
 
 test('reopened Asset Preview rejoins the Properties group', () => {

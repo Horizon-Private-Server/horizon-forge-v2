@@ -16,7 +16,7 @@ import type { AssetThumbnailRuntime } from './AssetThumbnailRuntime.ts';
 import { useEditor } from './EditorContext.ts';
 import { EditorEmptyState } from './EditorPrimitives.tsx';
 import {
-  useAssetThumbnailRuntime, useTextureCardThumbnail, useVirtualGridViewport,
+  useTextureCardThumbnail, useVirtualGridViewport,
 } from './TexturePanelHooks.ts';
 
 type HudBankItem = ReturnType<typeof buildHudBankItems>[number];
@@ -33,7 +33,7 @@ interface PendingImage {
 }
 
 export function HudBankPanel() {
-  const { busy, execute, inspectReferencedAsset, project } = useEditor();
+  const { assetThumbnails, busy, execute, inspectReferencedAsset, project } = useEditor();
   const hud = project.hud;
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | 'changed' | 'issues'>('all');
@@ -43,7 +43,6 @@ export function HudBankPanel() {
   const [spriteIdText, setSpriteIdText] = useState('');
   const [bankIndex, setBankIndex] = useState(hud?.minimumAppendBank ?? 0);
   const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null);
-  const thumbnails = useAssetThumbnailRuntime(project.target.game);
   const viewport = useVirtualGridViewport(scrollElement);
 
   useEffect(() => {
@@ -148,7 +147,7 @@ export function HudBankPanel() {
             width: windowed.cardWidth,
             transform: `translate(${column * (windowed.cardWidth + 8)}px, ${row * 284}px)`,
           }}>
-            <HudBankCard item={item} root={scrollElement} runtime={thumbnails} busy={busy || preparing}
+            <HudBankCard item={item} root={scrollElement} runtime={assetThumbnails} busy={busy || preparing}
               canReplace={hud.canReplace} onPrepare={prepareImage}
               onInspect={(assetId) => void inspectReferencedAsset(assetId, 'Texture')}
               onRemove={() => void execute(item.kind === 'addition'

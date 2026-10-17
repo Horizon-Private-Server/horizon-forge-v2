@@ -2,21 +2,7 @@ import type { SyntheticEvent } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { errorMessage } from '../../utils/Errors.ts';
-import { AssetThumbnailRuntime } from './AssetThumbnailRuntime.ts';
-
-export function useAssetThumbnailRuntime(targetGame: string): AssetThumbnailRuntime | null | undefined {
-  const [runtime, setRuntime] = useState<AssetThumbnailRuntime | null>();
-  useEffect(() => {
-    try {
-      const value = new AssetThumbnailRuntime(targetGame);
-      setRuntime(value);
-      return () => value.dispose();
-    } catch {
-      setRuntime(null);
-    }
-  }, [targetGame]);
-  return runtime;
-}
+import type { AssetThumbnailRuntime } from './AssetThumbnailRuntime.ts';
 
 export function useVirtualGridViewport(element: HTMLDivElement | null) {
   const [viewport, setViewport] = useState({ width: 0, height: 0, scrollTop: 0 });

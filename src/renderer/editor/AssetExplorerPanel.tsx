@@ -1,4 +1,4 @@
-import { Alert, Badge, Button, MultiSelect, SegmentedControl, Select, Text, TextInput } from '@mantine/core';
+import { Alert, Badge, Button, MultiSelect, Popover, Select, Text, TextInput } from '@mantine/core';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type {
@@ -36,7 +36,7 @@ const CATEGORIES: { label: string; value: AssetExplorerCategory }[] = [
 const EMPTY_FACETS: AssetExplorerFacets = { games: [], levels: [], regions: [], revisions: [], tags: [] };
 
 export function AssetExplorerPanel() {
-  const { assetPreview, inspectAsset, project, sceneTreeColors } = useEditor();
+  const { assetThumbnails, inspectAsset, project, sceneTreeColors } = useEditor();
   const [category, setCategory] = useState<AssetExplorerCategory>('ties');
   const [search, setSearch] = useState('');
   const [querySearch, setQuerySearch] = useState('');
@@ -51,7 +51,6 @@ export function AssetExplorerPanel() {
   const [error, setError] = useState('');
   const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null);
   const [viewport, setViewport] = useState({ width: 0, height: 0, scrollTop: 0 });
-  const [thumbnails, setThumbnails] = useState<AssetThumbnailRuntime | null>();
   const generation = useRef(0);
   const loadingRef = useRef(false);
   const lastQueryKey = useRef('');
@@ -62,16 +61,6 @@ export function AssetExplorerPanel() {
     const timer = setTimeout(() => setQuerySearch(search.trim()), 180);
     return () => clearTimeout(timer);
   }, [search]);
-
-  useEffect(() => {
-    try {
-      const runtime = new AssetThumbnailRuntime(project.target.game);
-      setThumbnails(runtime);
-      return () => runtime.dispose();
-    } catch {
-      setThumbnails(null);
-    }
-  }, [project.target.game]);
 
   const loadPage = useCallback(async (
     currentCategory: AssetExplorerCategory,
@@ -172,11 +161,6 @@ export function AssetExplorerPanel() {
     revision: project.baseLevel.revision,
     level: project.baseLevel.level,
   }), [items, project.baseLevel]);
-  useEffect(() => {
-    if (!assetPreview) return;
-    const updated = families.find((family) => family.familyId === assetPreview.familyId);
-    if (updated) inspectAsset(updated, false);
-  }, [assetPreview?.familyId, families, inspectAsset]);
   const windowed = assetGridWindow(families.length, viewport.width, viewport.height, viewport.scrollTop);
   useEffect(() => {
     if (error || !nextCursor || loading || windowed.endIndex < families.length - windowed.columns * 2) return;
@@ -193,47 +177,58 @@ export function AssetExplorerPanel() {
 
   return <section aria-label="Asset Explorer" className="editor-panel asset-explorer-panel">
     <div className="asset-explorer-controls">
-      <SegmentedControl
-        aria-label="Asset category"
-        data={CATEGORIES}
-        fullWidth
-        size="xs"
-        value={category}
-        onChange={(value) => setCategory(value as AssetExplorerCategory)}
-      />
-      <TextInput
-        aria-label="Search assets"
-        placeholder="Search assets…"
-        value={search}
-        onChange={(event) => setSearch(event.currentTarget.value)}
-      />
-      <details className="asset-explorer-filters">
-        <summary>{filterCount ? `Filters (${filterCount})` : 'Filters'}</summary>
-        <div className="asset-explorer-filter-grid">
-          <Select aria-label="Filter assets by game" clearable data={facets.games} label="Game"
-            value={filters.game ?? null} onChange={(game) => setFilters((value) => ({ ...value, game: game || undefined }))} />
-          <Select aria-label="Filter assets by level" clearable data={facets.levels.map((level) => ({
-            value: level,
-            label: (filters.game ?? project.target.game) === 'UYA' ? formatUyaLevelLabel(level) : level,
-          }))} label="Level"
-            value={filters.level ?? null} onChange={(level) => setFilters((value) => ({ ...value, level: level || undefined }))} />
-          <Select aria-label="Filter assets by region" clearable data={facets.regions} label="Region"
-            value={filters.region ?? null} onChange={(region) => setFilters((value) => ({ ...value, region: region || undefined }))} />
-          <Select aria-label="Filter assets by revision" clearable data={facets.revisions} label="Revision"
-            value={filters.revision ?? null}
-            onChange={(revision) => setFilters((value) => ({ ...value, revision: revision || undefined }))} />
-          <MultiSelect aria-label="Filter assets by tags" clearable data={facets.tags} label="Tags" searchable
-            value={filters.tags ?? []} onChange={(tags) => setFilters((value) => ({ ...value, tags }))} />
-          <Button disabled={!filterCount && !search} size="xs" variant="subtle" onClick={clearFilters}>Clear all</Button>
-        </div>
-      </details>
+      <div aria-label="Asset category" className="asset-explorer-category-list" role="group">
+        {CATEGORIES.map((value) => <Button
+          key={value.value}
+          aria-pressed={category === value.value}
+          fullWidth
+          justify="flex-start"
+          size="xs"
+          variant={category === value.value ? 'filled' : 'subtle'}
+          onClick={() => setCategory(value.value)}
+        >{value.label}</Button>)}
+      </div>
+      <div className="asset-explorer-filter-bar">
+        <TextInput
+          aria-label="Search assets"
+          placeholder="Search…"
+          value={search}
+          onChange={(event) => setSearch(event.currentTarget.value)}
+        />
+        <Popover position="right-start" shadow="md" width={420} withinPortal>
+          <Popover.Target>
+            <Button aria-label="Open asset filters" size="sm" variant="default">
+              {filterCount ? `Filters (${filterCount})` : 'Filters'}
+            </Button>
+          </Popover.Target>
+          <Popover.Dropdown>
+            <div className="asset-explorer-filter-grid">
+              <Select aria-label="Filter assets by game" clearable data={facets.games} label="Game"
+                value={filters.game ?? null} onChange={(game) => setFilters((value) => ({ ...value, game: game || undefined }))} />
+              <Select aria-label="Filter assets by level" clearable data={facets.levels.map((level) => ({
+                value: level,
+                label: (filters.game ?? project.target.game) === 'UYA' ? formatUyaLevelLabel(level) : level,
+              }))} label="Level"
+                value={filters.level ?? null} onChange={(level) => setFilters((value) => ({ ...value, level: level || undefined }))} />
+              <Select aria-label="Filter assets by region" clearable data={facets.regions} label="Region"
+                value={filters.region ?? null} onChange={(region) => setFilters((value) => ({ ...value, region: region || undefined }))} />
+              <Select aria-label="Filter assets by revision" clearable data={facets.revisions} label="Revision"
+                value={filters.revision ?? null}
+                onChange={(revision) => setFilters((value) => ({ ...value, revision: revision || undefined }))} />
+              <MultiSelect aria-label="Filter assets by tags" clearable data={facets.tags} label="Tags" searchable
+                value={filters.tags ?? []} onChange={(tags) => setFilters((value) => ({ ...value, tags }))} />
+              <Button disabled={!filterCount && !search} size="xs" variant="subtle" onClick={clearFilters}>Clear all</Button>
+            </div>
+          </Popover.Dropdown>
+        </Popover>
+      </div>
+      {error && <Alert color="red" title="Could not load assets">
+        <Text size="sm">{error}</Text>
+        <Button mt="xs" size="compact-xs" variant="light" onClick={() => void loadPage(
+          category, querySearch, filters, nextCursor, items.length > 0, generation.current,
+        )}>Retry</Button>
+      </Alert>}
     </div>
-    {error && <Alert color="red" title="Could not load assets">
-      <Text size="sm">{error}</Text>
-      <Button mt="xs" size="compact-xs" variant="light" onClick={() => void loadPage(
-        category, querySearch, filters, nextCursor, items.length > 0, generation.current,
-      )}>Retry</Button>
-    </Alert>}
     <div className="asset-explorer-grid-scroll" ref={setScrollElement}>
       <div
         aria-label={`${CATEGORIES.find((value) => value.value === category)?.label ?? 'Asset'} results`}
@@ -258,19 +253,19 @@ export function AssetExplorerPanel() {
               color={assetCategoryColor(family.category, sceneTreeColors)}
               family={family}
               root={scrollElement}
-              runtime={thumbnails}
+              runtime={assetThumbnails}
               onActivate={() => inspectAsset(family)}
             />
           </div>;
         })}
       </div>
-      {!items.length && !loading && !error && <Text c="dimmed" className="editor-empty">No assets found.</Text>}
+      {!families.length && !loading && !error && <Text c="dimmed" className="editor-empty">No assets found.</Text>}
       {loading && <Text c="dimmed" className="asset-explorer-loading" role="status">Loading assets…</Text>}
     </div>
   </section>;
 }
 
-function AssetCard({ color, family, root, runtime, onActivate }: {
+export function AssetCard({ color, family, root, runtime, onActivate }: {
   color: string;
   family: AssetExplorerFamily;
   root: HTMLElement | null;
@@ -283,6 +278,7 @@ function AssetCard({ color, family, root, runtime, onActivate }: {
   const [thumbnail, setThumbnail] = useState<string>();
   const [failure, setFailure] = useState<'none' | 'meshless' | 'unavailable'>('none');
   const kind = previewKind(item);
+  const customModel = item.tags.includes('custom-model');
   useEffect(() => {
     setThumbnail(undefined);
     setFailure('none');
@@ -291,7 +287,14 @@ function AssetCard({ color, family, root, runtime, onActivate }: {
     const observer = new IntersectionObserver((entries) => {
       if (!entries.some((entry) => entry.isIntersecting)) return;
       observer.disconnect();
-      void runtime.get(item.assetId, kind, item.shellIndex, cancellation.signal)
+      void runtime.get(
+        item.assetId,
+        kind,
+        item.shellIndex,
+        cancellation.signal,
+        customModel ? 'thumbnail' : undefined,
+        item.previewRevision,
+      )
         .then(setThumbnail)
         .catch((cause: unknown) => {
           if (cause instanceof DOMException && cause.name === 'AbortError') return;
@@ -303,12 +306,14 @@ function AssetCard({ color, family, root, runtime, onActivate }: {
       observer.disconnect();
       cancellation.abort();
     };
-  }, [item.assetId, item.previewState, item.shellIndex, kind, root, runtime]);
+  }, [customModel, item.assetId, item.previewRevision, item.previewState, item.shellIndex, kind, root, runtime]);
 
   const previewLabel = item.previewState === 'missingBlob' ? 'Blob missing'
     : failure === 'unavailable' || runtime === null || !kind ? 'Preview unavailable'
       : thumbnail ? '' : 'Preview waiting';
-  const draggable = item.canPlace && kind !== undefined
+  const skyCapacityError = kind === 'sky' && item.placementDisabledReason?.startsWith('Maximum of 8 sky shells reached.')
+    ? item.placementDisabledReason : undefined;
+  const draggable = (item.canPlace || skyCapacityError !== undefined) && kind !== undefined
     && (kind === 'sky' ? item.shellIndex !== undefined : family.classId !== undefined && kind !== 'texture');
   const texture = kind === 'texture';
   return <button
@@ -324,7 +329,7 @@ function AssetCard({ color, family, root, runtime, onActivate }: {
       }
       event.dataTransfer.effectAllowed = 'copy';
       const payload = kind === 'sky'
-        ? { assetId: item.assetId, kind, shellIndex: item.shellIndex }
+        ? { assetId: item.assetId, kind, shellIndex: item.shellIndex, dropError: skyCapacityError }
         : { assetId: item.assetId, kind, classId: family.classId };
       event.dataTransfer.setData(ASSET_PLACEMENT_MIME, JSON.stringify(payload));
       if (kind === 'sky') event.dataTransfer.setData(SKY_SHELL_PLACEMENT_MIME, '1');

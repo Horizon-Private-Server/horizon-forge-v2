@@ -63,6 +63,16 @@ public sealed partial class EditorRuntime
                 or EditorCommandKind.AddGroupMembers or EditorCommandKind.RemoveGroupMembers)
             && command.GroupEdit is not null)
             throw new ArgumentException("Only group commands can contain a group edit.", nameof(command));
+        if (command.Kind is not (EditorCommandKind.ImportCustomTie or EditorCommandKind.ReimportCustomTie
+                or EditorCommandKind.DeleteCustomTie)
+            && command.CustomModelEdit is not null)
+            throw new ArgumentException("Only custom TIE commands can contain a custom model edit.", nameof(command));
+        if (command.CustomModelEdit?.Import is { } import
+            && (string.IsNullOrWhiteSpace(import.SourceName) || import.SourceBytes is not { Length: > 0 }
+                || import.Dependencies is null
+                || import.Dependencies.Any(file => file is null
+                    || string.IsNullOrWhiteSpace(file.Uri) || file.Bytes is null)))
+            throw new ArgumentException("Custom TIE import data is invalid.", nameof(command));
         var locked = workspace.Content.Entities
             .Where(entity => entity.State?.Locked == true)
             .Select(entity => entity.EntityId)
@@ -111,7 +121,8 @@ public sealed partial class EditorRuntime
                 or EditorCommandKind.SetEntityReference
                 or EditorCommandKind.SetMobyInstanceProperty
                 or EditorCommandKind.InitializeMobyPVar
-                or EditorCommandKind.SetMobyPVarField)
+                or EditorCommandKind.SetMobyPVarField
+                or EditorCommandKind.ReimportCustomTie)
             throw new ArgumentException("Locked entities cannot be modified.", nameof(command));
         if (command.EntityIds.Any(locked.Contains)
             && command.Kind == EditorCommandKind.SetEntityState
@@ -413,6 +424,22 @@ public sealed partial class EditorRuntime
                 || HasNonGroupCommandData(command, allowText: false)
                 || !workspace.Content.Groups.Any(group => group.GroupId == command.GroupEdit.GroupId):
                 throw new ArgumentException("Group membership commands require an existing group and entities.", nameof(command));
+            case EditorCommandKind.ImportCustomTie when command.EntityIds.Count != 0
+                || HasNonCustomModelCommandData(command)
+                || command.CustomModelEdit is not { ModelAssetId: null, Import: not null }:
+                throw new ArgumentException("Custom TIE import commands require only import data.", nameof(command));
+            case EditorCommandKind.ReimportCustomTie when HasNonCustomModelCommandData(command)
+                || command.CustomModelEdit is not { ModelAssetId: not null, Import: not null } reimport
+                || !workspace.Content.CustomModels.Models.Any(
+                    model => model.Canonical.Id == reimport.ModelAssetId):
+                throw new ArgumentException(
+                    "Custom TIE reimport commands require an existing model and import data.", nameof(command));
+            case EditorCommandKind.DeleteCustomTie when command.EntityIds.Count != 0
+                || HasNonCustomModelCommandData(command)
+                || command.CustomModelEdit is not { ModelAssetId: not null, Import: null } removal
+                || !workspace.Content.CustomModels.Models.Any(
+                    model => model.Canonical.Id == removal.ModelAssetId):
+                throw new ArgumentException("Custom TIE delete commands require only an existing model.", nameof(command));
         }
         if (command.Kind is EditorCommandKind.UpdateTransform or EditorCommandKind.UpdateTransforms)
         {
@@ -449,6 +476,11 @@ public sealed partial class EditorRuntime
         HasCommonCommandData(command, allowText)
         || command.HudEdit is not null || command.FxEdit is not null
         || command.MobyPropertyEdit is not null || command.MobyDexEdit is not null || command.MobyPVarEdit is not null;
+
+    private static bool HasNonCustomModelCommandData(EditorCommand command) =>
+        HasCommonCommandData(command) || command.HudEdit is not null || command.FxEdit is not null
+        || command.MobyPropertyEdit is not null || command.MobyDexEdit is not null
+        || command.MobyPVarEdit is not null || command.GroupEdit is not null;
 
     private static bool HasCommonCommandData(EditorCommand command, bool allowText = false) =>
         command.Transform is not null || !allowText && command.Text is not null || command.State is not null

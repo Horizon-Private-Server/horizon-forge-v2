@@ -74,6 +74,7 @@ them in a milestone-wide task register would split one implementation plan:
 - [UYA moby instance contract v0](../features/uya-moby-instance-contract-v0.md) — M9-001 through M9-003
 - [MobyDex entry schema v1](../features/mobydex-v1.md) — M9-004 onward
 - [Updater package and install contract v1](../features/updater-package-contract-v1.md) — M13-001 onward
+- [UYA custom TIE class contract v1](../features/uya-custom-tie-class-contract-v1.md) — M14-001 onward
 
 ## Task conventions
 

@@ -306,7 +306,8 @@ internal static class ProjectBridgeHandlers
             return (false,
                 $"The shell is not compatible with {request.TargetGame} {request.TargetRegion} {request.TargetRevision}.");
         if (request.CurrentSkyShellCount >= SkyboxFormat.MaxShellCount)
-            return (false, $"UYA skyboxes support at most {SkyboxFormat.MaxShellCount} shells.");
+            return (false, $"Maximum of {SkyboxFormat.MaxShellCount} sky shells reached. " +
+                "Delete an existing shell before adding another.");
         return (true, null);
     }
 

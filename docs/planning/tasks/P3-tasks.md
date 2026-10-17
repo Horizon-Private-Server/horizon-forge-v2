@@ -10,7 +10,7 @@ them. Unless marked complete, every task is `not-started`.
 
 | Milestone | Status | Gate |
 | --- | --- | --- |
-| M14 — Custom TIE pipeline | ⏳ Not started | M14-001 through M14-007 |
+| M14 — Custom TIE pipeline | 🚧 In progress | M14-007 |
 | M15 — Sound banks | ⏳ Not started | M15-001 through M15-006 |
 | M16 — Cross-map import | ⏳ Not started | M16-001 through M16-009 |
 | M17 — Moby simulations | ⏳ Not started | M17-001 through M17-005 |
@@ -20,6 +20,8 @@ them. Unless marked complete, every task is `not-started`.
 ## M14 — Custom TIE asset pipeline
 
 ### M14-001 — Freeze custom identity, class-ID, and P1 migration contracts
+
+Status: ✅ Complete
 
 Requirements: FR-CUSTOM-004, NFR-P3-001, NFR-P3-003
 Depends on: M7-002, M7-004, P1-004
@@ -41,7 +43,19 @@ Acceptance:
 Verification: corpus inventory hashes, boundary/sentinel/duplicate/exhaustion fixtures,
 schema round trip, and planning-link check.
 
+Implementation: [`uya-custom-tie-class-contract-v1.md`](../../features/uya-custom-tie-class-contract-v1.md)
+freezes the four native rewrite locations and the `0x9000`–`0xFFFF` namespace. Project
+schema 20 persists a versioned Asset-ID-to-class registry with origin provenance;
+deterministic allocation reuses identical content, preserves free donor slots, remaps
+conflicts to the lowest free slot, and rejects ambiguous donors or exhaustion atomically.
+The hashed 45-level NTSC-U corpus inventory contains 1,662 distinct TIE classes through
+`0x1FFE` and no custom-range use. Fixtures cover `0xFFFF`, reuse, donor conflicts,
+input-order determinism, exhaustion, validation, cleanup retention, migration, and
+save/reopen round trip.
+
 ### M14-002 — Implement bounded GLB/glTF canonical import in the SDK
+
+Status: ✅ Complete
 
 Requirements: FR-CUSTOM-005, NFR-P3-003, NFR-P3-004
 Depends on: M14-001
@@ -63,7 +77,20 @@ Acceptance:
 Verification: authored valid matrix, malformed/adversarial corpus, sidecar traversal,
 allocation-bound, cancellation, platform-determinism, and canonical snapshot tests.
 
+Implementation: the linked Ratchet PS2 SDK now provides a browser-safe, byte-oriented
+`StaticModelGltfImporter` and versioned `HFSM` canonical codec. It supports the
+documented static triangle profile, explicit local sidecars, baked node transforms,
+PNG-to-RGBA textures, deterministic bounds/material/provenance records, and bounded
+container/accessor/image/allocation checks without filesystem or network access. The
+focused .NET corpus covers GLB and glTF equivalence, traversal and malformed input,
+limits, cancellation, transforms, materials, and the frozen canonical SHA-256
+`a053be57678ce6ca4954d1e3b0e6741aa1afff85fc62b13728301c2f0c5a26eb`; a checked-in
+generated-TypeScript test produces the same hash. The supported profile and host flow
+are recorded in the SDK's `docs/STATIC_MODEL_IMPORT.md`.
+
 ### M14-003 — Convert canonical static models into UYA TIE structures
+
+Status: ✅ Complete
 
 Requirements: FR-CUSTOM-006, NFR-P3-001
 Depends on: M14-002, P1-004, M3A-006
@@ -85,7 +112,30 @@ Acceptance:
 Verification: minimal, shared-texture, multi-primitive, transformed-node, boundary,
 malformed, cancellation, determinism, and semantic re-read SDK tests.
 
+Implementation: the linked Ratchet PS2 SDK now exposes the game-neutral
+`StaticModelConverter`, dispatching UYA conversion to a game-owned composer. The
+composer preflights native limits, emits retail-shaped packet/shader/normal/remap and
+quantized-bound structures, jointly optimizes indexed8 palettes, content-addresses and
+deduplicates effective PIF textures, and returns stable source-to-native primitive and
+material bindings. Only native LOD0 contains authored geometry; LOD1 and LOD2 remain
+disabled until the later LOD work. Adjacent triangles normally share the exact retail
+four-token strip shape; models near the runtime packet/remap ceiling use a compact
+six-token fallback. Unpaired triangles use a degenerate final slot, up to 15 strips
+are batched per retail-shaped packet, and normal/RGBA remaps are split into
+packet-sized groups with a terminating zero header entry. Packet vertex rows follow retail reverse-strip storage order.
+Normal remap targets follow physical upload rows and stored lighting vectors use the
+runtime's inward-facing convention.
+Fixed bounds storage and RGBA cache sizing
+are retained. Before returning, the SDK semantically re-reads
+every generated TIE and PIF and checks topology, quantized positions/UVs, normal
+remaps, draw-state/material mappings, and byte stability. Focused fixtures cover the
+required happy paths, boundaries, malformed inputs, cancellation, determinism, and
+the frozen native SHA-256
+`39CBC7CCBB1B6EEF16D9D86729D8E9E02DC81299A7427BF325CBA138867B3EA0`.
+
 ### M14-004 — Attach custom models and allocate project-native classes
+
+Status: ✅ Complete
 
 Requirements: FR-CUSTOM-004, FR-CUSTOM-005, FR-ASSET-007, NFR-P3-004
 Depends on: M14-001, M14-002, M14-003
@@ -106,7 +156,22 @@ Acceptance:
 Verification: command/history/recovery/cleanup, shared texture, path removal,
 integrity-corruption, reimport, delete blocker, and Linux↔Windows ZIP fixtures.
 
+Implementation: project schema 20 now persists bounded custom-model source,
+sidecar, canonical TIE, native-envelope, texture, material-binding, and diagnostic
+records in the existing attached-asset store. Import and reimport perform conversion
+before one rollback-safe blob/metadata commit, allocate stable `0x9000+` classes, and
+retarget only explicitly named instances. Import/reimport/delete are undoable editor
+commands carried by the validated bridge payload. Delete produces an exact instance
+and asset-dependent report; imported class tombstones and immutable blobs remain
+protected by active recovery snapshots and are released by ordinary cleanup only
+after those references disappear. Focused fixtures cover cancellation/failure
+atomicity, undo/redo, selective reimport, shared texture reuse, source-path removal,
+ZIP reopen, native-envelope integrity corruption, delete blockers, recovery retention,
+and final cleanup.
+
 ### M14-005 — Add source-versus-target model preview
+
+Status: ✅ Complete
 
 Requirements: FR-CUSTOM-006, NFR-P3-005, NFR-P3-006
 Depends on: M14-003, M14-004
@@ -127,7 +192,21 @@ Acceptance:
 Verification: component/accessibility tests, mapping snapshots, visual authored
 fixtures, repeated-open resource profile, cancellation, and debug export re-open.
 
+Implementation: project custom-model metadata now retains source bounds, native
+primitive/material/triangle/packet mappings, target counts, palette counts, LOD policy,
+and conversion diagnostics. Asset Preview exposes keyboard-accessible source/canonical
+and native-target views; the target is rebuilt by semantically reading the stored native
+TIE through the SDK frontend exporter. Preview packages are cancellation-aware,
+content-keyed, atomically cached without retaining model bytes in process, and reuse the
+existing bounded preview scheduler and explicit Three.js/GPU disposal lifecycle. A
+deterministic self-contained diagnostic GLB embeds the mapping and non-authoritative
+semantic notice. Tests cover metadata boundary validation, both view packages, cache
+reuse, mapping serialization, deterministic GLB bytes, and GLB JSON re-open; existing
+preview cancellation and repeated-disposal resource tests remain green.
+
 ### M14-006 — Place, edit, and bake custom TIE instances
+
+Status: ✅ Complete
 
 Requirements: FR-CUSTOM-007, FR-CUSTOM-004, FR-BAKE-002, NFR-P3-001
 Depends on: M14-004, M14-005, M12-007
@@ -148,6 +227,19 @@ Acceptance:
 
 Verification: two-instance transform/group/collision fixtures, fingerprint tests,
 class conflict/capacity failures, deterministic composition, and packed semantic read.
+
+Implementation: project custom models appear as placeable TIE families in Asset Explorer,
+with a native GLB/glTF chooser that embeds bounded local sidecars. Placement uses the
+persisted custom class allocation and the ordinary entity/history/group/state lifecycle;
+scene preview and collision inspection read the verified converted native TIE. Properties
+show the source and stable IDs, converted counts against native limits, collision state,
+and conservative always-visible status. Static staging materializes one transient canonical
+definition per custom class, reuses it for every instance, participates in TIE fingerprints,
+and flows through the existing SDK static-asset composer and semantic validation. Reimport
+atomically rewrites explicitly selected dependents to the new persisted class and compatible
+lighting layout. Tests cover two placed/edited/grouped instances, collision source inspection,
+single-definition staging, isolated static-layer invalidation, deterministic output, failed
+stage retention, class capacity/conflicts, SDK composition, and packed definition re-read.
 
 ### M14-007 — Qualify the custom TIE pipeline end to end
 

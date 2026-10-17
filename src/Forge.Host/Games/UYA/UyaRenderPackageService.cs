@@ -13,7 +13,7 @@ namespace Forge.Host.Games.UYA;
 
 public static class UyaRenderPackageService
 {
-    public const int SchemaVersion = 9;
+    public const int SchemaVersion = 10;
     private const string MarkerName = ".forge-render-package.json";
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
@@ -329,11 +329,27 @@ public static class UyaRenderPackageService
                      .Distinct()
                      .OrderBy(reference => reference.Id.ToString(), StringComparer.Ordinal))
         {
+            var custom = reference.Kind == AssetKind.Tie
+                ? workspace.Content.CustomModels.Models.SingleOrDefault(model => model.Canonical == reference)
+                : null;
+            if (custom is not null)
+            {
+                result.Add(new(
+                    reference.Id,
+                    reference.Id,
+                    reference.Kind,
+                    ProjectCustomModelSchema.CanonicalFormatVersion,
+                    0,
+                    null,
+                    await UyaCustomTiePreviewService.BuildTargetAsync(workspace, custom, cancellationToken),
+                    null));
+                continue;
+            }
             var resolved = workspace.ResolveAsset(reference, catalog);
             result.Add(resolved is null
-                ? new(reference.Id, reference.Id, reference.Kind, 0, 0, null, "Asset blob is missing.")
+                ? new(reference.Id, reference.Id, reference.Kind, 0, 0, null, null, "Asset blob is missing.")
                 : new(reference.Id, resolved.Effective.Id, reference.Kind, resolved.CanonicalFormatVersion,
-                    resolved.Size, resolved.Path, null));
+                    resolved.Size, resolved.Path, null, null));
         }
         return result;
     }
@@ -351,9 +367,13 @@ public static class UyaRenderPackageService
             try
             {
                 if (asset.Error is not null) throw new InvalidDataException(asset.Error);
-                if (asset.Path is null) throw new FileNotFoundException("Asset blob is missing.");
-                var package = await BuildAssetPackageAsync(
-                    asset.BlobId, asset.Kind, asset.CanonicalFormatVersion, asset.Size, asset.Path, cancellationToken);
+                var package = asset.Package;
+                if (package is null)
+                {
+                    if (asset.Path is null) throw new FileNotFoundException("Asset blob is missing.");
+                    package = await BuildAssetPackageAsync(
+                        asset.BlobId, asset.Kind, asset.CanonicalFormatVersion, asset.Size, asset.Path, cancellationToken);
+                }
                 result.Add(new(asset.Id, asset.Kind, package, null));
             }
             catch (Exception exception) when (exception is ArgumentException
@@ -478,6 +498,7 @@ public static class UyaRenderPackageService
         uint CanonicalFormatVersion,
         long Size,
         string? Path,
+        PackedFilePackage? Package,
         string? Error);
     private sealed record BuiltAsset(AssetId Id, AssetKind Kind, PackedFilePackage? Package, string? Error);
 }

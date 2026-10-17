@@ -14,6 +14,7 @@ export const EDITOR_PANELS = {
   diagnostics: { component: 'diagnostics', title: 'Diagnostics' },
   build: { component: 'build', title: 'Build' },
   assetExplorer: { component: 'assetExplorer', title: 'Asset Explorer' },
+  customAssets: { component: 'customAssets', title: 'Custom Assets' },
   assetPreview: { component: 'assetPreview', title: 'Asset Preview' },
   hudBank: { component: 'hudBank', title: 'HUD Bank' },
   fxTextures: { component: 'fxTextures', title: 'FX Textures' },
@@ -91,6 +92,10 @@ export function createDefaultEditorLayout(api: DockviewApi): void {
     id: 'assetExplorer', ...EDITOR_PANELS.assetExplorer,
     position: { referencePanel: 'diagnostics', direction: 'within' },
   });
+  api.addPanel({
+    id: 'customAssets', ...EDITOR_PANELS.customAssets,
+    position: { referencePanel: 'assetExplorer', direction: 'within' }, inactive: true,
+  });
 }
 
 export function showEditorPanel(api: DockviewApi, id: EditorPanelId): void {
@@ -121,8 +126,9 @@ export function showEditorPanel(api: DockviewApi, id: EditorPanelId): void {
     api.addPanel({ id, ...definition, position: { referencePanel: properties.id, direction: 'within' } });
     return;
   }
-  const bottomPanel = id === 'assetExplorer' ? api.getPanel('diagnostics')
-    : id === 'diagnostics' ? api.getPanel('assetExplorer') : undefined;
+  const bottomPanel = id === 'assetExplorer' ? api.getPanel('diagnostics') ?? api.getPanel('customAssets')
+    : id === 'customAssets' ? api.getPanel('assetExplorer') ?? api.getPanel('diagnostics')
+      : id === 'diagnostics' ? api.getPanel('assetExplorer') ?? api.getPanel('customAssets') : undefined;
   if (bottomPanel) {
     api.addPanel({ id, ...definition, position: { referencePanel: bottomPanel.id, direction: 'within' } });
     return;
@@ -161,6 +167,7 @@ export function panelForLayoutAction(action: Exclude<EditorLayoutAction, 'resetL
     showDiagnostics: 'diagnostics',
     showBuild: 'build',
     showAssetExplorer: 'assetExplorer',
+    showCustomAssets: 'customAssets',
     showAssetPreview: 'assetPreview',
     showHudBank: 'hudBank',
     showFxTextures: 'fxTextures',
@@ -171,7 +178,7 @@ export function panelForLayoutAction(action: Exclude<EditorLayoutAction, 'resetL
 function panelDirection(id: Exclude<EditorPanelId, 'viewport'>): 'left' | 'right' | 'below' {
   if (id === 'hudBank' || id === 'fxTextures') return 'below';
   if (id === 'sceneTree' || id === 'groups') return 'left';
-  if (id === 'assetExplorer') return 'left';
+  if (id === 'assetExplorer' || id === 'customAssets') return 'left';
   if (id === 'assetPreview' || id === 'references') return 'right';
   if (id === 'properties') return 'right';
   return 'below';

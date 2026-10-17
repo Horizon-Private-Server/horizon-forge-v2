@@ -12,7 +12,7 @@ namespace Forge.Host.Games.UYA;
 
 public static class UyaAssetPreviewService
 {
-    public const int SchemaVersion = 1;
+    public const int SchemaVersion = 3;
     private const int TextureRasterSchemaVersion = 2;
     private const int SkyRenderSchemaVersion = 2;
     private const int CollisionRenderSchemaVersion = 2;
@@ -27,12 +27,15 @@ public static class UyaAssetPreviewService
     public static async Task<AssetPreviewResult> PrepareAsync(
         AssetPreviewRequest request,
         string sdkRevision,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        ForgeProjectWorkspace? projectWorkspace = null)
     {
         Validate(request, sdkRevision);
-        var cacheKey = CreateCacheKey(request, sdkRevision);
+        var cacheRevision = await ResolveCacheRevisionAsync(
+            request, sdkRevision, projectWorkspace, cancellationToken);
+        var cacheKey = CreateCacheKey(request, cacheRevision);
         var target = Path.Combine(Path.GetFullPath(request.CacheRootPath), cacheKey);
-        var cached = await TryOpenAsync(target, request, sdkRevision, cancellationToken);
+        var cached = await TryOpenAsync(target, request, cacheRevision, cancellationToken);
         if (cached is not null) return cached with { CacheHit = true };
         var catalog = await OpenCatalogAsync(request.CatalogRootPath, cancellationToken);
         var entry = catalog.Query(new(Id: request.AssetId)).SingleOrDefault();
@@ -51,6 +54,15 @@ public static class UyaAssetPreviewService
                 cancellationToken),
             null when request.Kind == AssetKind.Texture && !string.IsNullOrWhiteSpace(request.ProjectPath) =>
                 await BuildProjectTexturePackageAsync(request, cancellationToken),
+            null when request.Kind == AssetKind.Tie
+                    && !string.IsNullOrWhiteSpace(request.ProjectPath) =>
+                await UyaCustomTiePreviewService.BuildAsync(
+                    projectWorkspace ?? await ForgeProjectWorkspace.OpenAsync(
+                        request.ProjectPath, cancellationToken),
+                    request.AssetId,
+                    request.ViewPreset == "custom-source",
+                    request.ViewPreset != "custom-thumbnail",
+                    cancellationToken),
             null => throw new InvalidDataException($"Asset {request.AssetId} is not present in the catalog or active project."),
             _ => await UyaRenderPackageService.BuildAssetPackageAsync(
                 entry.Id,
@@ -60,7 +72,23 @@ public static class UyaAssetPreviewService
                 catalog.ResolveBlobPath(entry.Id) ?? throw new FileNotFoundException("Asset blob is missing."),
                 cancellationToken),
         };
-        return await MaterializeAsync(request, sdkRevision, package, cancellationToken);
+        return await MaterializeAsync(request, cacheRevision, package, cancellationToken);
+    }
+
+    private static async Task<string> ResolveCacheRevisionAsync(
+        AssetPreviewRequest request,
+        string sdkRevision,
+        ForgeProjectWorkspace? projectWorkspace,
+        CancellationToken cancellationToken)
+    {
+        if (request.Kind != AssetKind.Tie
+            || string.IsNullOrWhiteSpace(request.ProjectPath))
+            return sdkRevision;
+        var workspace = projectWorkspace
+            ?? await ForgeProjectWorkspace.OpenAsync(request.ProjectPath, cancellationToken);
+        var nativeId = workspace.Content.CustomModels.Models
+            .SingleOrDefault(model => model.Canonical.Id == request.AssetId)?.Native.Id;
+        return nativeId is null ? sdkRevision : $"{sdkRevision}:{nativeId}";
     }
 
     internal static async Task<AssetPreviewResult> MaterializeAsync(
@@ -87,6 +115,10 @@ public static class UyaAssetPreviewService
             var previewPath = request.Kind == AssetKind.Texture ? "texture.png" : "model.gltf";
             if (entries.Count(entry => entry.Path == previewPath) != 1)
                 throw new InvalidDataException($"Asset preview package must contain {previewPath}.");
+            var detailsPath = entries.Any(entry => entry.Path == "preview-details.json")
+                ? "preview-details.json" : null;
+            var diagnosticGlbPath = entries.Any(entry => entry.Path == "diagnostic-target.glb")
+                ? "diagnostic-target.glb" : null;
             Directory.CreateDirectory(cacheRoot);
             var partial = Path.Combine(cacheRoot, $".{cacheKey}.{Guid.NewGuid():N}.partial");
             Directory.CreateDirectory(partial);
@@ -111,7 +143,9 @@ public static class UyaAssetPreviewService
                     request.ViewPreset,
                     sdkRevision,
                     entries.Select(entry => new CacheFile(entry.Path, entry.Length)).ToArray(),
-                    previewPath);
+                    previewPath,
+                    detailsPath,
+                    diagnosticGlbPath);
                 await File.WriteAllBytesAsync(
                     Path.Combine(partial, MarkerName),
                     JsonSerializer.SerializeToUtf8Bytes(marker, JsonOptions),
@@ -119,7 +153,9 @@ public static class UyaAssetPreviewService
                 cancellationToken.ThrowIfCancellationRequested();
                 if (Directory.Exists(target)) Directory.Delete(target, recursive: true);
                 Directory.Move(partial, target);
-                return new(target, cacheKey, marker.ModelPath, false);
+                return new(
+                    target, cacheKey, marker.ModelPath, false,
+                    marker.DetailsPath, marker.DiagnosticGlbPath);
             }
             catch
             {
@@ -310,6 +346,10 @@ public static class UyaAssetPreviewService
             var files = marker.Files.ToDictionary(file => UyaRenderPackageService.NormalizeEntryPath(file.Path),
                 StringComparer.Ordinal);
             if (!files.ContainsKey(UyaRenderPackageService.NormalizeEntryPath(marker.ModelPath))) return null;
+            if (marker.DetailsPath is not null
+                && !files.ContainsKey(UyaRenderPackageService.NormalizeEntryPath(marker.DetailsPath))) return null;
+            if (marker.DiagnosticGlbPath is not null
+                && !files.ContainsKey(UyaRenderPackageService.NormalizeEntryPath(marker.DiagnosticGlbPath))) return null;
             foreach (var (path, file) in files)
             {
                 var candidate = UyaRenderPackageService.ResolveEntryPath(root, path);
@@ -328,7 +368,9 @@ public static class UyaAssetPreviewService
         {
             return null;
         }
-        return new(root, marker.CacheKey, marker.ModelPath, true);
+        return new(
+            root, marker.CacheKey, marker.ModelPath, true,
+            marker.DetailsPath, marker.DiagnosticGlbPath);
     }
 
     private static void Validate(AssetPreviewRequest request, string sdkRevision)
@@ -356,7 +398,10 @@ public static class UyaAssetPreviewService
             AssetKind.Collision => "collision-default",
             _ => "model-default",
         };
-        if (request.ViewPreset != preset)
+        if (request.ViewPreset != preset
+            && !(request.Kind == AssetKind.Tie
+                && request.ViewPreset is "custom-source" or "custom-target" or "custom-thumbnail"
+                && !string.IsNullOrWhiteSpace(request.ProjectPath)))
             throw new ArgumentException("Asset preview view preset is invalid.", nameof(request));
     }
 
@@ -369,7 +414,9 @@ public static class UyaAssetPreviewService
         string ViewPreset,
         string SdkRevision,
         IReadOnlyList<CacheFile> Files,
-        string ModelPath);
+        string ModelPath,
+        string? DetailsPath = null,
+        string? DiagnosticGlbPath = null);
 
     private sealed record CatalogCache(
         string RootPath,

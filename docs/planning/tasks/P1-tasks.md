@@ -8,7 +8,13 @@ P1-005, and P1-006 is delivered first as the constrained custom-TIE slice in
 requirements/dependencies; M14 owns new implementation issues and will update their
 completion evidence rather than creating a competing asset pipeline.
 
+M14-001 froze the exact ownership split: M14-004 completes P1-001, M14-002 completes
+P1-002, M14-003/M14-006 complete the TIE slice of P1-005, and M14-005/M14-007 complete
+the TIE slice of P1-006. P1-003/P1-004 remain the completed texture dependencies.
+
 ## P1-001 — Add project-local custom asset lifecycle
+
+Status: ✅ Complete for the M14 custom-TIE scope
 
 Requirements: FR-ASSET-005, FR-ASSET-006, NFR-PORT-001, DR-005
 Depends on: M6-007
@@ -24,6 +30,12 @@ Acceptance:
 - No global custom repository is introduced in this milestone.
 
 Verification: project move/zip round trips and custom-asset lifecycle tests.
+
+Implementation: M14-004 stores model source, sidecars, canonical/native outputs,
+textures, derived bindings, and diagnostics as project-attached immutable assets. Its
+undoable import/reimport/delete commands provide atomic rollback, explicit dependent
+retargeting, reference-complete delete reports, portable ZIP reopen, and
+recovery-aware cleanup without introducing a global custom repository.
 
 ## P1-002 — Inspect and canonicalize custom GLBs
 

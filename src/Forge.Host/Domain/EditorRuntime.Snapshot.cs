@@ -110,6 +110,12 @@ public sealed partial class EditorRuntime
             workspace.Content.LevelSettings,
             HudSnapshot(workspace),
             FxSnapshot(workspace),
+            workspace.Content.CustomModels.Models.Select(model => new EditorCustomModelSnapshot(
+                model.Canonical.Id,
+                model.Native.Id,
+                model.SourceName,
+                workspace.Content.CustomClasses.Allocations.Single(value => value.Asset == model.Canonical).ClassId,
+                model.Metadata)).ToArray(),
             entities,
             references,
             groups,

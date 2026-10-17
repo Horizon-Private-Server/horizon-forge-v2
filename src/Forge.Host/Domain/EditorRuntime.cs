@@ -19,6 +19,7 @@ public sealed partial class EditorRuntime : IAsyncDisposable
         "editor.reference.update",
         "editor.group.create", "editor.group.rename", "editor.group.delete", "editor.group.reorder",
         "editor.group.membership", "editor.group-template.preview", "editor.group-template.apply",
+        "editor.custom-tie.import", "editor.custom-tie.reimport", "editor.custom-tie.delete",
         "editor.instanced-collision.inspect", "editor.instanced-collision.preview", "editor.instanced-collision.apply", "editor.instanced-collision.remove",
         "editor.instanced-collision.toggle", "editor.instanced-collision.raw-type", "editor.instanced-collision.face-types",
     ];
@@ -47,6 +48,7 @@ public sealed partial class EditorRuntime : IAsyncDisposable
     private readonly EditorProjectOpenHydrator? _projectOpenHydrator;
     private readonly EditorMapGroupResolver? _mapGroupResolver;
     private readonly EditorGroupTemplateEvaluator? _groupTemplateEvaluator;
+    private readonly EditorCustomModelCommandExecutor? _customModelCommandExecutor;
     private readonly IReadOnlyList<EditorGroupTemplateDefinition> _groupTemplates;
     private readonly ushort _hudMinimumAppendSpriteId;
     private readonly ushort _hudMaximumAppendSpriteId;
@@ -82,7 +84,8 @@ public sealed partial class EditorRuntime : IAsyncDisposable
         EditorMapGroupResolver? mapGroupResolver = null,
         EditorSourceClassNameResolver? sourceClassNameResolver = null,
         EditorGroupTemplateEvaluator? groupTemplateEvaluator = null,
-        IReadOnlyList<EditorGroupTemplateDefinition>? groupTemplates = null)
+        IReadOnlyList<EditorGroupTemplateDefinition>? groupTemplates = null,
+        EditorCustomModelCommandExecutor? customModelCommandExecutor = null)
     {
         _placementResolver = placementResolver;
         _transformCapabilityResolver = transformCapabilityResolver;
@@ -103,6 +106,7 @@ public sealed partial class EditorRuntime : IAsyncDisposable
         _sourceClassNameResolver = sourceClassNameResolver;
         _groupTemplateEvaluator = groupTemplateEvaluator;
         _groupTemplates = NormalizeGroupTemplateDefinitions(groupTemplates ?? []);
+        _customModelCommandExecutor = customModelCommandExecutor;
     }
 
     public bool HasCapability(string capability) => RuntimeCapabilities.Contains(capability, StringComparer.Ordinal)
@@ -444,6 +448,20 @@ public sealed partial class EditorRuntime : IAsyncDisposable
                     AddEvent(EditorEventKind.ProjectChanged, command.Id, command.EntityIds, "Group members removed");
                     ScheduleAutosave();
                     break;
+                case EditorCommandKind.ImportCustomTie:
+                case EditorCommandKind.ReimportCustomTie:
+                case EditorCommandKind.DeleteCustomTie:
+                    if (_customModelCommandExecutor is null)
+                        throw new InvalidOperationException("Custom TIE editing is unavailable.");
+                    await _customModelCommandExecutor(workspace, command, cancellationToken);
+                    AddEvent(EditorEventKind.ProjectChanged, command.Id, command.EntityIds, command.Kind switch
+                    {
+                        EditorCommandKind.ImportCustomTie => "Custom TIE imported",
+                        EditorCommandKind.ReimportCustomTie => "Custom TIE reimported",
+                        _ => "Custom TIE deleted",
+                    });
+                    ScheduleAutosave();
+                    break;
                 default:
                     throw new ArgumentOutOfRangeException(nameof(command), command.Kind, "Unknown editor command");
             }
@@ -729,6 +747,8 @@ public sealed partial class EditorRuntime : IAsyncDisposable
         + (command.HudEdit?.ImageBytes?.LongLength ?? 0)
         + (command.FxEdit?.ImageBytes?.LongLength ?? 0)
         + (command.MobyDexEdit?.EntryJson?.LongLength ?? 0)
+        + (command.CustomModelEdit?.Import?.SourceBytes.LongLength ?? 0)
+        + (command.CustomModelEdit?.Import?.Dependencies.Sum(file => (long)file.Bytes.LongLength) ?? 0)
         + (command.Text?.Length ?? 0) * sizeof(char);
 
     private static HashSet<AssetId> FindMissingAssets(ForgeProjectWorkspace workspace, AssetCatalogStore catalog) =>

@@ -1,14 +1,14 @@
 import { app, dialog, ipcMain, shell } from 'electron';
 import type { BrowserWindow } from 'electron';
-import { mkdir, open } from 'node:fs/promises';
+import { mkdir, open, readFile, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 
-import type { AssetExplorerQuery, ProjectHubState } from '../types/ForgeApi.js';
+import type { AssetExplorerQuery, EditorCustomModelImport, ProjectHubState } from '../types/ForgeApi.js';
 import { safeProjectDirectoryName } from '../utils/ApplicationPaths.js';
 import { showOpenDialog, showSaveDialog } from '../utils/ElectronDialogs.js';
 import { errorMessage } from '../utils/Errors.js';
 import { availableBytes, fileExists, writeJsonSafely } from '../utils/FileSystem.js';
-import { isTrustedSender } from '../utils/Security.js';
+import { isPathInside, isTrustedSender } from '../utils/Security.js';
 import type { RecentProjects } from './RecentProjects.js';
 import type { NotificationCenter } from './NotificationCenter.js';
 import { registerNotificationIpcHandlers } from './NotificationIpcHandlers.js';
@@ -34,6 +34,9 @@ interface IpcHandlersOptions {
 
 const uyaImportVersion = 2;
 const maximumMobyDexDatasetBytes = 16 * 1024 * 1024;
+const maximumCustomModelDocumentBytes = 16 * 1024 * 1024;
+const maximumCustomModelDependencyBytes = 64 * 1024 * 1024;
+const maximumCustomModelTotalDependencyBytes = 256 * 1024 * 1024;
 
 export function registerIpcHandlers(options: IpcHandlersOptions): void {
   const { host, notifications, recentProjects, settings, updates, renderAssets, getMainWindow } = options;
@@ -79,12 +82,25 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
     renderAssets,
     getEditorTargetGame: () => getActiveEditorSnapshot()?.target.game,
     getEditorProjectPath: () => getActiveEditorSnapshot()?.projectPath,
+    getMainWindow,
     assertSender,
   });
   registerBuildIpcHandlers({ host, settings, getMainWindow, assertSender });
   registerWindowIpcHandlers({ getMainWindow, assertSender });
   registerNotificationIpcHandlers(notifications, assertSender);
   registerUpdateIpcHandlers(updates, settings, assertSender);
+
+  ipcMain.handle('forge:custom-tie-choose-import', async (event, forceBackfaceCulling: unknown) => {
+    assertSender(event.sender.id);
+    if (typeof forceBackfaceCulling !== 'boolean') throw new TypeError('Invalid custom TIE culling option.');
+    const selection = await showOpenDialog(getMainWindow(), {
+      title: 'Import custom TIE model',
+      properties: ['openFile'],
+      filters: [{ name: 'glTF model', extensions: ['gltf', 'glb'] }],
+    });
+    if (selection.canceled || selection.filePaths.length !== 1) return undefined;
+    return readCustomModelImport(selection.filePaths[0], forceBackfaceCulling);
+  });
 
   async function getSettingValues(): Promise<Record<string, string | number | boolean>> {
     const snapshot = await settings.getSnapshot();
@@ -555,6 +571,65 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
     const message = await shell.openPath(settings.paths.logs);
     if (message) throw new Error(message);
   });
+}
+
+async function readCustomModelImport(
+  sourcePath: string,
+  forceBackfaceCulling: boolean,
+): Promise<EditorCustomModelImport> {
+  const sourceInfo = await stat(sourcePath);
+  if (!sourceInfo.isFile() || sourceInfo.size <= 0 || sourceInfo.size > maximumCustomModelDocumentBytes)
+    throw new Error('Custom model source must be a non-empty GLB/glTF file no larger than 16 MiB.');
+  const sourceBytes = await readFile(sourcePath);
+  const document = parseGltfDocument(sourceBytes);
+  const uris = [...new Set([
+    ...arrayRecords(document.buffers).map((value) => value.uri),
+    ...arrayRecords(document.images).map((value) => value.uri),
+  ].filter((value): value is string => typeof value === 'string' && !value.startsWith('data:')))];
+  const sourceRoot = await realpath(path.dirname(sourcePath));
+  const dependencies: EditorCustomModelImport['dependencies'] = [];
+  let totalBytes = 0;
+  for (const uri of uris) {
+    if (/^[a-z][a-z0-9+.-]*:/i.test(uri) || uri.includes('?') || uri.includes('#') || uri.includes('\\'))
+      throw new Error(`Custom model dependency URI is not a local portable path: ${uri}`);
+    let relative: string;
+    try { relative = decodeURIComponent(uri); }
+    catch { throw new Error(`Custom model dependency URI is invalid: ${uri}`); }
+    if (!relative || path.isAbsolute(relative)) throw new Error(`Custom model dependency URI is invalid: ${uri}`);
+    const dependencyPath = await realpath(path.resolve(sourceRoot, relative));
+    if (!isPathInside(sourceRoot, dependencyPath))
+      throw new Error(`Custom model dependency escapes the source directory: ${uri}`);
+    const info = await stat(dependencyPath);
+    if (!info.isFile() || info.size <= 0 || info.size > maximumCustomModelDependencyBytes)
+      throw new Error(`Custom model dependency has an invalid size: ${uri}`);
+    totalBytes += info.size;
+    if (totalBytes > maximumCustomModelTotalDependencyBytes)
+      throw new Error('Custom model dependencies exceed the 256 MiB import limit.');
+    dependencies.push({ uri, bytes: await readFile(dependencyPath) });
+  }
+  return { sourceName: path.basename(sourcePath), sourceBytes, dependencies, forceBackfaceCulling };
+}
+
+function parseGltfDocument(bytes: Buffer): Record<string, unknown> {
+  let json = bytes;
+  if (bytes.length >= 20 && bytes.readUInt32LE(0) === 0x46546c67) {
+    if (bytes.readUInt32LE(4) !== 2 || bytes.readUInt32LE(8) !== bytes.length
+      || bytes.readUInt32LE(16) !== 0x4e4f534a || bytes.readUInt32LE(12) > bytes.length - 20)
+      throw new Error('Custom model GLB container is invalid.');
+    json = bytes.subarray(20, 20 + bytes.readUInt32LE(12));
+  }
+  let value: unknown;
+  try { value = JSON.parse(json.toString('utf8').replace(/[\0 ]+$/, '')); }
+  catch { throw new Error('Custom model glTF JSON is invalid.'); }
+  if (!value || typeof value !== 'object' || Array.isArray(value))
+    throw new Error('Custom model glTF document is invalid.');
+  return value as Record<string, unknown>;
+}
+
+function arrayRecords(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is Record<string, unknown> => !!item && typeof item === 'object' && !Array.isArray(item))
+    : [];
 }
 
 async function readBoundedFile(filePath: string, maximumBytes: number): Promise<Buffer> {

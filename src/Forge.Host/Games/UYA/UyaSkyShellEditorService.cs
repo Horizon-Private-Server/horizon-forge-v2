@@ -125,7 +125,8 @@ internal static class UyaSkyShellEditorService
         var shells = entities.Where(entity => entity.SkyShell is not null)
             .OrderBy(entity => entity.SkyShell!.Order).ToArray();
         if (shells.Length > SkyboxFormat.MaxShellCount)
-            throw new InvalidDataException($"UYA skyboxes support at most {SkyboxFormat.MaxShellCount} shells.");
+            throw new InvalidDataException($"Maximum of {SkyboxFormat.MaxShellCount} sky shells reached. " +
+                "Delete an existing shell before adding another.");
         if (!shells.Select(entity => entity.SkyShell!.Order).SequenceEqual(Enumerable.Range(0, shells.Length)))
             throw new InvalidDataException("Sky shell order must be unique and contiguous.");
 

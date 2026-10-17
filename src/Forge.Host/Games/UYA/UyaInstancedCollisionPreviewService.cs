@@ -155,6 +155,15 @@ public static class UyaInstancedCollisionPreviewService
         if (sourceKinds.Length != 1 || sourceKinds[0] is not (AssetKind.Tie or AssetKind.Shrub or AssetKind.Tfrag))
             throw new InvalidDataException("The selected asset is not a supported canonical UYA collision source.");
         var sourceKind = sourceKinds[0];
+        var custom = sourceKind == AssetKind.Tie
+            ? workspace.Content.CustomModels.Models.SingleOrDefault(model => model.Canonical.Id == sourceAssetId)
+            : null;
+        if (custom is not null)
+        {
+            var native = UyaCustomTieNativeCodec.Read(await workspace.ReadAttachedAssetVerifiedAsync(
+                custom.Native, ForgeProjectWorkspace.MaxAttachedAssetBytes, cancellationToken));
+            return (catalog, native.ModelBytes, sourceKind);
+        }
         var resolved = workspace.ResolveAsset(new(sourceAssetId, sourceKind), catalog)
             ?? throw new FileNotFoundException($"Source asset {sourceAssetId} is missing.");
         var expectedVersion = sourceKind == AssetKind.Tfrag

@@ -52,6 +52,8 @@ export function buildAssetFamilies(
     }
     const targets = new Set(item.sources.map((source) =>
       `${source.game}\0${source.region}\0${source.revision}`));
+    if (targets.size === 0 && item.tags.includes('project-attached'))
+      targets.add(`${target.game}\0${target.region}\0${target.revision}`);
     for (const classId of item.classIds) {
       for (const sourceTarget of targets) {
         const familyId = `${item.category}\0${sourceTarget}\0${classId}`;

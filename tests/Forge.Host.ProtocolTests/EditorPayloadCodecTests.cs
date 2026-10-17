@@ -16,6 +16,7 @@ internal static class EditorPayloadCodecTests
             null,
             null,
             [],
+            [],
             [new(owner, new(ProjectReferenceDomain.Entity, "pvar.target", true,
                 EntityKind: ProjectEntityKind.Moby), -1, false, "Built-in dataset tests v1")],
             [],
@@ -56,10 +57,38 @@ internal static class EditorPayloadCodecTests
         writer.WriteBoolean(true);
         writer.WriteString(groupId.ToString());
         writer.WriteBoolean(false);
+        writer.WriteBoolean(false);
         var command = EditorPayloadCodec.DecodeCommand(writer.ToArray());
         Equal(EditorCommandKind.RenameGroup, command.Kind, "group command kind payload");
         Equal("Renamed group", command.Text, "group command text payload");
         Equal(groupId, command.GroupEdit!.GroupId, "group command ID payload");
+
+        var customWriter = new PayloadWriter();
+        customWriter.WriteString(Guid.NewGuid().ToString("D"));
+        customWriter.WriteUInt32((uint)EditorCommandKind.ImportCustomTie);
+        customWriter.WriteUInt32(0);
+        customWriter.WriteBoolean(false);
+        customWriter.WriteUInt32(0);
+        customWriter.WriteBoolean(false);
+        for (var index = 0; index < 17; index++) customWriter.WriteBoolean(false);
+        customWriter.WriteBoolean(false);
+        customWriter.WriteBoolean(true);
+        customWriter.WriteBoolean(false);
+        customWriter.WriteBoolean(true);
+        customWriter.WriteString("model.gltf");
+        customWriter.WriteBytes([1, 2, 3], 16 * 1024 * 1024);
+        customWriter.WriteUInt32(1);
+        customWriter.WriteString("buffers/model.bin");
+        customWriter.WriteBytes([4, 5], 64 * 1024 * 1024);
+        customWriter.WriteBoolean(true);
+        var customCommand = EditorPayloadCodec.DecodeCommand(customWriter.ToArray());
+        Equal(EditorCommandKind.ImportCustomTie, customCommand.Kind, "custom TIE command kind payload");
+        Equal("model.gltf", customCommand.CustomModelEdit!.Import!.SourceName,
+            "custom TIE source name payload");
+        Equal("buffers/model.bin", customCommand.CustomModelEdit.Import.Dependencies.Single().Uri,
+            "custom TIE sidecar URI payload");
+        Equal(true, customCommand.CustomModelEdit.Import.ForceBackfaceCulling,
+            "custom TIE backface-culling payload");
 
         var templateWriter = new PayloadWriter();
         templateWriter.WriteString("uya.node-cluster");

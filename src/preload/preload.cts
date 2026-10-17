@@ -4,6 +4,7 @@ import type {
   BuildLayerId,
   AssetExplorerQuery,
   AssetPreviewKind,
+  CustomModelPreviewView,
   EditorCommand,
   EditorGroupTemplateRequest,
   EditorInstancedCollisionGenerationSettings,
@@ -51,9 +52,16 @@ const forgeApi = Object.freeze({
   collectCatalogGarbage: (confirmationToken: string) => ipcRenderer.invoke('forge:catalog-gc-collect', confirmationToken),
   queryAssetExplorer: (query: AssetExplorerQuery) => ipcRenderer.invoke('forge:asset-explorer-query', query),
   cancelAssetExplorerQuery: () => ipcRenderer.invoke('forge:asset-explorer-cancel'),
-  getAssetPreview: (assetId: string, kind: AssetPreviewKind, requestToken: string, shellIndex?: number) =>
-    ipcRenderer.invoke('forge:asset-preview', assetId, kind, requestToken, shellIndex),
+  getAssetPreview: (
+    assetId: string,
+    kind: AssetPreviewKind,
+    requestToken: string,
+    shellIndex?: number,
+    customView?: CustomModelPreviewView,
+  ) => ipcRenderer.invoke('forge:asset-preview', assetId, kind, requestToken, shellIndex, customView),
   cancelAssetPreview: (requestToken: string) => ipcRenderer.invoke('forge:asset-preview-cancel', requestToken),
+  exportAssetPreviewDiagnostic: (sourceUrl: string, sourceName: string) =>
+    ipcRenderer.invoke('forge:asset-preview-export-diagnostic', sourceUrl, sourceName),
   getAssetThumbnail: (targetGame: string, assetId: string, kind: AssetPreviewKind, shellIndex?: number) =>
     ipcRenderer.invoke('forge:asset-thumbnail', targetGame, assetId, kind, shellIndex),
   storeAssetThumbnail: (targetGame: string, assetId: string, kind: AssetPreviewKind, bytes: Uint8Array, shellIndex?: number) =>
@@ -65,6 +73,8 @@ const forgeApi = Object.freeze({
   closeEditorProject: () => ipcRenderer.invoke('forge:editor-close'),
   getEditorSnapshot: () => ipcRenderer.invoke('forge:editor-query'),
   executeEditorCommand: (command: EditorCommand) => ipcRenderer.invoke('forge:editor-execute', command),
+  chooseCustomTieImport: (forceBackfaceCulling: boolean) =>
+    ipcRenderer.invoke('forge:custom-tie-choose-import', forceBackfaceCulling),
   inspectInstancedCollisionSource: (entityId: string) =>
     ipcRenderer.invoke('forge:editor-instanced-collision-inspect', entityId),
   previewInstancedCollision: (entityId: string, settings?: EditorInstancedCollisionGenerationSettings) =>

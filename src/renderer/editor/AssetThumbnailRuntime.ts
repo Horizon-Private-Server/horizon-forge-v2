@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-import type { AssetPreviewKind } from '../../types/AssetExplorer.js';
+import type { AssetPreviewKind, CustomModelPreviewView } from '../../types/AssetExplorer.js';
 import type { ForgeApi } from '../../types/ForgeApi.js';
 import { configurePs2AssetPreview } from '../../utils/Ps2Materials.ts';
 import { disposeObject, frameCameraOnObject } from '../../utils/Scene.ts';
@@ -91,8 +91,15 @@ export class AssetThumbnailRuntime {
     this.scene.add(new THREE.HemisphereLight(0xffffff, 0x5c6370, 2));
   }
 
-  async get(assetId: string, kind: AssetPreviewKind, shellIndex?: number, signal?: AbortSignal): Promise<string> {
-    const key = `${kind}:${assetId}:${shellIndex ?? ''}`;
+  async get(
+    assetId: string,
+    kind: AssetPreviewKind,
+    shellIndex?: number,
+    signal?: AbortSignal,
+    customView?: CustomModelPreviewView,
+    previewRevision?: string,
+  ): Promise<string> {
+    const key = `${kind}:${assetId}:${shellIndex ?? ''}:${customView ?? ''}:${previewRevision ?? ''}`;
     const cached = this.cache.get(key);
     if (cached) {
       this.cache.delete(key);
@@ -100,7 +107,7 @@ export class AssetThumbnailRuntime {
       return cached;
     }
     this.throwIfCancelled(signal);
-    const persisted = await forgeApi().getAssetThumbnail(
+    const persisted = customView ? undefined : await forgeApi().getAssetThumbnail(
       this.targetGame, assetId, kind, shellIndex,
     ).catch(() => undefined);
     this.throwIfCancelled(signal);
@@ -121,7 +128,7 @@ export class AssetThumbnailRuntime {
       this.activeRequests.add(requestToken);
       let root: THREE.Object3D | undefined;
       try {
-        const source = await forgeApi().getAssetPreview(assetId, kind, requestToken, shellIndex);
+        const source = await forgeApi().getAssetPreview(assetId, kind, requestToken, shellIndex, customView);
         this.throwIfCancelled(signal);
         if (kind === 'texture') {
           const blob = await textureThumbnail(source.url, signal);
@@ -141,8 +148,9 @@ export class AssetThumbnailRuntime {
         const raster = this.renderer.domElement.toDataURL('image/png');
         root.removeFromParent();
         const bytes = decodeDataUrl(raster);
-        const thumbnail = (await forgeApi().storeAssetThumbnail(this.targetGame, assetId, kind, bytes, shellIndex)
-          .catch(() => undefined))?.url ?? raster;
+        const thumbnail = customView ? raster
+          : (await forgeApi().storeAssetThumbnail(this.targetGame, assetId, kind, bytes, shellIndex)
+            .catch(() => undefined))?.url ?? raster;
         return this.remember(key, thumbnail);
       } finally {
         signal?.removeEventListener('abort', cancel);

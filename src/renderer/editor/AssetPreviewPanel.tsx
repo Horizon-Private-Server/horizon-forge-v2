@@ -2,7 +2,9 @@ import { Badge, Button, Code, Group, SegmentedControl, Select, Stack, Text } fro
 import { useEffect, useRef, useState } from 'react';
 
 import type { AssetExplorerCategory, AssetExplorerItem, AssetPreviewKind } from '../../types/AssetExplorer.js';
+import type { AssetPreviewSource, CustomModelPreviewDetails } from '../../types/AssetExplorer.js';
 import { createAssetPlacementCommand, createSkyShellAddCommand } from '../../utils/AssetPlacement.ts';
+import { parseCustomModelPreviewDetails } from '../../utils/CustomModelPreview.ts';
 import { errorMessage } from '../../utils/Errors.ts';
 import { applyTextureChannel, type TextureChannel } from '../../utils/TexturePreview.ts';
 import { AssetModelPreview } from './AssetModelPreview.tsx';
@@ -10,7 +12,7 @@ import { useEditor } from './EditorContext.ts';
 import { EditorEmptyState, EditorPanel } from './EditorPrimitives.tsx';
 
 export function AssetPreviewPanel() {
-  const { assetPreview: family, busy, execute } = useEditor();
+  const { assetPreview: family, busy, execute, inspectAsset, project } = useEditor();
   const [assetId, setAssetId] = useState('');
   useEffect(() => setAssetId(family?.representativeAssetId ?? ''), [family]);
   if (!family) return <EditorPanel label="Asset Preview">
@@ -20,10 +22,18 @@ export function AssetPreviewPanel() {
     ?? family.variants.find((variant) => variant.assetId === family.representativeAssetId)
     ?? family.variants[0];
   const kind = previewKind(item);
+  const customModel = kind === 'tie' && item.tags.includes('custom-model');
+  const customInstanceCount = customModel
+    ? project.entities.filter((entity) => entity.asset?.id === item.assetId).length
+    : 0;
   const levels = [...new Set(family.variants.flatMap((variant) => variant.sources.map((source) => source.level)))].sort();
   return <EditorPanel label="Asset Preview">
     <Stack>
-      {kind === 'texture' && item.previewState !== 'missingBlob'
+      {kind === 'tie' && item.tags.includes('custom-model')
+        ? <CustomModelPreview
+            assetId={item.assetId} label={item.displayLabel} previewRevision={item.previewRevision}
+          />
+        : kind === 'texture' && item.previewState !== 'missingBlob'
         ? <AssetTexturePreview assetId={item.assetId} label={item.displayLabel} />
         : kind && kind !== 'texture' && item.previewState !== 'missingBlob'
           ? <AssetModelPreview
@@ -77,6 +87,20 @@ export function AssetPreviewPanel() {
           assetId: item.assetId, kind, classId: family.classId!,
         }, { x: 0, y: 0, z: 0 }))}
       >Place at origin</Button>}
+      {customModel && <Button
+        color="red"
+        disabled={busy || customInstanceCount > 0}
+        title={customInstanceCount > 0
+          ? `Delete its ${customInstanceCount} scene ${customInstanceCount === 1 ? 'instance' : 'instances'} first.`
+          : 'Delete this custom TIE from the project'}
+        variant="light"
+        onClick={() => {
+          if (!window.confirm(`Delete custom TIE "${item.displayLabel}" from this project?`)) return;
+          void execute({
+            id: crypto.randomUUID(), kind: 'deleteCustomTie', entityIds: [], modelAssetId: item.assetId,
+          }).then((deleted) => { if (deleted) inspectAsset(undefined, false); });
+        }}
+      >Delete custom TIE</Button>}
       {kind === 'sky' && item.shellIndex !== undefined && <Button
         disabled={busy || !item.canPlace}
         title={item.canPlace ? 'Append this shell to the project sky' : item.placementDisabledReason}
@@ -86,6 +110,106 @@ export function AssetPreviewPanel() {
       >Add to sky</Button>}
     </Stack>
   </EditorPanel>;
+}
+
+function CustomModelPreview({ assetId, label, previewRevision }: {
+  assetId: string;
+  label: string;
+  previewRevision?: string;
+}) {
+  const [view, setView] = useState<'source' | 'target'>('target');
+  const [source, setSource] = useState<AssetPreviewSource>();
+  const [details, setDetails] = useState<CustomModelPreviewDetails>();
+  const [detailsError, setDetailsError] = useState('');
+  const [primitive, setPrimitive] = useState('0');
+  useEffect(() => {
+    setSource(undefined);
+    setDetails(undefined);
+    setDetailsError('');
+  }, [assetId, previewRevision, view]);
+  useEffect(() => {
+    if (!source?.detailsUrl) return;
+    const cancellation = new AbortController();
+    void fetch(source.detailsUrl, { signal: cancellation.signal })
+      .then((response) => {
+        if (!response.ok) throw new Error(`Preview metadata returned ${response.status}`);
+        return response.json() as Promise<unknown>;
+      })
+      .then(parseCustomModelPreviewDetails)
+      .then(setDetails)
+      .catch((cause: unknown) => {
+        if (!cancellation.signal.aborted) setDetailsError(errorMessage(cause));
+      });
+    return () => cancellation.abort();
+  }, [source?.detailsUrl]);
+  const selected = details?.primitives[Number(primitive)] ?? details?.primitives[0];
+  return <Stack gap="xs">
+    <SegmentedControl
+      aria-label="Custom model preview view"
+      data={[{ label: 'Source / canonical', value: 'source' }, { label: 'Native target', value: 'target' }]}
+      fullWidth
+      value={view}
+      onChange={(value) => setView(value as 'source' | 'target')}
+    />
+    <Text c="dimmed" size="xs">
+      {view === 'source'
+        ? 'Original imported glTF/GLB retained by the project.'
+        : 'Semantic re-read of the converted UYA TIE bytes that will be packed.'}
+    </Text>
+    <AssetModelPreview
+      assetId={assetId}
+      customView={view}
+      kind="tie"
+      label={`${label} ${view} view`}
+      onSource={setSource}
+      previewRevision={previewRevision}
+    />
+    {detailsError && <Text c="red" role="alert" size="sm">{detailsError}</Text>}
+    {details && <Stack gap="xs">
+      <Group gap="xs">
+        <Badge variant="light">{details.vertexCount.toLocaleString()} vertices</Badge>
+        <Badge variant="light">{details.triangleCount.toLocaleString()} triangles</Badge>
+        <Badge variant="light">{details.packetCount.toLocaleString()} packets</Badge>
+        <Badge variant="light">{details.materialCount} materials</Badge>
+        <Badge variant="light">{details.textureCount} textures</Badge>
+        <Badge variant="light">{details.paletteCount} palettes</Badge>
+      </Group>
+      <Text size="sm">Bounds: {formatBounds(details)}</Text>
+      <Text size="sm">LOD: {details.lodPolicy}</Text>
+      {details.primitives.length > 0 && <Select
+        aria-label="Source primitive to target material mapping"
+        data={details.primitives.map((mapping, index) => ({
+          value: String(index),
+          label: `Mesh ${mapping.sourceMeshIndex}, primitive ${mapping.sourcePrimitiveIndex} → material ${mapping.nativeMaterialIndex}`,
+        }))}
+        label="Primitive / material mapping"
+        value={primitive}
+        onChange={(value) => setPrimitive(value ?? '0')}
+      />}
+      {selected && <Text size="sm">
+        Source mesh {selected.sourceMeshIndex}, primitive {selected.sourcePrimitiveIndex} → native material {
+          selected.nativeMaterialIndex}, triangles {selected.firstTriangle}–{
+          selected.firstTriangle + Math.max(0, selected.triangleCount - 1)}, packets {selected.firstPacket}–{
+          selected.firstPacket + Math.max(0, selected.packetCount - 1)}
+      </Text>}
+      {source?.diagnosticGlbUrl && <Button
+        variant="default"
+        onClick={() => void window.forge.exportAssetPreviewDiagnostic(
+          source.diagnosticGlbUrl!, details.sourceName,
+        ).catch((cause: unknown) => setDetailsError(errorMessage(cause)))}
+      >Export diagnostic GLB</Button>}
+      <Text c="dimmed" size="xs">
+        The diagnostic GLB is deterministic and embeds conversion labels, but is not an authoritative project asset.
+      </Text>
+    </Stack>}
+  </Stack>;
+}
+
+function formatBounds(details: CustomModelPreviewDetails): string {
+  const value = details.bounds;
+  const format = (number: number) => Number(number.toFixed(3)).toString();
+  return `[${format(value.minimumX)}, ${format(value.minimumY)}, ${format(value.minimumZ)}]–[${
+    format(value.maximumX)}, ${format(value.maximumY)}, ${format(value.maximumZ)}]`;
 }
 
 function previewKind(item: AssetExplorerItem): AssetPreviewKind | undefined {

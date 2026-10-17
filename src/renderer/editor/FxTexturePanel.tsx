@@ -14,7 +14,7 @@ import type { AssetThumbnailRuntime } from './AssetThumbnailRuntime.ts';
 import { useEditor } from './EditorContext.ts';
 import { EditorEmptyState } from './EditorPrimitives.tsx';
 import {
-  useAssetThumbnailRuntime, useTextureCardThumbnail, useVirtualGridViewport,
+  useTextureCardThumbnail, useVirtualGridViewport,
 } from './TexturePanelHooks.ts';
 
 type FxTextureItem = ReturnType<typeof buildFxTextureItems>[number];
@@ -31,7 +31,7 @@ interface PendingImage {
 }
 
 export function FxTexturePanel() {
-  const { busy, execute, inspectReferencedAsset, project } = useEditor();
+  const { assetThumbnails, busy, execute, inspectReferencedAsset, project } = useEditor();
   const fx = project.fx;
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | 'changed' | 'issues'>('all');
@@ -39,7 +39,6 @@ export function FxTexturePanel() {
   const [preparing, setPreparing] = useState(false);
   const [pending, setPending] = useState<PendingImage>();
   const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null);
-  const thumbnails = useAssetThumbnailRuntime(project.target.game);
   const viewport = useVirtualGridViewport(scrollElement);
 
   useEffect(() => {
@@ -124,7 +123,7 @@ export function FxTexturePanel() {
             width: windowed.cardWidth,
             transform: `translate(${column * (windowed.cardWidth + 8)}px, ${row * 284}px)`,
           }}>
-            <FxTextureCard item={item} root={scrollElement} runtime={thumbnails} busy={busy || preparing}
+            <FxTextureCard item={item} root={scrollElement} runtime={assetThumbnails} busy={busy || preparing}
               canReplace={fx.canReplace} canRemove={item.kind === 'addition' && item.index === lastAdditionIndex}
               onPrepare={prepareImage}
               onInspect={(assetId) => void inspectReferencedAsset(assetId, 'Texture')}

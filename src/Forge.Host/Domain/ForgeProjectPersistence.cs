@@ -251,6 +251,10 @@ internal static class ForgeProjectPersistence
         root["assets"] ??= new JsonArray();
         root["assetOverrides"] ??= new JsonArray();
         root["groups"] ??= new JsonArray();
+        root["customClasses"] ??= JsonSerializer.SerializeToNode(
+            ProjectCustomClassRegistry.Empty, JsonOptions);
+        root["customModels"] ??= JsonSerializer.SerializeToNode(
+            ProjectCustomModelState.Empty, JsonOptions);
         if (root.Remove("tieCollisionBindings", out var legacyBindings))
             root["instancedCollisionBindings"] = legacyBindings;
         root["instancedCollisionBindings"] ??= new JsonArray();

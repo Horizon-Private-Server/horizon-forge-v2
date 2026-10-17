@@ -49,17 +49,23 @@ export function encodeAssetPreviewResult(value: AssetPreviewResult): Buffer {
   writer.writeString(value.cacheKey);
   writer.writeString(value.modelPath);
   writer.writeBoolean(value.cacheHit);
+  writer.writeBoolean(value.detailsPath !== undefined);
+  if (value.detailsPath !== undefined) writer.writeString(value.detailsPath);
+  writer.writeBoolean(value.diagnosticGlbPath !== undefined);
+  if (value.diagnosticGlbPath !== undefined) writer.writeString(value.diagnosticGlbPath);
   return writer.toBuffer();
 }
 
 export function decodeAssetPreviewResult(payload: Uint8Array): AssetPreviewResult {
   const reader = new PayloadReader(payload);
-  const value = {
+  const value: AssetPreviewResult = {
     rootPath: reader.readString(),
     cacheKey: reader.readString(),
     modelPath: reader.readString(),
     cacheHit: reader.readBoolean(),
   };
+  if (reader.readBoolean()) value.detailsPath = reader.readString();
+  if (reader.readBoolean()) value.diagnosticGlbPath = reader.readString();
   reader.complete();
   return value;
 }

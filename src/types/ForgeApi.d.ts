@@ -1,16 +1,16 @@
 import type {
-  EditorCommand, EditorCommandResult, EditorEvent, EditorSnapshot, EditorInstancedCollisionGenerationSettings, EditorInstancedCollisionPreview,
+  EditorCommand, EditorCommandResult, EditorCustomModelImport, EditorEvent, EditorSnapshot, EditorInstancedCollisionGenerationSettings, EditorInstancedCollisionPreview,
   EditorInstancedCollisionSourceInfo, EditorGroupTemplatePreview, EditorGroupTemplateRequest,
 } from './EditorRuntime.js';
-import type { AssetExplorerPage, AssetExplorerQuery, AssetModelKind, AssetPreviewKind, AssetPreviewSource } from './AssetExplorer.js';
+import type { AssetExplorerPage, AssetExplorerQuery, AssetModelKind, AssetPreviewKind, AssetPreviewSource, CustomModelPreviewView } from './AssetExplorer.js';
 import type { ForgeNotification } from './Notifications.js';
 import type { UpdateCheckResult, UpdateLifecycleAction, UpdateLifecycleSnapshot } from './Updates.js';
 
 export type {
-  EditorCommand, EditorCommandResult, EditorEvent, EditorSnapshot, EditorInstancedCollisionGenerationSettings, EditorInstancedCollisionPreview,
+  EditorCommand, EditorCommandResult, EditorCustomModelImport, EditorEvent, EditorSnapshot, EditorInstancedCollisionGenerationSettings, EditorInstancedCollisionPreview,
   EditorInstancedCollisionSourceInfo, EditorGroupTemplatePreview, EditorGroupTemplateRequest,
 } from './EditorRuntime.js';
-export type { AssetExplorerPage, AssetExplorerQuery, AssetModelKind, AssetPreviewKind, AssetPreviewSource } from './AssetExplorer.js';
+export type { AssetExplorerPage, AssetExplorerQuery, AssetModelKind, AssetPreviewKind, AssetPreviewSource, CustomModelPreviewView } from './AssetExplorer.js';
 export type { ForgeNotification } from './Notifications.js';
 export type { UpdateLifecycleAction, UpdateLifecycleSnapshot } from './Updates.js';
 
@@ -298,7 +298,7 @@ export type ForgeDialog = 'setup' | 'settings';
 
 export type EditorLayoutAction = 'resetLayout' | 'showViewport' | 'showSceneTree' | 'showGroups'
   | 'showProperties' | 'showReferences' | 'showLevelSettings' | 'showDiagnostics' | 'showBuild'
-  | 'showAssetExplorer' | 'showAssetPreview' | 'showHudBank' | 'showFxTextures';
+  | 'showAssetExplorer' | 'showCustomAssets' | 'showAssetPreview' | 'showHudBank' | 'showFxTextures';
 
 export type ForgeAction = ForgeDialog | EditorLayoutAction
   | 'projects' | 'newProject' | 'openProject' | 'saveProject' | 'undoEditor' | 'redoEditor'
@@ -341,8 +341,15 @@ export interface ForgeApi {
   collectCatalogGarbage(confirmationToken: string): Promise<CatalogMaintenancePreview>;
   queryAssetExplorer(query: AssetExplorerQuery): Promise<AssetExplorerPage>;
   cancelAssetExplorerQuery(): Promise<void>;
-  getAssetPreview(assetId: string, kind: AssetPreviewKind, requestToken: string, shellIndex?: number): Promise<AssetPreviewSource>;
+  getAssetPreview(
+    assetId: string,
+    kind: AssetPreviewKind,
+    requestToken: string,
+    shellIndex?: number,
+    customView?: CustomModelPreviewView,
+  ): Promise<AssetPreviewSource>;
   cancelAssetPreview(requestToken: string): Promise<void>;
+  exportAssetPreviewDiagnostic(sourceUrl: string, sourceName: string): Promise<boolean>;
   getAssetThumbnail(targetGame: string, assetId: string, kind: AssetPreviewKind, shellIndex?: number): Promise<AssetPreviewSource | undefined>;
   storeAssetThumbnail(targetGame: string, assetId: string, kind: AssetPreviewKind, bytes: Uint8Array, shellIndex?: number): Promise<AssetPreviewSource>;
   removeRecentProject(path: string): Promise<ProjectHubState>;
@@ -352,6 +359,7 @@ export interface ForgeApi {
   closeEditorProject(): Promise<void>;
   getEditorSnapshot(): Promise<EditorSnapshot>;
   executeEditorCommand(command: EditorCommand): Promise<EditorCommandResult>;
+  chooseCustomTieImport(forceBackfaceCulling: boolean): Promise<EditorCustomModelImport | undefined>;
   inspectInstancedCollisionSource(entityId: string): Promise<EditorInstancedCollisionSourceInfo>;
   previewInstancedCollision(
     entityId: string,

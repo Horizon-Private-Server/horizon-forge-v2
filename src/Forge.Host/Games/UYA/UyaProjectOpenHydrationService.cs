@@ -42,7 +42,10 @@ internal static class UyaProjectOpenHydrationService
             var entities = workspace.Content.Entities.ToList();
             var payloads = await UyaBaseLayerStore.ReadCollisionPayloadsAsync(
                 workspace, catalog, cancellationToken);
-            if (!UyaInstancedCollisionLinkRecoveryService.Recover(entities, payloads, catalog))
+            var customModels = workspace.Content.CustomModels.Models
+                .Select(model => model.Canonical.Id)
+                .ToHashSet();
+            if (!UyaInstancedCollisionLinkRecoveryService.Recover(entities, payloads, catalog, customModels))
                 return new(
                     "collision.links-source-hydration-failed",
                     EditorDiagnosticSeverity.Warning,

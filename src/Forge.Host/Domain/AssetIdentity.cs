@@ -20,6 +20,8 @@ public enum AssetKind : ushort
     World = 11,
     Collision = 12,
     Lighting = 13,
+    StaticModelSource = 14,
+    StaticModelNative = 15,
 }
 
 [JsonConverter(typeof(AssetIdJsonConverter))]

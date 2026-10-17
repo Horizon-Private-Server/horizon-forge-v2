@@ -20,6 +20,24 @@ internal static class UyaStaticLayerTests
         var neutralTieAmbient = UyaGameplayInstanceTemplates.CreateNeutralTieAmbient(8);
         Equal(true, neutralTieAmbient.SequenceEqual(new byte[] { 0x80, 0x80, 0x80, 0, 0, 0, 0, 0 }),
             "placed tie neutral ambient words");
+        var nativeLighting = new ProjectEntity(
+            EntityId.New(), "Native light sample", "ties",
+            ProjectTransform.Identity with { Position = new(10, 0, 0) }, null,
+            new("UYA", 41, "gameplay/core/tie_instances", 0),
+            TieLighting: new(7, [0x26, 0x2b, 0x2b, 3, 0x44, 0x55]));
+        var placedLighting = nativeLighting with
+        {
+            EntityId = EntityId.New(), Provenance = null,
+            Transform = ProjectTransform.Identity with { Position = new(12, 0, 0) },
+            TieLighting = new(9, [0xff, 0xff, 0xff, 0]),
+        };
+        var generatedLighting = UyaTieLightingDefaults.Create(
+            [placedLighting, nativeLighting], new(12, 0, 0), 10);
+        Equal(7, generatedLighting.DirectionalLights,
+            "placed tie inherits the nearest native directional light");
+        Equal(true, generatedLighting.AmbientRgbas.SequenceEqual(
+                new byte[] { 0x26, 0x2b, 0x2b, 3, 0, 0, 0, 0, 0, 0 }),
+            "placed tie inherits the nearest native ambient base with a model-sized normal table");
         var placedShrub = UyaGameplayInstanceTemplates.CreateShrub(0x0300);
         Equal(255, BinaryPrimitives.ReadInt32LittleEndian(placedShrub.AsSpan(0x50)),
             "placed shrub neutral red channel");

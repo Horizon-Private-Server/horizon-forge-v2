@@ -1,10 +1,45 @@
 export type AssetExplorerCategory = 'ties' | 'shrubs' | 'mobys' | 'skyShells' | 'textures';
 export type AssetModelKind = 'tie' | 'shrub' | 'moby';
 export type AssetPreviewKind = AssetModelKind | 'texture' | 'sky';
+export type CustomModelPreviewView = 'source' | 'target' | 'thumbnail';
 
 export interface AssetPreviewSource {
   url: string;
   cacheHit: boolean;
+  detailsUrl?: string;
+  diagnosticGlbUrl?: string;
+}
+
+export interface CustomModelPreviewDetails {
+  schemaVersion: 1;
+  authoritative: false;
+  sourceName: string;
+  targetClassId: number;
+  vertexCount: number;
+  triangleCount: number;
+  packetCount: number;
+  materialCount: number;
+  textureCount: number;
+  paletteCount: number;
+  bounds: {
+    minimumX: number;
+    minimumY: number;
+    minimumZ: number;
+    maximumX: number;
+    maximumY: number;
+    maximumZ: number;
+  };
+  lodPolicy: string;
+  primitives: {
+    sourceMeshIndex: number;
+    sourcePrimitiveIndex: number;
+    nativeMaterialIndex: number;
+    firstTriangle: number;
+    triangleCount: number;
+    firstPacket: number;
+    packetCount: number;
+  }[];
+  diagnostics: string[];
 }
 
 export interface AssetExplorerQuery {
@@ -49,6 +84,7 @@ export interface AssetExplorerItem {
   canPlace: boolean;
   placementDisabledReason?: string;
   shellIndex?: number;
+  previewRevision?: string;
 }
 
 export interface AssetExplorerFamily {
@@ -70,6 +106,7 @@ export interface AssetSkyShellDragData {
   assetId: string;
   kind: 'sky';
   shellIndex: number;
+  dropError?: string;
 }
 
 export type AssetPlacementDragData = AssetModelPlacementDragData | AssetSkyShellDragData;

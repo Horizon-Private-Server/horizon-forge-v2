@@ -49,7 +49,8 @@ internal static partial class ForgeProjectValidation
         if (content.DocumentType != ProjectSchema.ContentDocumentType)
             throw new InvalidDataException("Project content document type is invalid.");
         if (content.Entities is null || content.Assets is null || content.InstancedCollisionBindings is null
-            || content.AssetOverrides is null || content.Groups is null)
+            || content.AssetOverrides is null || content.Groups is null || content.CustomClasses is null
+            || content.CustomModels is null)
             throw new InvalidDataException("Project content lists are required.");
         if (content.Hud is not null) ValidateHud(rootPath, content.Hud, content.Assets);
         if (content.Fx is not null) ValidateFx(rootPath, content.Fx, content.Assets);
@@ -123,6 +124,8 @@ internal static partial class ForgeProjectValidation
             if (asset.Id == asset.ParentId)
                 throw new InvalidDataException($"Project asset {asset.Id} cannot derive from itself.");
         }
+        ValidateCustomClasses(content.CustomClasses, content.Assets);
+        ValidateCustomModels(content.CustomModels, content.CustomClasses, content.Assets);
         ValidateTfrags(content.Tfrags, content.Entities, content.Assets);
         if (content.AssetOverrides.Any(binding => binding is null))
             throw new InvalidDataException("Project asset overrides cannot contain null entries.");
@@ -189,6 +192,133 @@ internal static partial class ForgeProjectValidation
             if (!File.Exists(path))
                 throw new InvalidDataException($"Asset override {binding.Source.Id} replacement blob is missing.");
         }
+    }
+
+    private static void ValidateCustomClasses(
+        ProjectCustomClassRegistry registry,
+        IReadOnlyList<ProjectAttachedAsset> assets)
+    {
+        if (registry.SchemaVersion != ProjectCustomClassSchema.CurrentVersion
+            || registry.AllocationVersion != ProjectCustomClassSchema.CurrentAllocationVersion
+            || registry.Allocations is null
+            || registry.Allocations.Count > ProjectCustomClassSchema.MaximumAllocations)
+            throw new InvalidDataException("Project custom class registry version is unsupported.");
+        if (registry.Allocations.Any(value => value is null))
+            throw new InvalidDataException("Project custom class allocations cannot contain null entries.");
+        if (registry.Allocations.Select(value => value.Asset).Distinct().Count() != registry.Allocations.Count)
+            throw new InvalidDataException("Project contains duplicate custom class assets.");
+        if (registry.Allocations.Select(value => (value.Asset.Kind, value.ClassId)).Distinct().Count()
+            != registry.Allocations.Count)
+            throw new InvalidDataException("Project contains duplicate custom class IDs.");
+        foreach (var allocation in registry.Allocations)
+        {
+            if (allocation.Asset is null
+                || allocation.Asset.Id.ToString().Length != AssetId.TextLength
+                || !Enum.IsDefined(allocation.Asset.Kind)
+                || allocation.ClassId < 0
+                || allocation.Provenance is null
+                || !Enum.IsDefined(allocation.Provenance.Origin)
+                || (allocation.Provenance.Origin == ProjectCustomClassOrigin.ImportedModel
+                    && allocation.Provenance.SourceClassId is not null)
+                || (allocation.Provenance.Origin == ProjectCustomClassOrigin.DonorMap
+                    && allocation.Provenance.SourceClassId is null or < 0))
+                throw new InvalidDataException("Project custom class allocation is invalid.");
+            var asset = assets.SingleOrDefault(value => value.Id == allocation.Asset.Id);
+            if (asset is null || asset.Kind != allocation.Asset.Kind)
+                throw new InvalidDataException(
+                    $"Custom class 0x{allocation.ClassId:X4} has no compatible attached asset.");
+        }
+    }
+
+    private static void ValidateCustomModels(
+        ProjectCustomModelState state,
+        ProjectCustomClassRegistry registry,
+        IReadOnlyList<ProjectAttachedAsset> assets)
+    {
+        if (state.SchemaVersion != ProjectCustomModelSchema.CurrentVersion
+            || state.Models is null || state.Models.Count > ProjectCustomModelSchema.MaximumModels
+            || state.Models.Any(model => model is null))
+            throw new InvalidDataException("Project custom model state is invalid.");
+        if (state.Models.Select(model => model.Canonical).Distinct().Count() != state.Models.Count)
+            throw new InvalidDataException("Project contains duplicate custom model assets.");
+
+        foreach (var model in state.Models)
+        {
+            if (model.SchemaVersion != ProjectCustomModelSchema.CurrentVersion
+                || string.IsNullOrWhiteSpace(model.SourceName)
+                || model.SourceName.Length > 1_024
+                || Path.IsPathRooted(model.SourceName)
+                || model.SourceName.IndexOfAny(['/', '\\']) >= 0
+                || model.SourceSha256.Length != 64
+                || model.SourceSha256.Any(character => !char.IsAsciiHexDigitLower(character))
+                || model.Dependencies is null
+                || model.Dependencies.Count > ProjectCustomModelSchema.MaximumDependencies
+                || model.Textures is null || model.Materials is null || model.Metadata is null
+                || model.Metadata.Bounds is null || model.Metadata.Primitives is null
+                || model.Metadata.Diagnostics is null
+                || model.Metadata.VertexCount < 0 || model.Metadata.TriangleCount < 0
+                || model.Metadata.PacketCount < 0 || model.Metadata.MaterialCount < 0
+                || model.Metadata.TextureCount < 0 || model.Metadata.PaletteCount < 0
+                || model.Metadata.MaterialCount != model.Materials.Count
+                || model.Metadata.TextureCount != model.Textures.Count
+                || model.Metadata.PaletteCount > model.Metadata.TextureCount
+                || string.IsNullOrWhiteSpace(model.Metadata.LodPolicy)
+                || model.Metadata.Primitives.Any(primitive => primitive is null
+                    || primitive.SourceMeshIndex < 0 || primitive.SourcePrimitiveIndex < 0
+                    || primitive.NativeMaterialIndex < 0 || primitive.FirstTriangle < 0
+                    || primitive.TriangleCount < 0 || primitive.FirstPacket < 0
+                    || primitive.PacketCount < 0))
+                throw new InvalidDataException("Project custom model metadata is invalid.");
+            RequireAsset(model.Source, AssetKind.StaticModelSource,
+                ProjectCustomModelSchema.SourceFormatVersion, null, assets, "source");
+            RequireAsset(model.Canonical, AssetKind.Tie,
+                ProjectCustomModelSchema.CanonicalFormatVersion, null, assets, "canonical model");
+            RequireAsset(model.Native, AssetKind.StaticModelNative,
+                ProjectCustomModelSchema.NativeFormatVersion, model.Canonical.Id, assets, "native model");
+            if (model.Dependencies.Any(dependency => dependency is null
+                    || string.IsNullOrWhiteSpace(dependency.Uri)
+                    || dependency.Uri.Length > 1_024
+                    || Path.IsPathRooted(dependency.Uri)
+                    || dependency.Uri.Contains('\\')
+                    || dependency.Uri.Split('/', StringSplitOptions.RemoveEmptyEntries).Contains("..")
+                    || !Enum.IsDefined(dependency.Kind))
+                || model.Dependencies.Select(dependency => dependency.Uri).Distinct(StringComparer.Ordinal).Count()
+                    != model.Dependencies.Count)
+                throw new InvalidDataException("Project custom model dependencies are invalid.");
+            foreach (var dependency in model.Dependencies)
+                RequireAsset(dependency.Asset, AssetKind.StaticModelSource,
+                    ProjectCustomModelSchema.SourceFormatVersion, null, assets, "source dependency");
+            if (model.Textures.Distinct().Count() != model.Textures.Count)
+                throw new InvalidDataException("Project custom model textures must be unique.");
+            foreach (var texture in model.Textures)
+                RequireAsset(texture, AssetKind.Texture, ProjectTextureAssetSchema.CanonicalFormatVersion,
+                    null, assets, "texture");
+            if (model.Materials.Select(material => material.NativeMaterialIndex).Distinct().Count()
+                != model.Materials.Count
+                || model.Materials.Any(material => material is null || material.NativeMaterialIndex < 0
+                    || !model.Textures.Contains(material.Texture)))
+                throw new InvalidDataException("Project custom model material bindings are invalid.");
+            if (!registry.Allocations.Any(allocation => allocation.Asset == model.Canonical
+                    && allocation.Provenance.Origin == ProjectCustomClassOrigin.ImportedModel))
+                throw new InvalidDataException($"Custom model {model.Canonical.Id} has no class allocation.");
+        }
+    }
+
+    private static void RequireAsset(
+        ProjectAssetReference reference,
+        AssetKind kind,
+        uint formatVersion,
+        AssetId? parentId,
+        IReadOnlyList<ProjectAttachedAsset> assets,
+        string description)
+    {
+        if (reference is null || reference.Kind != kind)
+            throw new InvalidDataException($"Project custom model {description} reference is invalid.");
+        var asset = assets.SingleOrDefault(candidate => candidate.Id == reference.Id);
+        if (asset is null || asset.Kind != kind || asset.CanonicalFormatVersion != formatVersion
+            || asset.ParentId != parentId)
+            throw new InvalidDataException(
+                $"Project custom model {description} {reference.Id} has invalid attached metadata.");
     }
 
     private static void ValidateGroups(
