@@ -11,7 +11,9 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import type {
   EditorEntity, EditorLevelSceneSettings, EditorTransformUpdate, ProjectVector3, ProjectVector4,
 } from '../../types/EditorRuntime.js';
-import type { AssetModelPlacementDragData, AssetPlacementDragData } from '../../types/AssetExplorer.js';
+import type {
+  AssetModelPlacementDragData, AssetPlacementDragData, AssetTfragPlacementDragData,
+} from '../../types/AssetExplorer.js';
 import type { KeybindingMap } from '../../types/Keybindings.js';
 import type { SceneTreeColors } from '../../types/SceneTree.js';
 import type { CollisionVisualization } from '../../types/CollisionVisualization.js';
@@ -1244,7 +1246,9 @@ export function SceneViewport({
     });
   };
 
-  const preparePlacedAsset = async (asset: AssetModelPlacementDragData): Promise<number | undefined> => {
+  const preparePlacedAsset = async (
+    asset: AssetModelPlacementDragData | AssetTfragPlacementDragData,
+  ): Promise<number | undefined> => {
     const current = viewport.current;
     if (!current) return undefined;
     const groundOffset = () => {

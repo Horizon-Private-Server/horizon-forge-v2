@@ -1,7 +1,7 @@
 import type {
-  AssetModelPlacementDragData, AssetPlacementDragData, AssetSkyShellDragData,
+  AssetModelPlacementDragData, AssetPlacementDragData, AssetSkyShellDragData, AssetTfragPlacementDragData,
 } from '../types/AssetExplorer.js';
-import type { EditorCommand, ProjectVector3 } from '../types/EditorRuntime.js';
+import type { EditorCommand, EditorEntity, ProjectVector3 } from '../types/EditorRuntime.js';
 
 export const ASSET_PLACEMENT_MIME = 'application/x-horizon-forge-asset';
 export const SKY_SHELL_PLACEMENT_MIME = 'application/x-horizon-forge-sky-shell';
@@ -21,12 +21,40 @@ export function readAssetPlacementDrag(data: DataTransfer): AssetPlacementDragDa
         ...(value.dropError ? { dropError: value.dropError as string } : {}),
       };
     }
+    if (value.kind === 'tfrag')
+      return typeof value.importId === 'string' && /^[0-9a-f]{64}$/.test(value.importId)
+        ? value as unknown as AssetTfragPlacementDragData : undefined;
     return ['tie', 'shrub', 'moby'].includes(String(value.kind))
       && Number.isInteger(value.classId) && Number(value.classId) >= 0 && Number(value.classId) <= 0xffff
       ? value as unknown as AssetModelPlacementDragData : undefined;
   } catch {
     return undefined;
   }
+}
+
+export function createTfragPlacementCommand(
+  asset: AssetTfragPlacementDragData,
+  position: ProjectVector3,
+  entities: EditorEntity[],
+): EditorCommand | undefined {
+  const pieces = entities.filter((entity) => entity.tfrag?.customImportId === asset.importId
+    && entity.tfrag.sourcePosition);
+  const anchor = pieces[0];
+  if (!anchor?.tfrag?.sourcePosition) return undefined;
+  const currentOffset = subtract(anchor.transform.position, anchor.tfrag.sourcePosition);
+  const delta = subtract(position, currentOffset);
+  return {
+    id: crypto.randomUUID(),
+    kind: 'updateTransforms',
+    entityIds: pieces.map((entity) => entity.id),
+    transforms: pieces.map((entity) => ({
+      entityId: entity.id,
+      transform: {
+        ...entity.transform,
+        position: add(entity.transform.position, delta),
+      },
+    })),
+  };
 }
 
 export function createAssetPlacementCommand(asset: AssetModelPlacementDragData, position: ProjectVector3): EditorCommand {
@@ -54,4 +82,12 @@ export function createSkyShellAddCommand(asset: AssetSkyShellDragData): EditorCo
     entityIds: [],
     source: { assetId: asset.assetId, shellIndex: asset.shellIndex },
   };
+}
+
+function add(left: ProjectVector3, right: ProjectVector3): ProjectVector3 {
+  return { x: left.x + right.x, y: left.y + right.y, z: left.z + right.z };
+}
+
+function subtract(left: ProjectVector3, right: ProjectVector3): ProjectVector3 {
+  return { x: left.x - right.x, y: left.y - right.y, z: left.z - right.z };
 }

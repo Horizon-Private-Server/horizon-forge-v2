@@ -249,6 +249,7 @@ internal static class ProjectBridgeHandlers
             AssetExplorerCategoryPayload.Shrubs => AssetKind.Shrub,
             AssetExplorerCategoryPayload.Mobys => AssetKind.Moby,
             AssetExplorerCategoryPayload.Textures => AssetKind.Texture,
+            AssetExplorerCategoryPayload.Tfrags => AssetKind.Tfrag,
             _ => throw new ArgumentOutOfRangeException(nameof(request.Category)),
         };
         var page = catalog.QueryPage(new(

@@ -20,6 +20,7 @@ public sealed partial class EditorRuntime : IAsyncDisposable
         "editor.group.create", "editor.group.rename", "editor.group.delete", "editor.group.reorder",
         "editor.group.membership", "editor.group-template.preview", "editor.group-template.apply",
         "editor.custom-tie.import", "editor.custom-tie.reimport", "editor.custom-tie.delete",
+        "editor.custom-tfrag.import",
         "editor.instanced-collision.inspect", "editor.instanced-collision.preview", "editor.instanced-collision.apply", "editor.instanced-collision.remove",
         "editor.instanced-collision.toggle", "editor.instanced-collision.raw-type", "editor.instanced-collision.face-types",
     ];
@@ -48,7 +49,7 @@ public sealed partial class EditorRuntime : IAsyncDisposable
     private readonly EditorProjectOpenHydrator? _projectOpenHydrator;
     private readonly EditorMapGroupResolver? _mapGroupResolver;
     private readonly EditorGroupTemplateEvaluator? _groupTemplateEvaluator;
-    private readonly EditorCustomModelCommandExecutor? _customModelCommandExecutor;
+    private readonly EditorCustomAssetCommandExecutor? _customAssetCommandExecutor;
     private readonly IReadOnlyList<EditorGroupTemplateDefinition> _groupTemplates;
     private readonly ushort _hudMinimumAppendSpriteId;
     private readonly ushort _hudMaximumAppendSpriteId;
@@ -85,7 +86,7 @@ public sealed partial class EditorRuntime : IAsyncDisposable
         EditorSourceClassNameResolver? sourceClassNameResolver = null,
         EditorGroupTemplateEvaluator? groupTemplateEvaluator = null,
         IReadOnlyList<EditorGroupTemplateDefinition>? groupTemplates = null,
-        EditorCustomModelCommandExecutor? customModelCommandExecutor = null)
+        EditorCustomAssetCommandExecutor? customAssetCommandExecutor = null)
     {
         _placementResolver = placementResolver;
         _transformCapabilityResolver = transformCapabilityResolver;
@@ -106,7 +107,7 @@ public sealed partial class EditorRuntime : IAsyncDisposable
         _sourceClassNameResolver = sourceClassNameResolver;
         _groupTemplateEvaluator = groupTemplateEvaluator;
         _groupTemplates = NormalizeGroupTemplateDefinitions(groupTemplates ?? []);
-        _customModelCommandExecutor = customModelCommandExecutor;
+        _customAssetCommandExecutor = customAssetCommandExecutor;
     }
 
     public bool HasCapability(string capability) => RuntimeCapabilities.Contains(capability, StringComparer.Ordinal)
@@ -261,12 +262,28 @@ public sealed partial class EditorRuntime : IAsyncDisposable
                     ApplyHistory(workspace, command.Id, undo: false);
                     break;
                 case EditorCommandKind.DeleteEntities:
-                    var deletesSkyShell = workspace.GetEntities(command.EntityIds).Any(entity => entity.SkyShell is not null);
-                    _selection = workspace.RemoveEntities(command.EntityIds);
+                    var deletedEntities = workspace.GetEntities(command.EntityIds);
+                    var deletesSkyShell = deletedEntities.Any(entity => entity.SkyShell is not null);
+                    var deletesTfrags = deletedEntities.Any(entity => entity.Tfrag is not null);
+                    var customTfragImports = deletedEntities.Select(entity => entity.Tfrag?.CustomImportId)
+                        .OfType<string>().Distinct(StringComparer.Ordinal).ToHashSet(StringComparer.Ordinal);
+                    if (deletesTfrags)
+                    {
+                        if (_customAssetCommandExecutor is null)
+                            throw new InvalidOperationException("Custom asset editing is unavailable.");
+                        historyEntityIds = command.EntityIds.Concat(workspace.Content.Tfrags!.CustomImports
+                                .Where(value => customTfragImports.Contains(value.ImportId))
+                                .SelectMany(value => value.Pieces))
+                            .Distinct().ToArray();
+                        await _customAssetCommandExecutor(workspace, command, cancellationToken);
+                        _selection = [];
+                    }
+                    else _selection = workspace.RemoveEntities(command.EntityIds);
                     if (deletesSkyShell)
                         await ValidateSkyMutationAsync(
                             workspace, command, stateBefore, selectionBefore, cancellationToken);
-                    AddEvent(EditorEventKind.ProjectChanged, command.Id, command.EntityIds, "Entities deleted");
+                    AddEvent(EditorEventKind.ProjectChanged, command.Id, historyEntityIds,
+                        deletesTfrags ? "Tfrags deleted" : "Entities deleted");
                     ScheduleAutosave();
                     break;
                 case EditorCommandKind.DuplicateEntities:
@@ -449,14 +466,16 @@ public sealed partial class EditorRuntime : IAsyncDisposable
                     ScheduleAutosave();
                     break;
                 case EditorCommandKind.ImportCustomTie:
+                case EditorCommandKind.ImportCustomTfrag:
                 case EditorCommandKind.ReimportCustomTie:
                 case EditorCommandKind.DeleteCustomTie:
-                    if (_customModelCommandExecutor is null)
-                        throw new InvalidOperationException("Custom TIE editing is unavailable.");
-                    await _customModelCommandExecutor(workspace, command, cancellationToken);
+                    if (_customAssetCommandExecutor is null)
+                        throw new InvalidOperationException("Custom asset editing is unavailable.");
+                    await _customAssetCommandExecutor(workspace, command, cancellationToken);
                     AddEvent(EditorEventKind.ProjectChanged, command.Id, command.EntityIds, command.Kind switch
                     {
                         EditorCommandKind.ImportCustomTie => "Custom TIE imported",
+                        EditorCommandKind.ImportCustomTfrag => "Custom tfrag imported",
                         EditorCommandKind.ReimportCustomTie => "Custom TIE reimported",
                         _ => "Custom TIE deleted",
                     });

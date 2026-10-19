@@ -62,6 +62,23 @@ public static class UyaTextureInventoryService
                 }
             }
         }
+        var terrainTextures = project.Content.Tfrags?.CustomImports
+            .SelectMany(value => value.Textures)
+            .Distinct()
+            .OrderBy(value => value.Id.ToString(), StringComparer.Ordinal)
+            .ToArray() ?? [];
+        for (var index = 0; index < terrainTextures.Length; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            inputs.Add(new(
+                terrainTextures[index].Id.ToString(),
+                TextureAssetFamily.Terrain,
+                0,
+                index,
+                TextureRole.Material,
+                await project.ReadAttachedAssetVerifiedAsync(
+                    terrainTextures[index], ProjectTextureAssetSchema.MaximumCanonicalBytes, cancellationToken)));
+        }
         return await Task.Run(
             () => TextureInventoryBuilder.Build(inputs, cancellationToken),
             cancellationToken);

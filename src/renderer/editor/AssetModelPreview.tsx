@@ -13,7 +13,7 @@ import { configureSkybox } from '../../utils/SkyboxScene.ts';
 
 interface AssetModelPreviewProps {
   assetId: string;
-  kind: AssetModelKind | 'sky';
+  kind: AssetModelKind | 'tfrag' | 'sky';
   label: string;
   shellIndex?: number;
   customView?: 'source' | 'target';
@@ -72,27 +72,36 @@ export function AssetModelPreview({
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.zoomSpeed = 0.5;
+    const clock = new THREE.Clock();
+    let animationFrame = 0;
+    const render = () => {
+      animationFrame = 0;
+      updateSky?.(Math.min(clock.getDelta(), 0.05));
+      controls.update();
+      renderer.render(scene, camera);
+      if (updateSky) invalidate();
+    };
+    const invalidate = () => {
+      if (!animationFrame) animationFrame = requestAnimationFrame(render);
+    };
+    controls.addEventListener('change', invalidate);
     const resize = () => {
       const width = Math.max(1, element.clientWidth);
       const height = Math.max(1, element.clientHeight);
       renderer.setSize(width, height, false);
       camera.aspect = width / height;
       camera.updateProjectionMatrix();
+      invalidate();
     };
     resize();
     const observer = new ResizeObserver(resize);
     observer.observe(element);
-    const clock = new THREE.Clock();
-    renderer.setAnimationLoop(() => {
-      updateSky?.(Math.min(clock.getDelta(), 0.05));
-      controls.update();
-      renderer.render(scene, camera);
-    });
 
     const frame = () => {
       if (!root) return;
       frameCameraOnObject(camera, root, controls.target);
       controls.update();
+      invalidate();
     };
     resetView.current = frame;
     const requestToken = crypto.randomUUID();
@@ -106,6 +115,7 @@ export function AssetModelPreview({
       else if (event.key === '-' || event.key === '_') controls.dollyOut(0.9);
       else if (event.key === 'Home') frame();
       else return;
+      invalidate();
       event.preventDefault();
     };
     renderer.domElement.addEventListener('keydown', keyDown);
@@ -138,7 +148,8 @@ export function AssetModelPreview({
       void window.forge.cancelAssetPreview(requestToken);
       resetView.current = () => undefined;
       observer.disconnect();
-      renderer.setAnimationLoop(null);
+      controls.removeEventListener('change', invalidate);
+      if (animationFrame) cancelAnimationFrame(animationFrame);
       renderer.domElement.removeEventListener('keydown', keyDown);
       controls.dispose();
       if (root) disposeObject(root);

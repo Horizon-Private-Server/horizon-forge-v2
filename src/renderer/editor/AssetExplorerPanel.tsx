@@ -314,7 +314,9 @@ export function AssetCard({ color, family, root, runtime, onActivate }: {
   const skyCapacityError = kind === 'sky' && item.placementDisabledReason?.startsWith('Maximum of 8 sky shells reached.')
     ? item.placementDisabledReason : undefined;
   const draggable = (item.canPlace || skyCapacityError !== undefined) && kind !== undefined
-    && (kind === 'sky' ? item.shellIndex !== undefined : family.classId !== undefined && kind !== 'texture');
+    && (kind === 'sky' ? item.shellIndex !== undefined
+      : kind === 'tfrag' ? item.previewRevision !== undefined
+        : family.classId !== undefined && kind !== 'texture');
   const texture = kind === 'texture';
   return <button
     ref={element}
@@ -330,6 +332,8 @@ export function AssetCard({ color, family, root, runtime, onActivate }: {
       event.dataTransfer.effectAllowed = 'copy';
       const payload = kind === 'sky'
         ? { assetId: item.assetId, kind, shellIndex: item.shellIndex, dropError: skyCapacityError }
+        : kind === 'tfrag'
+          ? { assetId: item.assetId, kind, importId: item.previewRevision }
         : { assetId: item.assetId, kind, classId: family.classId };
       event.dataTransfer.setData(ASSET_PLACEMENT_MIME, JSON.stringify(payload));
       if (kind === 'sky') event.dataTransfer.setData(SKY_SHELL_PLACEMENT_MIME, '1');
@@ -355,7 +359,7 @@ export function AssetCard({ color, family, root, runtime, onActivate }: {
 
 function assetCategoryColor(category: AssetExplorerCategory, colors: SceneTreeColors): string {
   const kind: SceneTreeKind = ({
-    ties: 'tie', shrubs: 'shrub', mobys: 'moby', skyShells: 'sky', textures: 'object',
+    ties: 'tie', shrubs: 'shrub', mobys: 'moby', tfrags: 'tfrag', skyShells: 'sky', textures: 'object',
   })[category] as SceneTreeKind;
   return colors[kind];
 }
@@ -364,6 +368,7 @@ function previewKind(item: AssetExplorerItem): AssetPreviewKind | undefined {
   if (item.category === 'ties') return 'tie';
   if (item.category === 'shrubs') return 'shrub';
   if (item.category === 'mobys') return 'moby';
+  if (item.category === 'tfrags') return 'tfrag';
   if (item.category === 'textures') return 'texture';
   if (item.category === 'skyShells') return 'sky';
   return undefined;

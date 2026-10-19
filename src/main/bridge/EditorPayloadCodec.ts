@@ -80,6 +80,7 @@ const commandKinds = {
   importCustomTie: 45,
   reimportCustomTie: 46,
   deleteCustomTie: 47,
+  importCustomTfrag: 48,
 } as const;
 const mobyPropertyKinds = {
   integer: 1,
@@ -268,11 +269,11 @@ export function encodeEditorCommand(value: EditorCommand): Buffer {
     writer.writeBoolean(value.kind === 'reorderGroup');
     if (value.kind === 'reorderGroup') writer.writeUInt32(value.destinationOrder);
   }
-  const isCustomTie = value.kind === 'importCustomTie' || value.kind === 'reimportCustomTie'
-    || value.kind === 'deleteCustomTie';
-  writer.writeBoolean(isCustomTie);
-  if (isCustomTie) {
-    const hasModel = value.kind !== 'importCustomTie';
+  const isCustomAsset = value.kind === 'importCustomTie' || value.kind === 'importCustomTfrag'
+    || value.kind === 'reimportCustomTie' || value.kind === 'deleteCustomTie';
+  writer.writeBoolean(isCustomAsset);
+  if (isCustomAsset) {
+    const hasModel = value.kind === 'reimportCustomTie' || value.kind === 'deleteCustomTie';
     writer.writeBoolean(hasModel);
     if (hasModel) writer.writeString(value.modelAssetId);
     const hasImport = value.kind !== 'deleteCustomTie';
@@ -789,6 +790,10 @@ function readEntity(reader: PayloadReader): EditorEntity {
       decodedVertexCount: reader.readUInt32(),
       decodedTriangleCount: reader.readUInt32(),
     };
+    if (reader.readBoolean()) {
+      value.tfrag.customImportId = reader.readString();
+      value.tfrag.customSourceName = reader.readString();
+    }
   }
   if (reader.readBoolean()) value.instancedCollision = {
     proxyAssetId: reader.readString(),

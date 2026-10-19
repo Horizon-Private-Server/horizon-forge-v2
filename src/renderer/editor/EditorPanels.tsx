@@ -7,7 +7,9 @@ import type { TreeNodeData } from '@mantine/core';
 import { useMemo, useState } from 'react';
 
 import type { EditorEntity } from '../../types/EditorRuntime.js';
-import { createAssetPlacementCommand, createSkyShellAddCommand } from '../../utils/AssetPlacement.ts';
+import {
+  createAssetPlacementCommand, createSkyShellAddCommand, createTfragPlacementCommand,
+} from '../../utils/AssetPlacement.ts';
 import { formatCollisionType } from '../../utils/CollisionFormat.ts';
 import { selectedMissingGroupMemberCount } from '../../utils/SceneGroups.ts';
 import {
@@ -112,9 +114,14 @@ export function ViewportPanel() {
     onSplinePointsCommit={(entityId, points) => execute({
       id: crypto.randomUUID(), kind: 'updateSplinePoints', entityIds: [entityId], points,
     })}
-    onAssetDrop={(asset, position) => execute(asset.kind === 'sky'
-      ? createSkyShellAddCommand(asset)
-      : createAssetPlacementCommand(asset, position!))}
+    onAssetDrop={(asset, position) => {
+      const command = asset.kind === 'sky'
+        ? createSkyShellAddCommand(asset)
+        : asset.kind === 'tfrag'
+          ? createTfragPlacementCommand(asset, position!, project.entities)
+          : createAssetPlacementCommand(asset, position!);
+      return command ? execute(command) : Promise.resolve(false);
+    }}
   />;
 }
 
@@ -136,6 +143,30 @@ export function SceneTreePanel() {
       && (!query || `${entity.name} ${entity.tfrag!.sourceKind} ${entity.tfrag!.sourceIndex} group ${entity.tfrag!.groupIndex} tfrag terrain`
         .toLocaleLowerCase().includes(query)));
   }, [filter, project.entities]);
+  const customTfragParents = useMemo(() => {
+    const parents = new Map<string, EditorEntity[]>();
+    for (const entity of project.entities) {
+      const importId = entity.tfrag?.customImportId;
+      if (!importId) continue;
+      const key = customTfragParentValue(importId);
+      const pieces = parents.get(key);
+      if (pieces) pieces.push(entity);
+      else parents.set(key, [entity]);
+    }
+    parents.forEach((pieces) => pieces.sort((left, right) =>
+      left.tfrag!.groupIndex - right.tfrag!.groupIndex));
+    return parents;
+  }, [project.entities]);
+  const sceneTreeSelection = useMemo(() => {
+    const selected = new Set(project.selection);
+    const values = [...project.selection];
+    for (const [parent, pieces] of customTfragParents) {
+      if (!pieces.length || !pieces.every((piece) => selected.has(piece.id))) continue;
+      const members = new Set(pieces.map((piece) => piece.id));
+      values.splice(0, values.length, ...values.filter((value) => !members.has(value)), parent);
+    }
+    return values;
+  }, [customTfragParents, project.selection]);
   const legacyTfrags = useMemo(() => tfragEntities.length || project.entities.some((entity) => entity.tfrag)
     ? []
     : buildTerrainTreeItems(terrain?.urls ?? [], filter), [filter, project.entities, terrain, tfragEntities.length]);
@@ -179,6 +210,9 @@ export function SceneTreePanel() {
           .sort((left, right) => left - right)
           .map((sourceIndex) => {
             const pieces = tfragEntities.filter((entity) => entity.tfrag!.sourceIndex === sourceIndex);
+            const nativePieces = pieces.filter((entity) => !entity.tfrag!.customImportId);
+            const importIds = [...new Set(pieces.map((entity) => entity.tfrag!.customImportId)
+              .filter((value): value is string => value !== undefined))];
             return {
               value: `render:tfrags:${sourceIndex}`,
               label: <SceneTreeNode entities={pieces} disabled={busy}>
@@ -186,13 +220,36 @@ export function SceneTreePanel() {
                   {sourceIndex === 0 ? 'Primary' : `Chunk ${sourceIndex}`} ({pieces.length})
                 </SceneTreeLabel>
               </SceneTreeNode>,
-              children: pieces.map((entity) => ({
-                value: entity.id,
-                label: <SceneTreeNode entities={[entity]} disabled={busy}>
-                  <SceneTreeLabel kind="tfrag" dot>Group #{entity.tfrag!.groupIndex}</SceneTreeLabel>
-                </SceneTreeNode>,
-                nodeProps: { selectable: true },
-              })),
+              children: [
+                ...nativePieces.map((entity) => ({
+                  value: entity.id,
+                  label: <SceneTreeNode entities={[entity]} disabled={busy}>
+                    <SceneTreeLabel kind="tfrag" dot>Group #{entity.tfrag!.groupIndex}</SceneTreeLabel>
+                  </SceneTreeNode>,
+                  nodeProps: { selectable: true },
+                })),
+                ...importIds.map((importId) => {
+                  const parent = customTfragParentValue(importId);
+                  const importedPieces = customTfragParents.get(parent) ?? [];
+                  const visiblePieces = pieces.filter((entity) => entity.tfrag!.customImportId === importId);
+                  return {
+                    value: parent,
+                    label: <SceneTreeNode entities={importedPieces} disabled={busy}>
+                      <SceneTreeLabel kind="tfrag">
+                        {importedPieces[0]?.tfrag?.customSourceName ?? 'Imported terrain'} ({importedPieces.length})
+                      </SceneTreeLabel>
+                    </SceneTreeNode>,
+                    nodeProps: { selectable: true },
+                    children: visiblePieces.map((entity) => ({
+                      value: entity.id,
+                      label: <SceneTreeNode entities={[entity]} disabled={busy}>
+                        <SceneTreeLabel kind="tfrag" dot>Group #{entity.tfrag!.groupIndex}</SceneTreeLabel>
+                      </SceneTreeNode>,
+                      nodeProps: { selectable: true },
+                    })),
+                  };
+                }),
+              ],
             };
           })
         : legacyTfrags.map((item) => ({
@@ -273,7 +330,7 @@ export function SceneTreePanel() {
           : undefined,
       })),
     })),
-  ], [busy, collision, legacyTfrags, model.groups, setShowTerrain, showTerrain, sky, tfragEntities]);
+  ], [busy, collision, customTfragParents, legacyTfrags, model.groups, setShowTerrain, showTerrain, sky, tfragEntities]);
   const renderItemCount = tfragEntities.length + legacyTfrags.length + sky.length + collision.length;
   const matched = model.matched + renderItemCount;
 
@@ -291,10 +348,12 @@ export function SceneTreePanel() {
           draggableValues={entityIds}
           selected={skyCompositionSelected
             ? ['render:sky']
-            : splinePointSelection.length ? splinePointSelection : project.selection}
+            : splinePointSelection.length ? splinePointSelection : sceneTreeSelection}
           multiple
           onActivate={(value) => {
-            if (value !== 'render:sky') setCameraFocus({ entityId: parseSplinePointId(value)?.entityId ?? value });
+            const parentPiece = customTfragParents.get(value)?.[0];
+            if (value !== 'render:sky')
+              setCameraFocus({ entityId: parentPiece?.id ?? parseSplinePointId(value)?.entityId ?? value });
           }}
           onSelectionChange={(values) => {
             if (values.includes('render:sky')) {
@@ -316,14 +375,21 @@ export function SceneTreePanel() {
               return;
             }
             setSplinePointSelection([]);
+            const entityValues = values.flatMap((value) =>
+              customTfragParents.get(value)?.map((entity) => entity.id) ?? [value]);
             void execute({
-              id: crypto.randomUUID(), kind: 'setSelection', entityIds: values.filter((value) => entityIds.has(value)),
+              id: crypto.randomUUID(), kind: 'setSelection',
+              entityIds: [...new Set(entityValues.filter((value) => entityIds.has(value)))],
             });
           }}
         />
         : <EditorEmptyState message="No matching scene objects." />}
     </Stack>
   </EditorPanel>;
+}
+
+function customTfragParentValue(importId: string): string {
+  return `render:tfrag-import:${importId}`;
 }
 
 function collisionTreeText(entity: EditorEntity, targetGame: string): string {

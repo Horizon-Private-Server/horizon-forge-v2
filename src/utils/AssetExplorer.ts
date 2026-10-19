@@ -94,6 +94,8 @@ function addVariant(
 }
 
 function classLabel(category: AssetExplorerItem['category'], classId: number): string {
-  const prefix = ({ ties: 'tie', shrubs: 'shrub', mobys: 'moby', skyShells: 'sky', textures: 'texture' })[category];
+  const prefix = ({
+    ties: 'tie', shrubs: 'shrub', mobys: 'moby', tfrags: 'tfrag', skyShells: 'sky', textures: 'texture',
+  })[category];
   return `${prefix}:0x${classId.toString(16).toUpperCase().padStart(4, '0')}`;
 }

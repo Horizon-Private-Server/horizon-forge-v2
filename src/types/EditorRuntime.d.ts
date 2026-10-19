@@ -260,6 +260,8 @@ export interface EditorEntity {
       decodedVertexCount: number;
       decodedTriangleCount: number;
     };
+    customImportId?: string;
+    customSourceName?: string;
   };
   instancedCollision?: EditorInstancedCollisionBinding;
   individualInstancedCollision?: EditorInstancedCollisionBinding;
@@ -571,7 +573,7 @@ export type EditorCommand =
   | { id: string; kind: 'addGroupMembers' | 'removeGroupMembers'; entityIds: string[]; groupId: string }
   | {
     id: string;
-    kind: 'importCustomTie';
+    kind: 'importCustomTie' | 'importCustomTfrag';
     entityIds: [];
     import: EditorCustomModelImport;
   }

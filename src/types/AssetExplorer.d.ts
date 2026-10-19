@@ -1,6 +1,6 @@
-export type AssetExplorerCategory = 'ties' | 'shrubs' | 'mobys' | 'skyShells' | 'textures';
+export type AssetExplorerCategory = 'ties' | 'shrubs' | 'mobys' | 'tfrags' | 'skyShells' | 'textures';
 export type AssetModelKind = 'tie' | 'shrub' | 'moby';
-export type AssetPreviewKind = AssetModelKind | 'texture' | 'sky';
+export type AssetPreviewKind = AssetModelKind | 'tfrag' | 'texture' | 'sky';
 export type CustomModelPreviewView = 'source' | 'target' | 'thumbnail';
 
 export interface AssetPreviewSource {
@@ -109,7 +109,13 @@ export interface AssetSkyShellDragData {
   dropError?: string;
 }
 
-export type AssetPlacementDragData = AssetModelPlacementDragData | AssetSkyShellDragData;
+export interface AssetTfragPlacementDragData {
+  assetId: string;
+  kind: 'tfrag';
+  importId: string;
+}
+
+export type AssetPlacementDragData = AssetModelPlacementDragData | AssetTfragPlacementDragData | AssetSkyShellDragData;
 
 export interface AssetExplorerFacets {
   games: string[];

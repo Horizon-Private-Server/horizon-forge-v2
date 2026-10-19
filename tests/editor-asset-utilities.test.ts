@@ -6,9 +6,10 @@ import test from 'node:test';
 
 import { AssetThumbnailCache } from '../src/main/AssetThumbnailCache.ts';
 import type { AssetExplorerItem } from '../src/types/AssetExplorer.js';
-import type { EditorInstancedCollisionCandidate } from '../src/types/EditorRuntime.js';
+import type { EditorEntity, EditorInstancedCollisionCandidate } from '../src/types/EditorRuntime.js';
 import {
-  ASSET_PLACEMENT_MIME, createAssetPlacementCommand, createSkyShellAddCommand, readAssetPlacementDrag,
+  ASSET_PLACEMENT_MIME, createAssetPlacementCommand, createSkyShellAddCommand,
+  createTfragPlacementCommand, readAssetPlacementDrag,
 } from '../src/utils/AssetPlacement.ts';
 import {
   assetExplorerFilterCount, assetExplorerQueryKey, buildAssetFamilies,
@@ -166,6 +167,49 @@ test('sky shell drag preserves a bounded drop error', () => {
     getData: (type: string) => type === ASSET_PLACEMENT_MIME ? JSON.stringify(value) : '',
   } as DataTransfer;
   assert.deepEqual(readAssetPlacementDrag(data), value);
+});
+
+test('custom tfrag drag repositions every partition while preserving relative edits', () => {
+  const importId = 'c'.repeat(64);
+  const entity = (id: string, sourceX: number, currentX: number): EditorEntity => ({
+    id,
+    name: id,
+    layer: 'tfrags',
+    transform: {
+      position: { x: currentX, y: 2, z: 3 },
+      rotation: { x: 0, y: 0, z: 0, w: 1 },
+      scale: { x: 1, y: 1, z: 1 },
+    },
+    tfrag: {
+      sourceArchive: 'level_wad/assets/asset_wad.bin',
+      sourceKind: 'primary',
+      sourceIndex: 0,
+      groupIndex: sourceX,
+      occlusionIndex: -1,
+      occlusionIndexStash: 255,
+      textureIds: [0],
+      sourcePosition: { x: sourceX, y: 0, z: 0 },
+      customImportId: importId,
+    },
+    transformModes: ['translate'],
+    state: {
+      dirty: false, hidden: false, disabled: false, locked: false,
+      readOnly: false, invalid: false, missingAsset: false,
+    },
+  });
+  const entities = [entity('first', 10, 15), entity('second', 20, 26)];
+  const asset = { assetId: 'a'.repeat(64), kind: 'tfrag' as const, importId };
+  const data = {
+    getData: (type: string) => type === ASSET_PLACEMENT_MIME ? JSON.stringify(asset) : '',
+  } as DataTransfer;
+  assert.deepEqual(readAssetPlacementDrag(data), asset);
+  const command = createTfragPlacementCommand(asset, { x: 100, y: 8, z: 9 }, entities);
+  assert.equal(command?.kind, 'updateTransforms');
+  if (command?.kind !== 'updateTransforms') throw new Error('Expected a tfrag transform command.');
+  assert.deepEqual(command.transforms.map((value) => value.transform.position), [
+    { x: 110, y: 8, z: 9 },
+    { x: 121, y: 8, z: 9 },
+  ]);
 });
 
 test('asset explorer groups exact variants by target class and prefers the base-level source', () => {

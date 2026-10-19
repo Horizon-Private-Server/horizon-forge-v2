@@ -33,5 +33,7 @@ test('renderer CSP excludes remote scripts and unsafe evaluation', async () => {
   assert.ok(policy);
   assert.match(policy, /default-src 'self'/);
   assert.match(policy, /script-src 'self'/);
+  assert.match(policy, /img-src 'self' blob: data: forge-asset:/);
+  assert.doesNotMatch(policy, /script-src[^;]*blob:/);
   assert.doesNotMatch(policy, /unsafe-eval|https?:/);
 });

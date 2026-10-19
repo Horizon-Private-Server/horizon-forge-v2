@@ -21,14 +21,25 @@ export function registerRenderIpcHandlers(options: RenderIpcHandlersOptions): vo
   const {
     host, settings, renderAssets, getEditorTargetGame, getEditorProjectPath, getMainWindow, assertSender,
   } = options;
-  let activeRequestId: number | undefined;
   const activePreviewRequests = new Map<string, number>();
-  let terrainLoading = false;
+  interface TerrainLoad {
+    promise: Promise<unknown>;
+    requestId?: number;
+    cancelRequested: boolean;
+  }
+  let activeTerrainLoad: TerrainLoad | undefined;
+
+  async function cancelTerrainLoad(load: TerrainLoad): Promise<void> {
+    load.cancelRequested = true;
+    if (load.requestId !== undefined) await host.cancel(load.requestId);
+    try { await load.promise; } catch { /* A superseded load is expected to reject. */ }
+  }
 
   function assertPreview(assetId: unknown, kind?: unknown, shellIndex?: unknown): asserts assetId is string {
     if (typeof assetId !== 'string' || !/^[0-9a-f]{64}$/.test(assetId))
       throw new TypeError('Asset preview ID is invalid');
-    if (kind !== undefined && kind !== 'moby' && kind !== 'tie' && kind !== 'shrub' && kind !== 'texture' && kind !== 'sky')
+    if (kind !== undefined && kind !== 'moby' && kind !== 'tie' && kind !== 'shrub'
+      && kind !== 'tfrag' && kind !== 'texture' && kind !== 'sky')
       throw new TypeError('Asset preview kind is invalid');
     if ((kind === 'sky' && shellIndex !== undefined
         && (!Number.isInteger(shellIndex) || Number(shellIndex) < 0 || Number(shellIndex) >= 8))
@@ -49,9 +60,13 @@ export function registerRenderIpcHandlers(options: RenderIpcHandlersOptions): vo
 
   ipcMain.handle('forge:editor-terrain', async (event) => {
     assertSender(event.sender.id);
-    if (terrainLoading) throw new Error('Terrain is already loading');
-    terrainLoading = true;
-    try {
+    while (activeTerrainLoad) {
+      const previous = activeTerrainLoad;
+      await cancelTerrainLoad(previous);
+      if (activeTerrainLoad === previous) activeTerrainLoad = undefined;
+    }
+    const load: TerrainLoad = { promise: Promise.resolve(), cancelRequested: false };
+    load.promise = (async () => {
       const project = await (await host.getEditorSnapshot()).result;
       if (project.target.game !== 'UYA') throw new Error('The active project does not target UYA');
       const values = Object.fromEntries((await settings.getSnapshot()).entries.map((entry) => [entry.key, entry.value]));
@@ -67,17 +82,21 @@ export function registerRenderIpcHandlers(options: RenderIpcHandlersOptions): vo
         projectPath: project.projectPath,
         catalogRootPath: settings.paths.assets,
       }, (progress) => event.sender.send('forge:editor-terrain-progress', progress));
-      activeRequestId = request.requestId;
-      return await renderAssets.addUyaPackage(await request.result);
+      load.requestId = request.requestId;
+      if (load.cancelRequested) await host.cancel(request.requestId);
+      return renderAssets.addUyaPackage(await request.result);
+    })();
+    activeTerrainLoad = load;
+    try {
+      return await load.promise;
     } finally {
-      activeRequestId = undefined;
-      terrainLoading = false;
+      if (activeTerrainLoad === load) activeTerrainLoad = undefined;
     }
   });
 
   ipcMain.handle('forge:editor-terrain-cancel', async (event) => {
     assertSender(event.sender.id);
-    if (activeRequestId !== undefined) await host.cancel(activeRequestId);
+    if (activeTerrainLoad) await cancelTerrainLoad(activeTerrainLoad);
   });
 
   ipcMain.handle('forge:asset-preview', async (

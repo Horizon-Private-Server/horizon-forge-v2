@@ -7,7 +7,6 @@ using RatchetPs2.Core.LevelAssets;
 using RatchetPs2.Core.Textures.Palettes;
 using RatchetPs2.Core.Wad;
 using RatchetPs2.Core.Wad.Models;
-using RatchetPs2.Games.UYA.Gameplay;
 using RatchetPs2.Games.UYA.Level;
 using RatchetPs2.Sdk;
 
@@ -58,13 +57,13 @@ public static class UyaLevelPackService
                     || !PaletteBakeReportService.Equivalent(staging.Manifest.PaletteReport, expectedPaletteReport))
                     throw new InvalidDataException("Staged palette report does not match the staged static assets.");
             }
-            var replacements = await CreateReplacementsAsync(
+            var replacementPlan = await CreateReplacementsAsync(
                 catalog, staging, sourceLevelWad, sourcePackage, workspace,
                 allowStalePaletteReport,
                 cancellationToken);
             var archive = await Task.Run(
                 () => LevelArchiveBuilder.Build(
-                    GameId.UYA, sourceLevelWad, replacements, progress: progress,
+                    GameId.UYA, sourceLevelWad, replacementPlan.Replacements, progress: progress,
                     cancellationToken: cancellationToken),
                 cancellationToken);
             diagnostics.AddRange(archive.Warnings.Select((value, index) => new BakeDiagnostic(
@@ -84,7 +83,13 @@ public static class UyaLevelPackService
                 value.Message,
                 "Correct the staged layer or source WAD and retry packing.")));
             if (!archive.Succeeded || archive.OutputBytes is null) return Failed(diagnostics, archive);
-            await ValidateOutputAsync(archive.OutputBytes, replacements, staging, sourcePackage, cancellationToken);
+            await ValidateOutputAsync(
+                archive.OutputBytes,
+                replacementPlan.Replacements,
+                replacementPlan.ExpectedPrimaryTerrain,
+                staging,
+                sourcePackage,
+                cancellationToken);
             return new(
                 true,
                 archive.OutputBytes,
@@ -108,7 +113,7 @@ public static class UyaLevelPackService
         }
     }
 
-    private static async Task<Dictionary<string, ReadOnlyMemory<byte>>> CreateReplacementsAsync(
+    private static async Task<ReplacementPlan> CreateReplacementsAsync(
         AssetCatalogStore catalog,
         BakeStagingStore staging,
         ReadOnlyMemory<byte> sourceLevelWad,
@@ -146,6 +151,7 @@ public static class UyaLevelPackService
                     replacements.Add(path, bytes);
                     continue;
                 }
+                if (layer == BakeLayerId.Tfrags && bytes.Length == 0) continue;
                 if (bytes.AsSpan().SequenceEqual(source.Bytes)) continue;
                 switch (layer, asset.Name)
                 {
@@ -186,105 +192,74 @@ public static class UyaLevelPackService
             replacements.Add($"level_wad/chunks/chunk{chunkIndex}.wad", bytes);
 
         var assets = UyaLevelWadRenderPackageBuilder.ReadAssetSourceFiles(sourcePackage.Files);
-        var assetWad = BinaryMagic.IsWad(assets.AssetWadBytes)
-            ? WadCompression.Decompress(assets.AssetWadBytes, new(), cancellationToken)
-            : assets.AssetWadBytes;
+        var customTextures = await UyaCustomTfragTextureService.ComposeAsync(
+            workspace, terrain?.ToArray(), cancellationToken);
+        var customTfragTextures = customTextures.Textures;
         var tieRoot = SnapshotRoot(staging, BakeLayerId.Ties);
         var visibilityBitPath = Path.Combine(tieRoot, "visibility-bit.bin");
         int? visibilityBit = File.Exists(visibilityBitPath)
             ? BinaryPrimitives.ReadInt32LittleEndian(await File.ReadAllBytesAsync(visibilityBitPath, cancellationToken))
             : null;
-        var composed = visibilityBit is { } bitIndex
-            ? LevelAssetComposer.SetAlwaysVisibleOcclusionBit(
-                GameId.UYA, assets.HeaderBytes, assetWad, bitIndex, cancellationToken)
-            : new LevelAssetWadComposition(assets.HeaderBytes, assetWad);
+        var assetWad = BinaryMagic.IsWad(assets.AssetWadBytes)
+            ? WadCompression.Decompress(assets.AssetWadBytes, new(), cancellationToken)
+            : assets.AssetWadBytes;
+        var composed = new LevelAssetWadComposition(assets.HeaderBytes, assetWad);
+        if (terrain is { IsEmpty: true }) terrain = null;
         if (terrain is not null || sky is not null || collision is not null)
             composed = LevelAssetComposer.ComposeAssetWad(
                 GameId.UYA, composed.HeaderBytes, composed.AssetWadBytes,
                 new(terrain, sky, collision), cancellationToken);
 
-        var staticAssets = new List<StaticAssetInput>();
-        var sourceStaticAssetKeys = new HashSet<(TextureAssetFamily Family, int ClassId)>();
-        var sourceLevel = $"level{baseLevel.Level:00}";
-        var staticAssetsChanged = false;
-        foreach (var layer in UyaStaticLayerSchema.Layers)
-        {
-            var root = SnapshotRoot(staging, layer);
-            var manifest = Read<UyaStaticBakeManifest>(root, "manifest.json", $"staged {layer} layer");
-            var familyName = layer.ToString().ToLowerInvariant().TrimEnd('s');
-            foreach (var definition in manifest.Definitions)
-            {
-                var entry = catalog.Query(new(Id: definition.Asset.Id)).SingleOrDefault();
-                var custom = layer == BakeLayerId.Ties
-                    && workspace.Content.CustomModels.Models.Any(model => model.Canonical == definition.Asset);
-                if (!custom && (entry is null
-                    || entry.CanonicalFormatVersion != UyaAssetImportService.CanonicalFormatVersion))
-                    throw new InvalidDataException($"{layer} definition {definition.ClassId:X4} has no current canonical asset.");
-                var fromSourceLevel = entry?.Sources.Any(value =>
-                    value.Game == baseLevel.Game
-                    && value.Region == baseLevel.Region
-                    && value.Revision == baseLevel.Revision
-                    && value.Level == sourceLevel) == true;
-                staticAssetsChanged |= !fromSourceLevel;
-                var path = ForgeProjectPersistence.ResolveRelativePath(root, definition.Resource);
-                var canonical = UyaCanonicalAssetCodec.Decode(await File.ReadAllBytesAsync(path, cancellationToken));
-                var input = new StaticAssetInput(
-                    definition.EffectiveAsset.Id.ToString(),
-                    TextureFamily(layer),
-                    definition.ClassId,
-                    canonical.DefinitionBytes,
-                    canonical.ModelBytes,
-                    canonical.Textures.Select(value => new StaticAssetTexture(
-                        value.Role == 0 ? TextureRole.Material : TextureRole.Billboard,
-                        value.PifBytes)).ToArray(),
-                    PreserveTextureIndexes: fromSourceLevel);
-                staticAssets.Add(input);
-                if (fromSourceLevel)
-                    sourceStaticAssetKeys.Add((input.Family, input.ClassId));
-            }
-            replacements.Add($"gameplay/core/{familyName}_classes.bin",
-                UyaClassIdListWriter.Write(manifest.Instances.Select(value => value.ClassId)));
-            replacements.Add($"gameplay/core/{familyName}_instances.bin",
-                await File.ReadAllBytesAsync(Path.Combine(root, "instances.bin"), cancellationToken));
-            if (layer is BakeLayerId.Ties or BakeLayerId.Shrubs)
-            {
-                var referenceFiles = new List<(string Name, string Path)>
-                {
-                    ("groups.bin", $"gameplay/core/{familyName}_groups.bin"),
-                };
-                if (layer == BakeLayerId.Ties)
-                    referenceFiles.Add(("occlusion.bin", "gameplay/core/occlusion.bin"));
-                foreach (var (name, path) in referenceFiles)
-                {
-                    var staged = Path.Combine(root, name);
-                    if (File.Exists(staged))
-                        replacements.Add(path, await File.ReadAllBytesAsync(staged, cancellationToken));
-                }
-            }
-        }
-        if (staticAssetsChanged || visibilityBit is not null)
-            staticAssets = IncludeSourceStaticAssets(sourceLevelWad.Span, staticAssets, sourceStaticAssetKeys)
-                .ToList();
-        var staticComposition = StaticAssetComposer.Compose(
-            GameId.UYA,
-            composed.HeaderBytes,
-            composed.AssetWadBytes,
-            assets.PaletteBytes,
-            staticAssets,
+        var staticPack = await UyaStaticAssetPackService.ComposeAsync(
+            workspace,
+            catalog,
+            staging,
+            sourceLevelWad,
+            sourcePackage,
+            baseLevel,
+            assets,
+            composed,
+            customTfragTextures,
+            replacements,
+            allowStalePaletteReport,
             cancellationToken);
-        var actualPaletteReport = PaletteBakeReportService.Create(
-            staticComposition.Inventory, staticComposition.Optimization);
-        var stagedPaletteReport = staging.Manifest.PaletteReport
-            ?? throw new InvalidDataException("Staged output is missing its palette report.");
-        if (allowStalePaletteReport || staticAssetsChanged)
-            await staging.SetPaletteReportAsync(actualPaletteReport, cancellationToken);
-        else if (!PaletteBakeReportService.Equivalent(stagedPaletteReport, actualPaletteReport))
-            throw new InvalidDataException("Staged palette report does not match the generated asset payloads.");
+        byte[]? tfragOcclusion = null;
+        if (terrain is not null)
+        {
+            var tfragPack = await UyaTfragPackService.ComposeAsync(
+                workspace,
+                sourcePackage,
+                tieRoot,
+                terrain.Value.ToArray(),
+                sourceBase[(BakeLayerId.Tfrags, "primary.bin")].Bytes,
+                customTextures.TextureAssetIdsByGroup,
+                staticPack.Composition.TerrainTextures,
+                visibilityBit,
+                cancellationToken);
+            terrain = tfragPack.TerrainBytes;
+            tfragOcclusion = tfragPack.OcclusionBytes;
+            visibilityBit = tfragPack.VisibilityBit;
+        }
+        if (tfragOcclusion is not null)
+            replacements["gameplay/core/occlusion.bin"] = tfragOcclusion;
+        var staticComposition = staticPack.Composition;
+        var staticAssetsChanged = staticPack.AssetsChanged;
+        var finalAssets = terrain is null
+            ? staticPack.FinalAssets
+            : LevelAssetComposer.ComposeAssetWad(
+                GameId.UYA,
+                staticPack.FinalAssets.HeaderBytes,
+                staticPack.FinalAssets.AssetWadBytes,
+                new(Terrain: terrain),
+                cancellationToken);
+        if (visibilityBit is { } bitIndex)
+            finalAssets = LevelAssetComposer.SetAlwaysVisibleOcclusionBit(
+                GameId.UYA, finalAssets.HeaderBytes, finalAssets.AssetWadBytes, bitIndex, cancellationToken);
         if (staticAssetsChanged || visibilityBit is not null)
         {
-            replacements.Add("assets/asset_header.bin", staticComposition.HeaderBytes);
+            replacements.Add("assets/asset_header.bin", finalAssets.HeaderBytes);
             replacements.Add("assets/palette.bin", staticComposition.PaletteBytes);
-            replacements.Add("assets/asset_wad_payload.bin", staticComposition.AssetWadBytes);
+            replacements.Add("assets/asset_wad_payload.bin", finalAssets.AssetWadBytes);
         }
         else if (terrain is not null || sky is not null || collision is not null)
         {
@@ -318,59 +293,20 @@ public static class UyaLevelPackService
 
         ValidateOpaque(SnapshotRoot(staging, BakeLayerId.Opaque), sourceLevelWad, sourcePackage,
             ReplacedOpaqueSections(replacements));
-        return replacements;
+        return new(replacements, terrain?.ToArray());
     }
 
     internal static IReadOnlyList<StaticAssetInput> IncludeSourceStaticAssets(
         ReadOnlySpan<byte> sourceLevelWad,
         IReadOnlyList<StaticAssetInput> selected,
-        IReadOnlySet<(TextureAssetFamily Family, int ClassId)>? sourceAssetKeys = null)
-    {
-        var extracted = LevelAssetExtractor.ExtractLevelWad(GameId.UYA, sourceLevelWad.ToArray());
-        if (extracted.FailedAssetCount > 0)
-            throw new InvalidDataException(
-                $"The base level has {extracted.FailedAssetCount} static assets that cannot be retained safely.");
-        var source = extracted.Assets
-            .Select(value => new StaticAssetInput(
-                $"source:{value.Kind}:{value.ClassId}:{value.SourceIndex}",
-                value.Kind switch
-                {
-                    FrontendAssetKind.Moby => TextureAssetFamily.Moby,
-                    FrontendAssetKind.Tie => TextureAssetFamily.Tie,
-                    FrontendAssetKind.Shrub => TextureAssetFamily.Shrub,
-                    _ => throw new ArgumentOutOfRangeException(nameof(value.Kind)),
-                },
-                value.ClassId,
-                value.DefinitionBytes,
-                value.ModelBytes,
-                value.Textures.Select(texture => new StaticAssetTexture(
-                    texture.Role == 0 ? TextureRole.Material : TextureRole.Billboard,
-                    texture.PifBytes ?? throw new InvalidDataException(
-                        $"Base {value.Kind} class 0x{value.ClassId:X4} has an unreadable texture and cannot be retained safely.")))
-                    .ToArray(),
-                PreserveTextureIndexes: true))
-            .ToDictionary(value => (value.Family, value.ClassId));
-        selected = selected.Select(value =>
-        {
-            var key = (value.Family, value.ClassId);
-            return sourceAssetKeys?.Contains(key) == true && source.TryGetValue(key, out var current)
-                ? value with
-                {
-                    DefinitionBytes = current.DefinitionBytes,
-                    ModelBytes = current.ModelBytes,
-                    PreserveTextureIndexes = true,
-                }
-                : value;
-        }).ToArray();
-        var selectedKeys = selected.Select(value => (value.Family, value.ClassId)).ToHashSet();
-        return source.Values.Where(value => !selectedKeys.Contains((value.Family, value.ClassId)))
-            .Concat(selected)
-            .ToArray();
-    }
+        IReadOnlySet<(TextureAssetFamily Family, int ClassId)>? sourceAssetKeys = null) =>
+        UyaStaticAssetPackService.IncludeSourceStaticAssets(
+            sourceLevelWad, selected, sourceAssetKeys);
 
     private static async Task ValidateOutputAsync(
         byte[] output,
         IReadOnlyDictionary<string, ReadOnlyMemory<byte>> replacements,
+        byte[]? expectedPrimaryTerrain,
         BakeStagingStore staging,
         UyaLevelWadPackage sourcePackage,
         CancellationToken cancellationToken)
@@ -406,14 +342,28 @@ public static class UyaLevelPackService
                 .Where(value => GameplayPath(layer, value.Name) is null)
                 .Select(value => ((layer, value.Name), File.ReadAllBytes(Path.Combine(root, value.Name))));
         }).ToDictionary(value => value.Item1, value => value.Item2);
+        if (expectedPrimaryTerrain is not null)
+            expectedBase[(BakeLayerId.Tfrags, "primary.bin")] = expectedPrimaryTerrain;
         var actualBase = UyaBaseLayerService.Extract(outputPackage)
             .Where(value => GameplayPath(value.Layer, value.Name) is null)
             .ToDictionary(value => (value.Layer, value.Name), value => value.Bytes);
-        if (expectedBase.Count != actualBase.Count
-            || expectedBase.Any(value => !actualBase.TryGetValue(value.Key, out var bytes)
-                || !EquivalentPayload(value.Value, bytes)))
-            throw new InvalidDataException("Packed output does not semantically match the staged base-layer payloads.");
+        if (expectedBase.Count != actualBase.Count)
+            throw new InvalidDataException(
+                $"Packed base-layer inventory has {actualBase.Count} payloads; expected {expectedBase.Count}.");
+        foreach (var expected in expectedBase)
+        {
+            if (!actualBase.TryGetValue(expected.Key, out var bytes))
+                throw new InvalidDataException(
+                    $"Packed output is missing staged {expected.Key.Item1} payload {expected.Key.Item2}.");
+            if (!EquivalentPayload(expected.Value, bytes))
+                throw new InvalidDataException(
+                    $"Packed {expected.Key.Item1} payload {expected.Key.Item2} does not match its composed staging payload.");
+        }
     }
+
+    private sealed record ReplacementPlan(
+        Dictionary<string, ReadOnlyMemory<byte>> Replacements,
+        byte[]? ExpectedPrimaryTerrain);
 
     private static void ValidateOpaque(
         string stagedRoot,
@@ -502,14 +452,6 @@ public static class UyaLevelPackService
         payload.Span.CopyTo(reserved);
         return reserved;
     }
-
-    private static TextureAssetFamily TextureFamily(BakeLayerId layer) => layer switch
-    {
-        BakeLayerId.Mobys => TextureAssetFamily.Moby,
-        BakeLayerId.Ties => TextureAssetFamily.Tie,
-        BakeLayerId.Shrubs => TextureAssetFamily.Shrub,
-        _ => throw new ArgumentOutOfRangeException(nameof(layer)),
-    };
 
     private static bool EquivalentPayload(ReadOnlySpan<byte> expected, ReadOnlySpan<byte> actual) =>
         actual.Length >= expected.Length

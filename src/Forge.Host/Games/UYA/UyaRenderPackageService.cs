@@ -5,7 +5,6 @@ using System.Text.Json;
 using RatchetPs2.Core.Games;
 using RatchetPs2.Core.LevelAssets;
 using RatchetPs2.Core.Wad.Models;
-using RatchetPs2.Games.DL.Level;
 using RatchetPs2.Games.UYA.Level;
 using RatchetPs2.Sdk;
 
@@ -13,7 +12,7 @@ namespace Forge.Host.Games.UYA;
 
 public static class UyaRenderPackageService
 {
-    public const int SchemaVersion = 10;
+    public const int SchemaVersion = 11;
     private const string MarkerName = ".forge-render-package.json";
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
@@ -22,11 +21,22 @@ public static class UyaRenderPackageService
         string sdkRevision,
         Func<IsoProgress, ValueTask>? progress = null,
         CancellationToken cancellationToken = default)
+        => await PrepareAsync(request, sdkRevision, null, progress, cancellationToken);
+
+    internal static async Task<RenderPackageResult> PrepareAsync(
+        UyaRenderPackageRequest request,
+        string sdkRevision,
+        ForgeProjectWorkspace? activeWorkspace,
+        Func<IsoProgress, ValueTask>? progress = null,
+        CancellationToken cancellationToken = default)
     {
         Validate(request, sdkRevision);
-        var assets = await ResolveAssetsAsync(request, cancellationToken);
-        var cacheKey = CreateCacheKey(request, sdkRevision,
-            assets.Select(asset => $"{asset.Id}:{asset.BlobId}"));
+        var project = await ResolveProjectAsync(request, activeWorkspace, cancellationToken);
+        var assets = project.Assets;
+        var assetKeys = assets.Select(asset => $"{asset.Id}:{asset.BlobId}").ToList();
+        if (UyaCustomTfragRenderService.CreateRevision(project.Workspace) is { } tfragRevision)
+            assetKeys.Add($"tfrags:{tfragRevision}");
+        var cacheKey = CreateCacheKey(request, sdkRevision, assetKeys);
         var target = Path.Combine(Path.GetFullPath(request.CacheRootPath), cacheKey);
         var cached = await TryOpenAsync(target, request, sdkRevision, cancellationToken);
         if (cached is not null)
@@ -54,13 +64,13 @@ public static class UyaRenderPackageService
             cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         await ReportAsync(progress, 3_000, 10_000);
+        var terrain = await UyaCustomTfragRenderService.BuildAsync(
+            levelWad, request.Level, project.Workspace, project.Catalog, cancellationToken);
         var packages = await Task.Run(() =>
         {
             var octants = UyaOcclusionGridReader.ReadLevelWad(levelWad).Octants.Select(value =>
                 new RenderOcclusionOctant(value.X, value.Y, value.Z, value.MaskIndex)).ToArray();
             return (
-                Terrain: FrontendMapPackageBuilder.BuildLevelWadPart(
-                    levelWad, GameId.UYA, FrontendMapAssetGroup.Terrain),
                 Sky: FrontendMapPackageBuilder.BuildLevelWadPart(
                     levelWad, GameId.UYA, FrontendMapAssetGroup.Common),
                 Environment: UyaRenderEnvironmentReader.Read(levelWad),
@@ -70,7 +80,7 @@ public static class UyaRenderPackageService
         await ReportAsync(progress, 5_000, 10_000);
         var renderedAssets = await BuildAssetsAsync(assets, progress, cancellationToken);
         return await MaterializeAsync(
-            request, sdkRevision, cacheKey, packages.Terrain, packages.Sky, packages.Environment, packages.Octants,
+            request, sdkRevision, cacheKey, terrain, packages.Sky, packages.Environment, packages.Octants,
             renderedAssets, progress, cancellationToken);
     }
 
@@ -308,13 +318,20 @@ public static class UyaRenderPackageService
         return entries;
     }
 
-    private static async Task<IReadOnlyList<AssetSource>> ResolveAssetsAsync(
+    private static async Task<ResolvedProject> ResolveProjectAsync(
         UyaRenderPackageRequest request,
+        ForgeProjectWorkspace? activeWorkspace,
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(request.ProjectPath);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.CatalogRootPath);
-        var workspace = await ForgeProjectWorkspace.OpenAsync(request.ProjectPath, cancellationToken);
+        var workspace = activeWorkspace
+            ?? await ForgeProjectWorkspace.OpenAsync(request.ProjectPath, cancellationToken);
+        if (activeWorkspace is not null && !string.Equals(
+                Path.GetFullPath(request.ProjectPath),
+                Path.GetFullPath(activeWorkspace.RootPath),
+                OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
+            throw new InvalidDataException("The active editor project does not match the requested render package.");
         if (workspace.Manifest.Target.Game != "UYA"
             || workspace.Manifest.BaseLevel.Level != request.Level
             || !workspace.Manifest.BaseLevel.SourceFingerprint.Equals(request.Fingerprint, StringComparison.OrdinalIgnoreCase))
@@ -351,7 +368,7 @@ public static class UyaRenderPackageService
                 : new(reference.Id, resolved.Effective.Id, reference.Kind, resolved.CanonicalFormatVersion,
                     resolved.Size, resolved.Path, null, null));
         }
-        return result;
+        return new(workspace, catalog, result);
     }
 
     private static async Task<IReadOnlyList<BuiltAsset>> BuildAssetsAsync(
@@ -501,4 +518,8 @@ public static class UyaRenderPackageService
         PackedFilePackage? Package,
         string? Error);
     private sealed record BuiltAsset(AssetId Id, AssetKind Kind, PackedFilePackage? Package, string? Error);
+    private sealed record ResolvedProject(
+        ForgeProjectWorkspace Workspace,
+        AssetCatalogStore Catalog,
+        IReadOnlyList<AssetSource> Assets);
 }

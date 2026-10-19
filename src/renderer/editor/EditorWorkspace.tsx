@@ -119,6 +119,12 @@ export function EditorWorkspace({
   const projectRef = useRef(project);
   projectRef.current = project;
   const onReady = useCallback((event: DockviewReadyEvent) => setApi(event.api), []);
+  const customTfragRevision = useMemo(() => project.entities
+    .filter((entity) => entity.asset?.kind === 'Tfrag' && entity.tfrag?.customImportId)
+    .sort((left, right) => left.tfrag!.groupIndex - right.tfrag!.groupIndex)
+    .map((entity) => `${entity.id}:${entity.asset!.id}:${entity.tfrag!.sourceIndex}:${entity.tfrag!.groupIndex}:`
+      + `${entity.tfrag!.sourcePosition?.x}:${entity.tfrag!.sourcePosition?.y}:${entity.tfrag!.sourcePosition?.z}`)
+    .join('|'), [project.entities]);
 
   useEffect(() => {
     try {
@@ -166,7 +172,7 @@ export function EditorWorkspace({
       stopProgress();
       void window.forge.cancelEditorTerrain();
     };
-  }, [project.projectId]);
+  }, [customTfragRevision, project.projectId]);
 
   useEffect(() => {
     if (!api) return;
@@ -583,7 +589,7 @@ export function EditorWorkspace({
 
 function referenceAssetCategory(kind: string): AssetExplorerCategory | undefined {
   const categories: Partial<Record<string, AssetExplorerCategory>> = {
-    Tie: 'ties', Shrub: 'shrubs', Moby: 'mobys', Sky: 'skyShells', Texture: 'textures',
+    Tie: 'ties', Shrub: 'shrubs', Moby: 'mobys', Tfrag: 'tfrags', Sky: 'skyShells', Texture: 'textures',
   };
   return categories[kind];
 }
@@ -598,9 +604,10 @@ function sceneEntityAssetFamily(
   const customModel = entity.asset.kind === 'Tie'
     ? project.customModels.find((model) => model.assetId === entity.asset?.id)
     : undefined;
+  const customTfrag = entity.tfrag?.customImportId !== undefined;
   const classId = customModel?.classId ?? entity.sourceClassId;
   const shellIndex = entity.skyShell?.sourceShellIndex;
-  const displayLabel = customModel?.sourceName ?? entity.name;
+  const displayLabel = customModel?.sourceName ?? entity.tfrag?.customSourceName ?? entity.name;
   const item = {
     assetId: entity.asset.id,
     category,
@@ -608,13 +615,15 @@ function sceneEntityAssetFamily(
     canonicalFormatVersion: customModel ? 2 : 0,
     byteSize: 0,
     aliases: [],
-    tags: customModel ? ['tie', 'custom-model', 'project-attached'] : ['project-attached'],
+    tags: customModel ? ['tie', 'custom-model', 'project-attached']
+      : customTfrag ? ['tfrag', 'custom-tfrag', 'project-attached'] : ['project-attached'],
     sources: [],
     classIds: classId === undefined ? [] : [classId],
     previewState: 'notCached' as const,
     canPlace: classId !== undefined && category !== 'skyShells' && category !== 'textures',
     ...(shellIndex === undefined ? {} : { shellIndex }),
-    ...(customModel ? { previewRevision: customModel.nativeAssetId } : {}),
+    ...(customModel ? { previewRevision: customModel.nativeAssetId }
+      : customTfrag ? { previewRevision: entity.tfrag!.customImportId } : {}),
   };
   return {
     familyId: `scene:${entity.asset.id}:${shellIndex ?? ''}`,

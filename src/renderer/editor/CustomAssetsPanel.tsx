@@ -12,20 +12,29 @@ import { useEditor } from './EditorContext.ts';
 export function CustomAssetsPanel() {
   const { assetPreview, assetThumbnails, busy, execute, inspectAsset, project, sceneTreeColors } = useEditor();
   const [forceBackfaceCulling, setForceBackfaceCulling] = useState(false);
+  const [assetType, setAssetType] = useState<'ties' | 'tfrags'>('ties');
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState('');
   const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null);
   const [viewport, setViewport] = useState({ width: 0, height: 0, scrollTop: 0 });
-  const families = useMemo(() => buildAssetFamilies(project.customModels.map(customModelItem), {
+  const families = useMemo(() => buildAssetFamilies(assetType === 'ties'
+    ? project.customModels.map(customModelItem)
+    : customTfragItems(project), {
     game: project.baseLevel.game,
     region: project.baseLevel.region,
     revision: project.baseLevel.revision,
     level: project.baseLevel.level,
-  }), [project.baseLevel, project.customModels]);
+  }), [assetType, project]);
 
   useEffect(() => {
-    if (!assetPreview?.variants.some((variant) => variant.tags.includes('custom-model'))) return;
-    inspectAsset(families.find((family) => family.familyId === assetPreview.familyId), false);
+    const preview = assetPreview;
+    const previewVariant = preview?.variants.find((variant) => variant.tags.includes('custom-model')
+      || variant.tags.includes('custom-tfrag'));
+    if (!preview || !previewVariant) return;
+    const family = families.find((candidate) => candidate.familyId === preview.familyId
+      || candidate.variants.some((variant) => variant.previewRevision
+        && variant.previewRevision === previewVariant.previewRevision));
+    if (family && family !== preview) inspectAsset(family, false);
   }, [assetPreview?.familyId, families, inspectAsset]);
 
   useEffect(() => {
@@ -55,27 +64,40 @@ export function CustomAssetsPanel() {
 
   const windowed = assetGridWindow(families.length, viewport.width, viewport.height, viewport.scrollTop);
 
-  const importTie = () => {
+  const importAsset = () => {
     setImporting(true);
     setError('');
-    void window.forge.chooseCustomTieImport(forceBackfaceCulling)
+    const choose = assetType === 'ties'
+      ? window.forge.chooseCustomTieImport(forceBackfaceCulling)
+      : window.forge.chooseCustomTfragImport();
+    void choose
       .then(async (value) => {
         if (!value) return;
-        const known = new Set(project.customModels.map((model) => model.assetId));
+        const known = new Set(assetType === 'ties'
+          ? project.customModels.map((model) => model.assetId)
+          : customTfragItems(project).map((item) => item.previewRevision!));
         if (!await execute({
-          id: crypto.randomUUID(), kind: 'importCustomTie', entityIds: [], import: value,
+          id: crypto.randomUUID(),
+          kind: assetType === 'ties' ? 'importCustomTie' : 'importCustomTfrag',
+          entityIds: [],
+          import: value,
         })) return;
         const snapshot = await window.forge.getEditorSnapshot();
-        const imported = snapshot.customModels.find((model) => !known.has(model.assetId))
-          ?? snapshot.customModels.find((model) => model.sourceName === value.sourceName);
-        if (!imported) throw new Error('The imported custom TIE was not returned by the editor.');
-        const family = buildAssetFamilies([customModelItem(imported)], {
+        const importedItem = assetType === 'ties'
+          ? snapshot.customModels.map(customModelItem).find((item) => !known.has(item.assetId))
+            ?? snapshot.customModels.map(customModelItem)
+              .find((item) => item.displayLabel === value.sourceName)
+          : customTfragItems(snapshot).find((item) => !known.has(item.previewRevision!))
+            ?? customTfragItems(snapshot).find((item) => item.displayLabel === value.sourceName);
+        if (!importedItem)
+          throw new Error(`The imported custom ${assetType === 'ties' ? 'TIE' : 'tfrag'} was not returned by the editor.`);
+        const family = buildAssetFamilies([importedItem], {
           game: snapshot.target.game,
           region: snapshot.target.region,
           revision: snapshot.target.revision,
           level: snapshot.baseLevel.level,
         })[0];
-        if (!family) throw new Error('The imported custom TIE could not be displayed.');
+        if (!family) throw new Error('The imported custom asset could not be displayed.');
         inspectAsset(family);
       })
       .catch((cause: unknown) => setError(errorMessage(cause)))
@@ -87,12 +109,14 @@ export function CustomAssetsPanel() {
       <Select
         allowDeselect={false}
         aria-label="Custom asset type"
-        data={[{ value: 'ties', label: 'TIE' }]}
-        defaultValue="ties"
+        data={[{ value: 'ties', label: 'TIE' }, { value: 'tfrags', label: 'Tfrag terrain' }]}
+        value={assetType}
         label="Asset type"
+        onChange={(value) => setAssetType(value === 'tfrags' ? 'tfrags' : 'ties')}
       />
       <Checkbox
         checked={forceBackfaceCulling}
+        disabled={assetType === 'tfrags'}
         label="Force backface culling"
         onChange={(event) => setForceBackfaceCulling(event.currentTarget.checked)}
       />
@@ -101,8 +125,11 @@ export function CustomAssetsPanel() {
         fullWidth
         loading={importing}
         size="md"
-        onClick={importTie}
-      >Import custom TIE</Button>
+        title={assetType === 'tfrags'
+          ? 'Selecting an existing source rebuilds and replaces its imported terrain.'
+          : undefined}
+        onClick={importAsset}
+      >{assetType === 'ties' ? 'Import custom TIE' : 'Import or re-import tfrag'}</Button>
       {error && <Alert color="red" title="Could not import asset"><Text size="sm">{error}</Text></Alert>}
     </div>
     <div className="asset-explorer-grid-scroll" ref={setScrollElement}>
@@ -126,7 +153,7 @@ export function CustomAssetsPanel() {
             }}
           >
             <AssetCard
-              color={sceneTreeColors.tie}
+              color={assetType === 'ties' ? sceneTreeColors.tie : sceneTreeColors.tfrag}
               family={family}
               root={scrollElement}
               runtime={assetThumbnails}
@@ -138,6 +165,28 @@ export function CustomAssetsPanel() {
       {!families.length && <Text c="dimmed" className="editor-empty">No custom assets imported.</Text>}
     </div>
   </section>;
+}
+
+function customTfragItems(snapshot: EditorSnapshot): AssetExplorerItem[] {
+  const imports = new Map<string, EditorSnapshot['entities'][number]>();
+  snapshot.entities.forEach((entity) => {
+    const importId = entity.tfrag?.customImportId;
+    if (importId && entity.asset && !imports.has(importId)) imports.set(importId, entity);
+  });
+  return [...imports].map(([importId, entity]) => ({
+    assetId: entity.asset!.id,
+    category: 'tfrags',
+    displayLabel: entity.tfrag!.customSourceName ?? entity.name,
+    canonicalFormatVersion: 1,
+    byteSize: entity.tfrag?.diagnostics?.sourceDataLength ?? 0,
+    aliases: [`tfrag:${importId.slice(0, 12)}`],
+    tags: ['tfrag', 'custom-tfrag', 'project-attached'],
+    sources: [],
+    classIds: [],
+    previewState: 'notCached',
+    canPlace: true,
+    previewRevision: importId,
+  }));
 }
 
 function customModelItem(model: EditorSnapshot['customModels'][number]): AssetExplorerItem {

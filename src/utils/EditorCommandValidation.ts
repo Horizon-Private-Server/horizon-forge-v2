@@ -21,7 +21,7 @@ const commandKinds = new Set([
   'setMobyPVarField',
   'createGroup', 'renameGroup', 'deleteGroup', 'reorderGroup',
   'addGroupMembers', 'removeGroupMembers',
-  'importCustomTie', 'reimportCustomTie', 'deleteCustomTie',
+  'importCustomTie', 'importCustomTfrag', 'reimportCustomTie', 'deleteCustomTie',
 ]);
 
 export function isEditorCommand(value: unknown): value is EditorCommand {
@@ -133,7 +133,7 @@ export function isEditorCommand(value: unknown): value is EditorCommand {
     return hasExactKeys(command, ['id', 'kind', 'entityIds', 'groupId'])
       && command.entityIds.length > 0 && command.entityIds.length <= 100_000
       && new Set(command.entityIds).size === command.entityIds.length && isUuid(command.groupId);
-  if (command.kind === 'importCustomTie')
+  if (command.kind === 'importCustomTie' || command.kind === 'importCustomTfrag')
     return hasExactKeys(command, ['id', 'kind', 'entityIds', 'import'])
       && command.entityIds.length === 0 && isCustomModelImport(command.import);
   if (command.kind === 'reimportCustomTie')

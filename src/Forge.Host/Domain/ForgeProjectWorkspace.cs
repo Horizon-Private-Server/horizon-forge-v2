@@ -630,6 +630,7 @@ public sealed partial class ForgeProjectWorkspace
         || Content.AssetOverrides.Any(binding => binding.Replacement.Id == id)
         || Content.CustomClasses.Allocations.Any(allocation => allocation.Asset.Id == id)
         || Content.CustomModels.Models.Any(model => CustomModelAssetIds(model).Contains(id))
+        || Content.Tfrags?.CustomImports.Any(import => CustomTfragAssetIds(import).Contains(id)) == true
         || Content.Hud?.Additions.Any(addition => addition.Texture.Id == id) == true
         || Content.Fx?.Additions.Any(addition => addition.Texture.Id == id) == true;
 
@@ -675,6 +676,8 @@ public sealed partial class ForgeProjectWorkspace
                 .Select(allocation => allocation.Asset.Id))
             .Concat(contents.SelectMany(content => content.CustomModels.Models)
                 .SelectMany(CustomModelAssetIds))
+            .Concat(contents.SelectMany(content => content.Tfrags?.CustomImports ?? [])
+                .SelectMany(CustomTfragAssetIds))
             .Concat(contents.SelectMany(content => content.Hud?.Additions ?? [])
                 .Select(addition => addition.Texture.Id))
             .Concat(contents.SelectMany(content => content.Fx?.Additions ?? [])
@@ -721,6 +724,11 @@ public sealed partial class ForgeProjectWorkspace
             .Append(model.Canonical.Id)
             .Append(model.Native.Id)
             .Concat(model.Textures.Select(texture => texture.Id));
+
+    private static IEnumerable<AssetId> CustomTfragAssetIds(ProjectCustomTfragImport import) =>
+        import.Dependencies.Select(dependency => dependency.Asset.Id)
+            .Prepend(import.Source.Id)
+            .Concat(import.Textures.Select(texture => texture.Id));
 
     private IEnumerable<(AssetId Id, string Path)> EnumerateOrphanAssetBlobs(IReadOnlySet<AssetId> knownIds)
     {

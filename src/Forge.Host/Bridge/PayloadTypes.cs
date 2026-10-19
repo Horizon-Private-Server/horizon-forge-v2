@@ -70,6 +70,7 @@ public enum AssetExplorerCategoryPayload
     Mobys = 3,
     SkyShells = 4,
     Textures = 5,
+    Tfrags = 6,
 }
 public sealed record AssetExplorerRequestPayload(
     string CatalogRootPath,

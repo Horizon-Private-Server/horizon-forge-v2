@@ -41,7 +41,7 @@ public static class BridgeHost
                     : null,
             groupTemplateEvaluator: UyaGroupTemplateService.EvaluateAsync,
             groupTemplates: UyaGroupTemplateService.Definitions,
-            customModelCommandExecutor: UyaCustomTieProjectService.ExecuteAsync);
+            customAssetCommandExecutor: UyaCustomAssetProjectService.ExecuteAsync);
         var requests = new ConcurrentDictionary<uint, CancellationTokenSource>();
         var tasks = new ConcurrentDictionary<uint, Task>();
 
@@ -190,6 +190,7 @@ public static class BridgeHost
                         await RenderBridgeHandlers.PrepareUyaAsync(
                             frame.Payload,
                             handshake.SdkRevision,
+                            editor,
                             CreateProgressReporter(frame, writer, hostCancellation),
                             requestCancellation.Token)), hostCancellation);
                     break;

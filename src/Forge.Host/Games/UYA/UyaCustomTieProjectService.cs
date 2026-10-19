@@ -24,29 +24,6 @@ internal static class UyaCustomTieProjectService
         CancellationToken cancellationToken = default) => ImportCoreAsync(
             workspace, request, previousAssetId, explicitDependents, cancellationToken);
 
-    public static async Task ExecuteAsync(
-        ForgeProjectWorkspace workspace,
-        EditorCommand command,
-        CancellationToken cancellationToken)
-    {
-        var edit = command.CustomModelEdit!;
-        switch (command.Kind)
-        {
-            case EditorCommandKind.ImportCustomTie:
-                _ = await ImportAsync(workspace, edit.Import!, cancellationToken);
-                break;
-            case EditorCommandKind.ReimportCustomTie:
-                _ = await ReimportAsync(
-                    workspace, edit.ModelAssetId!.Value, edit.Import!, command.EntityIds, cancellationToken);
-                break;
-            case EditorCommandKind.DeleteCustomTie:
-                await DeleteAsync(workspace, edit.ModelAssetId!.Value, cancellationToken);
-                break;
-            default:
-                throw new ArgumentOutOfRangeException(nameof(command), command.Kind, "Unknown custom TIE command.");
-        }
-    }
-
     private static async Task<ProjectCustomModel> ImportCoreAsync(
         ForgeProjectWorkspace workspace,
         ProjectCustomModelImportRequest request,
@@ -100,53 +77,26 @@ internal static class UyaCustomTieProjectService
         var classId = registry.Allocations.Single(value => value.Asset == canonical).ClassId;
         var converted = StaticModelConverter.Convert(GameId.UYA, canonicalAsset, classId, cancellationToken);
 
-        var sourceId = AssetId.Compute(
-            AssetKind.StaticModelSource, ProjectCustomModelSchema.SourceFormatVersion, request.SourceBytes);
-        var source = new ProjectAssetReference(sourceId, AssetKind.StaticModelSource);
-        var attachments = new List<ProjectAssetAttachment>
-        {
-            new(AssetKind.StaticModelSource, ProjectCustomModelSchema.SourceFormatVersion, request.SourceBytes),
-            new(AssetKind.Tie, ProjectCustomModelSchema.CanonicalFormatVersion, canonicalBytes),
-        };
-        var fileByUri = request.Dependencies.ToDictionary(file => file.Uri, StringComparer.Ordinal);
-        var dependencies = imported.Provenance.Dependencies.Select(dependency =>
-        {
-            var bytes = fileByUri[dependency.Uri].Bytes;
-            var id = AssetId.Compute(
-                AssetKind.StaticModelSource, ProjectCustomModelSchema.SourceFormatVersion, bytes);
-            attachments.Add(new(
-                AssetKind.StaticModelSource, ProjectCustomModelSchema.SourceFormatVersion, bytes));
-            return new ProjectCustomModelDependency(
-                dependency.Uri,
-                dependency.Kind == StaticModelDependencyKind.Buffer
-                    ? ProjectCustomModelDependencyKind.Buffer
-                    : ProjectCustomModelDependencyKind.Image,
-                new(id, AssetKind.StaticModelSource));
-        }).ToArray();
+        var attachments = new ProjectAssetAttachmentCollector();
+        var (source, dependencies) = attachments.AttachStaticModelSources(
+            request, imported.Provenance, ProjectCustomModelSchema.SourceFormatVersion);
+        _ = attachments.Attach(AssetKind.Tie, ProjectCustomModelSchema.CanonicalFormatVersion, canonicalBytes);
 
         var textureByConverterId = new Dictionary<string, ProjectAssetReference>(StringComparer.Ordinal);
         foreach (var texture in converted.Textures)
         {
-            var id = AssetId.Compute(
+            var reference = attachments.Attach(
                 AssetKind.Texture, ProjectTextureAssetSchema.CanonicalFormatVersion, texture.PifBytes);
-            var reference = new ProjectAssetReference(id, AssetKind.Texture);
             textureByConverterId.Add(texture.AssetId, reference);
-            attachments.Add(new(
-                AssetKind.Texture,
-                ProjectTextureAssetSchema.CanonicalFormatVersion,
-                texture.PifBytes));
         }
         var textures = converted.Textures.Select(texture => textureByConverterId[texture.AssetId])
             .Distinct().ToArray();
         var nativeBytes = UyaCustomTieNativeCodec.Write(converted.DefinitionBytes, converted.ModelBytes);
-        var nativeId = AssetId.Compute(
-            AssetKind.StaticModelNative, ProjectCustomModelSchema.NativeFormatVersion, nativeBytes);
-        var native = new ProjectAssetReference(nativeId, AssetKind.StaticModelNative);
-        attachments.Add(new(
+        var native = attachments.Attach(
             AssetKind.StaticModelNative,
             ProjectCustomModelSchema.NativeFormatVersion,
             nativeBytes,
-            canonicalId));
+            canonicalId);
         var model = new ProjectCustomModel(
             ProjectCustomModelSchema.CurrentVersion,
             imported.Provenance.SourceName,
@@ -220,7 +170,8 @@ internal static class UyaCustomTieProjectService
         var state = new ProjectCustomModelState(
             ProjectCustomModelSchema.CurrentVersion,
             models.OrderBy(value => value.Canonical.Id.ToString(), StringComparer.Ordinal).ToArray());
-        await workspace.CommitCustomModelsAsync(state, registry, entities, attachments, cancellationToken);
+        await workspace.CommitCustomModelsAsync(
+            state, registry, entities, attachments.Attachments, cancellationToken);
         return model;
     }
 
@@ -249,7 +200,7 @@ internal static class UyaCustomTieProjectService
         };
     }
 
-    private static Task DeleteAsync(
+    internal static Task DeleteAsync(
         ForgeProjectWorkspace workspace,
         AssetId modelAssetId,
         CancellationToken cancellationToken)

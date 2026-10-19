@@ -20,7 +20,10 @@ internal static partial class ForgeProjectValidation
 
         if (state.SchemaVersion != ProjectTfragSchema.CurrentVersion
             || state.Sources is null
+            || state.CustomImports is null
+            || state.CustomImports.Any(value => value is null)
             || state.Sources.Count > ProjectTfragSchema.MaximumSourceCount
+            || state.CustomImports.Count > ProjectTfragSchema.MaximumCustomImports
             || state.Sources.Any(source => source is null))
             throw new InvalidDataException("Project tfrag import state is invalid.");
         if (state.Sources.Select(source => (source.SourceKind, source.SourceIndex)).Distinct().Count()
@@ -47,6 +50,42 @@ internal static partial class ForgeProjectValidation
             throw new InvalidDataException("Project tfrag occurrence count does not match its source inventory.");
 
         var attached = assets.ToDictionary(asset => asset.Id);
+        if (state.CustomImports.Select(value => value.ImportId).Distinct(StringComparer.Ordinal).Count()
+            != state.CustomImports.Count)
+            throw new InvalidDataException("Project custom tfrag import IDs are duplicated.");
+        var customById = state.CustomImports.ToDictionary(value => value.ImportId, StringComparer.Ordinal);
+        var customPieceIds = new HashSet<EntityId>();
+        foreach (var import in state.CustomImports)
+        {
+            if (!BakeSchema.IsFingerprint(import.ImportId))
+                throw new InvalidDataException("Project custom tfrag import ID is invalid.");
+            ValidateText(import.SourceName, "Custom tfrag source name");
+            if (import.Source is not { Kind: AssetKind.StaticModelSource }
+                || !attached.TryGetValue(import.Source.Id, out var sourceAsset)
+                || sourceAsset.CanonicalFormatVersion != ProjectCustomTfragSchema.SourceFormatVersion
+                || import.Dependencies is null || import.Textures is null || import.Pieces is null
+                || import.Dependencies.Count > ProjectCustomModelSchema.MaximumDependencies
+                || import.Textures.Count > ProjectTfragSchema.MaximumTextureDependencies
+                || import.Pieces.Count == 0
+                || import.Textures.Distinct().Count() != import.Textures.Count
+                || import.Pieces.Any(value => !customPieceIds.Add(value)))
+                throw new InvalidDataException("Project custom tfrag import state is invalid.");
+            ValidateCustomModelDependencies(
+                import.Dependencies, "Project custom tfrag dependencies are invalid.");
+            foreach (var dependency in import.Dependencies)
+                if (dependency.Asset is not { Kind: AssetKind.StaticModelSource }
+                    || !attached.TryGetValue(dependency.Asset.Id, out var dependencyAsset)
+                    || dependencyAsset.CanonicalFormatVersion != ProjectCustomTfragSchema.SourceFormatVersion)
+                    throw new InvalidDataException("Project custom tfrag source dependency is invalid.");
+            foreach (var texture in import.Textures)
+                if (texture.Kind != AssetKind.Texture
+                    || !attached.TryGetValue(texture.Id, out var textureAsset)
+                    || textureAsset.CanonicalFormatVersion != ProjectTextureAssetSchema.CanonicalFormatVersion)
+                    throw new InvalidDataException("Project custom tfrag texture is invalid.");
+        }
+        if (!customPieceIds.SetEquals(pieces.Where(value => value.Tfrag!.CustomImportId is not null)
+                .Select(value => value.EntityId)))
+            throw new InvalidDataException("Project custom tfrag piece inventory is inconsistent.");
         var sourcesByOwner = state.Sources.ToDictionary(source => (source.SourceKind, source.SourceIndex));
         var sourceGroups = pieces.GroupBy(entity =>
             (entity.Tfrag!.SourceKind, entity.Tfrag.SourceIndex)).ToDictionary(group => group.Key);
@@ -101,6 +140,16 @@ internal static partial class ForgeProjectValidation
                     diagnostics.DecodedTriangleCount,
                 }.Any(value => value < 0))
                 throw new InvalidDataException($"Tfrag entity {entity.EntityId} metadata is invalid.");
+            if (piece.CustomImportId is { } customImportId)
+            {
+                if (piece.CustomSourceName is null
+                    || !customById.TryGetValue(customImportId, out var customImport)
+                    || customImport.SourceName != piece.CustomSourceName
+                    || !customImport.Pieces.Contains(entity.EntityId))
+                    throw new InvalidDataException($"Tfrag entity {entity.EntityId} custom import metadata is invalid.");
+            }
+            else if (piece.CustomSourceName is not null)
+                throw new InvalidDataException($"Tfrag entity {entity.EntityId} has incomplete custom import metadata.");
             if (entity.State?.Disabled == true)
                 throw new InvalidDataException($"Tfrag entity {entity.EntityId} cannot be disabled before native composition is available.");
         }

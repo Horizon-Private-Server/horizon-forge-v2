@@ -107,7 +107,7 @@ export class AssetThumbnailRuntime {
       return cached;
     }
     this.throwIfCancelled(signal);
-    const persisted = customView ? undefined : await forgeApi().getAssetThumbnail(
+    const persisted = customView || previewRevision ? undefined : await forgeApi().getAssetThumbnail(
       this.targetGame, assetId, kind, shellIndex,
     ).catch(() => undefined);
     this.throwIfCancelled(signal);
@@ -148,7 +148,7 @@ export class AssetThumbnailRuntime {
         const raster = this.renderer.domElement.toDataURL('image/png');
         root.removeFromParent();
         const bytes = decodeDataUrl(raster);
-        const thumbnail = customView ? raster
+        const thumbnail = customView || previewRevision ? raster
           : (await forgeApi().storeAssetThumbnail(this.targetGame, assetId, kind, bytes, shellIndex)
             .catch(() => undefined))?.url ?? raster;
         return this.remember(key, thumbnail);

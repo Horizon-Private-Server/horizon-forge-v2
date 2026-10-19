@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.IO.Compression;
+using System.Text;
 using Forge.Host.Domain;
 using Forge.Host.Games.UYA;
 using RatchetPs2.Core.Games;
@@ -22,8 +23,10 @@ internal static class UyaTfragProjectTests
             await VerifySourceHydrationAsync(root);
             await VerifyMetadataHydrationPreservesEditsAsync(root);
             await VerifyBakeCompositionAsync(root);
+            await VerifyCustomImportAsync(root);
             await VerifyInstancedCollisionAsync(root);
             VerifyStreamedPayloadReservation();
+            VerifyOptionalPrimaryTerrain();
             await VerifyMissingSourceAsync(root);
         }
         finally
@@ -44,6 +47,234 @@ internal static class UyaTfragProjectTests
             ?? throw new InvalidOperationException("a growing chunk should expand the primary streaming buffer");
         Equal(new byte[] { 4, 5, 0, 0, 0 }, expanded.ToArray(),
             "the primary streaming buffer should retain its payload and pad through the largest chunk");
+    }
+
+    private static void VerifyOptionalPrimaryTerrain()
+    {
+        Equal<TfragTerrain?>(null, UyaBaseLayerService.ReadPrimaryTerrain(new byte[0x40]),
+            "an all-zero primary terrain placeholder should normalize to no terrain");
+        var emptyTerrain = new byte[0x40];
+        BinaryPrimitives.WriteInt32LittleEndian(emptyTerrain, 0x40);
+        Equal(0, UyaBaseLayerService.ReadPrimaryTerrain(emptyTerrain)?.TfragCount,
+            "a structurally valid empty terrain should still be parsed");
+    }
+
+    private static async Task VerifyCustomImportAsync(string root)
+    {
+        var projectPath = Path.Combine(root, "custom-import");
+        var catalog = await AssetCatalogStore.OpenAsync(Path.Combine(root, "custom-import-catalog"));
+        var workspace = await CreateWorkspaceAsync(projectPath);
+        var payloads = new[] { Payload() };
+        var source = new OpaqueContentSource("UYA", "NTSC-U", "1.00", 3, new string('a', 32));
+        var entries = await catalog.PutManyAsync(UyaBaseLayerService.CreateCatalogPuts(payloads, source, "test"));
+        await UyaBaseLayerStore.WriteAsync(projectPath, source, payloads, entries);
+        await UyaTfragProjectService.ApplyAsync(workspace, UyaTfragProjectService.Create(payloads, 3));
+
+        var originalCount = workspace.Content.Tfrags!.Sources.Single(value =>
+            value.SourceKind == ProjectTfragSourceKind.Primary).GroupCount;
+        var request = CustomTfragRequest();
+        var importedIds = await UyaCustomTfragProjectService.ImportAsync(workspace, request);
+        Equal(true, importedIds.Count > 0, "custom tfrag import creates partition entities");
+        Equal(1, workspace.Content.Tfrags.CustomImports.Count,
+            "custom tfrag import retains one source manifest");
+        Equal(true, workspace.Content.Tfrags.CustomImports[0].Textures.Count > 0,
+            "custom tfrag import retains converted terrain textures");
+        var attachedImport = workspace.Content.Tfrags.CustomImports[0];
+        Equal(true, attachedImport.Dependencies.Select(value => value.Asset.Id)
+                .Prepend(attachedImport.Source.Id)
+                .Concat(attachedImport.Textures.Select(value => value.Id))
+                .All(workspace.IsAssetReferenced),
+            "custom tfrag sources and textures are protected from attached-asset collection");
+        Throws<InvalidDataException>(() => ForgeProjectValidation.Validate(
+            workspace.RootPath, workspace.Manifest, workspace.Content with
+        {
+            Tfrags = workspace.Content.Tfrags with
+            {
+                CustomImports = [attachedImport, attachedImport],
+            },
+        }), "duplicate custom tfrag import IDs produce a project validation diagnostic");
+        Throws<InvalidDataException>(() => ForgeProjectValidation.Validate(
+            workspace.RootPath, workspace.Manifest, workspace.Content with
+        {
+            Tfrags = workspace.Content.Tfrags with
+            {
+                CustomImports =
+                [
+                    attachedImport with
+                    {
+                        Dependencies =
+                        [
+                            new("../escape.bin", ProjectCustomModelDependencyKind.Buffer, attachedImport.Source),
+                        ],
+                    },
+                ],
+            },
+        }), "custom tfrag dependencies reject non-portable URIs");
+        Equal(originalCount + importedIds.Count, workspace.Content.Tfrags.Sources.Single(value =>
+            value.SourceKind == ProjectTfragSourceKind.Primary).GroupCount,
+            "custom tfrag partitions extend the primary group inventory");
+        Equal(true, importedIds.All(id => workspace.Content.Entities.Single(value => value.EntityId == id)
+                .Tfrag is { CustomImportId: not null }),
+            "custom tfrag entities retain their import ownership");
+        await workspace.SaveAsync();
+        Equal(0, (await workspace.CollectUnreferencedAssetsAsync()).Count,
+            "attached-asset collection retains a complete custom tfrag import");
+
+        var repeatedIds = await UyaCustomTfragProjectService.ImportAsync(workspace, request);
+        Equal(importedIds.ToArray(), repeatedIds.ToArray(),
+            "reimporting identical custom terrain replaces its generated pieces in place");
+        Equal(1, workspace.Content.Tfrags.CustomImports.Count,
+            "reimporting identical custom terrain does not create a duplicate manifest");
+
+        var first = workspace.Content.Entities.Single(value => value.EntityId == repeatedIds[0]);
+        var originalSourcePosition = first.Tfrag!.SourcePosition!;
+        var movedTransform = first.Transform with
+        {
+            Position = new(first.Transform.Position.X + 7, first.Transform.Position.Y + 8,
+                first.Transform.Position.Z + 9),
+        };
+        workspace.UpdateTransform(first.EntityId, movedTransform);
+        var replacementRequest = CustomTfragRequest(0.5f);
+        var replacementIds = await UyaCustomTfragProjectService.ImportAsync(workspace, replacementRequest);
+        Equal(repeatedIds.ToArray(), replacementIds.ToArray(),
+            "reimporting a changed source with the same name preserves matching piece identities");
+        Equal(1, workspace.Content.Tfrags.CustomImports.Count,
+            "reimporting a changed source replaces its prior manifest");
+        var replacementFirst = workspace.Content.Entities.Single(value => value.EntityId == replacementIds[0]);
+        Equal(
+            new ProjectVector3(
+                movedTransform.Position.X - originalSourcePosition.X,
+                movedTransform.Position.Y - originalSourcePosition.Y,
+                movedTransform.Position.Z - originalSourcePosition.Z),
+            new ProjectVector3(
+                replacementFirst.Transform.Position.X - replacementFirst.Tfrag!.SourcePosition!.X,
+                replacementFirst.Transform.Position.Y - replacementFirst.Tfrag.SourcePosition.Y,
+                replacementFirst.Transform.Position.Z - replacementFirst.Tfrag.SourcePosition.Z),
+            "custom terrain reimport preserves the authored piece offset");
+
+        var laterIds = await UyaCustomTfragProjectService.ImportAsync(
+            workspace, CustomTfragRequest(0.3f, sourceName: "later-terrain.gltf"));
+        var laterGroupBefore = workspace.Content.Entities.Single(value => value.EntityId == laterIds[0])
+            .Tfrag!.GroupIndex;
+        var resizedRequest = CustomTfragRequest(0.5f, size: 12);
+        var resizedIds = await UyaCustomTfragProjectService.ImportAsync(workspace, resizedRequest);
+        Equal(false, resizedIds.Count == replacementIds.Count,
+            "changed partition counts exercise custom terrain range replacement");
+        Equal(replacementIds.Take(Math.Min(replacementIds.Count, resizedIds.Count)).ToArray(),
+            resizedIds.Take(Math.Min(replacementIds.Count, resizedIds.Count)).ToArray(),
+            "resized custom terrain preserves every reusable piece identity");
+        Equal(laterGroupBefore + resizedIds.Count - replacementIds.Count,
+            workspace.Content.Entities.Single(value => value.EntityId == laterIds[0]).Tfrag!.GroupIndex,
+            "resizing an earlier custom terrain import shifts later primary group indices");
+        Equal(originalCount + resizedIds.Count + laterIds.Count, workspace.Content.Tfrags.Sources.Single(value =>
+            value.SourceKind == ProjectTfragSourceKind.Primary).GroupCount,
+            "custom terrain reimport keeps the source group inventory contiguous");
+
+        var tfragRecord = (await UyaBaseLayerStore.InspectAsync(
+                workspace, catalog, BakeLayerId.Tfrags, CancellationToken.None))
+            .Manifest!.Layers.Single(value => value.Layer == BakeLayerId.Tfrags);
+        var gameComposition = await UyaTfragBakeService.ComposeAsync(
+            workspace, catalog, tfragRecord, CancellationToken.None);
+        var previewComposition = await UyaTfragBakeService.ComposePreviewAsync(
+            workspace, catalog, tfragRecord, CancellationToken.None);
+        Equal(false, gameComposition["primary.bin"].SequenceEqual(previewComposition["primary.bin"]),
+            "editor terrain composition leaves authored transforms for the scene projection to apply");
+
+        var resizedFirst = workspace.Content.Entities.Single(value => value.EntityId == resizedIds[0]);
+        var preview = await UyaAssetPreviewService.PrepareAsync(new(
+            Path.Combine(root, "custom-import-preview"), catalog.RootPath, resizedFirst.Asset!.Id,
+            AssetKind.Tfrag, "UYA", "model-default", ProjectPath: projectPath),
+            "test-sdk", projectWorkspace: workspace);
+        var previewBytes = await File.ReadAllBytesAsync(Path.Combine(preview.RootPath, preview.ModelPath));
+        var previewJson = Encoding.UTF8.GetString(previewBytes);
+        Equal(true, previewJson.Contains("model.buffer.bin", StringComparison.Ordinal)
+            && previewJson.Contains("textures/texture-000.png", StringComparison.Ordinal)
+            && File.Exists(Path.Combine(preview.RootPath, "model.buffer.bin"))
+            && File.Exists(Path.Combine(preview.RootPath, "textures", "texture-000.png")),
+            "custom tfrag preview exports the complete native target with converted textures");
+
+        await workspace.SaveAsync();
+        await using (var runtime = new EditorRuntime(
+            transformCapabilityResolver: UyaEditorCapabilities.ResolveTransformCapabilities,
+            customAssetCommandExecutor: UyaCustomAssetProjectService.ExecuteAsync))
+        {
+            var opened = await runtime.OpenAsync(projectPath, TimeSpan.Zero);
+            Equal(true, runtime.HasCapability("editor.custom-tfrag.import"),
+                "custom terrain import capability is advertised");
+            Equal(EditorTransformCapabilities.Translate | EditorTransformCapabilities.Rotate
+                    | EditorTransformCapabilities.Scale,
+                opened.Entities.Single(entity => entity.EntityId == resizedIds[0]).TransformCapabilities,
+                "custom terrain parents expose translation, rotation, and positive-uniform scale");
+            var snapshot = await runtime.ExecuteAsync(new(
+                Guid.NewGuid().ToString("D"), EditorCommandKind.DeleteEntities, [laterIds[0]]));
+            Equal(true, laterIds.All(id => snapshot.Entities.All(entity => entity.EntityId != id)),
+                "deleting one custom terrain piece removes its complete import");
+            Equal(true, resizedIds.All(id => snapshot.Entities.Any(entity => entity.EntityId == id)),
+                "custom terrain deletion leaves other imports intact");
+            snapshot = await runtime.ExecuteAsync(new(
+                Guid.NewGuid().ToString("D"), EditorCommandKind.Undo, []));
+            Equal(true, laterIds.All(id => snapshot.Entities.Any(entity => entity.EntityId == id)),
+                "undo restores a deleted custom terrain import");
+            snapshot = await runtime.ExecuteAsync(new(
+                Guid.NewGuid().ToString("D"), EditorCommandKind.Redo, []));
+            Equal(true, laterIds.All(id => snapshot.Entities.All(entity => entity.EntityId != id)),
+                "redo removes the complete custom terrain import again");
+            await runtime.SaveAsync();
+        }
+        workspace = await ForgeProjectWorkspace.OpenAsync(projectPath);
+        Equal(1, workspace.Content.Tfrags!.CustomImports.Count,
+            "custom terrain deletion removes its source manifest");
+        Equal(originalCount + resizedIds.Count, workspace.Content.Tfrags.Sources.Single(value =>
+            value.SourceKind == ProjectTfragSourceKind.Primary).GroupCount,
+            "custom terrain deletion compacts the source group inventory");
+
+        var context = new BakeFingerprintContext(
+            new("UYA", "NTSC-U", "1.00", "uya-ntsc-u"), "translator", "baker");
+        var input = (await UyaBaseLayerStore.CreateBakeInputsAsync(projectPath, catalog))
+            .Single(value => value.Id == BakeLayerId.Tfrags);
+        var plan = BakeLayerGraph.CreatePlan(context, [input]).Layers
+            .Single(value => value.Layer == BakeLayerId.Tfrags);
+        var staging = await BakeStagingStore.OpenAsync(projectPath);
+        var staged = await UyaBaseLayerStore.StageAsync(projectPath, catalog, staging, plan);
+        var bytes = await File.ReadAllBytesAsync(Path.Combine(
+            projectPath, BakeStagingStore.StagingDirectoryName, staged.RelativePath, "primary.bin"));
+        using var stream = new MemoryStream(bytes, writable: false);
+        Equal(originalCount + resizedIds.Count, TfragTerrainReader.Read(stream).Chunks.Count,
+            "custom tfrag staging excludes deleted terrain partitions");
+
+        workspace = await ForgeProjectWorkspace.OpenAsync(projectPath);
+        var vanillaIds = workspace.Content.Entities.Where(entity => entity.Tfrag is
+                { CustomImportId: null, SourceKind: ProjectTfragSourceKind.Primary })
+            .Select(entity => entity.EntityId).ToArray();
+        await using (var runtime = new EditorRuntime(
+            transformCapabilityResolver: UyaEditorCapabilities.ResolveTransformCapabilities,
+            customAssetCommandExecutor: UyaCustomAssetProjectService.ExecuteAsync))
+        {
+            await runtime.OpenAsync(projectPath, TimeSpan.Zero);
+            var snapshot = await runtime.ExecuteAsync(new(
+                Guid.NewGuid().ToString("D"), EditorCommandKind.DeleteEntities, vanillaIds));
+            Equal(true, vanillaIds.All(id => snapshot.Entities.All(entity => entity.EntityId != id)),
+                "deleting the vanilla terrain source removes every native group");
+            Equal(true, resizedIds.All(id => snapshot.Entities.Any(entity => entity.EntityId == id)),
+                "deleting vanilla terrain preserves custom terrain imports");
+            await runtime.SaveAsync();
+        }
+        workspace = await ForgeProjectWorkspace.OpenAsync(projectPath);
+        Equal(resizedIds.Count, workspace.Content.Tfrags!.Sources.Single(value =>
+                value.SourceKind == ProjectTfragSourceKind.Primary).GroupCount,
+            "vanilla terrain deletion compacts custom partitions to the complete source inventory");
+        var filteredInput = (await UyaBaseLayerStore.CreateBakeInputsAsync(projectPath, catalog))
+            .Single(value => value.Id == BakeLayerId.Tfrags);
+        var filteredPlan = BakeLayerGraph.CreatePlan(context, [filteredInput], staging.Manifest).Layers
+            .Single(value => value.Layer == BakeLayerId.Tfrags);
+        Equal(BakeLayerState.Dirty, filteredPlan.State,
+            "vanilla terrain deletion invalidates the tfrag bake layer");
+        var filtered = await UyaBaseLayerStore.StageAsync(
+            projectPath, catalog, staging, filteredPlan, cancellationToken: CancellationToken.None);
+        var filteredBytes = await File.ReadAllBytesAsync(Path.Combine(
+            projectPath, BakeStagingStore.StagingDirectoryName, filtered.RelativePath, "primary.bin"));
+        Equal(resizedIds.Count, TfragTerrainReader.Read(filteredBytes).Chunks.Count,
+            "vanilla terrain deletion bakes a custom-only native terrain payload");
     }
 
     private static async Task VerifyInstancedCollisionAsync(string root)
@@ -688,6 +919,82 @@ internal static class UyaTfragProjectTests
             new("UYA", "NTSC-U", "1.00", "uya-ntsc-u"),
             new("UYA", "NTSC-U", "1.00", 3, new string('a', 32)),
             []);
+
+    private static ProjectCustomModelImportRequest CustomTfragRequest(
+        float heightScale = 0.25f,
+        int size = 4,
+        string sourceName = "terrain.gltf")
+    {
+        var positions = new List<float>();
+        var normals = new List<float>();
+        var texCoords = new List<float>();
+        for (var y = 0; y <= size; y++)
+        {
+            for (var x = 0; x <= size; x++)
+            {
+                positions.AddRange([x, y, MathF.Sin(x * 0.5f) * heightScale]);
+                normals.AddRange([0, 0, 1]);
+                texCoords.AddRange([x / (float)size, y / (float)size]);
+            }
+        }
+        var indices = new List<ushort>();
+        for (var y = 0; y < size; y++)
+        {
+            for (var x = 0; x < size; x++)
+            {
+                var topLeft = checked((ushort)(y * (size + 1) + x));
+                var topRight = checked((ushort)(topLeft + 1));
+                var bottomLeft = checked((ushort)((y + 1) * (size + 1) + x));
+                var bottomRight = checked((ushort)(bottomLeft + 1));
+                indices.AddRange([topLeft, topRight, bottomLeft, bottomLeft, topRight, bottomRight]);
+            }
+        }
+        var positionBytes = positions.Count * sizeof(float);
+        var normalOffset = positionBytes;
+        var normalBytes = normals.Count * sizeof(float);
+        var texCoordOffset = normalOffset + normalBytes;
+        var texCoordBytes = texCoords.Count * sizeof(float);
+        var indexOffset = texCoordOffset + texCoordBytes;
+        var geometry = new byte[indexOffset + indices.Count * sizeof(ushort)];
+        for (var index = 0; index < positions.Count; index++)
+            BinaryPrimitives.WriteSingleLittleEndian(geometry.AsSpan(index * sizeof(float)), positions[index]);
+        for (var index = 0; index < normals.Count; index++)
+            BinaryPrimitives.WriteSingleLittleEndian(
+                geometry.AsSpan(normalOffset + index * sizeof(float)), normals[index]);
+        for (var index = 0; index < texCoords.Count; index++)
+            BinaryPrimitives.WriteSingleLittleEndian(
+                geometry.AsSpan(texCoordOffset + index * sizeof(float)), texCoords[index]);
+        for (var index = 0; index < indices.Count; index++)
+            BinaryPrimitives.WriteUInt16LittleEndian(
+                geometry.AsSpan(indexOffset + index * sizeof(ushort)), indices[index]);
+        var encoded = Convert.ToBase64String(geometry);
+        var json = $$"""
+            {
+              "asset":{"version":"2.0"},
+              "buffers":[{"uri":"data:application/octet-stream;base64,{{encoded}}","byteLength":{{geometry.Length}}}],
+              "bufferViews":[
+                {"buffer":0,"byteOffset":0,"byteLength":{{positionBytes}}},
+                {"buffer":0,"byteOffset":{{normalOffset}},"byteLength":{{normalBytes}}},
+                {"buffer":0,"byteOffset":{{texCoordOffset}},"byteLength":{{texCoordBytes}}},
+                {"buffer":0,"byteOffset":{{indexOffset}},"byteLength":{{indices.Count * sizeof(ushort)}}}
+              ],
+              "accessors":[
+                {"bufferView":0,"componentType":5126,"count":{{positions.Count / 3}},"type":"VEC3"},
+                {"bufferView":1,"componentType":5126,"count":{{normals.Count / 3}},"type":"VEC3"},
+                {"bufferView":2,"componentType":5126,"count":{{texCoords.Count / 2}},"type":"VEC2"},
+                {"bufferView":3,"componentType":5123,"count":{{indices.Count}},"type":"SCALAR"}
+              ],
+              "materials":[{"name":"terrain"}],
+              "meshes":[{"primitives":[{
+                "attributes":{"POSITION":0,"NORMAL":1,"TEXCOORD_0":2},"indices":3,"material":0,"mode":4
+              }]}],
+              "nodes":[{"mesh":0}],
+              "scenes":[{"nodes":[0]}],
+              "scene":0
+            }
+            """;
+        return new(sourceName, Encoding.UTF8.GetBytes(json), []);
+    }
 
     private static UyaBaseLayerPayload Payload(int sourceIndex = 0) => new(
         BakeLayerId.Tfrags,

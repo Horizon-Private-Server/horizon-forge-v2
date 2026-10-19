@@ -275,16 +275,8 @@ internal static partial class ForgeProjectValidation
                 ProjectCustomModelSchema.CanonicalFormatVersion, null, assets, "canonical model");
             RequireAsset(model.Native, AssetKind.StaticModelNative,
                 ProjectCustomModelSchema.NativeFormatVersion, model.Canonical.Id, assets, "native model");
-            if (model.Dependencies.Any(dependency => dependency is null
-                    || string.IsNullOrWhiteSpace(dependency.Uri)
-                    || dependency.Uri.Length > 1_024
-                    || Path.IsPathRooted(dependency.Uri)
-                    || dependency.Uri.Contains('\\')
-                    || dependency.Uri.Split('/', StringSplitOptions.RemoveEmptyEntries).Contains("..")
-                    || !Enum.IsDefined(dependency.Kind))
-                || model.Dependencies.Select(dependency => dependency.Uri).Distinct(StringComparer.Ordinal).Count()
-                    != model.Dependencies.Count)
-                throw new InvalidDataException("Project custom model dependencies are invalid.");
+            ValidateCustomModelDependencies(
+                model.Dependencies, "Project custom model dependencies are invalid.");
             foreach (var dependency in model.Dependencies)
                 RequireAsset(dependency.Asset, AssetKind.StaticModelSource,
                     ProjectCustomModelSchema.SourceFormatVersion, null, assets, "source dependency");
@@ -319,6 +311,22 @@ internal static partial class ForgeProjectValidation
             || asset.ParentId != parentId)
             throw new InvalidDataException(
                 $"Project custom model {description} {reference.Id} has invalid attached metadata.");
+    }
+
+    private static void ValidateCustomModelDependencies(
+        IReadOnlyList<ProjectCustomModelDependency> dependencies,
+        string errorMessage)
+    {
+        if (dependencies.Any(dependency => dependency is null
+                || string.IsNullOrWhiteSpace(dependency.Uri)
+                || dependency.Uri.Length > 1_024
+                || Path.IsPathRooted(dependency.Uri)
+                || dependency.Uri.Contains('\\')
+                || dependency.Uri.Split('/', StringSplitOptions.RemoveEmptyEntries).Contains("..")
+                || !Enum.IsDefined(dependency.Kind))
+            || dependencies.Select(dependency => dependency.Uri).Distinct(StringComparer.Ordinal).Count()
+                != dependencies.Count)
+            throw new InvalidDataException(errorMessage);
     }
 
     private static void ValidateGroups(

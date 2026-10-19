@@ -59,6 +59,7 @@ internal static class RenderBridgeHandlers
             "moby" => AssetKind.Moby,
             "tie" => AssetKind.Tie,
             "shrub" => AssetKind.Shrub,
+            "tfrag" => AssetKind.Tfrag,
             "texture" => AssetKind.Texture,
             "sky" => AssetKind.Sky,
             _ => throw new ArgumentException($"Unknown asset preview kind: {request.Kind}."),
@@ -88,17 +89,23 @@ internal static class RenderBridgeHandlers
     public static async Task<byte[]> PrepareUyaAsync(
         byte[] payload,
         string sdkRevision,
+        EditorRuntime runtime,
         Func<IsoProgress, ValueTask> progress,
         CancellationToken cancellationToken)
     {
         var request = BridgePayloadCodec.DecodeUyaRenderPackageRequest(payload);
-        var result = await UyaRenderPackageService.PrepareAsync(new(
+        var nativeRequest = new UyaRenderPackageRequest(
             request.SourceIsoPath,
             request.CacheRootPath,
             request.Fingerprint,
             checked((int)request.Level),
             request.ProjectPath,
-            request.CatalogRootPath), sdkRevision, progress, cancellationToken);
+            request.CatalogRootPath);
+        var result = await runtime.ReadWorkspaceAsync(
+            request.ProjectPath,
+            (workspace, token) => UyaRenderPackageService.PrepareAsync(
+                nativeRequest, sdkRevision, workspace, progress, token),
+            cancellationToken);
         return BridgePayloadCodec.EncodeRenderPackageResult(new(
             result.RootPath, result.CacheKey, result.TerrainPaths,
             result.SkyPath,

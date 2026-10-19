@@ -75,6 +75,7 @@ const forgeApi = Object.freeze({
   executeEditorCommand: (command: EditorCommand) => ipcRenderer.invoke('forge:editor-execute', command),
   chooseCustomTieImport: (forceBackfaceCulling: boolean) =>
     ipcRenderer.invoke('forge:custom-tie-choose-import', forceBackfaceCulling),
+  chooseCustomTfragImport: () => ipcRenderer.invoke('forge:custom-tfrag-choose-import'),
   inspectInstancedCollisionSource: (entityId: string) =>
     ipcRenderer.invoke('forge:editor-instanced-collision-inspect', entityId),
   previewInstancedCollision: (entityId: string, settings?: EditorInstancedCollisionGenerationSettings) =>

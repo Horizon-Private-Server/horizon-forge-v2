@@ -59,6 +59,46 @@ public sealed partial class ForgeProjectWorkspace
         ArgumentNullException.ThrowIfNull(assets);
         if (Content.Tfrags is not null)
             throw new InvalidOperationException("Project tfrag pieces are already imported.");
+        await CommitTfragsAsync(
+            state, entities, assets, replaceEntities: false, allowNativeRemoval: false, cancellationToken);
+    }
+
+    internal Task CommitCustomTfragsAsync(
+        ProjectTfragState state,
+        IReadOnlyList<ProjectEntity> entities,
+        IReadOnlyList<ProjectAssetAttachment> assets,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        ArgumentNullException.ThrowIfNull(entities);
+        ArgumentNullException.ThrowIfNull(assets);
+        if (Content.Tfrags is null)
+            throw new InvalidOperationException("Project tfrag pieces have not been imported.");
+        return CommitTfragsAsync(
+            state, entities, assets, replaceEntities: true, allowNativeRemoval: false, cancellationToken);
+    }
+
+    internal Task CommitTfragStructureAsync(
+        ProjectTfragState state,
+        IReadOnlyList<ProjectEntity> entities,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        ArgumentNullException.ThrowIfNull(entities);
+        if (Content.Tfrags is null)
+            throw new InvalidOperationException("Project tfrag pieces have not been imported.");
+        return CommitTfragsAsync(
+            state, entities, [], replaceEntities: true, allowNativeRemoval: true, cancellationToken);
+    }
+
+    private async Task CommitTfragsAsync(
+        ProjectTfragState state,
+        IReadOnlyList<ProjectEntity> entities,
+        IReadOnlyList<ProjectAssetAttachment> assets,
+        bool replaceEntities,
+        bool allowNativeRemoval,
+        CancellationToken cancellationToken)
+    {
         cancellationToken.ThrowIfCancellationRequested();
         var resolved = assets.Select(attachment =>
         {
@@ -72,26 +112,79 @@ public sealed partial class ForgeProjectWorkspace
                     nameof(assets)),
                 Bytes: attachment.CanonicalBytes);
         }).ToArray();
-        if (resolved.Select(value => value.Asset.Id).Distinct().Count() != resolved.Length)
-            throw new ArgumentException("Attached asset batch contains duplicate content.", nameof(assets));
+        var unique = resolved.GroupBy(value => value.Asset.Id).Select(group =>
+        {
+            var first = group.First();
+            if (group.Any(value => value.Asset != first.Asset
+                    || !value.Bytes.Span.SequenceEqual(first.Bytes.Span)))
+                throw new InvalidDataException($"Project asset {group.Key} has inconsistent transaction data.");
+            return first;
+        }).ToArray();
         var existing = Content.Assets.ToDictionary(asset => asset.Id);
-        foreach (var value in resolved)
+        foreach (var value in unique)
         {
             if (existing.TryGetValue(value.Asset.Id, out var current) && current != value.Asset)
                 throw new InvalidDataException($"Project asset {value.Asset.Id} has inconsistent metadata.");
         }
-        var added = resolved.Where(value => !existing.ContainsKey(value.Asset.Id)).Select(value => value.Asset);
+        var added = unique.Where(value => !existing.ContainsKey(value.Asset.Id)).Select(value => value.Asset);
+        var removed = replaceEntities
+            ? Content.Entities.Select(entity => entity.EntityId)
+                .Except(entities.Select(entity => entity.EntityId)).ToHashSet()
+            : [];
+        if (!allowNativeRemoval && removed.Any(id => Content.Entities.Single(entity => entity.EntityId == id)
+                .Tfrag?.CustomImportId is null))
+            throw new InvalidOperationException("A custom tfrag commit cannot remove non-custom entities.");
+        if (removed.Count > 0)
+        {
+            var analysis = AnalyzeDelete(removed.ToArray());
+            if (analysis.BlockingReferences.Count > 0 || analysis.CascadedEntityIds.Count > 0)
+                throw new InvalidOperationException("Tfrag structure change is blocked by entity references.");
+        }
+        var committedEntities = (replaceEntities ? entities : Content.Entities.Concat(entities)).ToArray();
         var content = Content with
         {
             Assets = Content.Assets.Concat(added)
                 .OrderBy(asset => asset.Id.ToString(), StringComparer.Ordinal).ToArray(),
-            Entities = Content.Entities.Concat(entities).ToArray(),
+            Entities = committedEntities.Select(entity =>
+                ProjectReferences.ClearNullableEntityReferences(entity, removed)).ToArray(),
             Tfrags = state,
+            LevelSettings = ProjectReferences.ClearNullableEntityReferences(Content.LevelSettings, removed),
+            InstancedCollisionBindings = Content.InstancedCollisionBindings
+                .Where(binding => binding.InstanceEntityId is null || !removed.Contains(binding.InstanceEntityId.Value))
+                .ToArray(),
+            MobyPVars = ProjectMobyPVars.RemoveAndClear(Content.MobyPVars, removed),
+            Groups = Content.Groups.Select(group => group with
+            {
+                Members = group.Members.Where(member => !removed.Contains(member)).ToArray(),
+                Template = group.Template is not { } template
+                    || template.SeedEntityId is { } seed && removed.Contains(seed)
+                    ? null
+                    : template with
+                    {
+                        GeneratedMembers = template.GeneratedMembers
+                            .Where(member => !removed.Contains(member)).ToArray(),
+                    },
+            }).ToArray(),
         };
         ForgeProjectValidation.Validate(RootPath, Manifest, content);
-        foreach (var value in resolved)
-            await EnsureAssetBlobAsync(value.Asset, value.Bytes, cancellationToken);
-        Content = content;
+        var created = new List<string>();
+        try
+        {
+            foreach (var value in unique)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var path = AssetBlobPath(value.Asset.Id);
+                var existed = File.Exists(path);
+                await EnsureAssetBlobAsync(value.Asset, value.Bytes, cancellationToken);
+                if (!existed) created.Add(path);
+            }
+            Content = content;
+        }
+        catch
+        {
+            foreach (var path in created) File.Delete(path);
+            throw;
+        }
     }
 
     private static ProjectAttachedAsset CreateAttachedAsset(

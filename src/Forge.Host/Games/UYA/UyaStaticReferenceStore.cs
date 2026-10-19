@@ -39,6 +39,7 @@ internal static class UyaStaticReferenceStore
         var sourceIndices = ties.Select(value => ResolveSourceIndex(value, sourceTies)).ToArray();
         if (sourceIndices.Any(value => value >= mappings.Ties.Count))
             throw new InvalidDataException("UYA tie source index has no corresponding occlusion mapping.");
+        // shortcut: inserted TIEs share one globally visible bit until spatial occlusion can be rebuilt.
         var insertedBitIndex = sourceIndices.Any(value => value < 0)
             ? Enumerable.Range(0, 1024).FirstOrDefault(index => !mappings.Tfrags.Concat(mappings.Ties)
                 .Concat(mappings.Mobys).Any(value => value.BitIndex == index), -1)
@@ -54,8 +55,11 @@ internal static class UyaStaticReferenceStore
                 ForgeProjectPersistence.ResolveRelativePath(opaqueRoot, groups.Blob), cancellationToken),
             sourceIndices);
         return new(groupBytes,
-            UyaOcclusionMappingsWriter.RemapTies(
-                occlusionSource, occlusionIds, insertedBitIndex < 0 ? null : insertedBitIndex),
+            UyaOcclusionMappingsWriter.RemapTiesBySourceIndex(
+                occlusionSource,
+                sourceIndices,
+                occlusionIds,
+                insertedBitIndex < 0 ? null : insertedBitIndex),
             insertedBitIndex < 0 ? null : insertedBitIndex);
     }
 

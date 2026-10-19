@@ -13,6 +13,12 @@ public static class ProjectTfragSchema
     public const int MaximumSourceCount = 4_096;
     public const int MaximumGroupCount = 100_000;
     public const int MaximumTextureDependencies = 4_096;
+    public const int MaximumCustomImports = 256;
+}
+
+public static class ProjectCustomTfragSchema
+{
+    public const uint SourceFormatVersion = 1;
 }
 
 public sealed record ProjectTfragSource(
@@ -44,11 +50,24 @@ public sealed record ProjectTfragPiece(
     IReadOnlyList<int> TextureIds,
     ProjectVector3? SourcePosition = null,
     ProjectTfragBounds? Bounds = null,
-    ProjectTfragDiagnostics? Diagnostics = null);
+    ProjectTfragDiagnostics? Diagnostics = null,
+    string? CustomImportId = null,
+    string? CustomSourceName = null);
+
+public sealed record ProjectCustomTfragImport(
+    string ImportId,
+    string SourceName,
+    ProjectAssetReference Source,
+    IReadOnlyList<ProjectCustomModelDependency> Dependencies,
+    IReadOnlyList<ProjectAssetReference> Textures,
+    IReadOnlyList<EntityId> Pieces);
 
 public sealed record ProjectTfragState(
     int SchemaVersion,
-    IReadOnlyList<ProjectTfragSource> Sources);
+    IReadOnlyList<ProjectTfragSource> Sources)
+{
+    public IReadOnlyList<ProjectCustomTfragImport> CustomImports { get; init; } = [];
+}
 
 internal sealed record ProjectAssetAttachment(
     AssetKind Kind,

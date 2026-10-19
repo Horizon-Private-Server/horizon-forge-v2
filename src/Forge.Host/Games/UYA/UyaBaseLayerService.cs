@@ -79,6 +79,9 @@ internal static class UyaBaseLayerService
         return payloads;
     }
 
+    public static TfragTerrain? ReadPrimaryTerrain(ReadOnlySpan<byte> bytes) =>
+        bytes.IsEmpty || !bytes.ContainsAnyExcept((byte)0) ? null : TfragTerrainReader.Read(bytes);
+
     public static IReadOnlyList<AssetCatalogPut> CreateCatalogPuts(
         IReadOnlyList<UyaBaseLayerPayload> payloads,
         OpaqueContentSource source,

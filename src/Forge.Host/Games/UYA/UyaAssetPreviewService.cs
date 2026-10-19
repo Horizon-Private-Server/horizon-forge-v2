@@ -12,7 +12,7 @@ namespace Forge.Host.Games.UYA;
 
 public static class UyaAssetPreviewService
 {
-    public const int SchemaVersion = 3;
+    public const int SchemaVersion = 4;
     private const int TextureRasterSchemaVersion = 2;
     private const int SkyRenderSchemaVersion = 2;
     private const int CollisionRenderSchemaVersion = 2;
@@ -63,6 +63,13 @@ public static class UyaAssetPreviewService
                     request.ViewPreset == "custom-source",
                     request.ViewPreset != "custom-thumbnail",
                     cancellationToken),
+            null when request.Kind == AssetKind.Tfrag
+                    && !string.IsNullOrWhiteSpace(request.ProjectPath) =>
+                await UyaCustomTfragPreviewService.BuildAsync(
+                    projectWorkspace ?? await ForgeProjectWorkspace.OpenAsync(
+                        request.ProjectPath, cancellationToken),
+                    request.AssetId,
+                    cancellationToken),
             null => throw new InvalidDataException($"Asset {request.AssetId} is not present in the catalog or active project."),
             _ => await UyaRenderPackageService.BuildAssetPackageAsync(
                 entry.Id,
@@ -81,14 +88,16 @@ public static class UyaAssetPreviewService
         ForgeProjectWorkspace? projectWorkspace,
         CancellationToken cancellationToken)
     {
-        if (request.Kind != AssetKind.Tie
+        if (request.Kind is not (AssetKind.Tie or AssetKind.Tfrag)
             || string.IsNullOrWhiteSpace(request.ProjectPath))
             return sdkRevision;
         var workspace = projectWorkspace
             ?? await ForgeProjectWorkspace.OpenAsync(request.ProjectPath, cancellationToken);
-        var nativeId = workspace.Content.CustomModels.Models
-            .SingleOrDefault(model => model.Canonical.Id == request.AssetId)?.Native.Id;
-        return nativeId is null ? sdkRevision : $"{sdkRevision}:{nativeId}";
+        var assetRevision = request.Kind == AssetKind.Tie
+            ? workspace.Content.CustomModels.Models
+                .SingleOrDefault(model => model.Canonical.Id == request.AssetId)?.Native.Id.ToString()
+            : UyaCustomTfragPreviewService.ResolveRevision(workspace, request.AssetId);
+        return assetRevision is null ? sdkRevision : $"{sdkRevision}:{assetRevision}";
     }
 
     internal static async Task<AssetPreviewResult> MaterializeAsync(
@@ -382,7 +391,7 @@ public static class UyaAssetPreviewService
         ArgumentException.ThrowIfNullOrWhiteSpace(request.ViewPreset);
         ArgumentException.ThrowIfNullOrWhiteSpace(sdkRevision);
         if (request.TargetGame != "UYA") throw new NotSupportedException("Asset preview target must be UYA.");
-        if (request.Kind is not (AssetKind.Moby or AssetKind.Tie or AssetKind.Shrub or AssetKind.Texture
+        if (request.Kind is not (AssetKind.Moby or AssetKind.Tie or AssetKind.Shrub or AssetKind.Tfrag or AssetKind.Texture
             or AssetKind.Sky or AssetKind.Collision))
             throw new NotSupportedException($"{request.Kind} previews are not supported.");
         if (request.AssetId.ToString().Length != AssetId.TextLength)

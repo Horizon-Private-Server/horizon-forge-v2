@@ -50,7 +50,7 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
   function assertAssetExplorerQuery(value: unknown): asserts value is AssetExplorerQuery {
     if (!value || typeof value !== 'object') throw new TypeError('Asset explorer query is invalid');
     const query = value as Record<string, unknown>;
-    if (!['ties', 'shrubs', 'mobys', 'skyShells', 'textures'].includes(String(query.category)))
+    if (!['ties', 'shrubs', 'mobys', 'tfrags', 'skyShells', 'textures'].includes(String(query.category)))
       throw new TypeError('Asset explorer category is invalid');
     for (const field of ['search', 'game', 'level', 'region', 'revision']) {
       const text = query[field];
@@ -100,6 +100,16 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
     });
     if (selection.canceled || selection.filePaths.length !== 1) return undefined;
     return readCustomModelImport(selection.filePaths[0], forceBackfaceCulling);
+  });
+  ipcMain.handle('forge:custom-tfrag-choose-import', async (event) => {
+    assertSender(event.sender.id);
+    const selection = await showOpenDialog(getMainWindow(), {
+      title: 'Import custom tfrag terrain',
+      properties: ['openFile'],
+      filters: [{ name: 'glTF model', extensions: ['gltf', 'glb'] }],
+    });
+    if (selection.canceled || selection.filePaths.length !== 1) return undefined;
+    return readCustomModelImport(selection.filePaths[0], false);
   });
 
   async function getSettingValues(): Promise<Record<string, string | number | boolean>> {

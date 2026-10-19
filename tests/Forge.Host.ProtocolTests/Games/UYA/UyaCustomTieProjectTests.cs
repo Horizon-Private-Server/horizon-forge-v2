@@ -38,7 +38,7 @@ internal static class UyaCustomTieProjectTests
             Equal(0, workspace.Content.Assets.Count, "failed import commits no asset metadata");
 
             await using (var runtime = new EditorRuntime(
-                customModelCommandExecutor: UyaCustomTieProjectService.ExecuteAsync))
+                customAssetCommandExecutor: UyaCustomAssetProjectService.ExecuteAsync))
             {
                 await runtime.OpenAsync(projectPath, TimeSpan.Zero);
                 await runtime.ExecuteAsync(Command(EditorCommandKind.ImportCustomTie,
@@ -326,7 +326,7 @@ internal static class UyaCustomTieProjectTests
 
             var secondRequest = Request(2);
             await using (var runtime = new EditorRuntime(
-                customModelCommandExecutor: UyaCustomTieProjectService.ExecuteAsync))
+                customAssetCommandExecutor: UyaCustomAssetProjectService.ExecuteAsync))
             {
                 await runtime.OpenAsync(projectPath, TimeSpan.Zero);
                 await runtime.ExecuteAsync(Command(
@@ -362,7 +362,7 @@ internal static class UyaCustomTieProjectTests
             Equal(true, report.ClassInstances.SequenceEqual([secondEntity]),
                 "delete report lists every remaining class instance");
             await ThrowsAsync<ProjectCustomModelDeleteBlockedException>(() =>
-                UyaCustomTieProjectService.ExecuteAsync(workspace,
+                UyaCustomAssetProjectService.ExecuteAsync(workspace,
                     Command(EditorCommandKind.DeleteCustomTie, new(first.Canonical.Id)), default));
 
             workspace.Rename("Custom TIE recovery");
@@ -370,9 +370,9 @@ internal static class UyaCustomTieProjectTests
                 ?? throw new InvalidOperationException("Expected custom model recovery snapshot.");
             await workspace.SaveAsync();
             _ = workspace.RemoveEntities([firstEntity, secondEntity]);
-            await UyaCustomTieProjectService.ExecuteAsync(workspace,
+            await UyaCustomAssetProjectService.ExecuteAsync(workspace,
                 Command(EditorCommandKind.DeleteCustomTie, new(first.Canonical.Id)), default);
-            await UyaCustomTieProjectService.ExecuteAsync(workspace,
+            await UyaCustomAssetProjectService.ExecuteAsync(workspace,
                 Command(EditorCommandKind.DeleteCustomTie, new(second.Canonical.Id)), default);
             await workspace.SaveAsync();
             Equal(0, (await workspace.CollectUnreferencedAssetsAsync()).Count,

@@ -80,7 +80,8 @@ export function AssetPreviewPanel() {
           source.textureUse.restorable ? 'restorable' : 'placeholder, non-restorable'}`}
       </Text>)}
       {!item.canPlace && <Text c="dimmed" size="sm">{item.placementDisabledReason}</Text>}
-      {kind && kind !== 'texture' && kind !== 'sky' && family.classId !== undefined && <Button
+      {kind && kind !== 'texture' && kind !== 'sky' && kind !== 'tfrag'
+        && family.classId !== undefined && <Button
         disabled={busy || !item.canPlace}
         title={item.canPlace ? 'Place at project origin' : item.placementDisabledReason}
         onClick={() => void execute(createAssetPlacementCommand({
@@ -216,6 +217,7 @@ function previewKind(item: AssetExplorerItem): AssetPreviewKind | undefined {
   if (item.category === 'ties') return 'tie';
   if (item.category === 'shrubs') return 'shrub';
   if (item.category === 'mobys') return 'moby';
+  if (item.category === 'tfrags') return 'tfrag';
   if (item.category === 'textures') return 'texture';
   if (item.category === 'skyShells') return 'sky';
   return undefined;
@@ -311,5 +313,5 @@ function AssetTexturePreview({ assetId, label }: { assetId: string; label: strin
 }
 
 function categoryLabel(category: AssetExplorerCategory): string {
-  return ({ ties: 'Ties', shrubs: 'Shrubs', mobys: 'Mobys', skyShells: 'Sky', textures: 'Textures' })[category];
+  return ({ ties: 'Ties', shrubs: 'Shrubs', mobys: 'Mobys', tfrags: 'Tfrags', skyShells: 'Sky', textures: 'Textures' })[category];
 }

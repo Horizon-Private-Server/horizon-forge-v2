@@ -836,6 +836,12 @@ internal static class EditorPayloadCodec
                 writer.WriteUInt32(checked((uint)diagnostics.DecodedVertexCount));
                 writer.WriteUInt32(checked((uint)diagnostics.DecodedTriangleCount));
             }
+            writer.WriteBoolean(tfrag.CustomImportId is not null);
+            if (tfrag.CustomImportId is not null)
+            {
+                writer.WriteString(tfrag.CustomImportId);
+                writer.WriteString(tfrag.CustomSourceName!);
+            }
         }
         writer.WriteBoolean(value.InstancedCollision is not null);
         if (value.InstancedCollision is not null)

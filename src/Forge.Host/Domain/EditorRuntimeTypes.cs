@@ -49,6 +49,7 @@ public enum EditorCommandKind : byte
     ImportCustomTie = 45,
     ReimportCustomTie = 46,
     DeleteCustomTie = 47,
+    ImportCustomTfrag = 48,
 }
 
 public enum EditorEventKind : byte
@@ -101,7 +102,7 @@ public sealed record EditorCustomModelEdit(
     AssetId? ModelAssetId = null,
     ProjectCustomModelImportRequest? Import = null);
 
-public delegate Task EditorCustomModelCommandExecutor(
+public delegate Task EditorCustomAssetCommandExecutor(
     ForgeProjectWorkspace workspace,
     EditorCommand command,
     CancellationToken cancellationToken);

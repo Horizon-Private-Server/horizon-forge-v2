@@ -13,7 +13,7 @@ const MAX_PAGE_ITEMS = 128;
 const MAX_METADATA_ITEMS = 1_024;
 const MAX_FACET_ITEMS = MAX_PAGE_ITEMS * MAX_METADATA_ITEMS;
 const categoryIds: Record<AssetExplorerCategory, number> = {
-  ties: 1, shrubs: 2, mobys: 3, skyShells: 4, textures: 5,
+  ties: 1, shrubs: 2, mobys: 3, skyShells: 4, textures: 5, tfrags: 6,
 };
 const categories = Object.fromEntries(
   Object.entries(categoryIds).map(([category, id]) => [id, category]),

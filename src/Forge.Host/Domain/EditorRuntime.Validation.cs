@@ -64,15 +64,15 @@ public sealed partial class EditorRuntime
             && command.GroupEdit is not null)
             throw new ArgumentException("Only group commands can contain a group edit.", nameof(command));
         if (command.Kind is not (EditorCommandKind.ImportCustomTie or EditorCommandKind.ReimportCustomTie
-                or EditorCommandKind.DeleteCustomTie)
+                or EditorCommandKind.DeleteCustomTie or EditorCommandKind.ImportCustomTfrag)
             && command.CustomModelEdit is not null)
-            throw new ArgumentException("Only custom TIE commands can contain a custom model edit.", nameof(command));
+            throw new ArgumentException("Only custom asset commands can contain a custom model edit.", nameof(command));
         if (command.CustomModelEdit?.Import is { } import
             && (string.IsNullOrWhiteSpace(import.SourceName) || import.SourceBytes is not { Length: > 0 }
                 || import.Dependencies is null
                 || import.Dependencies.Any(file => file is null
                     || string.IsNullOrWhiteSpace(file.Uri) || file.Bytes is null)))
-            throw new ArgumentException("Custom TIE import data is invalid.", nameof(command));
+            throw new ArgumentException("Custom asset import data is invalid.", nameof(command));
         var locked = workspace.Content.Entities
             .Where(entity => entity.State?.Locked == true)
             .Select(entity => entity.EntityId)
@@ -88,6 +88,10 @@ public sealed partial class EditorRuntime
             .ToHashSet();
         var readOnlyStateChange = command.Kind == EditorCommandKind.SetEntityState
             && command.State is { Locked: null };
+        var deletesOnlyTfrags = command.Kind == EditorCommandKind.DeleteEntities
+            && command.EntityIds.Count > 0
+            && workspace.GetEntities(command.EntityIds)
+                .All(entity => entity.Tfrag is not null);
         if (command.EntityIds.Any(readOnly.Contains)
             && command.Kind != EditorCommandKind.SetSelection
             && command.Kind is not (EditorCommandKind.AddGroupMembers or EditorCommandKind.RemoveGroupMembers)
@@ -97,7 +101,8 @@ public sealed partial class EditorRuntime
             && workspace.GetEntities(command.EntityIds).Any(entity => entity.Collision is null)
             && (command.Kind is EditorCommandKind.DeleteEntities or EditorCommandKind.DuplicateEntities
                 or EditorCommandKind.CopyEntities
-                || command.Kind == EditorCommandKind.SetEntityState && command.State?.Disabled is not null))
+                || command.Kind == EditorCommandKind.SetEntityState && command.State?.Disabled is not null)
+            && !deletesOnlyTfrags)
             throw new ArgumentException("This decoded source type supports transform edits but not structural changes.", nameof(command));
         if (command.Kind is not (EditorCommandKind.AddGroupMembers or EditorCommandKind.RemoveGroupMembers)
             && command.EntityIds.Count > 0
@@ -428,6 +433,10 @@ public sealed partial class EditorRuntime
                 || HasNonCustomModelCommandData(command)
                 || command.CustomModelEdit is not { ModelAssetId: null, Import: not null }:
                 throw new ArgumentException("Custom TIE import commands require only import data.", nameof(command));
+            case EditorCommandKind.ImportCustomTfrag when command.EntityIds.Count != 0
+                || HasNonCustomModelCommandData(command)
+                || command.CustomModelEdit is not { ModelAssetId: null, Import: not null }:
+                throw new ArgumentException("Custom tfrag import commands require only import data.", nameof(command));
             case EditorCommandKind.ReimportCustomTie when HasNonCustomModelCommandData(command)
                 || command.CustomModelEdit is not { ModelAssetId: not null, Import: not null } reimport
                 || !workspace.Content.CustomModels.Models.Any(

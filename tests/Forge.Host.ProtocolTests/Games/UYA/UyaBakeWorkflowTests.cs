@@ -191,6 +191,8 @@ internal static class UyaBakeWorkflowTests
             var insertedRecord = UyaAssetPlacementService.CreateTieRecord(insertBeforeBakeWorkspace, 200);
             Equal(4_000, BinaryPrimitives.ReadInt32LittleEndian(insertedRecord.AsSpan(4)),
                 "placed tie uses the retail integer draw distance encoding");
+            BinaryPrimitives.WriteInt32LittleEndian(
+                insertedRecord.AsSpan(UyaTieInstancesReader.OcclusionIdOffset), 77);
             BinaryPrimitives.WriteSingleLittleEndian(insertedRecord.AsSpan(4), 4_000f);
             var insertedTie = new ProjectEntity(
                 EntityId.New(),
@@ -227,15 +229,14 @@ internal static class UyaBakeWorkflowTests
             var insertedTieFiles = UyaLevelWadUnpacker.Unpack(insertBeforeBakePack.OutputBytes!).Files;
             var packedInsertedTie = UyaTieInstancesReader.Read(insertedTieFiles
                 .Single(value => value.Path == "gameplay/core/tie_instances.bin").Bytes).Instances
-                .Single(value => BinaryPrimitives.ReadInt32LittleEndian(
-                    value.RawBytes.AsSpan(UyaTieInstancesReader.OcclusionIdOffset)) == 1);
+                .Last(value => value.ClassId == 200);
             Equal(4_000, BinaryPrimitives.ReadInt32LittleEndian(packedInsertedTie.RawBytes.AsSpan(4)),
                 "bake repairs legacy placed tie draw distance encoding");
             var insertedMappings = UyaOcclusionMappingsReader.Read(insertedTieFiles
                 .Single(value => value.Path == "gameplay/core/occlusion.bin").Bytes).Ties;
             Equal(true, insertedMappings.Select(value => (value.BitIndex, value.OcclusionId))
-                    .SequenceEqual(new[] { (5, 77), (0, 1) }),
-                "packed tie insertion reserves an always-visible occlusion bit");
+                    .SequenceEqual(new[] { (5, 77), (0, 77) }),
+                "packed tie insertion reserves an always-visible occlusion bit despite an ID collision");
             Equal(true, UyaTieGroupsReader.Read(insertedTieFiles
                     .Single(value => value.Path == "gameplay/core/tie_groups.bin").Bytes).Groups.Single()
                     .SequenceEqual(new[] { 0 }),

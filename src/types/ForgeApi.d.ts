@@ -360,6 +360,7 @@ export interface ForgeApi {
   getEditorSnapshot(): Promise<EditorSnapshot>;
   executeEditorCommand(command: EditorCommand): Promise<EditorCommandResult>;
   chooseCustomTieImport(forceBackfaceCulling: boolean): Promise<EditorCustomModelImport | undefined>;
+  chooseCustomTfragImport(): Promise<EditorCustomModelImport | undefined>;
   inspectInstancedCollisionSource(entityId: string): Promise<EditorInstancedCollisionSourceInfo>;
   previewInstancedCollision(
     entityId: string,

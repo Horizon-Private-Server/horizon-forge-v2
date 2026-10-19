@@ -431,7 +431,7 @@ test('group commands validate stable IDs, names, order, and unique membership', 
   }), false);
 });
 
-test('custom TIE commands validate portable bounded source payloads', () => {
+test('custom asset commands validate portable bounded source payloads', () => {
   const imported = {
     id: '50000000-0000-4000-8000-000000000001',
     kind: 'importCustomTie' as const,
@@ -444,6 +444,12 @@ test('custom TIE commands validate portable bounded source payloads', () => {
     },
   };
   assert.equal(isEditorCommand(imported), true);
+  assert.equal(isEditorCommand({
+    ...imported,
+    id: '50000000-0000-4000-8000-000000000004',
+    kind: 'importCustomTfrag',
+    import: { ...imported.import, forceBackfaceCulling: false },
+  }), true);
   assert.equal(isEditorCommand({
     ...imported,
     import: { ...imported.import, dependencies: [{ uri: '../escape.bin', bytes: new Uint8Array([1]) }] },

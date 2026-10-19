@@ -11,6 +11,13 @@ internal static class UyaTfragBakeService
         ForgeProjectPersistence.Serialize(new
         {
             CompositionVersion = TfragPieceConverter.CompositionVersion,
+            NativeTerrainGenerationVersion = StaticModelTfragConverter.GetNativeTerrainGenerationVersion(GameId.UYA),
+            Sources = workspace.Content.Tfrags?.Sources.Select(value => new
+            {
+                value.SourceKind,
+                value.SourceIndex,
+                value.GroupCount,
+            }).ToArray(),
             Pieces = EditedEntities(workspace).Select(value => new
             {
                 value.EntityId,
@@ -21,10 +28,18 @@ internal static class UyaTfragBakeService
                 value.Tfrag.SourcePosition,
                 value.Transform,
             }).ToArray(),
+            CustomImports = workspace.Content.Tfrags?.CustomImports.Select(value => new
+            {
+                value.ImportId,
+                Textures = value.Textures.Select(texture => texture.Id).ToArray(),
+                value.Pieces,
+            }).ToArray(),
         });
 
     internal static IEnumerable<AssetId> AssetIds(ForgeProjectWorkspace workspace) =>
-        EditedEntities(workspace).Select(value => workspace.ResolveAssetReference(value.Asset!).Id);
+        EditedEntities(workspace).Select(value => workspace.ResolveAssetReference(value.Asset!).Id)
+            .Concat(workspace.Content.Tfrags?.CustomImports.SelectMany(value => value.Textures)
+                .Select(value => value.Id) ?? []);
 
     internal static async Task ValidateEditedAssetsAsync(
         ForgeProjectWorkspace workspace,
@@ -42,12 +57,29 @@ internal static class UyaTfragBakeService
         ForgeProjectWorkspace workspace,
         AssetCatalogStore catalog,
         UyaBaseLayerRecord record,
+        CancellationToken cancellationToken) => await ComposeCoreAsync(
+            workspace, catalog, record, applyEntityTransforms: true, cancellationToken);
+
+    internal static async Task<IReadOnlyDictionary<string, byte[]>> ComposePreviewAsync(
+        ForgeProjectWorkspace workspace,
+        AssetCatalogStore catalog,
+        UyaBaseLayerRecord record,
+        CancellationToken cancellationToken) => await ComposeCoreAsync(
+            workspace, catalog, record, applyEntityTransforms: false, cancellationToken);
+
+    private static async Task<IReadOnlyDictionary<string, byte[]>> ComposeCoreAsync(
+        ForgeProjectWorkspace workspace,
+        AssetCatalogStore catalog,
+        UyaBaseLayerRecord record,
+        bool applyEntityTransforms,
         CancellationToken cancellationToken)
     {
         if (workspace.Content.Tfrags is null)
             throw new InvalidDataException("Project tfrag inventory is unavailable.");
         var entities = Entities(workspace).GroupBy(value =>
             (value.Tfrag!.SourceKind, value.Tfrag.SourceIndex)).ToDictionary(value => value.Key);
+        var customIds = workspace.Content.Tfrags.CustomImports
+            .SelectMany(value => value.Pieces).ToHashSet();
         var result = new Dictionary<string, byte[]>(StringComparer.Ordinal);
         foreach (var asset in record.Assets)
         {
@@ -63,8 +95,18 @@ internal static class UyaTfragBakeService
                 || !sourceEntities.Select(value => value.Tfrag!.GroupIndex)
                     .SequenceEqual(Enumerable.Range(0, sourceState.GroupCount)))
                 throw new InvalidDataException($"Tfrag source {asset.Name} has an incomplete project inventory.");
+            var baseEntities = sourceEntities.Where(value => !customIds.Contains(value.EntityId)).ToArray();
+            var customEntities = sourceEntities.Where(value => customIds.Contains(value.EntityId)).ToArray();
+            var path = workspace.ResolveAssetPath(asset.Asset, catalog)
+                ?? throw new FileNotFoundException($"Tfrag source {asset.Asset.Id} is missing.");
+            var sourceBytes = await File.ReadAllBytesAsync(path, cancellationToken);
+            var sourceGroupCount = TfragTerrainReader.Read(sourceBytes).TfragCount;
+            if (baseEntities.Length != 0 && baseEntities.Length != sourceGroupCount)
+                throw new InvalidDataException(
+                    $"Tfrag source {asset.Name} supports retaining all or deleting all vanilla groups.");
+            var removedVanilla = sourceGroupCount > 0 && baseEntities.Length == 0;
             var edits = new List<TfragPieceCompositionEdit>();
-            foreach (var entity in sourceEntities.Where(TransformChanged))
+            foreach (var entity in baseEntities.Where(entity => applyEntityTransforms && TransformChanged(entity)))
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var canonical = await workspace.ReadAttachedAssetVerifiedAsync(
@@ -79,16 +121,66 @@ internal static class UyaTfragBakeService
                             entity.Transform.Rotation.Z, entity.Transform.Rotation.W),
                         Vector(entity.Transform.Scale))));
             }
-            if (edits.Count == 0) continue;
-            var path = workspace.ResolveAssetPath(asset.Asset, catalog)
-                ?? throw new FileNotFoundException($"Tfrag source {asset.Asset.Id} is missing.");
-            var sourceBytes = await File.ReadAllBytesAsync(path, cancellationToken);
-            var composition = await Task.Run(
-                () => TfragPieceConverter.Compose(sourceBytes, GameId.UYA, edits, cancellationToken),
-                cancellationToken);
-            result.Add(asset.Name, composition.Bytes);
+            if (!removedVanilla && edits.Count == 0 && customEntities.Length == 0) continue;
+            var bytes = removedVanilla
+                ? customEntities.Length == 0
+                    ? TfragTerrainComposer.FilterTerrainGroups(GameId.UYA, sourceBytes, [], cancellationToken)
+                    : []
+                : edits.Count == 0
+                    ? sourceBytes
+                : (await Task.Run(
+                    () => TfragPieceConverter.Compose(sourceBytes, GameId.UYA, edits, cancellationToken),
+                    cancellationToken)).Bytes;
+            if (customEntities.Length > 0)
+            {
+                var pieces = new List<StaticModelTfragPiece>(customEntities.Length);
+                foreach (var entity in customEntities)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var transform = applyEntityTransforms
+                        ? entity.Transform
+                        : ProjectTransform.Identity with { Position = entity.Tfrag!.SourcePosition! };
+                    pieces.Add(await LoadCustomPieceAsync(
+                        workspace, entity, transform, cancellationToken));
+                }
+                bytes = await Task.Run(() => removedVanilla
+                        ? StaticModelTfragConverter.BuildTerrain(GameId.UYA, pieces, cancellationToken)
+                        : TfragTerrainComposer.AppendTerrain(
+                            GameId.UYA, bytes, pieces, cancellationToken),
+                    cancellationToken);
+            }
+            result.Add(asset.Name, bytes);
         }
         return result;
+    }
+
+    internal static async Task<StaticModelTfragPiece> LoadCustomPieceAsync(
+        ForgeProjectWorkspace workspace,
+        ProjectEntity entity,
+        ProjectTransform transform,
+        CancellationToken cancellationToken)
+    {
+        if (entity.Tfrag?.CustomImportId is null)
+            throw new InvalidDataException("A native tfrag cannot be loaded as a custom terrain piece.");
+        var canonical = await workspace.ReadAttachedAssetVerifiedAsync(
+            entity.Asset!, ForgeProjectWorkspace.MaxAttachedAssetBytes, cancellationToken);
+        var geometry = TfragPieceCanonicalCodec.Read(canonical);
+        return new StaticModelTfragPiece(
+            entity.Tfrag.GroupIndex,
+            new(
+                TfragPieceCanonicalCodec.ComputeContentId(canonical),
+                TfragPieceCanonicalCodec.FormatVersion,
+                canonical,
+                geometry),
+            new(
+                Vector(transform.Position),
+                new(transform.Rotation.X, transform.Rotation.Y,
+                    transform.Rotation.Z, transform.Rotation.W),
+                Vector(transform.Scale)),
+            [])
+        {
+            StreamingTextureIds = geometry.TextureIds,
+        };
     }
 
     private static ProjectEntity[] Entities(ForgeProjectWorkspace workspace) =>
@@ -100,7 +192,8 @@ internal static class UyaTfragBakeService
 
     private static IEnumerable<ProjectEntity> EditedEntities(ForgeProjectWorkspace workspace) =>
         workspace.Content.Entities.Where(value => value.Tfrag is not null
-                && (value.Tfrag.SourcePosition is null || TransformChanged(value)))
+                && (value.Tfrag.CustomImportId is not null
+                    || value.Tfrag.SourcePosition is null || TransformChanged(value)))
             .OrderBy(value => value.Tfrag!.SourceKind)
             .ThenBy(value => value.Tfrag!.SourceIndex)
             .ThenBy(value => value.Tfrag!.GroupIndex);
