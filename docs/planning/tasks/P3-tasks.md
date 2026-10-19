@@ -241,6 +241,17 @@ lighting layout. Tests cover two placed/edited/grouped instances, collision sour
 single-definition staging, isolated static-layer invalidation, deterministic output, failed
 stage retention, class capacity/conflicts, SDK composition, and packed definition re-read.
 
+Delivered extension (2026-10-18): the shared bounded GLB/glTF import path and M12
+terrain writer now also support project-local custom tfrags. One atomic command attaches
+the source, local sidecars, converted textures, and canonical partitions; creates a
+contiguous primary-owner group range; and preserves reusable piece identities and
+authored offsets on reimport. Custom imports preview/render as grouped terrain, use the
+ordinary tfrag transform/history lifecycle, and rebuild native terrain, texture tables,
+occlusion mappings, render packages, and packed level output. Deleting one child removes
+the complete import and undo/redo restores it. These capabilities extend the shipped
+custom-asset path but do not change M14-007's custom-TIE qualification gate; their
+packaged-app and PCSX2 evidence is tracked by M12-008.
+
 ### M14-007 — Qualify the custom TIE pipeline end to end
 
 Requirements: FR-CUSTOM-004 through FR-CUSTOM-007, NFR-P3-001 through NFR-P3-006
@@ -504,6 +515,13 @@ Acceptance:
 
 Verification: primary plus nonzero chunk imports, texture conflict/growth, add/replace,
 alignment/relocation, determinism, semantic re-read, and PCSX2 rendering fixtures.
+
+Existing foundation (2026-10-18): project-local custom-tfrag import now proves bounded
+GLB/glTF-to-native partitioning, attached source/sidecar/texture lifecycle, deterministic
+primary-group append/replacement/removal, texture allocation, section relocation,
+semantic re-read, and conservative occlusion-map growth. M16-005 remains not started:
+it still requires M16 planning/batch provenance, complete donor owner payloads, nonzero
+chunk import, protected-survivor rules, and donor add/replace qualification.
 
 ### M16-006 — Import remaining validated entity and collision families
 

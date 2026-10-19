@@ -1314,12 +1314,13 @@ Status: 🚧 In progress — automated Linux gate passes; packaged Linux/Windows
 Requirements: M12 exit gate, FR-BUILD-001, FR-PATCH-005
 Depends on: M12-007, M4-006
 
-In progress (2026-10-11): the automated Linux gate covers primary/streamed no-edit
+In progress (updated 2026-10-18): the automated Linux gate covers primary/streamed no-edit
 identity, supported transforms, semantic re-read, save/reopen, recovery, ZIP transfer,
 incremental and clean-build determinism, cancellation, last-good staging, exact picking,
-generated collision composition, and retail collision independence. Development
-walkthroughs have exercised primary terrain and level09 streamed groups; packaged
-Linux/Windows and retained streamed-PCSX2 evidence remain. See
+generated collision composition, retail collision independence, and project-local
+custom-tfrag import/reimport/delete plus packed semantic re-read. Development walkthroughs
+have exercised primary terrain and level09 streamed groups; packaged Linux/Windows and
+retained streamed/custom-import PCSX2 evidence remain. See
 [the M12 qualification matrix](../../qualification/M12-tfrag-editing.md).
 
 Exercise representative primary and chunk pieces through translation, rotation, each
@@ -1332,11 +1333,15 @@ Acceptance:
   independently authored retail collision remains unchanged.
 - Reopen and clean rebuild are deterministic on Linux and Windows; untouched terrain
   meets no-edit identity and project transfer resolves every piece asset.
+- A project-local GLB/glTF import remains self-contained after its source paths are
+  removed; preview, grouped transforms, reimport, delete/undo, clean build, patch, and
+  PCSX2 retain its intended geometry, textures, and conservative visibility.
 - Invalid target limits block before the development ISO is touched and recovery can
   return to the last saved transforms.
 - Performance/memory remain within an accepted delta from the M6 baseline.
 
-Verification: packaged-app qualification report and PCSX2 evidence reference.
+Verification: packaged-app qualification report, custom-import lifecycle walkthrough,
+and PCSX2 evidence reference.
 
 ## M13 — Full-package updater and P2 qualification
 

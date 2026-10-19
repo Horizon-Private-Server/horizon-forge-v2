@@ -11,7 +11,7 @@ delivery order and completion evidence.
 - **P0/MVP:** the first usable vanilla NTSC-U UYA editor release.
 - **P1:** custom GLB assets and custom-texture quantization.
 - **P2:** asset-override, texture-bank, semantic, terrain, and update authoring.
-- **P3:** custom TIEs, cross-map imports, sound banks, moby simulations, and
+- **P3:** custom TIE/tfrag assets, cross-map imports, sound banks, moby simulations, and
   generated occlusion.
 - **Future:** cross-game expansion, collaboration, plugins, macOS, and other work
   explicitly deferred by the specification.

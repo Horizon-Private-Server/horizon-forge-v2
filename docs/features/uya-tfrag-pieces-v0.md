@@ -1,7 +1,8 @@
 # UYA tfrag piece contract v0
 
-Status: M12-001 through M12-007 implemented; packaged cross-platform and PCSX2
-qualification remains under M12-008 (2026-10-11)
+Status: M12-001 through M12-007 and the project-local custom-tfrag extension are
+implemented; packaged cross-platform and PCSX2 qualification remains under M12-008
+(2026-10-18)
 
 This note fixes the native ownership boundary and initial transform policy used by
 M12-002 onward. Binary parsing, canonical extraction, and composition remain SDK
@@ -101,10 +102,11 @@ identical content to share one asset without merging occurrences or ownership.
 Neither the raw record offset nor a hash of the source data slice is an Asset ID.
 
 The record exposes an occlusion index/stash and the UYA gameplay payload has an ordered
-tfrag occlusion-mapping table. Their complete rewrite relationship is not yet proven,
-so M12-002 must carry them as source provenance and M12-004 must either update them
-deterministically or block the edit. No cross-record geometry pointers have been
-identified; VIF vertex references are local to the owning record's runtime streams.
+tfrag occlusion-mapping table. Native-piece transforms preserve their existing mapping.
+For appended custom primary groups, the SDK rebuilds the ordered mapping table and
+assigns a disclosed conservative visibility bit; M18 still owns generated visibility.
+No cross-record geometry pointers have been identified; VIF vertex references are
+local to the owning record's runtime streams.
 
 ## Transform policy
 
@@ -188,7 +190,7 @@ the repository.
 
 ## Project import contract
 
-Project schema version 19 stores one `tfrags` entity per source occurrence. The entity
+Project schema version 20 stores one `tfrags` entity per source occurrence. The entity
 owns its persistent UUID and editable transform; its attached `Tfrag` asset owns the
 immutable canonical geometry. Project metadata retains the deterministic occurrence
 key, source archive/kind/index, native group, occlusion values, and sorted texture IDs.
@@ -203,10 +205,20 @@ terrain and reports that verified source data is required. Import is atomic at t
 project-content boundary; incomplete entities are never committed.
 
 Editor snapshots expose the source owner/group metadata, local bounds, material IDs,
-and decode diagnostics used by entity-aware terrain projection. Domain validation
-still rejects delete, duplicate, disable, and layer changes. Transform storage remains
-separate from canonical geometry; Forge exposes translation, rotation, and positive
-uniform scale while the host and SDK independently enforce the frozen policy.
+and decode diagnostics used by entity-aware terrain projection. Duplicate, disable,
+and layer changes remain unsupported. Structural deletion is allowed only for a whole
+custom import or every retained vanilla group in one source owner. Transform storage
+remains separate from canonical geometry; Forge exposes translation, rotation, and
+positive uniform scale while the host and SDK independently enforce the frozen policy.
+
+Custom imports use the same bounded GLB/glTF canonicalizer as custom TIEs. One project
+transaction attaches the source, local sidecars, converted PIF textures, and canonical
+piece assets, then appends a contiguous range of primary terrain groups. The content
+hash is the import identity; choosing the same source name replaces the previous import
+atomically. Reimport retains matching piece Entity IDs and authored offsets where
+possible, shifts following group indexes when the partition count changes, and leaves
+the prior project intact on failure. Selecting any child for deletion removes the whole
+custom import as one undoable operation.
 
 ## Native composition and no-edit rule
 
@@ -244,6 +256,14 @@ assets; SDK transform math supplies deterministic native-space positions, normal
 winding, and bounds to the native composer. Tfrag collision stays independent because
 the retail collision groupings observed so far are substantially coarser than editable
 tfrag groups and do not provide a deterministic one-to-one ownership relation.
+
+For custom primary terrain, the SDK builds new native groups from the imported static
+model partitions, merges their converted texture dependencies into deterministic
+terrain texture allocations, rewrites following aligned sections and offsets, and
+semantically re-reads the result. Forge includes the generator version, custom import
+identities, texture assets, source inventory, and piece transforms in the tfrag bake
+fingerprint. The editor render package and final level pack use the same composition
+path; source-native streamed groups continue to use the M12 transform-preserving path.
 
 ## Generated collision
 

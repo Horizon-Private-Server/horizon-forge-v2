@@ -1,8 +1,8 @@
 # P3 — Content expansion and runtime fidelity
 
-Status: In progress — M14-001 identity/allocation, M14-002 bounded canonical import,
-M14-003 native UYA TIE conversion, M14-004 project attachment/lifecycle, and M14-005
-source-versus-target preview, and M14-006 placement/edit/bake integration complete
+Status: In progress — M14-001 through M14-006 are complete; the shared importer and
+M12 writer now also support project-local custom tfrag terrain; M14-007 qualification
+remains
 Priority: P3
 Depends on: P2 authoring contracts by task; P2 release qualification before P3 release
 Task register: [P3 tasks](tasks/P3-tasks.md)
@@ -14,12 +14,12 @@ stable references, game boundaries, incremental bake behavior, and portability.
 
 ## Outcome
 
-A UYA project can import and place a project-local custom TIE, merge supported content
-from another verified vanilla map, inspect and carry moby sound dependencies, preview
-the `0x0B37` ocean-plane simulation, and rebuild native occlusion with interactive
-visibility/performance diagnostics. Every imported or generated artifact remains
-portable, attributable, bounded, deterministic, and removable without mutating the
-vanilla catalog or source maps.
+A UYA project can import and place project-local custom TIEs and tfrag terrain, merge
+supported content from another verified vanilla map, inspect and carry moby sound
+dependencies, preview the `0x0B37` ocean-plane simulation, and rebuild native occlusion
+with interactive visibility/performance diagnostics. Every imported or generated
+artifact remains portable, attributable, bounded, deterministic, and removable without
+mutating the vanilla catalog or source maps.
 
 ## Scope decisions
 
@@ -28,6 +28,11 @@ vanilla catalog or source maps.
 - **The first custom model is a static TIE.** Shrub and moby conversion can follow the
   canonical pipeline after the TIE round trip proves material, texture, geometry,
   placement, and native writer contracts. Skins and animation do not block M14.
+- **Project-local custom tfrags are authored assets, not donor import.** They reuse the
+  bounded static-model importer and M12 terrain writer to append primary owner groups,
+  textures, and conservative occlusion mappings. This supplies native composition
+  groundwork for M16-005, but it does not satisfy donor preflight, import-batch
+  provenance, streamed-owner import, or add/replace policy.
 - **P3 completes, rather than duplicates, unfinished P1 model work.** P1-001 and
   P1-002 become M14 foundations; P1-005 and P1-006 are satisfied first for the
   constrained TIE slice. Completed P1 texture quantization remains a dependency.
@@ -414,6 +419,13 @@ Exit: a constrained static GLB with shared textures can be imported from either 
 or Windows, its source and re-read target compared, two instances placed, the project
 moved without original paths, and the TIE deterministically built/seen in PCSX2 with
 explicit collision and conservative occlusion behavior.
+
+Delivered extension: the same bounded GLB/glTF source flow now creates project-local
+custom tfrag imports. Forge partitions them into native primary terrain groups, attaches
+their sources/sidecars/textures, previews and edits them as one parent with ordinary
+piece transforms, reimports or deletes them atomically, and rebuilds terrain, texture,
+occlusion, render, and packed level outputs. This is not the donor-map workflow owned by
+M16; its packaged-app and PCSX2 evidence is tracked by M12-008.
 
 ### M15 — Sound banks and moby sound dependencies
 

@@ -12,6 +12,11 @@ M14-001 froze the exact ownership split: M14-004 completes P1-001, M14-002 compl
 P1-002, M14-003/M14-006 complete the TIE slice of P1-005, and M14-005/M14-007 complete
 the TIE slice of P1-006. P1-003/P1-004 remain the completed texture dependencies.
 
+The 2026-10-18 custom-tfrag extension reuses M14-002's bounded importer and M12's
+native terrain writer for project-local authored terrain. It broadens the delivered P1
+workflow without completing shrubs, mobys, skins, animation, or M16 donor-map import;
+M12-008 owns its packaged-app and PCSX2 evidence.
+
 ## P1-001 — Add project-local custom asset lifecycle
 
 Status: ✅ Complete for the M14 custom-TIE scope

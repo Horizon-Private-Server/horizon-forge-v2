@@ -57,11 +57,13 @@ Retain the packaged Forge revision, platform, PCSX2 version, level/piece IDs, an
 | Linux packaged | Transform representative primary and streamed pieces using translation, arbitrary rotation, uniform reduction, and uniform enlargement; save, close, reopen, and clean-build | Preview transforms persist; only tfrags rebuild; repeated clean output is deterministic. | Development walkthrough reported working; packaged evidence pending |
 | Linux build/patch | Build level09 with simultaneous chunk 2 groups 2 and 53 edits | Preflight passes, the development ISO verifies, and unrelated terrain/collision remain unchanged. | Development build reported working; retained log reference pending |
 | Linux generated collision | Generate individual collision for primary and streamed pieces, transform each piece, save/reopen, build, and inspect in PCSX2 | Generated collision follows the terrain transform, painted IDs persist, and combined native octant validation passes. | Automated composition gate passed; packaged PCSX2 evidence pending |
+| Linux custom import | Import an authored GLB/glTF with textures, remove the source files, transform and reimport it, delete/undo it, then reopen and clean-build | The grouped import remains portable; matching piece identity/offsets survive reimport; delete/undo is atomic; native terrain, textures, and occlusion mappings re-read. | Automated protocol gate passed; packaged walkthrough pending |
 | Linux + PCSX2 | Inspect transformed primary and streamed pieces from several angles and distances | Placement, orientation, scale, texturing, and culling agree with preview within the rounding limits above; level remains stable. | Primary visual walkthrough passed; streamed-piece sign-off pending |
+| Linux custom import + PCSX2 | Patch and inspect the authored custom terrain from several angles and distances | Geometry, texturing, transforms, conservative visibility, and stability agree with preview within documented limits. | Pending |
 | Linux recovery | Save an edit, create a recovery state, cancel/fail a later build, restore, and rebuild | The last good stage/ISO remains usable and recovery restores the saved transform. | Automated gate passed; packaged walkthrough pending |
 | Windows packaged nightly | Transfer the ZIP, reopen, clean-build, patch, and inspect the same pieces | Assets resolve without external paths and output/diagnostics agree with Linux. | Pending |
 | Real PS2 hardware | Load the patched development image and inspect the same primary/streamed cases | No geometry, texture, culling, or stability regression appears on hardware. | Optional pre-release evidence pending |
 
-M12-008 remains open until the packaged Linux/Windows and streamed PCSX2 rows record
-retained evidence. Real-hardware evidence is desirable but is not required by the
-current M12 exit gate.
+M12-008 remains open until the packaged Linux/Windows and streamed/custom-import PCSX2
+rows record retained evidence. Real-hardware evidence is desirable but is not required
+by the current M12 exit gate.
