@@ -24,6 +24,18 @@ test('asset grid keeps DOM work bounded around visible rows', () => {
   assert.equal(middle.totalHeight, first.totalHeight);
 });
 
+test('virtual sound grid uses two or three columns and bounds large banks', () => {
+  const medium = virtualGridWindow(32_767, 900, 720, 1_500_000, 340, 112, 3);
+  const wide = virtualGridWindow(32_767, 1_400, 720, 1_500_000, 340, 112, 3);
+  const extraWide = virtualGridWindow(32_767, 2_500, 720, 1_500_000, 340, 112, 3);
+  assert.equal(medium.columns, 2);
+  assert.equal(wide.columns, 3);
+  assert.equal(extraWide.columns, 3);
+  assert.equal(wide.totalHeight, Math.ceil(32_767 / 3) * 112 - 8);
+  assert.equal(wide.endIndex - wide.startIndex <= 39, true);
+  assert.equal(wide.startIndex > 0, true);
+});
+
 test('HUD bank state exposes native placement, change, issue, and search metadata', () => {
   const sourceId = 'a'.repeat(64);
   const replacementId = 'b'.repeat(64);
@@ -135,4 +147,3 @@ test('FX PNG preflight accepts the native limit and rejects non-power-of-two dim
   view.setUint32(16, 3);
   assert.match(validateFxPng(png).diagnostic ?? '', /powers of two/);
 });
-

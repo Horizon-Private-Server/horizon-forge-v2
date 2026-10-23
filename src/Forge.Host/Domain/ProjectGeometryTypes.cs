@@ -16,14 +16,18 @@ public sealed record ProjectCameraCollision(
     float FloatValue,
     ProjectVector4 BoundingSphere);
 
-public sealed record ProjectSplineGeometry(IReadOnlyList<ProjectVector4> Points);
+public sealed record ProjectSplineGeometry(
+    IReadOnlyList<ProjectVector4> Points,
+    byte[]? NativeHeader = null);
 
 public sealed record ProjectGrindPathGeometry(
     ProjectVector4 BoundingSphere,
     int Unknown4,
     int Wrap,
     int Inactive,
-    IReadOnlyList<ProjectVector4> Points);
+    IReadOnlyList<ProjectVector4> Points,
+    byte[]? NativeRecord = null,
+    byte[]? NativeHeader = null);
 
 public sealed record ProjectGeometryLink(
     int SourceIndex,

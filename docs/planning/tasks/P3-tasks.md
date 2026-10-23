@@ -11,9 +11,9 @@ them. Unless marked complete, every task is `not-started`.
 | Milestone | Status | Gate |
 | --- | --- | --- |
 | M14 — Custom TIE pipeline | 🚧 In progress | M14-007 |
-| M15 — Sound banks | ⏳ Not started | M15-001 through M15-006 |
-| M16 — Cross-map import | ⏳ Not started | M16-001 through M16-009 |
-| M17 — Moby simulations | ⏳ Not started | M17-001 through M17-005 |
+| M15 — Sound banks | 🚧 In progress | M15-006 |
+| M16 — Cross-map import | 🚧 In progress | M16-009 |
+| M17 — Moby simulations | 🚧 In progress | M17-003 visual validation |
 | M18 — Occlusion rebuild | ⏳ Not started | M18-001 through M18-010 |
 | M19 — P3 qualification | ⏳ Not started | M19-001 through M19-003 |
 
@@ -277,6 +277,8 @@ captures, interrupted import/build walkthrough, and documentation review.
 
 ### M15-001 — Freeze UYA 989snd bank, remap, identity, and provenance contracts
 
+Status: ✅ Complete
+
 Requirements: FR-SOUND-001, FR-SOUND-002, NFR-P3-003
 Depends on: M9-009
 
@@ -293,12 +295,28 @@ Acceptance:
   every parameter included in each canonical hash.
 - No-edit byte/semantic identity and changed-output semantic identity are defined from
   at least two structurally distinct levels without committing retail bytes.
-- A provenance note records the 989snd system and implementation of sub-tasks
+- A provenance note records the 989snd system and the implementation boundary for
+  later subtasks.
 
 Verification: corpus structural reports/hashes, synthetic fixture builder, remap
 cross-checks, malformed table, and provenance review.
 
+Implementation: [`UYA 989snd bank and remap contract v1`](../../features/uya-989snd-contract-v1.md)
+freezes the observed type-3/two-chunk container, `SBlk` v3 tables and relocations,
+playable sound/grain/tone records, PS2 ADPCM sample and loop boundaries, optional
+name/user-data flags, asset-header remap slots, opaque regions, native/operational
+limits, and separate canonical program/sample identities. It defines byte-exact
+no-edit preservation and semantic changed-output re-read without committing retail
+payloads. The SDK contract fixture builds one direct synthetic bank/remap pair, rejects
+bad chunk arithmetic, grain windows, and unterminated samples, and cross-checks hashes,
+structure, sample termination, and remap indexes for all ten locally available UYA
+levels. The provenance boundary records the reviewed `dec989snd` commit and runtime
+hash, notes the missing root license, and permits behavioral/layout evidence only—no
+source reuse or redistribution.
+
 ### M15-002 — Implement bounded sound-bank inventory and preview decode in the SDK
+
+Status: ✅ Complete
 
 Requirements: FR-SOUND-001, FR-SOUND-003, NFR-P3-002, NFR-P3-003
 Depends on: M15-001
@@ -319,7 +337,19 @@ Acceptance:
 Verification: synthetic direct/shared/looped entries, retail structural hashes,
 malformed/adversarial corpus, PCM golden vectors, cancellation, and resource limits.
 
+Implementation: the game-neutral SDK `SoundBankReader` dispatches UYA banks to an
+independent bounded `SBlk` v3 reader, PS2 SPU ADPCM decoder, and recovered 240 Hz grain
+interpreter. Inventory reports typed programs, grains, tone metadata, canonical
+program/sample identities, dependency and provenance ranges, loops, and exact preview
+blockers. Static single tones retain bounded mono PCM16 with effective rate, gain/pan,
+and loop metadata; compound production programs render bounded stereo PCM16 with
+layering, timing, random/cycle selection, registers, control flow, voice controls,
+pitch, and LFO state. Synthetic PCM/control fixtures, malformed bounds, cancellation,
+all ten local UYA banks, and one real program per observed opcode qualify the boundary.
+
 ### M15-003 — Import sounds and remaps as typed project assets
+
+Status: ✅ Complete
 
 Requirements: FR-SOUND-001, FR-SOUND-002, FR-ASSET-007, FR-REF-001
 Depends on: M15-002, M7-004
@@ -341,7 +371,21 @@ Acceptance:
 Verification: inventory-to-project snapshots, shared sample deduplication, remap
 reorder, missing/cycle/wrong-kind, cleanup/recovery, and ZIP portability tests.
 
+Implementation: project schema 23 stores game-neutral sound programs, their raw typed
+grain parameter payloads, separately content-addressed shared sample assets, source
+ranges, playback metadata, global remaps,
+and ordered moby/class slot links. The UYA adapter projects the bounded SDK inventory,
+resolves only qualified programs, retains native indexes as provenance, and records
+unsupported slots with actionable blockers. Base bank and remap bytes remain in the
+verified opaque layer; imported sample payloads use ordinary integrity-checked project
+attachments. Asset-to-asset reference indexes cover program/sample and moby/program
+edges, and sound assets participate in delete protection, cleanup, recovery,
+fingerprints, and portable ZIP projects. Validation reports the exact owner edge for
+missing, wrong-kind, or recursive dependencies.
+
 ### M15-004 — Build the sound/remap workspace and preview mixer
+
+Status: ✅ Complete
 
 Requirements: FR-SOUND-003, FR-SOUND-005, NFR-P3-002, NFR-P3-006
 Depends on: M15-002, M15-003
@@ -356,6 +400,7 @@ Acceptance:
 - Play/stop/seek where supported never auto-plays, has keyboard-accessible state, and
   isolates failure to the selected entry.
 - Decode jobs are cancellable/deduplicated and cached under a measured memory budget;
+  authored random previews retain only their active seek buffer and regenerate on replay;
   switching/closing projects stops audio and frees buffers/nodes.
 - Direct and ambient sliders persist machine-locally, clamp/mute safely, affect active
   preview immediately, and never dirty or serialize the project.
@@ -363,7 +408,28 @@ Acceptance:
 Verification: component/accessibility tests, large-bank virtualization profile,
 preference persistence, rapid-selection cancellation, unsupported entry, and leak test.
 
+Implementation: Forge exposes the active project's typed sound/remap inventory through
+bounded bridge payloads and a virtualized Sounds panel available from View → Panels.
+Rows retain stable and native identity, source/batch, global and moby remap slots,
+dependency navigation, sample/rate/channel/loop metadata, preview support, and isolated
+diagnostics. User-initiated play/stop/seek requests use the cancellable SDK decode path,
+asynchronous Web Audio PCM conversion, gain/pan/loop metadata, deduplicated in-flight
+loads, and a measured 32 MiB decoded-buffer LRU. Project switches and closes cancel
+work, stop sources, disconnect nodes, close the audio context, and clear the cache.
+Machine-local direct and ambient volume/mute preferences are clamped and excluded from
+project state; direct changes affect active bank playback immediately, while ambient
+preferences are reserved for the specified later ambient
+simulation path. Bridge round trips, large-bank windowing, preference validation,
+rapid-selection cancellation, cache bounds, seek/mute behavior, and disposal tests
+qualify the workflow.
+
+The preview transport accepts mono direct clips and interleaved stereo compound mixes.
+Projects created before compound preview support refresh stale support/identity labels
+from their verified retained bank without mutating project data.
+
 ### M15-005 — Compose imported sound entries and remap tables
+
+Status: ✅ Complete
 
 Requirements: FR-SOUND-002, FR-SOUND-004, NFR-P3-001
 Depends on: M15-003
@@ -384,7 +450,29 @@ Acceptance:
 Verification: no-edit, append, shared sample, cross-sound, conflict/capacity, alignment,
 determinism, cancellation, semantic re-read, and bake-fingerprint tests.
 
+Implementation: the game-neutral SDK `SoundBankComposer` dispatches UYA/DL 989snd
+composition to a bounded writer that retains the source grain-data and sample-chunk
+opaque bytes, reuses existing samples, appends dependency-complete programs/samples,
+rewrites same-bank program edges, enforces native/SPU/24-bit limits, sector-aligns the
+container, and semantically re-reads the result. Compound identities use canonical
+child identities rather than donor-native slots. The UYA remap writer preserves opaque
+other records, emits Moby/global lists against final program slots, appends the verified
+block to the rebuilt asset header, and semantically re-reads it.
+
+Forge persists raw typed grain parameter payloads in project schema 23. Its UYA
+composition preflight reports retained/reused/appended programs, appended samples,
+final slots, and output size; base programs retain their native order, while new assets
+append in stable Asset-ID order. Unchanged banks remain byte-exact. Changed bank/header
+payloads enter the existing in-memory level archive replacement transaction, participate
+in the Moby bake fingerprint, and replace the opaque sound sections only after bounded
+composition succeeds. Synthetic and ten-level corpus tests cover no-edit identity,
+append/reuse, shared samples, child-slot and Moby-remap rewriting, opaque retention,
+capacity/conflict rejection, alignment, determinism, cancellation, and semantic re-read.
+
 ### M15-006 — Qualify sound import and playback end to end
+
+Status: 🚧 In progress — automated and packaged-Linux startup gates pass;
+packaged sound, Windows parity, and PCSX2 playback evidence remain
 
 Requirements: FR-SOUND-001 through FR-SOUND-005, NFR-P3-001 through NFR-P3-006
 Depends on: M15-004, M15-005
@@ -399,14 +487,25 @@ Acceptance:
   slot, survives project transfer, and plays in PCSX2 with expected loop/rate behavior.
 - Untouched sound/remap entries meet the frozen preservation contract; interrupted or
   invalid composition retains the prior stage.
-- Known unsupported grains/streams and the boundary of ambient preview are documented.
+- Known external plug-in/cross-bank/stream limits and the boundary of ambient preview
+  are documented.
 
 Verification: packaged cross-platform record, deterministic hashes, PCM comparison,
 PCSX2 audio capture/checklist, and interruption/corruption walkthrough.
 
+Qualification record: [`M15 sound import and playback qualification`](../../qualification/M15-sound-import.md).
+The ten-level UYA/50-bank Deadlocked SDK corpus, corpus-backed level 41 to level 03
+composition/remap fixture, Forge portability/recovery tests, and self-contained Linux
+package startup smoke pass. The task remains open for the recorded packaged sound UI,
+Windows, and listen-in-PCSX2 rows. M16-007 supplies the final one-action Moby closure
+workflow and may proceed on the completed M15-005 writer boundary; M15-006 remains a
+qualification gate for M16-009 and the P3 release.
+
 ## M16 — Cross-map content import
 
 ### M16-001 — Freeze per-family import and dependency contracts
+
+Status: ✅ Complete
 
 Requirements: FR-IMPORT-001, FR-IMPORT-004, NFR-P3-001, NFR-P3-003
 Depends on: M7-004, M10-005, M12-007
@@ -418,10 +517,11 @@ Acceptance:
 
 - A versioned matrix marks `add`, `replace`, `add+replace`, or `unsupported` with the
   exact reason for TIEs, shrubs, tfrags, mobys, collision, cuboids, spheres, splines,
-  paths, areas/map groups, skybox, level settings, directional lights, HUD, FX, and
+  paths, areas/map groups, skybox, level settings, directional lights, HUD, FX,
+  occlusion, and
   opaque content.
 - TIE/shrub/tfrag are default-selected only when their closure is writable; skybox,
-  level settings, and directional lights are replace-only; HUD/FX/opaque are disabled.
+  level settings, directional lights, HUD, FX, and occlusion are replace-only; opaque content is disabled.
 - Each enabled family defines ownership, dependency edges, conflict namespace, native
   append/remove semantics, protected-survivor behavior, and no-edit identity.
 - The matrix comes from the selected game adapter rather than renderer conditionals.
@@ -429,7 +529,22 @@ Acceptance:
 Verification: adapter capability snapshots, source maps with absent/empty/malformed
 families, dependency fixtures, and UI contract serialization.
 
+Implementation: the versioned
+[`UYA content-import capability contract v1`](../../features/uya-content-import-contract-v1.md)
+defines all 18 stable family IDs, intended modes, readiness/default-selection rules,
+ownership, transitive dependencies, conflict namespaces, native composition,
+protected-survivor behavior, no-edit identity, limits, and evidence. The UYA adapter is
+the sole matrix owner. Its bounded source-state evaluator distinguishes unknown,
+absent, empty, present, and malformed families while keeping every unfinished M16
+family non-selectable with its exact owning-task blocker. Bridge opcode
+`GetContentImportCapabilities` carries the complete game-neutral matrix through matching
+C# and TypeScript codecs. Synthetic snapshots cover the full ordered matrix, core
+defaults, singleton modes, unsupported opaque content, malformed diagnostics,
+target rejection, and deterministic serialization without proprietary donor bytes.
+
 ### M16-002 — Build donor preflight and dry-run planning
+
+Status: ✅ Complete
 
 Requirements: FR-IMPORT-001, FR-IMPORT-002, NFR-P3-002, NFR-P3-003
 Depends on: M16-001, M1-006
@@ -451,7 +566,20 @@ Acceptance:
 Verification: level40→level41 structural fixture, incompatible source, family default,
 large graph, cycle, capacity, cancellation, and deterministic-plan tests.
 
+Implementation: [`UYA content-import planning v1`](../../features/uya-content-import-planning-v1.md)
+adds a cancellable `PlanContentImport` host operation over the existing verified-source
+and base-level reader. It verifies the clean disc and target source identity before
+inventory, records both disc and level hashes, opens the catalog without write-side
+setup or cleanup, and derives a stable versioned batch ID plus all 18 family plans from
+one target snapshot. Plans carry stable add/reuse/remap/remove/protect sets, dependency
+reasons, conflicts, capacity and byte estimates, warnings, and exact capability blockers.
+Synthetic level40→level41, incompatible-profile, reference-cycle, protected-survivor,
+large-capacity, cancellation, read-only catalog, and deterministic C#/TypeScript codec
+checks run without proprietary disc bytes.
+
 ### M16-003 — Add import-batch provenance and atomic project commands
+
+Status: ✅ Complete
 
 Requirements: FR-IMPORT-005, FR-IMPORT-006, NFR-P3-004
 Depends on: M16-002, M7-002, M7-004
@@ -472,7 +600,19 @@ Acceptance:
 Verification: transaction fault injection at each phase, history/recovery, schema
 migration, blob deduplication, integrity failure, and ZIP round trip.
 
+Implementation: [`Content-import batches v1`](../../features/content-import-batches-v1.md)
+adds the schema-21 append-only provenance ledger and one stale-plan-guarded project
+transaction. It computes and verifies all staged Asset IDs and metadata, integrity-checks
+deduplicated blobs, validates the complete prospective content graph, and publishes it
+with one state swap. The editor records that swap as one undo/redo entry; recovery,
+save, and ZIP transfer retain the same entities, references, allocations, assets, and
+batch provenance. Boundary fault injection, cancellation, corrupt existing blobs,
+schema migration/unknown-field policy, history, recovery, deduplication, and portable
+round trips are covered by the host qualification suite.
+
 ### M16-004 — Import TIE and shrub families with native conflict remapping
+
+Status: ✅ Complete
 
 Requirements: FR-IMPORT-003, FR-IMPORT-004, FR-CUSTOM-004
 Depends on: M16-003, M14-006
@@ -494,7 +634,26 @@ Acceptance:
 Verification: identical/colliding class, shared texture, add/replace/protected survivor,
 group/reference, donor removal, deterministic bake, and PCSX2 static-content fixtures.
 
+Implementation: the UYA static-family importer commits reviewed TIE/shrub plans through
+the M16-003 transaction, attaches verified canonical definitions and their complete
+model/material/texture payloads, assigns deterministic stable entity/group identities,
+and rewrites colliding instances through per-family `0x9000` custom allocations. Exact
+content reuses retained target classes; add preserves target content, while replace
+removes only unprotected entities and reports the retaining owner and field. Imported
+static instances own their linked collision: replace previews and removes exclusively
+attached pieces, while shared pieces retain only surviving instance links. Imported
+groups retain stable membership for the structural map-group composer.
+Static staging and final asset composition read project-attached donor definitions after
+the donor catalog is unavailable, conservatively remap inserted TIE visibility, remove
+unused definitions only for replaced families, and preserve untouched families. The
+host qualification covers deterministic preparation, TIE/shrub add and replace,
+identical/colliding classes, protected group survivors, donor removal, native instance
+re-read, and deterministic staged output. M16-008 owns the user-facing apply workflow
+and M16-009 owns packaged Forge/PCSX2 qualification.
+
 ### M16-005 — Append and replace dependency-complete tfrag families
+
+Status: ✅ Complete
 
 Requirements: FR-IMPORT-003, FR-IMPORT-004, FR-TFRAG-004
 Depends on: M16-003, M12-008
@@ -516,14 +675,23 @@ Acceptance:
 Verification: primary plus nonzero chunk imports, texture conflict/growth, add/replace,
 alignment/relocation, determinism, semantic re-read, and PCSX2 rendering fixtures.
 
-Existing foundation (2026-10-18): project-local custom-tfrag import now proves bounded
-GLB/glTF-to-native partitioning, attached source/sidecar/texture lifecycle, deterministic
-primary-group append/replacement/removal, texture allocation, section relocation,
-semantic re-read, and conservative occlusion-map growth. M16-005 remains not started:
-it still requires M16 planning/batch provenance, complete donor owner payloads, nonzero
-chunk import, protected-survivor rules, and donor add/replace qualification.
+Implementation: tfrag planning now selects complete donor owners rather than display
+pieces, expands protection across each target owner, and blocks streamed owners without
+a matching target chunk. The atomic M16 transaction attaches each raw native owner,
+canonical three-LOD pieces, used terrain textures, stable piece/owner IDs, and batch
+provenance, so later baking does not require the donor ISO or catalog. Add appends after
+retained target groups; replace removes only complete unprotected owners. The SDK
+exposes its existing validated raw-group copier as a game-neutral native-owner append,
+rebuilding aligned records and offsets while preserving donor payload bytes. Forge
+applies edits against the attached donor owner, allocates global terrain textures, and
+finalizes both primary and nonzero chunk groups. Synthetic primary/chunk add/replace,
+determinism, portability, native relocation, semantic re-read, and the SDK's extracted
+terrain fixture suite cover the implementation; M16-009 owns packaged Forge/PCSX2
+workflow qualification.
 
 ### M16-006 — Import remaining validated entity and collision families
+
+Status: ✅ Complete
 
 Requirements: FR-IMPORT-001, FR-IMPORT-003, FR-IMPORT-004
 Depends on: M16-003, M16-001
@@ -545,10 +713,38 @@ Acceptance:
 Verification: one focused fixture per enabled family, mixed dependency plan, wrong-kind/
 missing target, add/replace, packed semantic re-read, and capability regression.
 
+Implementation: the M16-001 gate now enables collision, cuboids, spheres, splines,
+grind paths, areas, and replace-only native map groups. The UYA geometry importer commits reviewed add/replace plans
+through the shared atomic transaction,
+assigns deterministic stable IDs, preserves protected targets named by groups, level
+settings, PVars, collision bindings, and other typed inbound references, and never
+clears an unsupported edge. Complete shape and variable path sections are rebuilt in
+final project order through the SDK, including retained/imported transforms, path
+points, bounds, opaque native record headers, and remapped camera-collision entries.
+Project schema 24 keeps imported path metadata portable, so projects bake
+deterministically after save/reopen without donor media. Capability, mixed-plan,
+protected-survivor, add/replace, deterministic commit, native semantic re-read, and
+camera-collision remap and area-link fixtures cover all five enabled families. Area composition rebuilds all five
+typed spline/shape link tables after final geometry ordering, automatically maps selected
+donor geometry, and requires an explicit Map/Clear choice for other nullable links.
+The collision importer attaches each selected donor payload, assigns deterministic
+stable IDs, preserves raw face types and source component identity, imports both solid
+pieces and player barriers, and remaps explicit TIE/shrub associations only when their
+owning families are selected. Complete composition rebuilds native indexes and octants,
+retains untouched target pieces in Add mode, removes the reviewed target family in
+Replace mode, and remains bakeable after donor catalog removal. Synthetic add, replace,
+batch removal, portability, solid, and player-barrier fixtures plus a real level 05 to
+level 46 preparation cover the path. Map groups store ordered stable member IDs and
+rebuild native indexes after final Moby/TIE/shrub ordering; the plan requires every
+represented member family to be replaced in the same batch. M16-008 owns the user-facing
+apply workflow and M16-009 owns packaged Forge/PCSX2 qualification.
+
 ### M16-007 — Import mobys with PVars, references, and sound closure
 
+Status: ✅ Complete
+
 Requirements: FR-IMPORT-004, FR-SOUND-002, FR-PVAR-001
-Depends on: M16-003, M15-006, M9-009
+Depends on: M16-003, M15-005, M9-009
 
 Add dependency-complete moby definition/instance import using project MobyDex overlays,
 raw PVars, stable references, model dependencies, and composed sound assets/remaps.
@@ -568,7 +764,29 @@ Acceptance:
 Verification: internal/cross-family/null reference, raw unknown PVar, model class
 collision, shared sound graph, add/replace/protected, donor removal, and PCSX2 fixture.
 
+Implementation to date: the UYA adapter now prepares one atomic Moby-family commit,
+attaches verified canonical definitions, deterministically rebases class and UID
+collisions, preserves native records and unknown PVar bytes, remaps typed internal Moby
+links after final ordering, clones built-in MobyDex schemas for rebased classes, and
+imports each exact-source transitive program/sample/remap closure. Replace protects
+planned survivors, removes obsolete Moby sound maps, and participates in full static-
+asset recomposition. Imported model/PVar output semantically re-reads and remains
+bakeable from project attachments after donor removal. Native Moby groups are validated
+against instance records, collision-rebased into stable project groups, rebuilt after
+final instance ordering, and packed from staged output. The capability planner enables
+only donors whose entire Moby family is safe. Native Moby-link relocation entries now
+become schema-independent typed references, so they remap through stable Entity IDs
+even when MobyDex does not name the field; genuinely missing relocation metadata and
+malformed group membership remain blockers. Typed external references are exposed as
+bounded requirements; apply must explicitly map each one to a compatible retained
+stable Entity ID or clear a verified nullable field. Bake resolves mapped cuboid/spline
+and other supported gameplay targets back to their final native indexes while preserving
+unrelated PVar bytes. Missing, stale, duplicate, incompatible, and unused choices fail
+atomically. The M16-008 workflow owns presenting those choices.
+
 ### M16-008 — Add replace-only singletons, origin UI, and batch removal
+
+Status: ✅ Complete
 
 Requirements: FR-IMPORT-003, FR-IMPORT-005, FR-IMPORT-006, NFR-P3-006
 Depends on: M16-004, M16-005, M16-006, M16-007
@@ -576,9 +794,68 @@ Depends on: M16-004, M16-005, M16-006, M16-007
 Complete the user workflow for singleton replacement, origin-aware browsing, batch
 reports, and dependency-safe removal.
 
+Progress (2026-10-22): Forge now exposes the host's authoritative content-import
+dry-run from **File → Import Map Content…**. The dialog discovers donor levels,
+selects add/replace modes, reports add/reuse/remap/remove/retain effects and blockers,
+supports cancellation, and bounds rendered item details for large plans. Approved
+TIE, shrub, tfrag, cuboid, sphere, and Moby selections now revalidate against live
+editor state and commit as one undoable atomic batch. Plans expose every typed external
+Moby PVar requirement and compatible retained target; the preview requires an explicit
+Map or nullable Clear choice and the host revalidates every choice atomically. Shared
+donor verification and extraction now use bounded, file-versioned caches, so selection
+previews and Apply rerun the live dependency plan without repeatedly hashing the whole
+ISO or extracting the same donor level; switching levels can also reuse disc verification.
+The cached donor snapshot also retains its validated family inventory, warnings, and
+external Moby-reference requirements, avoiding repeated donor-wide scans while target-
+dependent protection and stale-plan checks still rerun.
+Post-commit entity and selection reconciliation now uses stable-ID indexes instead of
+quadratic full-list scans, keeping large imported scenes responsive without changing
+event or history ordering. Planning likewise indexes retained reference candidates and
+group/settings membership once, while family commits index target entities and assets;
+large replacements no longer rescan the full project for every imported item.
+Read-only projections of the active immutable state reuse its current fingerprint, and
+multi-family Apply no longer serializes an unused final projection after preparation.
+Repeated tfrag, HUD, and FX imports now classify every project-owned payload as reused
+without restaging and re-hashing those blobs, while editor snapshots build import-origin
+and entity lookup indexes in one pass.
+The preview UI likewise indexes scene entities once for reference choices and only
+formats the 25 visible detail rows per family, so large plans do not allocate or rescan
+their complete item inventories during React renders.
+Donor streamed tfrag owners retain matching target chunks when available and otherwise
+relocate as complete native owners into the target primary terrain, allowing imports
+between maps with different chunk inventories without synthesizing unsupported chunks.
+Unsupported opaque content remains an
+internal compatibility/inventory family and is no longer shown as an import option.
+Shared content origins now expose base, project, or imported state plus donor level and batch ID. Imported scene rows
+are labeled and searchable by origin, level, or batch; imported group headers are
+labeled; Properties shows the full identity; Sound already reports source/batch; and
+Asset Preview reports the selected asset's distinct project-use origins. Skybox Replace
+now swaps the complete shell composition, attaches the donor payload, validates the
+result before an atomic commit, and blocks protected target shells. Level-settings
+Replace now patches the validated target-native record after automatically rebinding
+selected donor cuboids or collecting explicit retained-target Map/Clear choices. The
+combined plan no longer protects geometry referenced only by settings being replaced.
+Directional-light Replace now atomically rebuilds the bounded whole array, preserves the
+target-native header/trailing bytes, and blocks plans whose retained or imported TIE
+selectors cannot address the donor lights. HUD Replace now attaches the donor header,
+all five physical banks, and normalized preview textures as portable project content;
+the existing HUD composer then stages every bank from that verified source without the
+donor map or catalog. FX Replace now attaches the complete normalized donor texture bank,
+preserves its ordered indexes, and uses the SDK whole-bank composer to grow or shrink the
+target bank while relocating unrelated target asset-WAD payloads. The Imports panel now projects the append-only
+batch ledger without copying its large stable-ID sets, filters by source/family/mode,
+reports result totals and live entities/groups, and links Properties and Asset Preview
+origins to one-click Scene filtering, selection, and entity focus. Each batch now offers
+an authoritative dependency-safe removal preview. Add-mode content is removed only when
+no retained entity, group, level setting, collision binding, tfrag owner, sound graph,
+class allocation, or attached-asset dependency needs it. Replace-mode results remain
+explicit survivors because v1 provenance does not retain displaced target snapshots.
+Apply revalidates the target fingerprint, commits atomically, participates in undo/redo,
+and leaves the append-only provenance record and recovery blobs intact.
+
 Acceptance:
 
-- Skybox, level settings, and directional lights expose Replace only and atomically
+- Skybox, level settings, directional lights, HUD, FX, and occlusion expose Replace only and atomically
   replace their exact supported project records with semantic validation.
 - Scene/Groups/Asset/Properties/Sound rows label base/project/import origin, donor map,
   and batch without color alone and can filter/navigate to the batch report.
@@ -594,6 +871,20 @@ plan profile, shared dependency retention, remove/undo/redo, and stale-plan reje
 
 Requirements: FR-IMPORT-001 through FR-IMPORT-006, NFR-P3-001 through NFR-P3-006
 Depends on: M16-008
+
+Progress (2026-10-21): a level 41 Hoven project successfully replaced selected static
+and terrain content from level 05, rebuilt, and displayed the imported content in-game.
+The same run verified that original map sounds remained intact and imported Moby sounds
+played. A subsequent Forge build also verified donor skybox replacement in-game. This
+is useful integration evidence but does not replace the specified level 40, portable-
+package, batch-removal, interruption, or deterministic hash qualification. The
+[M16 qualification record](../../qualification/M16-cross-map-import.md) now maps the
+automated coverage, freezes the adapter capability payload SHA-256, records the
+provisional development observations, and provides the retained hash, packaged runtime,
+and interruption checklists needed to close the remaining rows. The preview also copies
+a deterministic, path-free, self-checking qualification JSON record retaining the
+host-generated plan/batch identity, source/target hashes, selected-family counts, and
+explicit reference choices.
 
 Qualify the target scenario from the Phase 3 notes plus a moby dependency case.
 
@@ -614,6 +905,8 @@ interruption/recovery checklist, and adapter capability snapshot.
 
 ### M17-001 — Freeze the renderer simulation lifecycle and service boundary
 
+Status: ✅ Complete
+
 Requirements: FR-SIM-001, NFR-P3-002, NFR-MAINT-001
 Depends on: M7-006, M9-009
 
@@ -633,7 +926,18 @@ Acceptance:
 Verification: lifecycle state-machine tests, mock simulator, fixed-step determinism,
 error isolation, invalidation, context loss, and resource counter checks.
 
+Implementation: [`moby-simulation-lifecycle-v1.md`](../../features/moby-simulation-lifecycle-v1.md)
+freezes a game/class registry, immutable project/entity/PVar/reference input, narrow
+renderer asset/FX services, derived-object ownership, proxy/selection identity, failure
+fallback, invalidation, project-switch, and context-loss behavior. The game-neutral
+controller starts disabled with no allocation, isolates class failures, caps fixed-step
+catch-up, rejects stale asynchronous creation, and exposes lifecycle/resource counters.
+Focused mock tests cover state transitions, deterministic timing, pause/reset, failure
+isolation, targeted recreation, project/context replacement, cleanup, and registry keys.
+
 ### M17-002 — Implement the simulation controller and controls
+
+Status: ✅ Complete
 
 Requirements: FR-SIM-001, FR-SIM-003, NFR-P3-002, NFR-P3-006
 Depends on: M17-001
@@ -654,7 +958,22 @@ Acceptance:
 Verification: controller/unit/component tests, 100-instance performance profile,
 background/foreground stall, edit invalidation, failure isolation, and leak checks.
 
+Implementation: the game-neutral controller now runs inside the viewport animation
+loop behind a compact keyboard-accessible Simulation popover with enable, pause/resume,
+reset, live simulator/tick counts, and an explicit preview-only label. Enable state is
+scoped to the open project and resets on project switch. Disabled mode creates and
+ticks nothing; pause freezes derived rendering; reset clears deterministic time; stalls
+drop bounded backlog. Copied Moby snapshots classify committed transform, PVar,
+reference, asset, FX, and visibility edits for targeted invalidation. The projection
+keeps simulation proxy suppression separate from collision preview visibility, while
+context loss, toggle-off, failure, and teardown restore proxies and release selection
+bindings/resources. Tests cover grouped 100-instance dispatch, capped stalls, snapshot
+copy/diff, failure isolation, async cancellation, context/project replacement, FX
+resolution, resource counters, and composed proxy visibility.
+
 ### M17-003 — Implement UYA ocean-plane simulation for class `0x0B37`
+
+Status: 🚧 In progress — corrected renderer awaiting visual validation
 
 Requirements: FR-SIM-002, FR-SIM-001
 Depends on: M17-002, M8-008, M9-009
@@ -676,7 +995,26 @@ Acceptance:
 Verification: field golden fixtures, FX override/update, camera/time snapshots,
 hidden-cuboid cases, missing dependencies, bounded geometry, and resource reuse.
 
+Implementation: [`UYA ocean simulation v1`](../../features/uya-ocean-simulation-v1.md)
+registers class `0x0B37` without a shared-scene game conditional. It reads the named
+typed MobyDex fields, maps level-relative texture IDs into the UYA FX bank, resolves
+current project FX Asset IDs, shares repeated texture
+loads, and owns bounded camera-relative patch geometry, layered materials, and leases.
+Eight-component waves, per-fragment shimmer, world-scrolling overlay UVs, per-fragment projected STQ underlay UVs,
+PVar colors/alpha/blend/fog/height, native encoded-color framebuffer blending, and
+stable-reference hide cuboids update from fixed
+time and camera state. Invalid PVars, references, or FX identify the owner field and
+retain a safe ordinary proxy when no layer remains. Golden field, wave/geometry bound,
+camera/cuboid visibility, deterministic timing, invalidation, and disposal tests cover
+the implementation. A reported visual mismatch exposed a missing UYA `0x64` level-FX
+base, reversed native color-pass labels, linear WebGL blending, and an invalid RGBA16F
+composer-to-RGBA8 framebuffer copy. The WebGL path now copies into a format-compatible
+half-float texture without changing Forge's renderer, but representative Forge
+validation is required before this task returns to complete.
+
 ### M17-004 — Preserve scene interaction and simulation performance
+
+Status: ✅ Complete
 
 Requirements: FR-SIM-003, NFR-P3-002, NFR-P3-006
 Depends on: M17-003
@@ -696,6 +1034,16 @@ Acceptance:
 
 Verification: interaction/component tests, outline/triangle counters, FPS/frame profile,
 offscreen/disabled checks, context loss, and repeated-cycle leak test.
+
+Implementation: derived ocean meshes bind directly to the authoritative Moby Entity ID,
+participate in the existing ordered raycast, and respect entity hidden/disabled/locked
+state while the ordinary proxy is suppressed through a separate renderer overlay.
+They do not enter entity counts, outline duplication, serialization, collision, history,
+or bake. The fixed 6,720-triangle patch follows the camera, hidden/below-water frames
+skip geometry updates, disabled preview does no class work, and the viewport's existing
+FPS/draw/triangle telemetry includes its actual cost. Proxy/pick bindings use reference
+counts and focused lifecycle tests return them to baseline across toggle, invalidation,
+context loss, project switch, failure, and disposal.
 
 ### M17-005 — Qualify ocean simulation fidelity
 

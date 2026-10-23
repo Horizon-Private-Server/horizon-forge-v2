@@ -393,6 +393,18 @@ public delegate EditorTransformCapabilities EditorTransformCapabilityResolver(Pr
 
 public delegate string? EditorSourceClassNameResolver(ForgeProjectWorkspace workspace, ProjectEntity entity);
 
+public enum EditorContentOriginKind : byte
+{
+    Base = 1,
+    Project = 2,
+    Imported = 3,
+}
+
+public sealed record EditorContentOrigin(
+    EditorContentOriginKind Kind,
+    string? ImportBatchId = null,
+    int? SourceLevel = null);
+
 public sealed record EditorEntitySnapshot(
     EntityId EntityId,
     string Name,
@@ -412,7 +424,8 @@ public sealed record EditorEntitySnapshot(
     bool? InstancedCollisionEnabled,
     IReadOnlyList<EditorMobyPropertyDescriptor>? MobyProperties,
     EditorMobyPVarDescriptor? MobyPVar,
-    string? SourceClassName = null);
+    string? SourceClassName = null,
+    EditorContentOrigin? Origin = null);
 
 public sealed record EditorReferenceSnapshot(
     EntityId OwnerEntityId,
@@ -497,7 +510,8 @@ public sealed record EditorGroupSnapshot(
     string Name,
     IReadOnlyList<EntityId> Members,
     IReadOnlyList<EntityId> MissingMembers,
-    ProjectGroupTemplateProvenance? Template = null);
+    ProjectGroupTemplateProvenance? Template = null,
+    EditorContentOrigin? Origin = null);
 
 public enum EditorMapGroupKind : byte
 {
@@ -529,6 +543,20 @@ public sealed record EditorCustomModelSnapshot(
     int ClassId,
     ProjectCustomModelMetadata Metadata);
 
+public sealed record EditorImportBatchSnapshot(
+    string BatchId,
+    long ImportedUnixMilliseconds,
+    string SourceGame,
+    string SourceRegion,
+    string SourceRevision,
+    string SourceFingerprint,
+    int SourceLevel,
+    IReadOnlyList<ContentImportBatchFamily> Families,
+    int AddedCount,
+    int ReusedCount,
+    int ReplacedCount,
+    int ProtectedCount);
+
 public sealed record EditorSnapshot(
     string ProjectPath,
     EntityId ProjectId,
@@ -544,6 +572,7 @@ public sealed record EditorSnapshot(
     IReadOnlyList<EditorGroupSnapshot> Groups,
     IReadOnlyList<EditorMapGroupSnapshot> MapGroups,
     IReadOnlyList<EditorGroupTemplateDefinition> GroupTemplates,
+    IReadOnlyList<EditorImportBatchSnapshot> ImportBatches,
     IReadOnlyList<EntityId> Selection,
     bool IsDirty,
     bool CanUndo,

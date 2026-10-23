@@ -49,9 +49,12 @@ internal static partial class ForgeProjectValidation
         if (content.DocumentType != ProjectSchema.ContentDocumentType)
             throw new InvalidDataException("Project content document type is invalid.");
         if (content.Entities is null || content.Assets is null || content.InstancedCollisionBindings is null
-            || content.AssetOverrides is null || content.Groups is null || content.CustomClasses is null
-            || content.CustomModels is null)
+            || content.AssetOverrides is null || content.Groups is null || content.MapGroups is null
+            || content.CustomClasses is null
+            || content.CustomModels is null || content.ImportBatches is null || content.Sounds is null)
             throw new InvalidDataException("Project content lists are required.");
+        ValidateImportBatches(content.ImportBatches);
+        if (content.Occlusion is not null) ValidateOcclusion(rootPath, content.Occlusion, content.Assets);
         if (content.Hud is not null) ValidateHud(rootPath, content.Hud, content.Assets);
         if (content.Fx is not null) ValidateFx(rootPath, content.Fx, content.Assets);
         if (content.MobyDex is not null) MobyDexCatalog.ValidateProjectState(content.MobyDex);
@@ -62,6 +65,7 @@ internal static partial class ForgeProjectValidation
             throw new InvalidDataException("Project contains duplicate Entity IDs.");
         if (content.LevelSettings is not null) ValidateLevelSettings(content.LevelSettings, content.Entities);
         ValidateGroups(content.Groups, content.Entities.Select(entity => entity.EntityId).ToHashSet());
+        ValidateMapGroups(content.MapGroups, content.Entities);
         foreach (var entity in content.Entities)
         {
             if (entity is null || entity.EntityId.Value == Guid.Empty)
@@ -126,6 +130,7 @@ internal static partial class ForgeProjectValidation
         }
         ValidateCustomClasses(content.CustomClasses, content.Assets);
         ValidateCustomModels(content.CustomModels, content.CustomClasses, content.Assets);
+        ValidateSounds(content.Sounds, content.Assets);
         ValidateTfrags(content.Tfrags, content.Entities, content.Assets);
         if (content.AssetOverrides.Any(binding => binding is null))
             throw new InvalidDataException("Project asset overrides cannot contain null entries.");
@@ -362,6 +367,45 @@ internal static partial class ForgeProjectValidation
         }
     }
 
+    private static void ValidateMapGroups(
+        IReadOnlyList<ProjectMapGroupTable> tables,
+        IReadOnlyList<ProjectEntity> entities)
+    {
+        if (tables.Count > 3 || tables.Any(value => value is null)
+            || tables.Select(value => value.MemberKind).Distinct().Count() != tables.Count
+            || tables.Any(value => value.MemberKind is not (ProjectEntityKind.Moby
+                or ProjectEntityKind.Tie or ProjectEntityKind.Shrub))
+            || tables.Sum(value => (long)(value.Groups?.Count ?? 0)) > ProjectGroupSchema.MaximumGroupCount
+            || tables.Sum(value => value.Groups?.Sum(group => (long)(group?.Members?.Count ?? 0)) ?? 0)
+                > ProjectGroupSchema.MaximumTotalMemberships)
+            throw new InvalidDataException("Project map-group tables are invalid.");
+        var entitiesById = entities.ToDictionary(value => value.EntityId);
+        foreach (var table in tables)
+        {
+            if (table.Groups is null || table.Groups.Count > ProjectGroupSchema.MaximumGroupCount
+                || table.Groups.Any(value => value?.Members is null)
+                || table.Groups.Sum(value => (long)(value?.Members?.Count ?? 0))
+                    > ProjectGroupSchema.MaximumTotalMemberships)
+                throw new InvalidDataException($"Project {table.MemberKind} map-group table is invalid.");
+            var seenMobys = new HashSet<EntityId>();
+            foreach (var group in table.Groups)
+            {
+                if (group.Members.Count > ProjectGroupSchema.MaximumMembersPerGroup
+                    || group.Members.Distinct().Count() != group.Members.Count)
+                    throw new InvalidDataException($"Project {table.MemberKind} map-group membership is invalid.");
+                foreach (var member in group.Members)
+                {
+                    if (!entitiesById.TryGetValue(member, out var entity)
+                        || ProjectReferences.KindOf(entity) != table.MemberKind)
+                        throw new InvalidDataException(
+                            $"Project {table.MemberKind} map group references an incompatible entity {member}.");
+                    if (table.MemberKind == ProjectEntityKind.Moby && !seenMobys.Add(member))
+                        throw new InvalidDataException($"Project Moby {member} occurs in multiple map groups.");
+                }
+            }
+        }
+    }
+
     private static void ValidateGroupTemplate(
         GroupId groupId,
         ProjectGroupTemplateProvenance template,
@@ -563,10 +607,13 @@ internal static partial class ForgeProjectValidation
                 && (!float.IsFinite(cameraCollision.FloatValue) || !ValidVector(cameraCollision.BoundingSphere)))
                 throw new InvalidDataException($"Entity {entity.EntityId} camera collision metadata is invalid.");
         }
-        if (geometry.Spline is not null && !ValidPoints(geometry.Spline.Points))
+        if (geometry.Spline is not null && (!ValidPoints(geometry.Spline.Points)
+                || geometry.Spline.NativeHeader is { Length: not 0x0c }))
             throw new InvalidDataException($"Entity {entity.EntityId} spline geometry is invalid.");
         if (geometry.GrindPath is not null
-            && (!ValidVector(geometry.GrindPath.BoundingSphere) || !ValidPoints(geometry.GrindPath.Points)))
+            && (!ValidVector(geometry.GrindPath.BoundingSphere) || !ValidPoints(geometry.GrindPath.Points)
+                || geometry.GrindPath.NativeRecord is { Length: not 0x20 }
+                || geometry.GrindPath.NativeHeader is { Length: not 0x0c }))
             throw new InvalidDataException($"Entity {entity.EntityId} grind path geometry is invalid.");
         if (geometry.Area is not null)
         {

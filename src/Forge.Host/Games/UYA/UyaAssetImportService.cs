@@ -12,7 +12,7 @@ namespace Forge.Host.Games.UYA;
 
 public static class UyaAssetImportService
 {
-    public const string ImporterVersionPrefix = "forge-uya-v5+";
+    public const string ImporterVersionPrefix = "forge-uya-v7+";
     public const uint CanonicalFormatVersion = 1;
     public const uint TextureCanonicalFormatVersion = ProjectTextureAssetSchema.CanonicalFormatVersion;
     private const int StateSchemaVersion = 0;
@@ -175,7 +175,10 @@ public static class UyaAssetImportService
         UyaAssetImportRequest request)
     {
         var extracted = LevelAssetExtractor.ExtractLevelWad(GameId.UYA, levelWadBytes);
-        var results = new List<AssetCatalogPut>(extracted.Assets.Count);
+        var package = UyaLevelWadUnpacker.Unpack(levelWadBytes);
+        var levelSounds = ReadLevelSounds(levelWadBytes, package, level, request);
+        var results = new List<AssetCatalogPut>(extracted.Assets.Count + (levelSounds?.Assets.Count ?? 0));
+        if (levelSounds is not null) results.AddRange(levelSounds.Assets);
         foreach (var asset in extracted.Assets)
         {
             var kind = asset.Kind switch
@@ -196,10 +199,12 @@ public static class UyaAssetImportService
                 asset.Textures.Select(texture => (texture.Role, texture.PifBytes ?? MissingTexturePif)).ToArray(),
                 usedPlaceholder,
                 level,
-                request);
+                request,
+                kind == AssetKind.Moby
+                    ? levelSounds?.MobySounds.GetValueOrDefault(asset.SourceIndex)
+                    : null);
             AddTextures(results, kind, asset.ClassId, asset.SourceIndex, asset.Textures, level, request);
         }
-        var package = UyaLevelWadUnpacker.Unpack(levelWadBytes);
         var sky = UyaBaseLayerService.ExtractSky(package);
         if (sky is not null)
             results.AddRange(UyaBaseLayerService.CreateCatalogPuts(
@@ -223,7 +228,8 @@ public static class UyaAssetImportService
         IReadOnlyList<(byte Role, byte[] Bytes)> textures,
         bool usedPlaceholder,
         int level,
-        UyaAssetImportRequest request)
+        UyaAssetImportRequest request,
+        AssetMobySoundUse? mobySounds)
     {
         if (modelBytes.Length == 0) return;
         var kindName = kind.ToString().ToLowerInvariant();
@@ -236,12 +242,115 @@ public static class UyaAssetImportService
                 textures.Select(value => new FrontendAssetTexture(value.Role, value.Bytes)).ToArray()),
             new(
                 request.ImporterVersion,
-                new("UYA", "NTSC-U", request.Revision, $"level{level:00}", "level_wad/assets/asset_wad.bin", sourceIndex, request.Fingerprint),
+                new("UYA", "NTSC-U", request.Revision, $"level{level:00}", "level_wad/assets/asset_wad.bin", sourceIndex, request.Fingerprint,
+                    MobySounds: mobySounds),
                 [$"{kindName}:{modelId}", $"{kindName}:0x{modelId:X4}"],
                 usedPlaceholder
                     ? ["vanilla", "game:UYA", $"level:{level:00}", "texture:placeholder"]
                     : ["vanilla", "game:UYA", $"level:{level:00}"])));
     }
+
+    private static LevelSounds? ReadLevelSounds(
+        byte[] levelWadBytes,
+        UyaLevelWadPackage package,
+        int level,
+        UyaAssetImportRequest request)
+    {
+        var bankBytes = UyaLevelWadReader.ReadSectorFileBlock(levelWadBytes, package.LevelWad.SoundBank);
+        if (bankBytes.Length == 0) return null;
+        var source = UyaLevelWadRenderPackageBuilder.ReadAssetSourceFiles(package.Files);
+        var header = LevelAssetReader.ReadHeader(source.HeaderBytes);
+        var bank = SoundBankReader.Inspect(GameId.UYA, bankBytes);
+        var bankId = AssetId.Compute(AssetKind.SoundBank, SoundBankAssetSchema.CanonicalFormatVersion, bankBytes);
+        var soundAssets = CreateSoundAssets(bankBytes, bank, bankId, level, request);
+        if (header.SoundRemapOffset == 0) return new(soundAssets, new Dictionary<int, AssetMobySoundUse>());
+        var remap = SoundBankReader.InspectRemap(GameId.UYA, source.HeaderBytes, bank.Programs.Count);
+        var programs = bank.Programs.ToDictionary(program => program.NativeIndex);
+        var mappings = remap.Mobys.ToDictionary(
+            map => map.DefinitionIndex,
+            map => new AssetMobySoundUse(bankId, map.Slots
+                .Where(slot => slot.NativeProgramIndex >= 0)
+                .Select(slot =>
+                {
+                    var program = programs[slot.NativeProgramIndex];
+                    return new AssetSoundSlot(
+                        slot.Slot,
+                        slot.NativeProgramIndex,
+                        program.ContentId is null ? null : ProjectSounds.ProgramId(program.ContentId),
+                        program.PreviewSupported,
+                        program.PreviewBlocker);
+                }).ToArray(), map.ClassId));
+        return new(soundAssets, mappings);
+    }
+
+    private static IReadOnlyList<AssetCatalogPut> CreateSoundAssets(
+        byte[] bankBytes,
+        RatchetPs2.Core.Sounds.SoundBankInventory bank,
+        AssetId bankId,
+        int level,
+        UyaAssetImportRequest request)
+    {
+        var results = new List<AssetCatalogPut>(1 + bank.Programs.Count + bank.Samples.Count)
+        {
+            SoundBankPut(bankBytes, level, request),
+        };
+        var samples = bank.Samples.GroupBy(sample => sample.ContentId, StringComparer.Ordinal).ToDictionary(
+            group => group.Key,
+            group =>
+            {
+                var sample = group.First();
+                var bytes = bankBytes.AsSpan(sample.Provenance.Offset, sample.Provenance.Length).ToArray();
+                return (Sample: sample, Bytes: bytes, Id: ProjectSounds.SampleId(bytes));
+            },
+            StringComparer.Ordinal);
+        foreach (var sample in samples.Values)
+            results.Add(new(
+                AssetKind.SoundSample,
+                ProjectSoundSchema.SampleCanonicalFormatVersion,
+                sample.Bytes,
+                new(
+                    request.ImporterVersion,
+                    new("UYA", "NTSC-U", request.Revision, $"level{level:00}", "level_wad/sound.bnk",
+                        sample.Sample.EncodedOffset, request.Fingerprint),
+                    [$"sound-sample:{sample.Sample.ContentId[..12]}"],
+                    ["vanilla", "game:UYA", $"level:{level:00}", "sound-sample"])));
+        var programAssets = bank.Programs.ToDictionary(
+            program => program.NativeIndex,
+            program => program.ContentId is null ? (AssetId?)null : ProjectSounds.ProgramId(program.ContentId));
+        foreach (var program in bank.Programs.Where(program => program.ContentId is not null))
+        {
+            var referencedPrograms = program.Operations
+                .Where(operation => operation.ReferencedProgramIndex is not null)
+                .Select(operation => programAssets[operation.ReferencedProgramIndex!.Value])
+                .Where(id => id is not null).Select(id => id!.Value).ToArray();
+            var referencedSamples = program.SampleIds.Select(sampleId => samples[sampleId].Id).ToArray();
+            results.Add(new(
+                AssetKind.Sound,
+                ProjectSoundSchema.ProgramCanonicalFormatVersion,
+                Convert.FromHexString(program.ContentId!),
+                new(
+                    request.ImporterVersion,
+                    new("UYA", "NTSC-U", request.Revision, $"level{level:00}", "level_wad/sound.bnk",
+                        program.NativeIndex, request.Fingerprint,
+                        SoundProgram: new(bankId, referencedPrograms, referencedSamples)),
+                    [$"sound:{program.NativeIndex}"],
+                    ["vanilla", "game:UYA", $"level:{level:00}", "sound-program"])));
+        }
+        return results;
+    }
+
+    private static AssetCatalogPut SoundBankPut(
+        byte[] bankBytes,
+        int level,
+        UyaAssetImportRequest request) => new(
+        AssetKind.SoundBank,
+        SoundBankAssetSchema.CanonicalFormatVersion,
+        bankBytes,
+        new(
+            request.ImporterVersion,
+            new("UYA", "NTSC-U", request.Revision, $"level{level:00}", "level_wad/sound.bnk", 0, request.Fingerprint),
+            [$"sound-bank:level{level:00}"],
+            ["vanilla", "game:UYA", $"level:{level:00}", "sound-bank"]));
 
     private static void AddTextures(
         List<AssetCatalogPut> results,
@@ -430,4 +539,7 @@ public static class UyaAssetImportService
         bool Complete);
 
     private sealed record LevelAssets(IReadOnlyList<AssetCatalogPut> Assets, int FailedAssets);
+    private sealed record LevelSounds(
+        IReadOnlyList<AssetCatalogPut> Assets,
+        IReadOnlyDictionary<int, AssetMobySoundUse> MobySounds);
 }

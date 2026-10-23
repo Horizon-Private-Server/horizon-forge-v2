@@ -16,13 +16,16 @@ import type {
   EditorMobyPropertyValue,
   EditorMobyPVarFieldDescriptor,
   EditorMobyPVarValue,
+  EditorContentOrigin,
 } from '../../types/EditorRuntime.js';
+import { editorEntityKinds } from './EditorEntityKinds.js';
 import { BRIDGE_MAX_PAYLOAD_LENGTH } from './FrameCodec.js';
 import { PayloadReader, PayloadWriter, malformed } from './PayloadIO.js';
 
 const MAX_ENTITIES = 100_000;
 const MAX_REFERENCES = 1_000_000;
 const MAX_GROUPS = 4_096;
+const MAX_IMPORT_BATCHES = 1_024;
 const mapGroupKinds = { 1: 'moby', 2: 'tie', 3: 'shrub' } as const;
 const MAX_EVENTS = 1_024;
 const MAX_OCTANTS = 1_000_000;
@@ -100,13 +103,6 @@ const geometryKinds: Record<number, NonNullable<EditorEntity['geometry']>['kind'
   8: 'directionalLight', 9: 'pointLight', 10: 'environmentSample', 11: 'environmentTransition',
   12: 'camera', 13: 'ambientSound',
 };
-const entityKinds = {
-  1: 'entity', 2: 'moby', 3: 'tie', 4: 'shrub', 5: 'tfrag', 6: 'cuboid', 7: 'sphere',
-  8: 'cylinder', 9: 'pill', 10: 'spline', 11: 'grindPath', 12: 'area', 13: 'collision',
-  14: 'skyShell', 15: 'directionalLight', 16: 'pointLight', 17: 'environmentSample',
-  18: 'environmentTransition', 19: 'camera', 20: 'ambientSound',
-} as const;
-
 export function encodeEditorOpenRequest(projectPath: string, catalogRootPath: string, autosaveSeconds: number): Buffer {
   const writer = new PayloadWriter();
   writer.writeString(projectPath);
@@ -515,6 +511,7 @@ export function decodeEditorSnapshot(payload: Uint8Array): EditorSnapshot {
       generatedMembers: readStrings(reader, MAX_ENTITIES),
       seedEntityId: reader.readBoolean() ? reader.readString() : undefined,
     };
+    group.origin = readContentOrigin(reader);
     return group;
   });
   const mapGroups = readList(reader, MAX_GROUPS, () => ({
@@ -528,7 +525,7 @@ export function decodeEditorSnapshot(payload: Uint8Array): EditorSnapshot {
     templateVersion: reader.readUInt32(),
     label: reader.readString(),
     description: reader.readString(),
-    seedKind: enumValue(entityKinds, reader.readUInt32(), 'group template seed kind'),
+    seedKind: enumValue(editorEntityKinds, reader.readUInt32(), 'group template seed kind'),
     parameters: readList(reader, 32, () => ({
       key: reader.readString(),
       label: reader.readString(),
@@ -537,6 +534,23 @@ export function decodeEditorSnapshot(payload: Uint8Array): EditorSnapshot {
       maximum: reader.readFloat64(),
       step: reader.readFloat64(),
     })),
+  }));
+  const importBatches = readList(reader, MAX_IMPORT_BATCHES, () => ({
+    id: reader.readString(),
+    importedUnixMilliseconds: reader.readUInt64(),
+    sourceGame: reader.readString(),
+    sourceRegion: reader.readString(),
+    sourceRevision: reader.readString(),
+    sourceFingerprint: reader.readString(),
+    sourceLevel: reader.readUInt32(),
+    families: readList(reader, 32, () => ({
+      family: reader.readString(),
+      mode: enumValue({ 1: 'add', 2: 'replace' } as const, reader.readUInt32(), 'import mode'),
+    })),
+    addedCount: reader.readUInt32(),
+    reusedCount: reader.readUInt32(),
+    replacedCount: reader.readUInt32(),
+    protectedCount: reader.readUInt32(),
   }));
   const selection = readStrings(reader, MAX_ENTITIES);
   const isDirty = reader.readBoolean();
@@ -554,7 +568,7 @@ export function decodeEditorSnapshot(payload: Uint8Array): EditorSnapshot {
   }));
   reader.complete();
   return {
-    projectPath, projectId, projectName, target, baseLevel, levelSettings, hud, fx, customModels, entities, references, groups, mapGroups, groupTemplates, selection, isDirty,
+    projectPath, projectId, projectName, target, baseLevel, levelSettings, hud, fx, customModels, entities, references, groups, mapGroups, groupTemplates, importBatches, selection, isDirty,
     canUndo, canRedo, canPaste, lastEventSequence, capabilities, tools, diagnostics,
   };
 }
@@ -693,7 +707,7 @@ function readReference(reader: PayloadReader): EditorSnapshot['references'][numb
   const fieldKey = reader.readString();
   const nullable = reader.readBoolean();
   if (domain === 1) {
-    const targetKind = enumValue(entityKinds, reader.readUInt32(), 'reference entity kind');
+    const targetKind = enumValue(editorEntityKinds, reader.readUInt32(), 'reference entity kind');
     const targetEntityId = reader.readBoolean() ? reader.readString() : undefined;
     const sourceValue = reader.readBoolean() ? reader.readInt32() : undefined;
     const missing = reader.readBoolean();
@@ -857,7 +871,17 @@ function readEntity(reader: PayloadReader): EditorEntity {
     invalid: reader.readBoolean(),
     missingAsset: reader.readBoolean(),
   };
+  value.origin = readContentOrigin(reader);
   return value;
+}
+
+function readContentOrigin(reader: PayloadReader): EditorContentOrigin | undefined {
+  if (!reader.readBoolean()) return undefined;
+  return {
+    kind: enumValue({ 1: 'base', 2: 'project', 3: 'imported' }, reader.readUInt32(), 'content origin'),
+    importBatchId: reader.readBoolean() ? reader.readString() : undefined,
+    sourceLevel: reader.readBoolean() ? reader.readUInt32() : undefined,
+  };
 }
 
 function writeMobyPropertyValue(writer: PayloadWriter, value: EditorMobyPropertyValue): void {
@@ -941,7 +965,7 @@ function readMobyPVarFields(reader: PayloadReader, depth: number): EditorMobyPVa
       children: [],
     };
     if (reader.readBoolean()) {
-      const targetKind = enumValue(entityKinds, reader.readUInt32(), 'PVar reference target kind');
+      const targetKind = enumValue(editorEntityKinds, reader.readUInt32(), 'PVar reference target kind');
       field.reference = {
         targetKind,
         targetEntityId: reader.readBoolean() ? reader.readString() : undefined,

@@ -29,6 +29,8 @@ export interface EditorContextValue {
   terrain?: EditorTerrainSource;
   sceneLoad?: EditorLoadProgress;
   setSceneLoad(progress?: EditorLoadProgress): void;
+  sceneFilter: string;
+  setSceneFilter(value: string): void;
   cameraFocus?: { entityId: string };
   setCameraFocus(request?: { entityId: string }): void;
   splinePointSelection: string[];
@@ -46,11 +48,19 @@ export interface EditorContextValue {
   setShowPlayerBarriers(value: boolean): void;
   showDeathHeight: boolean;
   setShowDeathHeight(value: boolean): void;
+  mobySimulationEnabled: boolean;
+  setMobySimulationEnabled(value: boolean): void;
+  mobySimulationPaused: boolean;
+  setMobySimulationPaused(value: boolean): void;
   assetPreview?: AssetExplorerFamily;
   assetThumbnails: AssetThumbnailRuntime | null | undefined;
   inspectAsset(family?: AssetExplorerFamily, activate?: boolean): void;
   inspectReferencedAsset(assetId: string, assetKind: string): Promise<void>;
   navigateToEntity(entityId: string, action: 'select' | 'reveal' | 'focus'): Promise<void>;
+  activeImportBatchId?: string;
+  openImportBatch(batchId: string): void;
+  filterSceneToImportBatch(batchId: string): void;
+  removeImportBatch(batchId: string, targetFingerprint: string): Promise<boolean>;
   showReferences(): void;
   busy: boolean;
   hostAvailable: boolean;

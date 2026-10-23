@@ -67,6 +67,14 @@ internal static class UyaBakeWorkflowTests
                     retainedAssets.Single(value => value.Family == TextureAssetFamily.Tie)
                         .Textures.Single().PifBytes.Span),
                 "source-level model refresh preserves its catalog texture");
+            var replacedTies = UyaStaticAssetPackService.IncludeSourceStaticAssets(
+                sourceLevelWad,
+                [],
+                replacedFamilies: new HashSet<TextureAssetFamily> { TextureAssetFamily.Tie });
+            Equal(false, replacedTies.Any(value => value.Family == TextureAssetFamily.Tie),
+                "replace-mode composition drops unused target TIE definitions");
+            Equal(true, replacedTies.Any(value => value.Family == TextureAssetFamily.Shrub),
+                "replace-mode TIE composition preserves untouched shrub definitions");
 
             var unbaked = await UyaLevelPackService.PackAsync(project, catalog, sourceLevelWad, context);
             Equal(false, unbaked.Succeeded, "unbaked staging cannot pack");
@@ -341,6 +349,25 @@ internal static class UyaBakeWorkflowTests
                 .SequenceEqual(new[] { ((short)11, (short)2), ((short)-7, (short)-3) }),
                 "packed sky preserves shell order and effective rotations");
 
+            var sourceAssets = UyaLevelWadRenderPackageBuilder.ReadAssetSourceFiles(
+                UyaLevelWadUnpacker.Unpack(sourceLevelWad).Files);
+            var sourceHeaderWithoutSky = sourceAssets.HeaderBytes.ToArray();
+            BinaryPrimitives.WriteInt32LittleEndian(sourceHeaderWithoutSky.AsSpan(0x10), 0);
+            var sourceWithoutSky = LevelArchiveBuilder.Build(
+                GameId.UYA,
+                sourceLevelWad,
+                new Dictionary<string, ReadOnlyMemory<byte>>
+                {
+                    ["assets/asset_header.bin"] = sourceHeaderWithoutSky,
+                });
+            Equal(true, sourceWithoutSky.Succeeded, "no-sky source fixture builds");
+            var insertedSkyPack = await UyaLevelPackService.PackAsync(
+                project, catalog, sourceWithoutSky.OutputBytes!, context);
+            Equal(true, insertedSkyPack.Succeeded, "composed sky inserts into a base level without sky: "
+                + string.Join(" | ", insertedSkyPack.Diagnostics.Select(value => value.Cause)));
+            Equal(2, ReadSkybox(insertedSkyPack.OutputBytes!).Shells.Count,
+                "inserted sky is readable from the packed level");
+
             workspace = await ForgeProjectWorkspace.OpenAsync(project);
             await UyaSkyShellEditorService.ExecuteAsync(
                 workspace,
@@ -543,6 +570,26 @@ internal static class UyaBakeWorkflowTests
             var crossLevelAssets = ReadAssets(crossLevelPack.OutputBytes!);
             Equal(0x44, crossLevelAssets.AssetWad[crossLevelAssets.Ties.Single().ModelOffset],
                 "cross-level selected tie model replaces the base-level definition");
+
+            workspace = await ForgeProjectWorkspace.OpenAsync(project);
+            var replacementSkyId = EntityId.New();
+            workspace.AddEntity(SkyShell(replacementSkyId, compositionSourceSky.Id, 0, 11, 2));
+            await workspace.SaveAsync();
+            var replacementSkyBake = await UyaBakeService.BakeAsync(project, catalog, context);
+            Equal(true, replacementSkyBake.WrittenLayers.Select(value => value.Layer)
+                .SequenceEqual([BakeLayerId.Sky]), "sky addition rebuilds only sky after static replacement");
+            var replacementSkyPack = await UyaLevelPackService.PackAsync(
+                project, catalog, sourceWithoutSky.OutputBytes!, context);
+            Equal(true, replacementSkyPack.Succeeded,
+                "composed sky inserts into a skyless level alongside a cross-level TIE: "
+                + string.Join(" | ", replacementSkyPack.Diagnostics.Select(value => value.Cause)));
+            Equal(1, ReadSkybox(replacementSkyPack.OutputBytes!).Shells.Count,
+                "inserted sky remains readable after static asset composition");
+            workspace.RemoveEntities([replacementSkyId]);
+            await workspace.SaveAsync();
+            var removedReplacementSkyBake = await UyaBakeService.BakeAsync(project, catalog, context);
+            Equal(true, removedReplacementSkyBake.WrittenLayers.Select(value => value.Layer)
+                .SequenceEqual([BakeLayerId.Sky]), "temporary replacement sky removal rebuilds only sky");
 
             using (var packCancellation = new CancellationTokenSource())
             {

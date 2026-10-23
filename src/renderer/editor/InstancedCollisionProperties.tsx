@@ -8,6 +8,7 @@ import {
   collisionTypeId, collisionTypeIdOptions, defaultCollisionType, formatCollisionType,
   packCollisionType, soundTypeId, soundTypeIdOptions,
 } from '../../utils/CollisionFormat.ts';
+import { formatBytes } from '../../utils/Format.ts';
 import {
   recommendInstancedCollisionCandidate, instancedCollisionWorstOctantBytes,
 } from '../../utils/InstancedCollision.ts';
@@ -550,8 +551,4 @@ function formatRecipe(recipe: NonNullable<EditorEntity['instancedCollision']>['r
     : `Matched mesh · ${lod}`;
   if (recipe.kind === 'hull') return `Shrinkwrap · ${Math.max(1, recipe.profileSections)} sections · ${lod}`;
   return `Custom wrap · ${recipe.detailSize} detail · seals ${recipe.sealOpeningSize}`;
-}
-
-function formatBytes(value: number): string {
-  return value < 1024 ? `${value} B` : `${(value / 1024).toFixed(1)} KiB`;
 }

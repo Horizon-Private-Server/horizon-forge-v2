@@ -68,6 +68,16 @@ export interface AssetExplorerSource {
     slot: number;
     restorable: boolean;
   };
+  mobySounds?: {
+    bankAssetId: string;
+    slots: {
+      slot: number;
+      nativeProgramIndex: number;
+      soundAssetId?: string;
+      previewSupported: boolean;
+      previewBlocker?: string;
+    }[];
+  };
 }
 
 export interface AssetExplorerItem {

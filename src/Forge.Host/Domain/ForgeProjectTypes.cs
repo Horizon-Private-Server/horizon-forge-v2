@@ -113,6 +113,7 @@ public sealed record ProjectAssetOverride(
 public static class ProjectHudSchema
 {
     public const int CurrentVersion = 1;
+    public const uint SourcePayloadCanonicalFormatVersion = 1;
     public const int PhysicalBankCount = 5;
     public const int MaximumIconCount = 1_024;
 }
@@ -144,7 +145,11 @@ public sealed record ProjectHudState(
     int SchemaVersion,
     int MinimumAppendBank,
     IReadOnlyList<ProjectHudSourceIcon> SourceIcons,
-    IReadOnlyList<ProjectHudIconAddition> Additions);
+    IReadOnlyList<ProjectHudIconAddition> Additions)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ProjectAssetReference? SourcePayload { get; init; }
+}
 
 public static class ProjectFxSchema
 {
@@ -171,7 +176,11 @@ public sealed record ProjectFxTextureAddition(
 public sealed record ProjectFxState(
     int SchemaVersion,
     IReadOnlyList<ProjectFxSourceTexture> SourceTextures,
-    IReadOnlyList<ProjectFxTextureAddition> Additions);
+    IReadOnlyList<ProjectFxTextureAddition> Additions)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool ReplaceSourceBank { get; init; }
+}
 
 public sealed record ProjectResolvedAsset(
     ProjectAssetReference Source,
@@ -207,6 +216,12 @@ public sealed record ProjectGroup(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     ProjectGroupTemplateProvenance? Template = null);
 
+public sealed record ProjectMapGroup(IReadOnlyList<EntityId> Members);
+
+public sealed record ProjectMapGroupTable(
+    ProjectEntityKind MemberKind,
+    IReadOnlyList<ProjectMapGroup> Groups);
+
 public sealed record ForgeProjectManifest(
     int SchemaVersion,
     string DocumentType,
@@ -228,11 +243,15 @@ public sealed record ForgeProjectContent(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ProjectFxState? Fx = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ProjectMobyDexState? MobyDex = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ProjectMobyPVarState? MobyPVars = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ProjectTfragState? Tfrags = null)
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ProjectTfragState? Tfrags = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ProjectOcclusionState? Occlusion = null)
 {
     public IReadOnlyList<ProjectGroup> Groups { get; init; } = [];
+    public IReadOnlyList<ProjectMapGroupTable> MapGroups { get; init; } = [];
     public ProjectCustomClassRegistry CustomClasses { get; init; } = ProjectCustomClassRegistry.Empty;
     public ProjectCustomModelState CustomModels { get; init; } = ProjectCustomModelState.Empty;
+    public IReadOnlyList<ContentImportBatch> ImportBatches { get; init; } = [];
+    public ProjectSoundState Sounds { get; init; } = ProjectSoundState.Empty;
 }
 
 public sealed record ProjectRecoverySnapshot(

@@ -1,6 +1,6 @@
 {
   "id": "forge.uya.builtin",
-  "version": 2,
+  "version": 3,
   "entries": [
     {
       "schemaVersion": 1,
@@ -262,8 +262,8 @@
             }
           },
           {
-            "key": "underlayColor",
-            "label": "Underlay Color",
+            "key": "overlayColor",
+            "label": "Overlay Color",
             "offset": 48,
             "length": 4,
             "definition": {
@@ -271,8 +271,8 @@
             }
           },
           {
-            "key": "overlayColor",
-            "label": "Overlay Color",
+            "key": "underlayColor",
+            "label": "Underlay Color",
             "offset": 52,
             "length": 4,
             "definition": {

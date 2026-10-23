@@ -233,6 +233,7 @@ export interface EditorEntity {
   transform: ProjectTransform;
   asset?: { id: string; kind: string };
   provenance?: { game: string; level: number; section: string; sourceIndex: number };
+  origin?: EditorContentOrigin;
   sourceClassId?: number;
   sourceClassName?: string;
   geometry?: {
@@ -278,6 +279,12 @@ export interface EditorEntity {
     invalid: boolean;
     missingAsset: boolean;
   };
+}
+
+export interface EditorContentOrigin {
+  kind: 'base' | 'project' | 'imported';
+  importBatchId?: string;
+  sourceLevel?: number;
 }
 
 export type EditorMobyPropertyValue =
@@ -393,6 +400,7 @@ export interface EditorGroup {
   members: string[];
   missingMembers: string[];
   template?: EditorGroupTemplateProvenance;
+  origin?: EditorContentOrigin;
 }
 
 export interface EditorGroupTemplateProvenance {
@@ -603,6 +611,21 @@ export interface EditorEvent {
   message?: string;
 }
 
+export interface EditorImportBatch {
+  id: string;
+  importedUnixMilliseconds: number;
+  sourceGame: string;
+  sourceRegion: string;
+  sourceRevision: string;
+  sourceFingerprint: string;
+  sourceLevel: number;
+  families: { family: string; mode: 'add' | 'replace' }[];
+  addedCount: number;
+  reusedCount: number;
+  replacedCount: number;
+  protectedCount: number;
+}
+
 export interface EditorSnapshot {
   projectPath: string;
   projectId: string;
@@ -645,6 +668,7 @@ export interface EditorSnapshot {
   groups: EditorGroup[];
   mapGroups: EditorMapGroup[];
   groupTemplates: EditorGroupTemplateDefinition[];
+  importBatches: EditorImportBatch[];
   selection: string[];
   isDirty: boolean;
   canUndo: boolean;

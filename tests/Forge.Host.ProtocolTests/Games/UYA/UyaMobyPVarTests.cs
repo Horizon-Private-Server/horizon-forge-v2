@@ -48,6 +48,7 @@ internal static class UyaMobyPVarTests
             Equal(null, imported.Entries[1].SourceTableIndex, "shared PVar receives an independent slot");
             Equal(second.EntityId, imported.Entries[0].References.Single().Reference.EntityId,
                 "native moby link resolves to a stable entity ID");
+            VerifyNativeLinksWithoutMobyDex(first, second, tables);
             var projectTargetSource = Moby(0x400, 1, -1);
             var projectTarget = projectTargetSource with
             {
@@ -425,6 +426,50 @@ internal static class UyaMobyPVarTests
         Equal(0, blockers.Count, "unresolved reference can be normalized during bake");
         Equal(-1, BinaryPrimitives.ReadInt32LittleEndian(rebuilt.Entries.Single().Data),
             "bake normalizes an unresolved reference to its null sentinel");
+    }
+
+    private static void VerifyNativeLinksWithoutMobyDex(
+        ProjectEntity first,
+        ProjectEntity second,
+        GameplayPvarTables tables)
+    {
+        var state = UyaMobyPVarService.Import(
+            [first, second], tables, new MobyDexCatalog(new("tests.empty", 1, [])))!;
+        var inferred = state.Entries[0].References.Single();
+        Equal("nativeMobyLink[0]", inferred.Reference.FieldKey,
+            "native relocation supplies a stable schema-independent field key");
+        Equal(second.EntityId, inferred.Reference.EntityId,
+            "native relocation resolves a schema-independent Moby target");
+        Equal(false, UyaMobyContentImportService.CapabilityBlockers([first, second], state)
+                .Any(value => value.Contains("opaque Moby link", StringComparison.OrdinalIgnoreCase)),
+            "schema-independent native Moby links do not block import");
+        var placedSource = Moby(0x1f57, 2, -1);
+        var placed = placedSource with { Provenance = null };
+        ForgeProjectContent Content(IReadOnlyList<ProjectEntity> entities) => new(
+            ProjectSchema.CurrentVersion,
+            ProjectSchema.ContentDocumentType,
+            entities,
+            [],
+            [],
+            [],
+            MobyPVars: state);
+
+        var blockers = new List<string>();
+        var rebuilt = UyaMobyPVarService.Rebuild(Content([first, second, placed]), tables, blockers);
+        Equal(0, blockers.Count, "appended moby preserves inferred native Moby links");
+        Equal(1, BinaryPrimitives.ReadInt32LittleEndian(rebuilt.Entries[0].Data),
+            "appended moby preserves the inferred target index");
+
+        blockers.Clear();
+        UyaMobyPVarService.Rebuild(
+            Content([first, second, placed with { State = new(Disabled: true) }]), tables, blockers);
+        Equal(0, blockers.Count, "disabled appended moby preserves inferred native Moby links");
+
+        blockers.Clear();
+        UyaMobyPVarService.Rebuild(
+            Content([first, second with { State = new(Disabled: true) }, placed]), tables, blockers);
+        Equal(true, blockers.Any(value => value.Contains("references unavailable Moby", StringComparison.Ordinal)),
+            "removing a retained source Moby reports the inferred missing target");
     }
 
     private static EditorMobyPVarFieldDescriptor FindField(

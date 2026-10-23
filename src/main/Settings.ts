@@ -176,6 +176,32 @@ function createDefinitions(paths: ApplicationPaths, defaultUpdateChannel: Update
       validate: (value): value is boolean => typeof value === 'boolean',
     },
     {
+      key: 'preview.sound.directVolume', group: 'Audio Preview', label: 'Direct sound volume', type: 'number',
+      description: 'Machine-local volume for sound-bank previews.', defaultValue: 0.75, restartRequired: false,
+      machineSpecific: true, editable: true,
+      validate: (value): value is number => typeof value === 'number' && Number.isFinite(value)
+        && value >= 0 && value <= 1,
+    },
+    {
+      key: 'preview.sound.directMuted', group: 'Audio Preview', label: 'Mute direct sounds', type: 'boolean',
+      description: 'Mute sound-bank previews without changing their saved volume.', defaultValue: false,
+      restartRequired: false, machineSpecific: true, editable: true,
+      validate: (value): value is boolean => typeof value === 'boolean',
+    },
+    {
+      key: 'preview.sound.ambientVolume', group: 'Audio Preview', label: 'Ambient sound volume', type: 'number',
+      description: 'Machine-local volume reserved for ambient preview and simulation.', defaultValue: 0.75,
+      restartRequired: false, machineSpecific: true, editable: true,
+      validate: (value): value is number => typeof value === 'number' && Number.isFinite(value)
+        && value >= 0 && value <= 1,
+    },
+    {
+      key: 'preview.sound.ambientMuted', group: 'Audio Preview', label: 'Mute ambient sounds', type: 'boolean',
+      description: 'Mute ambient preview and simulation without changing their saved volume.', defaultValue: false,
+      restartRequired: false, machineSpecific: true, editable: true,
+      validate: (value): value is boolean => typeof value === 'boolean',
+    },
+    {
       key: 'keybindings.overrides', group: 'Keybindings', label: 'Keybinding overrides', type: 'text',
       description: 'User-defined command shortcuts managed by Forge.', defaultValue: '{}', restartRequired: false,
       machineSpecific: false, editable: true, validate: isKeybindingOverrides,

@@ -286,6 +286,7 @@ test('death height aid follows scene bounds, toggles, ignores picking, and dispo
   assert.deepEqual(plane.position.toArray(), [100, -100, 200]);
   assert.deepEqual(plane.scale.toArray().map(Math.round), [440, 880, 1]);
   assert.equal(plane.rotation.x, -Math.PI / 2);
+  assert.equal(plane.renderOrder, -1);
   assert.equal(plane.material.transparent, true);
   assert.equal(plane.material.depthWrite, false);
   assert.equal(plane.material.map!.wrapS, THREE.RepeatWrapping);
@@ -975,6 +976,46 @@ test('scene projection hides only the source instance during collision preview',
 
   projection.dispose();
   disposeObject(template);
+});
+
+test('simulation proxy suppression composes with other preview visibility', () => {
+  const template = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+  const projection = new SceneProjection();
+  projection.setAssetTemplates(new Map([['asset', template]]));
+  projection.setSimulationHiddenEntity('source', true);
+  projection.setPreviewHiddenEntity('neighbor');
+  projection.sync([entity('source'), entity('neighbor', 10)]);
+
+  let mesh: THREE.InstancedMesh | undefined;
+  projection.root.traverse((object) => { if (object instanceof THREE.InstancedMesh) mesh = object; });
+  assert.equal(mesh?.count, 0);
+
+  projection.setPreviewHiddenEntity();
+  projection.sync([entity('source'), entity('neighbor', 10)]);
+  assert.deepEqual(mesh?.userData.forgeInstanceIds, ['neighbor']);
+  projection.setSimulationHiddenEntity('source', false);
+  projection.sync([entity('source'), entity('neighbor', 10)]);
+  assert.equal(mesh?.count, 2);
+
+  projection.dispose();
+  disposeObject(template);
+});
+
+test('derived simulation meshes resolve to their authoritative entity identity', () => {
+  const projection = new SceneProjection();
+  const source = entity('water');
+  projection.sync([source]);
+  projection.setSimulationHiddenEntity(source.id, true);
+  projection.sync([source]);
+  const derived = new THREE.Mesh(new THREE.PlaneGeometry(), new THREE.MeshBasicMaterial());
+  derived.userData.forgeEntityId = source.id;
+  projection.setSimulationPickableEntity(source.id, true);
+  assert.equal(projection.resolvePick([{ object: derived }] as unknown as THREE.Intersection[]), source.id);
+  projection.setSimulationPickableEntity(source.id, false);
+  assert.equal(projection.resolvePick([{ object: derived }] as unknown as THREE.Intersection[]), undefined);
+  derived.geometry.dispose();
+  derived.material.dispose();
+  projection.dispose();
 });
 
 test('scene projection batches unique collision pieces and resolves batch picks', () => {

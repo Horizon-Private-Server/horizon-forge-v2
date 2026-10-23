@@ -35,9 +35,8 @@ internal static class UyaHudBakeService
         {
             try
             {
-                var source = await ReadSourceAsync(workspace.RootPath, cancellationToken);
-                sourceFiles.AddRange(source.Records.Select(value =>
-                    new UyaHudSourceFingerprint(value.Name, value.Checksum, value.Size)));
+                var source = await ReadSourceAsync(workspace, cancellationToken);
+                sourceFiles.AddRange(source.Fingerprints);
                 _ = ReadHud(source.Header, source.Banks);
                 foreach (var edit in ReplacementEdits(workspace, hud))
                     _ = await ReadTextureAsync(workspace, edit.Effective, cancellationToken);
@@ -53,6 +52,7 @@ internal static class UyaHudBakeService
 
         var assets = ReplacementEdits(workspace, hud).Select(value => value.Effective.Id)
             .Concat(hud?.Additions.Select(value => value.Texture.Id) ?? [])
+            .Concat(hud?.SourcePayload is { } sourcePayload ? [sourcePayload.Id] : [])
             .Distinct()
             .OrderBy(value => value.ToString(), StringComparer.Ordinal)
             .ToArray();
@@ -88,7 +88,7 @@ internal static class UyaHudBakeService
                 cancellationToken);
         }
 
-        var source = await ReadSourceAsync(projectRoot, cancellationToken);
+        var source = await ReadSourceAsync(workspace, cancellationToken);
         var replacements = new List<HudTextureReplacement>();
         foreach (var edit in ReplacementEdits(workspace, hud))
         {
@@ -110,15 +110,17 @@ internal static class UyaHudBakeService
             replacements,
             additions,
             cancellationToken: cancellationToken), cancellationToken);
-        var changedBanks = composition.BankBytes
-            .Select((bytes, index) => (bytes, index))
-            .Where(value => !value.bytes.SequenceEqual(source.Banks[value.index]))
-            .Select(value => value.index)
-            .ToArray();
+        var changedBanks = hud.SourcePayload is not null
+            ? Enumerable.Range(0, ProjectHudSchema.PhysicalBankCount).ToArray()
+            : composition.BankBytes
+                .Select((bytes, index) => (bytes, index))
+                .Where(value => !value.bytes.SequenceEqual(source.Banks[value.index]))
+                .Select(value => value.index)
+                .ToArray();
         var manifest = new UyaHudBakeManifest(
             UyaHudBakeSchema.CurrentVersion,
             true,
-            !composition.HeaderBytes.SequenceEqual(source.Header),
+            hud.SourcePayload is not null || !composition.HeaderBytes.SequenceEqual(source.Header),
             changedBanks);
 
         return await staging.CommitAsync(plan, async (output, token) =>
@@ -219,17 +221,31 @@ internal static class UyaHudBakeService
     }
 
     private static async Task<SourceHud> ReadSourceAsync(
-        string projectRoot,
+        ForgeProjectWorkspace workspace,
         CancellationToken cancellationToken)
     {
-        var inspection = await OpaqueContentStore.InspectAsync(projectRoot, cancellationToken);
+        if (workspace.Content.Hud?.SourcePayload is { } sourcePayload)
+        {
+            var bytes = await workspace.ReadAttachedAssetVerifiedAsync(
+                sourcePayload, ForgeProjectWorkspace.MaxAttachedAssetBytes, cancellationToken);
+            var decoded = UyaHudImportPayload.Decode(bytes);
+            return new(decoded.Header, decoded.Banks,
+            [
+                new(
+                    "project-imported-hud",
+                    Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(),
+                    bytes.LongLength),
+            ]);
+        }
+
+        var inspection = await OpaqueContentStore.InspectAsync(workspace.RootPath, cancellationToken);
         var manifest = inspection.Manifest
             ?? throw new InvalidDataException("Opaque source manifest is missing.");
         var byName = manifest.Sections.ToDictionary(value => value.Name, StringComparer.Ordinal);
         if (!byName.TryGetValue(HeaderSectionName, out var headerRecord))
             throw new InvalidDataException("Imported HUD header is missing.");
         var records = new List<OpaqueSectionRecord> { headerRecord };
-        var header = await ReadOpaqueBlobAsync(projectRoot, headerRecord, cancellationToken);
+        var header = await ReadOpaqueBlobAsync(workspace.RootPath, headerRecord, cancellationToken);
         var banks = new byte[ProjectHudSchema.PhysicalBankCount][];
         for (var index = 0; index < banks.Length; index++)
         {
@@ -239,9 +255,10 @@ internal static class UyaHudBakeService
                 continue;
             }
             records.Add(record);
-            banks[index] = await ReadOpaqueBlobAsync(projectRoot, record, cancellationToken);
+            banks[index] = await ReadOpaqueBlobAsync(workspace.RootPath, record, cancellationToken);
         }
-        return new(header, banks, records);
+        return new(header, banks, records.Select(value =>
+            new UyaHudSourceFingerprint(value.Name, value.Checksum, value.Size)).ToArray());
     }
 
     private static async Task<byte[]> ReadOpaqueBlobAsync(
@@ -379,7 +396,7 @@ internal static class UyaHudBakeService
     private sealed record SourceHud(
         byte[] Header,
         IReadOnlyList<byte[]> Banks,
-        IReadOnlyList<OpaqueSectionRecord> Records);
+        IReadOnlyList<UyaHudSourceFingerprint> Fingerprints);
 
     private sealed record StagedHud(
         UyaHudBakeManifest Manifest,

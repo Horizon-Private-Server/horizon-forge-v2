@@ -18,6 +18,8 @@ internal static partial class ForgeProjectValidation
         if (!fx.SourceTextures.Select(value => value.SourceIndex)
             .SequenceEqual(Enumerable.Range(0, fx.SourceTextures.Count)))
             throw new InvalidDataException("Project FX source textures must retain contiguous source order.");
+        if (fx.ReplaceSourceBank && fx.SourceTextures.Count == 0)
+            throw new InvalidDataException("Imported FX source bank cannot be empty.");
 
         foreach (var source in fx.SourceTextures)
         {
@@ -33,6 +35,18 @@ internal static partial class ForgeProjectValidation
             if (source.Diagnostic is not null || source.PaletteOffset < 0 || source.PixelOffset < 0)
                 throw new InvalidDataException($"FX source texture {source.SourceIndex} metadata is invalid.");
             ValidateFxTexture(source.Texture, source.Width, source.Height, $"FX source texture {source.SourceIndex}");
+            if (fx.ReplaceSourceBank)
+            {
+                var asset = assets.SingleOrDefault(value => value.Id == source.Texture.Id);
+                if (asset is null || asset.Kind != AssetKind.Texture
+                    || asset.CanonicalFormatVersion != ProjectTextureAssetSchema.CanonicalFormatVersion)
+                    throw new InvalidDataException(
+                        $"Imported FX source texture {source.SourceIndex} is not attached to the project.");
+                var value = asset.Id.ToString();
+                if (!File.Exists(Path.Combine(rootPath, "assets", value[..2], $"{value}.blob")))
+                    throw new InvalidDataException(
+                        $"Imported FX source texture {source.SourceIndex} blob is missing.");
+            }
         }
 
         for (var index = 0; index < fx.Additions.Count; index++)

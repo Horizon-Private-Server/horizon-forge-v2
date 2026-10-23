@@ -251,10 +251,14 @@ internal static class ForgeProjectPersistence
         root["assets"] ??= new JsonArray();
         root["assetOverrides"] ??= new JsonArray();
         root["groups"] ??= new JsonArray();
+        root["mapGroups"] ??= new JsonArray();
         root["customClasses"] ??= JsonSerializer.SerializeToNode(
             ProjectCustomClassRegistry.Empty, JsonOptions);
         root["customModels"] ??= JsonSerializer.SerializeToNode(
             ProjectCustomModelState.Empty, JsonOptions);
+        root["importBatches"] ??= new JsonArray();
+        root["sounds"] ??= JsonSerializer.SerializeToNode(
+            ProjectSoundState.Empty, JsonOptions);
         if (root["tfrags"] is JsonObject tfrags)
             tfrags["customImports"] ??= new JsonArray();
         if (root.Remove("tieCollisionBindings", out var legacyBindings))

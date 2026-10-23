@@ -18,14 +18,15 @@ public sealed partial class ForgeProjectWorkspace
     private ForgeProjectWorkspace(
         string rootPath,
         ForgeProjectManifest manifest,
-        ForgeProjectContent content)
+        ForgeProjectContent content,
+        string? currentFingerprint = null)
     {
         RootPath = rootPath;
         Manifest = manifest;
         Content = content;
         _fingerprintManifest = manifest;
         _fingerprintContent = content;
-        _currentFingerprint = ForgeProjectPersistence.Fingerprint(manifest, content);
+        _currentFingerprint = currentFingerprint ?? ForgeProjectPersistence.Fingerprint(manifest, content);
         _savedFingerprint = _currentFingerprint;
         _savedHudState = SerializeHudState(content);
         _savedFxState = SerializeFxState(content);
@@ -54,6 +55,13 @@ public sealed partial class ForgeProjectWorkspace
     internal bool IsFxDirty => !_savedFxState.AsSpan().SequenceEqual(SerializeFxState(Content));
 
     internal ForgeProjectState CaptureState() => new(Manifest, Content);
+
+    internal ForgeProjectWorkspace CreateProjection(ForgeProjectContent? content = null)
+    {
+        var projected = content ?? Content;
+        return new(RootPath, Manifest, projected,
+            ReferenceEquals(projected, Content) ? CurrentFingerprint : null);
+    }
 
     internal void RestoreState(ForgeProjectState state)
     {
@@ -420,6 +428,13 @@ public sealed partial class ForgeProjectWorkspace
                         .Where(member => !removed.Contains(member)).ToArray(),
                 },
             }).ToArray(),
+            MapGroups = Content.MapGroups.Select(table => table with
+            {
+                Groups = table.Groups.Select(group => group with
+                {
+                    Members = group.Members.Where(member => !removed.Contains(member)).ToArray(),
+                }).ToArray(),
+            }).ToArray(),
         };
         try
         {
@@ -631,8 +646,15 @@ public sealed partial class ForgeProjectWorkspace
         || Content.CustomClasses.Allocations.Any(allocation => allocation.Asset.Id == id)
         || Content.CustomModels.Models.Any(model => CustomModelAssetIds(model).Contains(id))
         || Content.Tfrags?.CustomImports.Any(import => CustomTfragAssetIds(import).Contains(id)) == true
+        || Content.Tfrags?.ImportedOwners.Any(owner => ImportedTfragAssetIds(owner).Contains(id)) == true
+        || ProjectSounds.AssetIds(Content.Sounds).Contains(id)
+        || Content.Hud?.SourcePayload?.Id == id
+        || Content.Hud?.SourceIcons.SelectMany(icon => icon.Frames)
+            .Any(frame => frame.Texture?.Id == id) == true
         || Content.Hud?.Additions.Any(addition => addition.Texture.Id == id) == true
-        || Content.Fx?.Additions.Any(addition => addition.Texture.Id == id) == true;
+        || Content.Fx?.SourceTextures.Any(source => source.Texture?.Id == id) == true
+        || Content.Fx?.Additions.Any(addition => addition.Texture.Id == id) == true
+        || Content.Occlusion?.SourcePayload.Id == id;
 
     public async Task<IReadOnlyList<AssetId>> CollectUnreferencedAssetsAsync(
         CancellationToken cancellationToken = default)
@@ -678,10 +700,20 @@ public sealed partial class ForgeProjectWorkspace
                 .SelectMany(CustomModelAssetIds))
             .Concat(contents.SelectMany(content => content.Tfrags?.CustomImports ?? [])
                 .SelectMany(CustomTfragAssetIds))
+            .Concat(contents.SelectMany(content => content.Tfrags?.ImportedOwners ?? [])
+                .SelectMany(ImportedTfragAssetIds))
+            .Concat(contents.Select(content => content.Hud?.SourcePayload?.Id).OfType<AssetId>())
+            .Concat(contents.SelectMany(content => content.Hud?.SourceIcons ?? [])
+                .SelectMany(icon => icon.Frames).Where(frame => frame.Texture is not null)
+                .Select(frame => frame.Texture!.Id))
             .Concat(contents.SelectMany(content => content.Hud?.Additions ?? [])
                 .Select(addition => addition.Texture.Id))
+            .Concat(contents.SelectMany(content => content.Fx?.SourceTextures ?? [])
+                .Where(source => source.Texture is not null).Select(source => source.Texture!.Id))
             .Concat(contents.SelectMany(content => content.Fx?.Additions ?? [])
                 .Select(addition => addition.Texture.Id))
+            .Concat(contents.SelectMany(content => ProjectSounds.AssetIds(content.Sounds)))
+            .Concat(contents.Select(content => content.Occlusion?.SourcePayload.Id).OfType<AssetId>())
             .ToHashSet();
         var assets = contents.SelectMany(content => content.Assets).ToArray();
         while (assets.Where(asset => referenced.Contains(asset.Id))
@@ -729,6 +761,9 @@ public sealed partial class ForgeProjectWorkspace
         import.Dependencies.Select(dependency => dependency.Asset.Id)
             .Prepend(import.Source.Id)
             .Concat(import.Textures.Select(texture => texture.Id));
+
+    private static IEnumerable<AssetId> ImportedTfragAssetIds(ProjectImportedTfragOwner owner) =>
+        owner.Textures.Select(texture => texture.Asset.Id).Prepend(owner.NativePayload.Id);
 
     private IEnumerable<(AssetId Id, string Path)> EnumerateOrphanAssetBlobs(IReadOnlySet<AssetId> knownIds)
     {

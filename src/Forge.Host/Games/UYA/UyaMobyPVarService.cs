@@ -72,9 +72,30 @@ internal static class UyaMobyPVarService
             if (instance.PvarIndex < 0 || instance.PvarIndex >= tables.Entries.Count) continue;
             var definition = catalog.Resolve(null, "UYA", entity.Source.ClassId)?.Entry.PVar;
             var source = tables.Entries[instance.PvarIndex];
-            var references = definition?.Length == source.Length
+            var references = (definition?.Length == source.Length
                 ? ResolveReferences(source.Data, definition, entityIndexes)
-                : [];
+                : []).ToList();
+            var declaredOffsets = references.Select(value => value.Offset).ToHashSet();
+            foreach (var offset in mobyLinks.GetValueOrDefault(instance.PvarIndex) ?? [])
+            {
+                if (!declaredOffsets.Add(offset)) continue;
+                var sourceValue = BinaryPrimitives.ReadInt32LittleEndian(source.Data.AsSpan(offset, 4));
+                entityIndexes.TryGetValue((ProjectEntityKind.Moby, sourceValue), out var target);
+                references.Add(new(
+                    offset,
+                    4,
+                    sourceValue < 0 ? sourceValue : -1,
+                    sourceValue,
+                    new(
+                        ProjectReferenceDomain.Entity,
+                        $"nativeMobyLink[{offset}]",
+                        true,
+                        ProjectEntityKind.Moby,
+                        sourceValue < 0 ? null : target)));
+            }
+            references.Sort((left, right) => left.Offset != right.Offset
+                ? left.Offset.CompareTo(right.Offset)
+                : string.Compare(left.Reference.FieldKey, right.Reference.FieldKey, StringComparison.Ordinal));
             var declaredMobyLinks = references
                 .Where(value => value.Reference.EntityKind == ProjectEntityKind.Moby)
                 .Select(value => value.Offset);
@@ -86,7 +107,7 @@ internal static class UyaMobyPVarService
                 (mobyLinks.GetValueOrDefault(instance.PvarIndex) ?? [])
                     .Concat(declaredMobyLinks).Distinct().Order().ToArray(),
                 relativePointers.GetValueOrDefault(instance.PvarIndex) ?? [],
-                references));
+                references.ToArray()));
         }
         return new(ProjectMobyPVarSchema.CurrentVersion, tables.Entries.Count, entries);
     }
@@ -160,12 +181,13 @@ internal static class UyaMobyPVarService
         var orderedMobys = OrderedMobys(content);
         var targetMobyIndexes = orderedMobys.Select((entity, index) => (entity.EntityId, index))
             .ToDictionary(value => value.EntityId, value => value.index);
+        var entities = content.Entities.ToDictionary(value => value.EntityId);
         var structuralChange = orderedMobys
             .Where(value => value.Provenance is not null)
             .Select((value, index) => value.Provenance!.SourceIndex == index)
             .Any(value => !value)
-            || content.Entities.Any(value => value.Layer == "mobys" && value.State?.Disabled == true)
-            || content.Entities.Any(value => value.Layer == "mobys" && value.Provenance is null);
+            || content.Entities.Any(value => value.Layer == "mobys"
+                && value.Provenance is not null && value.State?.Disabled == true);
         var understoodIndexes = state.Entries.Select(value => value.SourceTableIndex).OfType<int>().ToHashSet();
         foreach (var link in source.MobyLinks.Where(value => !understoodIndexes.Contains(value.PvarIndex)))
         {
@@ -182,12 +204,13 @@ internal static class UyaMobyPVarService
             var data = pvar.Data.ToArray();
             foreach (var reference in pvar.References)
             {
-                if (reference.Reference.EntityKind != ProjectEntityKind.Moby) continue;
-                var value = reference.Reference.EntityId is { } target
-                    ? targetMobyIndexes.TryGetValue(target, out var targetIndex)
-                        ? targetIndex
-                        : AddMissingTarget(blockers, entity, reference)
-                    : checked((int)reference.NullValue);
+                var value = reference.Reference.EntityId is not { } target
+                    ? checked((int)reference.NullValue)
+                    : reference.Reference.EntityKind == ProjectEntityKind.Moby
+                        ? targetMobyIndexes.TryGetValue(target, out var targetIndex)
+                            ? targetIndex
+                            : AddMissingTarget(blockers, entity, reference)
+                        : ResolveExternalTarget(blockers, entity, reference, target, entities);
                 BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(reference.Offset, 4), value);
             }
             var knownOffsets = pvar.References.Where(value => value.Reference.EntityKind == ProjectEntityKind.Moby)
@@ -209,13 +232,40 @@ internal static class UyaMobyPVarService
         return blockers.Count == 0 ? GameplayPvarTableWriter.Write(entries) : source;
     }
 
+    private static int ResolveExternalTarget(
+        ICollection<string> blockers,
+        ProjectEntity owner,
+        ProjectMobyPVarReference reference,
+        EntityId target,
+        IReadOnlyDictionary<EntityId, ProjectEntity> entities)
+    {
+        if (!entities.TryGetValue(target, out var targetEntity)
+            || ProjectReferences.KindOf(targetEntity) != reference.Reference.EntityKind)
+            return AddMissingTarget(blockers, owner, reference);
+        if (reference.Reference.EntityKind is not (
+                ProjectEntityKind.Cuboid or ProjectEntityKind.Sphere
+                or ProjectEntityKind.Cylinder or ProjectEntityKind.Pill
+                or ProjectEntityKind.Spline or ProjectEntityKind.GrindPath
+                or ProjectEntityKind.Area or ProjectEntityKind.Camera
+                or ProjectEntityKind.AmbientSound or ProjectEntityKind.DirectionalLight
+                or ProjectEntityKind.PointLight or ProjectEntityKind.EnvironmentSample
+                or ProjectEntityKind.EnvironmentTransition)
+            || targetEntity.Provenance is not { SourceIndex: >= 0 } provenance)
+        {
+            blockers.Add($"{owner.Name} ({owner.EntityId}) PVar field {reference.Reference.FieldKey} "
+                + $"targets unsupported native {reference.Reference.EntityKind} indexing.");
+            return checked((int)reference.NullValue);
+        }
+        return provenance.SourceIndex;
+    }
+
     private static int AddMissingTarget(
         ICollection<string> blockers,
         ProjectEntity entity,
         ProjectMobyPVarReference reference)
     {
         blockers.Add($"{entity.Name} ({entity.EntityId}) PVar field {reference.Reference.FieldKey} "
-            + $"references unavailable moby {reference.Reference.EntityId}.");
+            + $"references unavailable {reference.Reference.EntityKind} {reference.Reference.EntityId}.");
         return checked((int)reference.NullValue);
     }
 
@@ -312,7 +362,8 @@ internal static class UyaMobyPVarService
 
     private static ProjectEntity[] OrderedMobys(ForgeProjectContent content) => content.Entities
         .Where(entity => entity.Layer == "mobys" && entity.State?.Disabled != true)
-        .OrderBy(entity => entity.Provenance?.SourceIndex ?? int.MaxValue)
+        .OrderBy(entity => entity.Provenance is not null && entity.Source?.SourceIndex is null ? 0 : 1)
+        .ThenBy(entity => entity.Source?.SourceIndex ?? entity.Provenance?.SourceIndex ?? int.MaxValue)
         .ThenBy(entity => entity.EntityId.ToString(), StringComparer.Ordinal)
         .ToArray();
 

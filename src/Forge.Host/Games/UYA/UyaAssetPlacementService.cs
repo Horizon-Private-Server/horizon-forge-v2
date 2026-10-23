@@ -60,7 +60,11 @@ public static class UyaAssetPlacementService
             ? UyaTieLightingDefaults.Create(workspace.Content.Entities, placement.Transform.Position,
                 TieClassReader.Read(canonical.ModelBytes).Header.AmbientSize)
             : null;
-        return CreateEntity(workspace, placement, new(entry.Id, entry.Kind), tieLighting);
+        var entity = CreateEntity(workspace, placement, new(entry.Id, entry.Kind), tieLighting);
+        if (placement.Kind == AssetKind.Moby)
+            await UyaMobySoundImportService.ImportAsync(
+                workspace, catalog, entry, placement.ClassId, cancellationToken);
+        return entity;
     }
 
     private static ProjectEntity CreateEntity(

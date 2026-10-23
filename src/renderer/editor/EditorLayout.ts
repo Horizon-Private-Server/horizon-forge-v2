@@ -18,6 +18,8 @@ export const EDITOR_PANELS = {
   assetPreview: { component: 'assetPreview', title: 'Asset Preview' },
   hudBank: { component: 'hudBank', title: 'HUD Bank' },
   fxTextures: { component: 'fxTextures', title: 'FX Textures' },
+  sounds: { component: 'sounds', title: 'Sounds' },
+  imports: { component: 'imports', title: 'Imports' },
 } as const;
 
 export type EditorPanelId = keyof typeof EDITOR_PANELS;
@@ -81,6 +83,10 @@ export function createDefaultEditorLayout(api: DockviewApi): void {
     position: { referencePanel: 'viewport', direction: 'within' }, inactive: true,
   });
   api.addPanel({
+    id: 'sounds', ...EDITOR_PANELS.sounds,
+    position: { referencePanel: 'viewport', direction: 'within' }, inactive: true,
+  });
+  api.addPanel({
     id: 'assetPreview', ...EDITOR_PANELS.assetPreview,
     position: { referencePanel: 'properties', direction: 'within' }, inactive: true,
   });
@@ -105,7 +111,8 @@ export function showEditorPanel(api: DockviewApi, id: EditorPanelId): void {
     return;
   }
   const definition = EDITOR_PANELS[id];
-  const mainPanel = id === 'hudBank' || id === 'fxTextures' ? api.getPanel('viewport') : undefined;
+  const mainPanel = id === 'hudBank' || id === 'fxTextures' || id === 'sounds' || id === 'imports'
+    ? api.getPanel('viewport') : undefined;
   if (mainPanel) {
     api.addPanel({ id, ...definition, position: { referencePanel: mainPanel.id, direction: 'within' } });
     return;
@@ -171,12 +178,14 @@ export function panelForLayoutAction(action: Exclude<EditorLayoutAction, 'resetL
     showAssetPreview: 'assetPreview',
     showHudBank: 'hudBank',
     showFxTextures: 'fxTextures',
+    showSounds: 'sounds',
+    showImports: 'imports',
   };
   return panels[action];
 }
 
 function panelDirection(id: Exclude<EditorPanelId, 'viewport'>): 'left' | 'right' | 'below' {
-  if (id === 'hudBank' || id === 'fxTextures') return 'below';
+  if (id === 'hudBank' || id === 'fxTextures' || id === 'sounds' || id === 'imports') return 'below';
   if (id === 'sceneTree' || id === 'groups') return 'left';
   if (id === 'assetExplorer' || id === 'customAssets') return 'left';
   if (id === 'assetPreview' || id === 'references') return 'right';

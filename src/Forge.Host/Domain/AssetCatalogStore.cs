@@ -41,13 +41,27 @@ public sealed class AssetCatalogStore
     public string CatalogPath { get; }
     internal string Revision => _revision;
 
-    public static async Task<AssetCatalogStore> OpenAsync(string rootPath, CancellationToken cancellationToken = default)
+    public static Task<AssetCatalogStore> OpenAsync(
+        string rootPath,
+        CancellationToken cancellationToken = default) => OpenAsync(rootPath, prepareForWrites: true, cancellationToken);
+
+    public static Task<AssetCatalogStore> OpenReadOnlyAsync(
+        string rootPath,
+        CancellationToken cancellationToken = default) => OpenAsync(rootPath, prepareForWrites: false, cancellationToken);
+
+    private static async Task<AssetCatalogStore> OpenAsync(
+        string rootPath,
+        bool prepareForWrites,
+        CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(rootPath);
         var root = Path.GetFullPath(rootPath);
         var blobs = Path.Combine(root, "blobs");
-        Directory.CreateDirectory(blobs);
-        CleanupPartials(root);
+        if (prepareForWrites)
+        {
+            Directory.CreateDirectory(blobs);
+            CleanupPartials(root);
+        }
 
         var catalogPath = Path.Combine(root, "catalog-v0.json");
         if (!File.Exists(catalogPath)) return new(root, new Dictionary<string, AssetCatalogEntry>(StringComparer.Ordinal));
@@ -371,9 +385,9 @@ public sealed class AssetCatalogStore
             throw new InvalidDataException($"Asset ID collision or inconsistent catalog metadata for {id}.");
         var aliases = MergeValues(existing?.Aliases, metadata.Aliases);
         var tags = MergeValues(existing?.Tags, metadata.Tags);
-        var sources = (existing?.Sources ?? [])
-            .Append(NormalizeSource(metadata.Source, kind))
-            .Distinct()
+        var sources = MergeSources(
+                existing?.Sources ?? [],
+                NormalizeSource(metadata.Source, kind))
             .OrderBy(source => source.Game, StringComparer.Ordinal)
             .ThenBy(source => source.Revision, StringComparer.Ordinal)
             .ThenBy(source => source.Level, StringComparer.Ordinal)
@@ -384,6 +398,8 @@ public sealed class AssetCatalogStore
             .ThenBy(source => source.TextureUse?.Role, StringComparer.Ordinal)
             .ThenBy(source => source.TextureUse?.Slot)
             .ThenBy(source => source.TextureUse?.Restorable)
+            .ThenBy(source => source.MobySounds?.Bank.ToString(), StringComparer.Ordinal)
+            .ThenBy(source => source.SoundProgram?.Bank.ToString(), StringComparer.Ordinal)
             .ThenBy(source => source.Fingerprint, StringComparer.Ordinal)
             .ToArray();
         if (sources.Length > MaxMetadataItems)
@@ -425,6 +441,47 @@ public sealed class AssetCatalogStore
                 throw new ArgumentOutOfRangeException(nameof(source), "Texture slot cannot be negative.");
             textureUse = textureUse with { Role = ValidateText(textureUse.Role, nameof(textureUse.Role)) };
         }
+        var mobySounds = source.MobySounds;
+        if (mobySounds is not null)
+        {
+            if (kind != AssetKind.Moby)
+                throw new ArgumentException("Moby sound provenance is only valid for Moby assets.", nameof(source));
+            if (mobySounds.Bank.ToString().Length != AssetId.TextLength)
+                throw new ArgumentException("Moby sound bank Asset ID is empty.", nameof(source));
+            if (mobySounds.ClassId is < 0 or > ushort.MaxValue)
+                throw new ArgumentOutOfRangeException(nameof(source), "Moby sound class ID is outside the native range.");
+            if (mobySounds.Slots.Count > ProjectSoundSchema.MaximumRemapSlots)
+                throw new ArgumentException("Moby sound slot list exceeds the supported limit.", nameof(source));
+            var slots = mobySounds.Slots.Select(slot =>
+            {
+                if (slot.Slot < 0 || slot.NativeProgramIndex < 0)
+                    throw new ArgumentOutOfRangeException(nameof(source), "Moby sound slots and program indexes cannot be negative.");
+                if (slot.Sound is { } sound && sound.ToString().Length != AssetId.TextLength)
+                    throw new ArgumentException("Moby sound Asset ID is empty.", nameof(source));
+                return slot with
+                {
+                    PreviewBlocker = string.IsNullOrWhiteSpace(slot.PreviewBlocker)
+                        ? null
+                        : ValidateText(slot.PreviewBlocker, nameof(slot.PreviewBlocker)),
+                };
+            }).OrderBy(slot => slot.Slot).ThenBy(slot => slot.NativeProgramIndex).ToArray();
+            if (slots.Select(slot => slot.Slot).Distinct().Count() != slots.Length)
+                throw new ArgumentException("Moby sound slots must be unique.", nameof(source));
+            mobySounds = mobySounds with { Slots = slots };
+        }
+        var soundProgram = source.SoundProgram;
+        if (soundProgram is not null)
+        {
+            if (kind != AssetKind.Sound)
+                throw new ArgumentException("Sound-program provenance is only valid for Sound assets.", nameof(source));
+            if (soundProgram.Bank.ToString().Length != AssetId.TextLength)
+                throw new ArgumentException("Sound-program bank Asset ID is empty.", nameof(source));
+            soundProgram = soundProgram with
+            {
+                ReferencedPrograms = NormalizeAssetIds(soundProgram.ReferencedPrograms, nameof(soundProgram.ReferencedPrograms)),
+                Samples = NormalizeAssetIds(soundProgram.Samples, nameof(soundProgram.Samples)),
+            };
+        }
         return new(
             ValidateText(source.Game, nameof(source.Game)),
             ValidateText(source.Region, nameof(source.Region)),
@@ -433,7 +490,31 @@ public sealed class AssetCatalogStore
             ValidateText(source.Archive, nameof(source.Archive)),
             source.SourceIndex,
             ValidateText(source.Fingerprint, nameof(source.Fingerprint)),
-            textureUse);
+            textureUse,
+            mobySounds,
+            soundProgram);
+    }
+
+    private static IEnumerable<AssetSource> MergeSources(
+        IReadOnlyList<AssetSource> existing,
+        AssetSource added)
+    {
+        var identity = SourceIdentity(added);
+        return existing
+            .Where(source => !SourceIdentity(source).Equals(identity, StringComparison.Ordinal))
+            .Append(added);
+    }
+
+    private static string SourceIdentity(AssetSource source) =>
+        JsonSerializer.Serialize(source with { MobySounds = null, SoundProgram = null }, JsonOptions);
+
+    private static AssetId[] NormalizeAssetIds(IReadOnlyList<AssetId> values, string name)
+    {
+        if (values.Count > MaxMetadataItems)
+            throw new ArgumentException($"{name} exceeds {MaxMetadataItems} items.", name);
+        if (values.Any(value => value.ToString().Length != AssetId.TextLength))
+            throw new ArgumentException($"{name} contains an empty Asset ID.", name);
+        return values.Distinct().OrderBy(value => value.ToString(), StringComparer.Ordinal).ToArray();
     }
 
     private static void ValidateMetadata(AssetKind kind, AssetImportMetadata metadata)

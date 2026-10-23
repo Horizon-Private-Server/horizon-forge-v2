@@ -161,6 +161,7 @@ public static class BridgeHost
                 case BridgeOpcode.PreviewCatalogGarbageCollection:
                 case BridgeOpcode.CollectCatalogGarbage:
                 case BridgeOpcode.QueryAssetExplorer:
+                case BridgeOpcode.GetContentImportCapabilities:
                     await writer.WriteAsync(new(
                         BridgeMessageKind.Result, frame.Opcode, BridgeErrorCode.None, frame.RequestId,
                         await ProjectBridgeHandlers.HandleAsync(
@@ -168,6 +169,37 @@ public static class BridgeHost
                             CreateProgressReporter(frame, writer, hostCancellation),
                             mobyDex,
                             requestCancellation.Token)), hostCancellation);
+                    break;
+                case BridgeOpcode.PlanContentImport:
+                    await writer.WriteAsync(new(
+                        BridgeMessageKind.Result, frame.Opcode, BridgeErrorCode.None, frame.RequestId,
+                        await ContentImportBridgeHandlers.PlanAsync(
+                            frame.Payload,
+                            CreateProgressReporter(frame, writer, hostCancellation),
+                            requestCancellation.Token,
+                            editor)), hostCancellation);
+                    break;
+                case BridgeOpcode.ApplyContentImport:
+                    await writer.WriteAsync(new(
+                        BridgeMessageKind.Result, frame.Opcode, BridgeErrorCode.None, frame.RequestId,
+                        await ContentImportBridgeHandlers.ApplyAsync(
+                            frame.Payload,
+                            editor,
+                            mobyDex,
+                            CreateProgressReporter(frame, writer, hostCancellation),
+                            requestCancellation.Token)), hostCancellation);
+                    break;
+                case BridgeOpcode.PlanContentImportRemoval:
+                    await writer.WriteAsync(new(
+                        BridgeMessageKind.Result, frame.Opcode, BridgeErrorCode.None, frame.RequestId,
+                        await ContentImportBridgeHandlers.PlanRemovalAsync(
+                            frame.Payload, editor, requestCancellation.Token)), hostCancellation);
+                    break;
+                case BridgeOpcode.ApplyContentImportRemoval:
+                    await writer.WriteAsync(new(
+                        BridgeMessageKind.Result, frame.Opcode, BridgeErrorCode.None, frame.RequestId,
+                        await ContentImportBridgeHandlers.ApplyRemovalAsync(
+                            frame.Payload, editor, requestCancellation.Token)), hostCancellation);
                     break;
                 case BridgeOpcode.OpenEditorProject:
                 case BridgeOpcode.CloseEditorProject:
@@ -183,6 +215,12 @@ public static class BridgeHost
                     await writer.WriteAsync(new(
                         BridgeMessageKind.Result, frame.Opcode, BridgeErrorCode.None, frame.RequestId,
                         await EditorBridgeHandlers.HandleAsync(frame, editor, requestCancellation.Token)), hostCancellation);
+                    break;
+                case BridgeOpcode.QuerySoundWorkspace:
+                case BridgeOpcode.RenderSoundPreview:
+                    await writer.WriteAsync(new(
+                        BridgeMessageKind.Result, frame.Opcode, BridgeErrorCode.None, frame.RequestId,
+                        await SoundBridgeHandlers.HandleAsync(frame, editor, requestCancellation.Token)), hostCancellation);
                     break;
                 case BridgeOpcode.PrepareUyaRenderPackage:
                     await writer.WriteAsync(new(

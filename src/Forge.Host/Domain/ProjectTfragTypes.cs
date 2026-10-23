@@ -52,7 +52,8 @@ public sealed record ProjectTfragPiece(
     ProjectTfragBounds? Bounds = null,
     ProjectTfragDiagnostics? Diagnostics = null,
     string? CustomImportId = null,
-    string? CustomSourceName = null);
+    string? CustomSourceName = null,
+    string? ImportedOwnerId = null);
 
 public sealed record ProjectCustomTfragImport(
     string ImportId,
@@ -62,11 +63,29 @@ public sealed record ProjectCustomTfragImport(
     IReadOnlyList<ProjectAssetReference> Textures,
     IReadOnlyList<EntityId> Pieces);
 
+public sealed record ProjectImportedTfragTexture(
+    int SourceTextureId,
+    ProjectAssetReference Asset);
+
+public sealed record ProjectImportedTfragOwner(
+    string OwnerId,
+    string BatchId,
+    int SourceLevel,
+    string SourceArchive,
+    ProjectTfragSourceKind SourceKind,
+    int SourceIndex,
+    ProjectTfragSourceKind TargetKind,
+    int TargetIndex,
+    ProjectAssetReference NativePayload,
+    IReadOnlyList<ProjectImportedTfragTexture> Textures,
+    IReadOnlyList<EntityId> Pieces);
+
 public sealed record ProjectTfragState(
     int SchemaVersion,
     IReadOnlyList<ProjectTfragSource> Sources)
 {
     public IReadOnlyList<ProjectCustomTfragImport> CustomImports { get; init; } = [];
+    public IReadOnlyList<ProjectImportedTfragOwner> ImportedOwners { get; init; } = [];
 }
 
 internal sealed record ProjectAssetAttachment(

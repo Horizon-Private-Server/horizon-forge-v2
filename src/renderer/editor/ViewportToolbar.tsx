@@ -1,6 +1,7 @@
 import { Button, Group, NumberInput, Popover, SegmentedControl, Select, Stack, Switch, Text } from '@mantine/core';
 
 import type { EditorSnapSource, EditorSnapTarget } from '../../types/EditorViewport.js';
+import type { MobySimulationStats } from '../../types/MobySimulation.js';
 import type { EditorTransformMode, EditorTransformSpace } from './TransformTool.ts';
 
 interface ViewportToolbarProps {
@@ -15,6 +16,10 @@ interface ViewportToolbarProps {
   showSolidCollision: boolean;
   showPlayerBarriers: boolean;
   showDeathHeight: boolean;
+  mobySimulationEnabled: boolean;
+  mobySimulationPaused: boolean;
+  mobySimulationStats?: MobySimulationStats;
+  simulationControlsDisabled: boolean;
   onModeChange(value: EditorTransformMode): void;
   onSpaceChange(value: EditorTransformSpace): void;
   onSnapSourceChange(value: EditorSnapSource): void;
@@ -26,6 +31,9 @@ interface ViewportToolbarProps {
   onSolidCollisionVisibilityChange(value: boolean): void;
   onPlayerBarrierVisibilityChange(value: boolean): void;
   onDeathHeightVisibilityChange(value: boolean): void;
+  onMobySimulationEnabledChange(value: boolean): void;
+  onMobySimulationPausedChange(value: boolean): void;
+  onMobySimulationReset(): void;
 }
 
 export function ViewportToolbar({
@@ -40,6 +48,10 @@ export function ViewportToolbar({
   showSolidCollision,
   showPlayerBarriers,
   showDeathHeight,
+  mobySimulationEnabled,
+  mobySimulationPaused,
+  mobySimulationStats,
+  simulationControlsDisabled,
   onModeChange,
   onSpaceChange,
   onSnapSourceChange,
@@ -51,6 +63,9 @@ export function ViewportToolbar({
   onSolidCollisionVisibilityChange,
   onPlayerBarrierVisibilityChange,
   onDeathHeightVisibilityChange,
+  onMobySimulationEnabledChange,
+  onMobySimulationPausedChange,
+  onMobySimulationReset,
 }: ViewportToolbarProps) {
   return <Group aria-label="Viewport tools" className="scene-toolbar" gap="xs" role="group">
     <SegmentedControl
@@ -105,6 +120,48 @@ export function ViewportToolbar({
           <Switch checked={showDeathHeight} label="Death height"
             onChange={(event) => onDeathHeightVisibilityChange(event.currentTarget.checked)} />
           <Text c="dimmed" size="xs">Viewport-only; does not change the project or build.</Text>
+        </Stack>
+      </Popover.Dropdown>
+    </Popover>
+    <Popover position="bottom-end" width={230} withArrow>
+      <Popover.Target>
+        <Button
+          aria-label="Moby simulation preview controls"
+          disabled={simulationControlsDisabled}
+          size="compact-xs"
+          variant={mobySimulationEnabled ? 'filled' : 'default'}
+        >
+          Simulation {mobySimulationEnabled ? (mobySimulationPaused ? 'paused' : 'on') : 'off'}
+        </Button>
+      </Popover.Target>
+      <Popover.Dropdown>
+        <Stack gap="xs">
+          <Switch
+            checked={mobySimulationEnabled}
+            disabled={simulationControlsDisabled}
+            label="Enable Moby simulation"
+            onChange={(event) => onMobySimulationEnabledChange(event.currentTarget.checked)}
+          />
+          <Group gap="xs" grow>
+            <Button
+              disabled={!mobySimulationEnabled || simulationControlsDisabled}
+              onClick={() => onMobySimulationPausedChange(!mobySimulationPaused)}
+              size="compact-xs"
+              variant="default"
+            >
+              {mobySimulationPaused ? 'Resume' : 'Pause'}
+            </Button>
+            <Button
+              disabled={!mobySimulationEnabled || simulationControlsDisabled}
+              onClick={onMobySimulationReset}
+              size="compact-xs"
+              variant="default"
+            >Reset</Button>
+          </Group>
+          <Text c="dimmed" size="xs">
+            Preview only; never changes project or build data.
+            {mobySimulationStats && ` ${mobySimulationStats.activeSimulators} active · ${mobySimulationStats.fixedTicks} ticks.`}
+          </Text>
         </Stack>
       </Popover.Dropdown>
     </Popover>

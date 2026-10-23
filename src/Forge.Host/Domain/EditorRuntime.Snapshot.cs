@@ -54,6 +54,26 @@ public sealed partial class EditorRuntime
         var selection = _selection.ToHashSet();
         var bindings = workspace.Content.InstancedCollisionBindings.ToDictionary(
             binding => (binding.SourceAssetId, binding.InstanceEntityId));
+        var entityImportOrigins = new Dictionary<EntityId, ContentImportBatch>();
+        var groupImportOrigins = new Dictionary<GroupId, ContentImportBatch>();
+        foreach (var batch in workspace.Content.ImportBatches.OrderBy(value => value.ImportedUnixMilliseconds))
+        {
+            foreach (var stableId in batch.Added)
+            {
+                if (stableId.StartsWith("entity:", StringComparison.Ordinal))
+                {
+                    var value = stableId["entity:".Length..];
+                    if (Guid.TryParseExact(value, "D", out var parsed) && parsed.ToString("D") == value)
+                        entityImportOrigins[new(parsed)] = batch;
+                }
+                else if (stableId.StartsWith("group:", StringComparison.Ordinal))
+                {
+                    var value = stableId["group:".Length..];
+                    if (Guid.TryParseExact(value, "D", out var parsed) && parsed.ToString("D") == value)
+                        groupImportOrigins[new(parsed)] = batch;
+                }
+            }
+        }
         var mobyPVarIndex = _mobyPVarResolver is null ? null : CreateMobyPVarResolutionIndex(workspace.Content);
         var entities = workspace.Content.Entities.Select(entity =>
         {
@@ -91,16 +111,24 @@ public sealed partial class EditorRuntime
                 _mobyPropertyResolver?.Invoke(entity),
                 _mobyPVarResolver?.Invoke(
                     workspace, entity, mobyPVarIndex!, selection.Contains(entity.EntityId)),
-                _sourceClassNameResolver?.Invoke(workspace, entity));
+                _sourceClassNameResolver?.Invoke(workspace, entity),
+                entityImportOrigins.TryGetValue(entity.EntityId, out var import)
+                    ? new(EditorContentOriginKind.Imported, import.BatchId, import.SourceLevel)
+                    : new(entity.Provenance?.Level == workspace.Manifest.BaseLevel.Level
+                        ? EditorContentOriginKind.Base
+                        : EditorContentOriginKind.Project));
         }).ToArray();
-        var references = ReferenceSnapshots(workspace, entities.ToDictionary(entity => entity.EntityId));
-        var knownEntityIds = entities.Select(entity => entity.EntityId).ToHashSet();
+        var entitiesById = entities.ToDictionary(entity => entity.EntityId);
+        var references = ReferenceSnapshots(workspace, entitiesById);
         var groups = workspace.Content.Groups.Select(group => new EditorGroupSnapshot(
             group.GroupId,
             group.Name,
             group.Members,
-            group.Members.Where(member => !knownEntityIds.Contains(member)).ToArray(),
-            group.Template)).ToArray();
+            group.Members.Where(member => !entitiesById.ContainsKey(member)).ToArray(),
+            group.Template,
+            groupImportOrigins.TryGetValue(group.GroupId, out var import)
+                ? new(EditorContentOriginKind.Imported, import.BatchId, import.SourceLevel)
+                : new(EditorContentOriginKind.Project))).ToArray();
         return new(
             workspace.RootPath,
             workspace.Manifest.ProjectId,
@@ -121,6 +149,19 @@ public sealed partial class EditorRuntime
             groups,
             MapGroupSnapshots(workspace),
             _groupTemplates,
+            workspace.Content.ImportBatches.Select(batch => new EditorImportBatchSnapshot(
+                batch.BatchId,
+                batch.ImportedUnixMilliseconds,
+                batch.SourceGame,
+                batch.SourceRegion,
+                batch.SourceRevision,
+                batch.SourceFingerprint,
+                batch.SourceLevel,
+                batch.Families,
+                batch.Added.Count,
+                batch.Reused.Count,
+                batch.Replaced.Count,
+                batch.Protected.Count)).ToArray(),
             _selection.ToArray(),
             workspace.IsDirty,
             _history.CanUndo,

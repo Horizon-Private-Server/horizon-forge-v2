@@ -63,6 +63,24 @@ import {
   encodeAssetExplorerRequest,
 } from '../src/main/bridge/AssetExplorerPayloadCodec.ts';
 import {
+  decodeContentImportCapabilityMatrix,
+  decodeContentImportCapabilityRequest,
+  decodeContentImportApplyRequest,
+  decodeContentImportPlan,
+  decodeContentImportPlanRequest,
+  decodeContentImportRemovalApplyRequest,
+  decodeContentImportRemovalPlan,
+  decodeContentImportRemovalPlanRequest,
+  encodeContentImportCapabilityMatrix,
+  encodeContentImportCapabilityRequest,
+  encodeContentImportApplyRequest,
+  encodeContentImportPlan,
+  encodeContentImportPlanRequest,
+  encodeContentImportRemovalApplyRequest,
+  encodeContentImportRemovalPlan,
+  encodeContentImportRemovalPlanRequest,
+} from '../src/main/bridge/ContentImportPayloadCodec.ts';
+import {
   decodeCatalogCollectionRequest,
   decodeCatalogMaintenance,
   decodeCatalogMaintenanceRequest,
@@ -676,6 +694,12 @@ test('operation payloads round trip and reject trailing data', () => {
         game: 'UYA', region: 'NTSC-U', revision: '1.00', level: 'level03',
         archive: 'level_wad/assets/asset_wad.bin', sourceIndex: 7,
         textureUse: { ownerKind: 'moby' as const, ownerClassId: 291, role: 'material', slot: 0, restorable: true },
+        mobySounds: {
+          bankAssetId: 'b'.repeat(64),
+          slots: [{
+            slot: 2, nativeProgramIndex: 66, soundAssetId: 'c'.repeat(64), previewSupported: true,
+          }],
+        },
       }],
       classIds: [], previewState: 'notCached' as const, canPlace: false,
       placementDisabledReason: 'Textures are preview-only.', shellIndex: 3,
@@ -686,6 +710,99 @@ test('operation payloads round trip and reject trailing data', () => {
     nextCursor: 'next',
   };
   assert.deepEqual(decodeAssetExplorerPage(encodeAssetExplorerPage(explorerPage)), explorerPage);
+  const importCapabilityRequest = {
+    targetGame: 'UYA', targetRegion: 'NTSC-U', targetRevision: '1.00',
+    inventory: [
+      { family: 'ties', state: 'present' as const },
+      { family: 'mobys', state: 'malformed' as const, diagnostic: 'moby table is truncated' },
+    ],
+  };
+  assert.deepEqual(
+    decodeContentImportCapabilityRequest(encodeContentImportCapabilityRequest(importCapabilityRequest)),
+    importCapabilityRequest,
+  );
+  const importCapabilityMatrix = {
+    schemaVersion: 1, game: 'UYA', region: 'NTSC-U', revision: '1.00',
+    families: [{
+      family: 'ties', label: 'TIEs', mode: 'addAndReplace' as const, sourceState: 'present' as const,
+      implementationReady: false, selectable: false, defaultSelectedWhenReady: true, defaultSelected: false,
+      disabledReason: 'M16-004 is not implemented.',
+      ownership: 'Definition and instances.', dependencies: ['textures'],
+      conflictNamespace: 'TIE class IDs.', nativeSemantics: 'Rebuild native tables.',
+      protectedSurvivorPolicy: 'Retain referenced definitions.', noEditIdentity: 'Preserve untouched content.',
+      limits: ['16-bit class IDs'], evidence: ['UyaStaticLayerStore'],
+    }],
+  };
+  assert.deepEqual(
+    decodeContentImportCapabilityMatrix(encodeContentImportCapabilityMatrix(importCapabilityMatrix)),
+    importCapabilityMatrix,
+  );
+  const importPlanRequest = {
+    projectPath: '/project', catalogRootPath: '/assets', sourceIsoPath: '/source.iso',
+    sourceFingerprint: 'a'.repeat(32), sourceLevel: 40,
+    selections: [{ family: 'ties', mode: 'add' as const }],
+  };
+  assert.deepEqual(
+    decodeContentImportPlanRequest(encodeContentImportPlanRequest(importPlanRequest)),
+    importPlanRequest,
+  );
+  const importApplyRequest = {
+    ...importPlanRequest,
+    batchId: `import-${'b'.repeat(32)}`,
+    referenceChoices: [{
+      ownerSourceIndex: 4, fieldKey: 'trigger.cuboid', sourceValue: 7,
+      action: 'map' as const, targetEntityId: '11111111-1111-1111-1111-111111111111',
+    }],
+  };
+  assert.deepEqual(
+    decodeContentImportApplyRequest(encodeContentImportApplyRequest(importApplyRequest)),
+    importApplyRequest,
+  );
+  assert.deepEqual(
+    decodeContentImportRemovalPlanRequest(encodeContentImportRemovalPlanRequest('/project', importApplyRequest.batchId)),
+    { projectPath: '/project', batchId: importApplyRequest.batchId },
+  );
+  assert.deepEqual(
+    decodeContentImportRemovalApplyRequest(encodeContentImportRemovalApplyRequest(
+      '/project', importApplyRequest.batchId, 'd'.repeat(64),
+    )),
+    { projectPath: '/project', batchId: importApplyRequest.batchId, targetFingerprint: 'd'.repeat(64) },
+  );
+  const removalPlan = {
+    schemaVersion: 1,
+    batchId: importApplyRequest.batchId,
+    targetFingerprint: 'd'.repeat(64),
+    delete: ['entity:11111111-1111-1111-1111-111111111111'],
+    survivors: [{ stableId: `asset:${'e'.repeat(64)}`, reason: 'Still referenced.' }],
+    shared: [`asset:${'f'.repeat(64)}`],
+    protected: ['entity:22222222-2222-2222-2222-222222222222'],
+    warnings: ['Replace content is retained.'],
+  };
+  assert.deepEqual(decodeContentImportRemovalPlan(encodeContentImportRemovalPlan(removalPlan)), removalPlan);
+  const importPlan = {
+    schemaVersion: 3, capabilitySchemaVersion: 1, batchId: `import-${'b'.repeat(32)}`,
+    game: 'UYA', region: 'NTSC-U', revision: '1.00', sourceFingerprint: 'a'.repeat(32),
+    sourceLevelHash: 'c'.repeat(64), sourceLevel: 40,
+    targetProjectId: '11111111-1111-1111-1111-111111111111', targetFingerprint: 'd'.repeat(64),
+    targetLevel: 41, estimatedBytes: 1024,
+    families: [{
+      family: 'ties', label: 'TIEs', supportedMode: 'addAndReplace' as const,
+      mode: 'add' as const, sourceState: 'present' as const,
+      selected: true, defaultSelected: false, selectable: false,
+      add: ['source:ties:0'], reuse: [`asset:${'e'.repeat(64)}`], remap: ['class:0x0001->allocate:custom'],
+      remove: [], protect: [], dependencyReasons: ['ties requires textures.'],
+      conflicts: ['class:0x0001'], estimatedBytes: 1024,
+      warnings: ['Conflict requires allocation.'], blockers: ['M16-004 is not implemented.'],
+    }],
+    warnings: [], blockers: ['M16-004 is not implemented.'],
+    referenceRequirements: [{
+      family: 'mobys', ownerSourceIndex: 4, fieldKey: 'trigger.cuboid', sourceValue: 7,
+      targetKind: 'cuboid' as const, nullable: true,
+      candidateEntityIds: Array.from({ length: 65 }, (_, index) =>
+        `11111111-1111-1111-1111-${index.toString().padStart(12, '0')}`),
+    }],
+  };
+  assert.deepEqual(decodeContentImportPlan(encodeContentImportPlan(importPlan)), importPlan);
   const descriptor = {
     path: '/project', name: 'Test', targetGame: 'UYA', targetRegion: 'NTSC-U', targetRevision: '1.00',
     bakeProfile: 'uya-ntsc-u', baseLevel: 3, modifiedUnixMilliseconds: 1000,

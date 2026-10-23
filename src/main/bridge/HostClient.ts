@@ -34,7 +34,26 @@ import type {
   UyaRenderPackageRequest,
   RenderPackageResult,
 } from '../../types/BridgePayloads.js';
+import type {
+  ContentImportCapabilityMatrix,
+  ContentImportCapabilityRequest,
+  ContentImportApplyRequest,
+  ContentImportPlan,
+  ContentImportPlanRequest,
+  ContentImportRemovalPlan,
+} from '../../types/ContentImport.js';
+import type { SoundPreviewSource, SoundWorkspace } from '../../types/SoundWorkspace.js';
 import { decodeAssetExplorerPage, encodeAssetExplorerRequest } from './AssetExplorerPayloadCodec.js';
+import {
+  decodeContentImportCapabilityMatrix,
+  decodeContentImportPlan,
+  decodeContentImportRemovalPlan,
+  encodeContentImportApplyRequest,
+  encodeContentImportCapabilityRequest,
+  encodeContentImportPlanRequest,
+  encodeContentImportRemovalApplyRequest,
+  encodeContentImportRemovalPlanRequest,
+} from './ContentImportPayloadCodec.js';
 import {
   decodeBuildPatchProgress,
   decodeBuildPatchResult,
@@ -91,6 +110,9 @@ import {
   encodeAssetPreviewRequest,
   encodeUyaRenderPackageRequest,
 } from './RenderPayloadCodec.js';
+import {
+  decodeSoundPreview, decodeSoundWorkspace, encodeSoundPreviewRequest,
+} from './SoundPayloadCodec.js';
 
 interface PendingRequest {
   opcode: BridgeOpcode;
@@ -360,6 +382,63 @@ export class HostClient {
     return { requestId: request.requestId, result: request.result.then(decodeAssetExplorerPage) };
   }
 
+  async getContentImportCapabilities(
+    value: ContentImportCapabilityRequest,
+  ): Promise<HostRequest<ContentImportCapabilityMatrix>> {
+    const request = await this.#request(
+      BridgeOpcode.GetContentImportCapabilities,
+      encodeContentImportCapabilityRequest(value),
+    );
+    return { requestId: request.requestId, result: request.result.then(decodeContentImportCapabilityMatrix) };
+  }
+
+  async planContentImport(
+    value: ContentImportPlanRequest,
+    onProgress?: (progress: Progress) => void,
+  ): Promise<HostRequest<ContentImportPlan>> {
+    const request = await this.#request(
+      BridgeOpcode.PlanContentImport,
+      encodeContentImportPlanRequest(value),
+      onProgress,
+    );
+    return { requestId: request.requestId, result: request.result.then(decodeContentImportPlan) };
+  }
+
+  async applyContentImport(
+    value: ContentImportApplyRequest,
+    onProgress?: (progress: Progress) => void,
+  ): Promise<HostRequest<EditorSnapshot>> {
+    const request = await this.#request(
+      BridgeOpcode.ApplyContentImport,
+      encodeContentImportApplyRequest(value),
+      onProgress,
+    );
+    return { requestId: request.requestId, result: request.result.then(decodeEditorSnapshot) };
+  }
+
+  async planContentImportRemoval(
+    projectPath: string,
+    batchId: string,
+  ): Promise<HostRequest<ContentImportRemovalPlan>> {
+    const request = await this.#request(
+      BridgeOpcode.PlanContentImportRemoval,
+      encodeContentImportRemovalPlanRequest(projectPath, batchId),
+    );
+    return { requestId: request.requestId, result: request.result.then(decodeContentImportRemovalPlan) };
+  }
+
+  async applyContentImportRemoval(
+    projectPath: string,
+    batchId: string,
+    targetFingerprint: string,
+  ): Promise<HostRequest<EditorSnapshot>> {
+    const request = await this.#request(
+      BridgeOpcode.ApplyContentImportRemoval,
+      encodeContentImportRemovalApplyRequest(projectPath, batchId, targetFingerprint),
+    );
+    return { requestId: request.requestId, result: request.result.then(decodeEditorSnapshot) };
+  }
+
   async openEditorProject(
     projectPath: string,
     catalogRootPath: string,
@@ -378,6 +457,21 @@ export class HostClient {
   async getEditorSnapshot(): Promise<HostRequest<EditorSnapshot>> {
     const request = await this.#request(BridgeOpcode.QueryEditor, Buffer.alloc(0));
     return { requestId: request.requestId, result: request.result.then(decodeEditorSnapshot) };
+  }
+
+  async getSoundWorkspace(): Promise<HostRequest<SoundWorkspace>> {
+    const request = await this.#request(BridgeOpcode.QuerySoundWorkspace, Buffer.alloc(0));
+    return { requestId: request.requestId, result: request.result.then(decodeSoundWorkspace) };
+  }
+
+  async renderSoundPreview(
+    nativeIndex: number,
+    preferAudible: boolean,
+    source?: { catalogRootPath: string; bankAssetId: string; game: string },
+  ): Promise<HostRequest<SoundPreviewSource>> {
+    const request = await this.#request(
+      BridgeOpcode.RenderSoundPreview, encodeSoundPreviewRequest(nativeIndex, preferAudible, source));
+    return { requestId: request.requestId, result: request.result.then(decodeSoundPreview) };
   }
 
   async executeEditorCommand(command: EditorCommand): Promise<HostRequest<EditorCommandResult>> {

@@ -145,6 +145,7 @@ public static class AssetCatalogMaintenance
             ids.Add(allocation.Asset.Id);
         if (workspace.Content.Hud is { } hud)
         {
+            if (hud.SourcePayload is not null) ids.Add(hud.SourcePayload.Id);
             foreach (var frame in hud.SourceIcons.SelectMany(icon => icon.Frames))
                 if (frame.Texture is not null) ids.Add(frame.Texture.Id);
             foreach (var addition in hud.Additions) ids.Add(addition.Texture.Id);

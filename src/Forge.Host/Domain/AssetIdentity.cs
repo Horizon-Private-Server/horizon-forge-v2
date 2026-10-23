@@ -22,6 +22,8 @@ public enum AssetKind : ushort
     Lighting = 13,
     StaticModelSource = 14,
     StaticModelNative = 15,
+    SoundSample = 16,
+    SoundBank = 17,
 }
 
 [JsonConverter(typeof(AssetIdJsonConverter))]

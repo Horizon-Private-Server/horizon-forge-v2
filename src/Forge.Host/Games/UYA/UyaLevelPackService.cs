@@ -103,7 +103,8 @@ public static class UyaLevelPackService
             throw;
         }
         catch (Exception exception) when (exception is InvalidDataException or IOException
-            or UnauthorizedAccessException or ArgumentException or OverflowException)
+            or UnauthorizedAccessException or ArgumentException or OverflowException
+            or NotSupportedException)
         {
             diagnostics.Add(Error(
                 "UYA_PACK_STAGING_INVALID",
@@ -124,6 +125,9 @@ public static class UyaLevelPackService
     {
         var baseLevel = workspace.Manifest.BaseLevel;
         var replacements = new Dictionary<string, ReadOnlyMemory<byte>>(StringComparer.Ordinal);
+        var importedOcclusion = await UyaOcclusionImportPayload.ReadAsync(workspace, cancellationToken);
+        if (importedOcclusion is not null)
+            replacements.Add("occlusion/occlusion.bin", importedOcclusion.LevelOcclusion);
         var sourceBase = UyaBaseLayerService.Extract(sourcePackage)
             .ToDictionary(value => (value.Layer, value.Name));
         ReadOnlyMemory<byte>? terrain = null;
@@ -132,6 +136,7 @@ public static class UyaLevelPackService
         var maximumTerrainLength = 0;
         var maximumCollisionLength = 0;
         var chunkReplacements = new Dictionary<int, byte[]>();
+        var chunkTerrains = new Dictionary<int, byte[]>();
         foreach (var layer in UyaBaseLayerSchema.Layers)
         {
             var root = SnapshotRoot(staging, layer);
@@ -140,7 +145,14 @@ public static class UyaLevelPackService
             {
                 var bytes = await File.ReadAllBytesAsync(Path.Combine(root, asset.Name), cancellationToken);
                 if (!sourceBase.TryGetValue((layer, asset.Name), out var source))
+                {
+                    if (layer == BakeLayerId.Sky && asset.Name == "sky.bin")
+                    {
+                        sky = bytes;
+                        continue;
+                    }
                     throw new InvalidDataException($"{layer} asset {asset.Name} is absent from the base level.");
+                }
                 if (layer == BakeLayerId.Tfrags)
                     maximumTerrainLength = Math.Max(maximumTerrainLength, bytes.Length);
                 else if (layer == BakeLayerId.Collision)
@@ -165,11 +177,7 @@ public static class UyaLevelPackService
                         collision = bytes;
                         break;
                     case (BakeLayerId.Tfrags, var name) when TryChunkIndex(name, out var chunkIndex):
-                        var chunkPath = $"level_wad/chunks/chunk{chunkIndex}.wad";
-                        var sourceChunk = sourcePackage.Files.Single(value => value.Path == chunkPath);
-                        var currentChunk = chunkReplacements.GetValueOrDefault(chunkIndex) ?? sourceChunk.Bytes;
-                        chunkReplacements[chunkIndex] = LevelAssetComposer.ComposeTfragChunk(
-                            GameId.UYA, currentChunk, bytes, cancellationToken: cancellationToken);
+                        chunkTerrains[chunkIndex] = bytes;
                         break;
                     case (BakeLayerId.Collision, var name) when TryChunkIndex(name, out var chunkIndex):
                         var collisionChunkPath = $"level_wad/chunks/chunk{chunkIndex}.wad";
@@ -188,12 +196,24 @@ public static class UyaLevelPackService
             terrain, sourceBase[(BakeLayerId.Tfrags, "primary.bin")].Bytes, maximumTerrainLength);
         collision = ExpandPrimaryStreamBuffer(
             collision, sourceBase[(BakeLayerId.Collision, "collision.bin")].Bytes, maximumCollisionLength);
-        foreach (var (chunkIndex, bytes) in chunkReplacements)
-            replacements.Add($"level_wad/chunks/chunk{chunkIndex}.wad", bytes);
-
         var assets = UyaLevelWadRenderPackageBuilder.ReadAssetSourceFiles(sourcePackage.Files);
+        UyaSoundCompositionResult? soundComposition = null;
+        if (workspace.Content.Sounds.Programs.Count > 0)
+        {
+            var sourceSoundBank = sourcePackage.Files.SingleOrDefault(
+                    value => value.Path == "level_wad/sound.bnk")?.Bytes
+                ?? throw new InvalidDataException("The source level has no retained sound bank.");
+            soundComposition = await UyaSoundCompositionService.ComposeAsync(
+                workspace, sourceSoundBank, assets.HeaderBytes, cancellationToken);
+        }
+        if (soundComposition?.BankChanged == true)
+            replacements.Add("level_wad/sound.bnk", soundComposition.BankBytes);
+        var stagedTerrains = chunkTerrains.ToDictionary(
+            value => (ProjectTfragSourceKind.Chunk, value.Key), value => value.Value);
+        if (terrain is not null)
+            stagedTerrains.Add((ProjectTfragSourceKind.Primary, 0), terrain.Value.ToArray());
         var customTextures = await UyaCustomTfragTextureService.ComposeAsync(
-            workspace, terrain?.ToArray(), cancellationToken);
+            workspace, stagedTerrains, cancellationToken);
         var customTfragTextures = customTextures.Textures;
         var tieRoot = SnapshotRoot(staging, BakeLayerId.Ties);
         var visibilityBitPath = Path.Combine(tieRoot, "visibility-bit.bin");
@@ -205,10 +225,18 @@ public static class UyaLevelPackService
             : assets.AssetWadBytes;
         var composed = new LevelAssetWadComposition(assets.HeaderBytes, assetWad);
         if (terrain is { IsEmpty: true }) terrain = null;
-        if (terrain is not null || sky is not null || collision is not null)
+        var appendSkyAfterStaticComposition = sky is not null
+            && !sourceBase.ContainsKey((BakeLayerId.Sky, "sky.bin"));
+        var skyBeforeStaticComposition = appendSkyAfterStaticComposition ? null : sky;
+        ReadOnlyMemory<byte>? assetOcclusion = null;
+        if (importedOcclusion is not null)
+            assetOcclusion = importedOcclusion.AssetGrid;
+        if (terrain is not null || skyBeforeStaticComposition is not null || collision is not null
+            || importedOcclusion is not null)
             composed = LevelAssetComposer.ComposeAssetWad(
                 GameId.UYA, composed.HeaderBytes, composed.AssetWadBytes,
-                new(terrain, sky, collision), cancellationToken);
+                new(terrain, skyBeforeStaticComposition, collision, assetOcclusion),
+                cancellationToken);
 
         var staticPack = await UyaStaticAssetPackService.ComposeAsync(
             workspace,
@@ -223,6 +251,22 @@ public static class UyaLevelPackService
             replacements,
             allowStalePaletteReport,
             cancellationToken);
+        foreach (var (chunkIndex, chunkTerrain) in chunkTerrains)
+        {
+            var key = (ProjectTfragSourceKind.Chunk, chunkIndex);
+            var remaps = customTextures.TextureAssetIdsByOwner.GetValueOrDefault(key)
+                ?? new Dictionary<int, IReadOnlyDictionary<int, string>>();
+            var finalized = TfragTerrainComposer.FinalizeTerrain(
+                GameId.UYA, chunkTerrain, remaps, staticPack.Composition.TerrainTextures,
+                firstOcclusionMappingIndex: null, cancellationToken);
+            var chunkPath = $"level_wad/chunks/chunk{chunkIndex}.wad";
+            var sourceChunk = sourcePackage.Files.Single(value => value.Path == chunkPath);
+            var currentChunk = chunkReplacements.GetValueOrDefault(chunkIndex) ?? sourceChunk.Bytes;
+            chunkReplacements[chunkIndex] = LevelAssetComposer.ComposeTfragChunk(
+                GameId.UYA, currentChunk, finalized, cancellationToken: cancellationToken);
+        }
+        foreach (var (chunkIndex, bytes) in chunkReplacements)
+            replacements.Add($"level_wad/chunks/chunk{chunkIndex}.wad", bytes);
         byte[]? tfragOcclusion = null;
         if (terrain is not null)
         {
@@ -232,7 +276,9 @@ public static class UyaLevelPackService
                 tieRoot,
                 terrain.Value.ToArray(),
                 sourceBase[(BakeLayerId.Tfrags, "primary.bin")].Bytes,
-                customTextures.TextureAssetIdsByGroup,
+                customTextures.TextureAssetIdsByOwner.GetValueOrDefault(
+                    (ProjectTfragSourceKind.Primary, 0))
+                    ?? new Dictionary<int, IReadOnlyDictionary<int, string>>(),
                 staticPack.Composition.TerrainTextures,
                 visibilityBit,
                 cancellationToken);
@@ -244,13 +290,13 @@ public static class UyaLevelPackService
             replacements["gameplay/core/occlusion.bin"] = tfragOcclusion;
         var staticComposition = staticPack.Composition;
         var staticAssetsChanged = staticPack.AssetsChanged;
-        var finalAssets = terrain is null
+        var finalAssets = terrain is null && !appendSkyAfterStaticComposition
             ? staticPack.FinalAssets
             : LevelAssetComposer.ComposeAssetWad(
                 GameId.UYA,
                 staticPack.FinalAssets.HeaderBytes,
                 staticPack.FinalAssets.AssetWadBytes,
-                new(Terrain: terrain),
+                new(Terrain: terrain, Sky: appendSkyAfterStaticComposition ? sky : null),
                 cancellationToken);
         if (visibilityBit is { } bitIndex)
             finalAssets = LevelAssetComposer.SetAlwaysVisibleOcclusionBit(
@@ -261,10 +307,11 @@ public static class UyaLevelPackService
             replacements.Add("assets/palette.bin", staticComposition.PaletteBytes);
             replacements.Add("assets/asset_wad_payload.bin", finalAssets.AssetWadBytes);
         }
-        else if (terrain is not null || sky is not null || collision is not null)
+        else if (terrain is not null || sky is not null || collision is not null
+            || importedOcclusion is not null)
         {
-            replacements.Add("assets/asset_header.bin", composed.HeaderBytes);
-            replacements.Add("assets/asset_wad_payload.bin", composed.AssetWadBytes);
+            replacements.Add("assets/asset_header.bin", finalAssets.HeaderBytes);
+            replacements.Add("assets/asset_wad_payload.bin", finalAssets.AssetWadBytes);
         }
 
         var fxHeader = replacements.TryGetValue("assets/asset_header.bin", out var replacedHeader)
@@ -279,6 +326,14 @@ public static class UyaLevelPackService
         {
             replacements["assets/asset_header.bin"] = fxComposition.HeaderBytes;
             replacements["assets/asset_wad_payload.bin"] = fxComposition.AssetBytes;
+        }
+        if (soundComposition?.RemapChanged == true)
+        {
+            var currentHeader = replacements.TryGetValue("assets/asset_header.bin", out var soundHeader)
+                ? soundHeader.Span
+                : assets.HeaderBytes;
+            replacements["assets/asset_header.bin"] = SoundBankComposer.ComposeRemap(
+                GameId.UYA, currentHeader, soundComposition.Remap, cancellationToken);
         }
 
         var gameplayRoot = SnapshotRoot(staging, BakeLayerId.Gameplay);
@@ -408,6 +463,9 @@ public static class UyaLevelPackService
             .Select(value => $"gameplay/{Path.GetFileNameWithoutExtension(value)}")
             .ToHashSet(StringComparer.Ordinal);
         if (replacements.ContainsKey("hud/header.bin")) sections.Add("level-data/hud-header");
+        if (replacements.ContainsKey("assets/asset_header.bin")) sections.Add("level/sound-remap");
+        if (replacements.ContainsKey("level_wad/sound.bnk")) sections.Add("level/sound-bank");
+        if (replacements.ContainsKey("occlusion/occlusion.bin")) sections.Add("level/occlusion");
         for (var index = 0; index < ProjectHudSchema.PhysicalBankCount; index++)
             if (replacements.ContainsKey($"hud/bank{index}.bin"))
                 sections.Add($"level-data/hud-bank-{index}");

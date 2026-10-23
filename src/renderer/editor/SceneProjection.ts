@@ -132,7 +132,9 @@ export class SceneProjection {
   private readonly templates = new Map<string, THREE.Object3D>();
   private readonly failedAssets = new Set<string>();
   private readonly pickable = new Set<string>();
+  private readonly simulationPickable = new Map<string, number>();
   private readonly previewHidden = new Set<string>();
+  private readonly simulationHidden = new Set<string>();
   private readonly sourceRotation = new THREE.Quaternion();
   private readonly projectedRotation = new THREE.Quaternion();
   private readonly position = new THREE.Vector3();
@@ -192,6 +194,18 @@ export class SceneProjection {
   setPreviewHiddenEntity(entityId?: string): void {
     this.previewHidden.clear();
     if (entityId) this.previewHidden.add(entityId);
+  }
+
+  setSimulationHiddenEntity(entityId: string, hidden: boolean): void {
+    if (hidden) this.simulationHidden.add(entityId);
+    else this.simulationHidden.delete(entityId);
+  }
+
+  setSimulationPickableEntity(entityId: string, pickable: boolean): void {
+    const count = this.simulationPickable.get(entityId) ?? 0;
+    if (pickable) this.simulationPickable.set(entityId, count + 1);
+    else if (count <= 1) this.simulationPickable.delete(entityId);
+    else this.simulationPickable.set(entityId, count - 1);
   }
 
   setHoveredEntityId(entityId?: string): void {
@@ -507,10 +521,10 @@ export class SceneProjection {
       const intersection = intersections[index];
       if (!intersection.object.userData[SPLINE_NODES_KEY] || intersection.index === undefined) continue;
       const entityId = this.resolveEntityId(intersection.object);
-      if (!entityId || !this.pickable.has(entityId)) continue;
+      if (!entityId || !this.isEntityPickable(entityId)) continue;
       const blocked = intersections.slice(0, index).some((prior) => {
         const priorId = this.resolveIntersectionEntityId(prior);
-        return priorId && this.pickable.has(priorId) && priorId !== entityId
+        return priorId && this.isEntityPickable(priorId) && priorId !== entityId
           && (prior.object.userData[VOLUME_EDGE_PICKER_KEY] || !this.isPickThrough(prior.object));
       });
       if (!blocked) return splinePointId(entityId, intersection.index);
@@ -518,7 +532,7 @@ export class SceneProjection {
     let fallback: string | undefined;
     for (const intersection of intersections) {
       const id = this.resolveIntersectionEntityId(intersection);
-      if (!id || !this.pickable.has(id)) continue;
+      if (!id || !this.isEntityPickable(id)) continue;
       if (intersection.object.userData[VOLUME_EDGE_PICKER_KEY]) return id;
       if (!this.isPickThrough(intersection.object)) return id;
       fallback ??= id;
@@ -538,6 +552,13 @@ export class SceneProjection {
     for (let current: THREE.Object3D | null = object; current && current !== this.root; current = current.parent)
       if (current.userData[PICK_THROUGH_KEY]) return true;
     return false;
+  }
+
+  private isEntityPickable(entityId: string): boolean {
+    if (this.pickable.has(entityId)) return true;
+    const entity = this.entitiesById.get(entityId);
+    return (this.simulationPickable.get(entityId) ?? 0) > 0
+      && Boolean(entity) && !entity!.state.locked && !entity!.state.hidden && !entity!.state.disabled;
   }
 
   getWorldVertices(entityIds: readonly string[]): THREE.Vector3[] {
@@ -920,6 +941,7 @@ export class SceneProjection {
   ): boolean {
     return !entity.state.hidden
       && !this.previewHidden.has(entity.id)
+      && !this.simulationHidden.has(entity.id)
       && !entity.state.disabled
       && (!entity.tfrag || this.tfragsVisible)
       && (visibleLayers?.has(entity.layer) ?? true)
@@ -991,6 +1013,7 @@ export class SceneProjection {
     this.outlineRoot.clear();
     this.selectionOutlineObjects = [];
     this.pickable.clear();
+    this.simulationPickable.clear();
     this.hoveredEntityId = undefined;
     this.root.clear();
   }

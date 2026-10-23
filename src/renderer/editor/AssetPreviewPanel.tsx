@@ -4,15 +4,17 @@ import { useEffect, useRef, useState } from 'react';
 import type { AssetExplorerCategory, AssetExplorerItem, AssetPreviewKind } from '../../types/AssetExplorer.js';
 import type { AssetPreviewSource, CustomModelPreviewDetails } from '../../types/AssetExplorer.js';
 import { createAssetPlacementCommand, createSkyShellAddCommand } from '../../utils/AssetPlacement.ts';
+import { contentOriginLabel } from '../../utils/ContentOrigin.ts';
 import { parseCustomModelPreviewDetails } from '../../utils/CustomModelPreview.ts';
 import { errorMessage } from '../../utils/Errors.ts';
 import { applyTextureChannel, type TextureChannel } from '../../utils/TexturePreview.ts';
 import { AssetModelPreview } from './AssetModelPreview.tsx';
 import { useEditor } from './EditorContext.ts';
 import { EditorEmptyState, EditorPanel } from './EditorPrimitives.tsx';
+import { MobySoundButtons } from './MobySoundButtons.tsx';
 
 export function AssetPreviewPanel() {
-  const { assetPreview: family, busy, execute, inspectAsset, project } = useEditor();
+  const { assetPreview: family, busy, execute, inspectAsset, openImportBatch, project } = useEditor();
   const [assetId, setAssetId] = useState('');
   useEffect(() => setAssetId(family?.representativeAssetId ?? ''), [family]);
   if (!family) return <EditorPanel label="Asset Preview">
@@ -27,6 +29,13 @@ export function AssetPreviewPanel() {
     ? project.entities.filter((entity) => entity.asset?.id === item.assetId).length
     : 0;
   const levels = [...new Set(family.variants.flatMap((variant) => variant.sources.map((source) => source.level)))].sort();
+  const projectUses = [...new Map(project.entities
+    .filter((entity) => entity.asset?.id === item.assetId)
+    .map((entity) => {
+      const label = contentOriginLabel(entity.origin, entity.provenance?.level);
+      const batch = entity.origin?.importBatchId;
+      return [`${label}:${batch ?? ''}`, { label, batch }] as const;
+    })).values()];
   return <EditorPanel label="Asset Preview">
     <Stack>
       {kind === 'tie' && item.tags.includes('custom-model')
@@ -59,6 +68,14 @@ export function AssetPreviewPanel() {
         onChange={(value) => { if (value) setAssetId(value); }}
       />}
       {levels.length > 0 && <Text size="sm" c="dimmed">Sources: {levels.join(', ')}</Text>}
+      {projectUses.map((use) => <Text key={`${use.label}:${use.batch ?? ''}`} size="sm" c="dimmed">
+        Project use: {use.label}{use.batch && <> · batch <Button
+          p={0}
+          size="compact-xs"
+          variant="transparent"
+          onClick={() => openImportBatch(use.batch!)}
+        ><Code>{use.batch}</Code></Button></>}
+      </Text>)}
       <Text size="xs" c="dimmed">Asset ID</Text><Code className="asset-explorer-id">{item.assetId}</Code>
       {!item.tags.includes('project-attached') && <Text size="sm">
         Canonical format {item.canonicalFormatVersion} · {item.byteSize.toLocaleString()} bytes
@@ -66,6 +83,12 @@ export function AssetPreviewPanel() {
       {item.classIds.length > 0 && <Text size="sm">
         Class IDs: {item.classIds.map((value) => `0x${value.toString(16).padStart(4, '0')}`).join(', ')}
       </Text>}
+      {kind === 'moby' && family.classId !== undefined && <MobySoundButtons
+        assetId={item.assetId}
+        classId={family.classId}
+        projectId={project.projectId}
+        sources={item.sources}
+      />}
       {item.shellIndex !== undefined && <Text size="sm">Shell index: {item.shellIndex}</Text>}
       {item.aliases.length > 0 && <Text size="sm">Aliases: {item.aliases.join(', ')}</Text>}
       {item.tags.length > 0 && <Group gap="xs">{item.tags.map((tag) => <Badge key={tag}>{tag}</Badge>)}</Group>}

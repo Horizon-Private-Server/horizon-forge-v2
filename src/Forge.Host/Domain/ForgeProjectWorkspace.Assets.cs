@@ -198,8 +198,11 @@ public sealed partial class ForgeProjectWorkspace
         if (!Enum.IsDefined(kind)) throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unknown asset kind.");
         if (canonicalBytes.IsEmpty)
             throw new ArgumentException("Attached asset bytes cannot be empty.", bytesParameterName);
-        if (canonicalBytes.Length > MaxAttachedAssetBytes)
-            throw new ArgumentException($"Attached asset exceeds {MaxAttachedAssetBytes} bytes.", bytesParameterName);
+        var maximumBytes = kind == AssetKind.Texture
+            ? ProjectTextureAssetSchema.MaximumCanonicalBytes
+            : MaxAttachedAssetBytes;
+        if (canonicalBytes.Length > maximumBytes)
+            throw new ArgumentException($"Attached asset exceeds {maximumBytes} bytes.", bytesParameterName);
         if (parentId is { } parent && parent.ToString().Length != AssetId.TextLength)
             throw new ArgumentException("Parent Asset ID is invalid.", parentParameterName);
         var id = AssetId.Compute(kind, canonicalFormatVersion, canonicalBytes.Span);

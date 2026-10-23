@@ -43,6 +43,13 @@ export const BridgeOpcode = {
   ReloadMobyDexDataset: 32,
   PreviewGroupTemplate: 33,
   ApplyGroupTemplatePreview: 34,
+  GetContentImportCapabilities: 35,
+  PlanContentImport: 36,
+  QuerySoundWorkspace: 37,
+  RenderSoundPreview: 38,
+  ApplyContentImport: 39,
+  PlanContentImportRemoval: 40,
+  ApplyContentImportRemoval: 41,
 } as const;
 
 export const BridgeErrorCode = {

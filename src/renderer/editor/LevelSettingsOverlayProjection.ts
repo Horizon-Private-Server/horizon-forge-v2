@@ -58,7 +58,7 @@ export class LevelSettingsOverlayProjection {
     this.root.name = 'Level settings overlays';
     this.deathPlane.name = 'Death height';
     this.deathPlane.rotation.x = -Math.PI / 2;
-    this.deathPlane.renderOrder = 1;
+    this.deathPlane.renderOrder = -1;
     this.deathPlane.userData.forgeAccessibleLabel = 'Death height';
     this.deathPlane.userData.forgeDeathHeightPlane = true;
     this.updateDeathPlane();

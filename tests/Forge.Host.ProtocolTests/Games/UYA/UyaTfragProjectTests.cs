@@ -23,6 +23,7 @@ internal static class UyaTfragProjectTests
             await VerifySourceHydrationAsync(root);
             await VerifyMetadataHydrationPreservesEditsAsync(root);
             await VerifyBakeCompositionAsync(root);
+            await VerifyDonorOwnerImportAsync(root);
             await VerifyCustomImportAsync(root);
             await VerifyInstancedCollisionAsync(root);
             VerifyStreamedPayloadReservation();
@@ -275,6 +276,89 @@ internal static class UyaTfragProjectTests
             projectPath, BakeStagingStore.StagingDirectoryName, filtered.RelativePath, "primary.bin"));
         Equal(resizedIds.Count, TfragTerrainReader.Read(filteredBytes).Chunks.Count,
             "vanilla terrain deletion bakes a custom-only native terrain payload");
+    }
+
+    private static async Task VerifyDonorOwnerImportAsync(string root)
+    {
+        var projectPath = Path.Combine(root, "donor-owner-import");
+        var catalog = await AssetCatalogStore.OpenAsync(Path.Combine(root, "donor-owner-catalog"));
+        var workspace = await CreateWorkspaceAsync(projectPath);
+        var targetPayloads = new[] { Payload() };
+        var donorPayloads = new[] { Payload(), Payload(1), Payload(2) with { Bytes = SyntheticTerrain(0) } };
+        var sourceIdentity = new OpaqueContentSource("UYA", "NTSC-U", "1.00", 3, new string('a', 32));
+        var entries = await catalog.PutManyAsync(
+            UyaBaseLayerService.CreateCatalogPuts(targetPayloads, sourceIdentity, "test"));
+        await UyaBaseLayerStore.WriteAsync(projectPath, sourceIdentity, targetPayloads, entries);
+        var target = UyaTfragProjectService.Create(targetPayloads, 3);
+        await UyaTfragProjectService.ApplyAsync(workspace, target);
+        var donor = UyaTfragProjectService.Create(donorPayloads, 4);
+        var family = new ContentImportFamilyPlan(
+            "tfrags", "Tfrags", ContentImportMode.AddAndReplace,
+            ContentImportMode.Add, ContentImportSourceState.Present,
+            true, true, true,
+            ["source:tfrags:primary:0", "source:tfrags:chunk:1"], [], [], [], [],
+            ["tfrags requires owner payload."], [], donorPayloads.Sum(value => (long)value.Bytes.Length), [], []);
+        var plan = new ContentImportPlan(
+            ContentImportPlanSchema.CurrentVersion, ContentImportCapabilitySchema.CurrentVersion,
+            "import-" + new string('d', 32), "UYA", "NTSC-U", "1.00", new string('a', 32),
+            new string('e', 64), 4, workspace.Manifest.ProjectId.ToString(), workspace.CurrentFingerprint,
+            3, donorPayloads.Sum(value => (long)value.Bytes.Length), [family], [], []);
+        var source = new UyaTfragContentImportSource(donor, donorPayloads, []);
+        var first = UyaTfragContentImportService.PrepareCommit(workspace, source, plan, 1234);
+        var repeated = UyaTfragContentImportService.PrepareCommit(workspace, source, plan, 1234);
+        Equal(true, ForgeProjectPersistence.Serialize(first.Content).AsSpan()
+                .SequenceEqual(ForgeProjectPersistence.Serialize(repeated.Content)),
+            "donor tfrag import is deterministic");
+        await workspace.CommitContentImportAsync(first);
+        var firstRenderRevision = UyaCustomTfragRenderService.CreateRevision(workspace);
+
+        Equal(2, workspace.Content.Tfrags!.ImportedOwners.Count,
+            "nonempty primary and streamed donor owners retain native payload provenance");
+        Equal(true, firstRenderRevision is not null,
+            "donor tfrag owners invalidate the terrain render package");
+        Equal(6, workspace.Content.Entities.Count(value => value.Tfrag is not null),
+            "add preserves target groups and appends both donor owners");
+        Equal(true, workspace.Content.Tfrags.ImportedOwners.All(value =>
+                value.TargetKind == ProjectTfragSourceKind.Primary && value.TargetIndex == 0),
+            "a donor chunk without a target chunk owner relocates into primary terrain");
+        Equal(true, workspace.Content.Tfrags.ImportedOwners.SelectMany(value =>
+                value.Pieces.Select(id => workspace.Content.Entities.Single(entity => entity.EntityId == id)))
+            .All(value => value.Tfrag!.ImportedOwnerId is not null),
+            "imported pieces retain atomic donor-owner membership");
+        Equal(true, workspace.Content.Tfrags.ImportedOwners.Select(value => value.NativePayload.Id)
+            .All(workspace.IsAssetReferenced),
+            "raw donor owner payloads are protected from attached-asset collection");
+
+        var record = (await UyaBaseLayerStore.InspectAsync(
+                workspace, catalog, BakeLayerId.Tfrags, CancellationToken.None))
+            .Manifest!.Layers.Single(value => value.Layer == BakeLayerId.Tfrags);
+        var composed = await UyaTfragBakeService.ComposeAsync(workspace, catalog, record, CancellationToken.None);
+        Equal(6, TfragTerrainReader.Read(composed["primary.bin"]).TfragCount,
+            "primary and relocated donor chunk groups semantically re-read after composition");
+
+        var remove = workspace.Content.Entities.Where(value => value.Tfrag is not null)
+            .Select(value => $"entity:{value.EntityId}").Order(StringComparer.Ordinal).ToArray();
+        var replaceFamily = family with { Mode = ContentImportMode.Replace, Remove = remove };
+        var replacePlan = plan with
+        {
+            BatchId = "import-" + new string('f', 32),
+            TargetFingerprint = workspace.CurrentFingerprint,
+            Families = [replaceFamily],
+        };
+        var replace = UyaTfragContentImportService.PrepareCommit(workspace, source, replacePlan, 2345);
+        Equal(0, replace.Attachments.Count,
+            "reimport does not restage tfrag assets already owned by the project");
+        Equal(true, replace.Batch.Reused.Any(value => value.StartsWith("asset:", StringComparison.Ordinal)),
+            "reimport records project-owned tfrag assets as reused");
+        Equal(false, replace.Batch.Added.Intersect(replace.Batch.Reused, StringComparer.Ordinal).Any(),
+            "reimport batch does not report an asset as both added and reused");
+        await workspace.CommitContentImportAsync(replace);
+        Equal(false, firstRenderRevision == UyaCustomTfragRenderService.CreateRevision(workspace),
+            "replaced donor tfrag owners receive a new terrain render revision");
+        Equal(4, workspace.Content.Entities.Count(value => value.Tfrag is not null),
+            "replace removes complete unprotected owners before importing donor groups");
+        Equal(2, workspace.Content.Tfrags.ImportedOwners.Count,
+            "replace leaves exactly one imported primary and streamed owner");
     }
 
     private static async Task VerifyInstancedCollisionAsync(string root)
@@ -1004,20 +1088,20 @@ internal static class UyaTfragProjectTests
         sourceIndex,
         SyntheticTerrain());
 
-    private static byte[] SyntheticTerrain()
+    private static byte[] SyntheticTerrain(int groupCount = 2)
     {
         const int tableOffset = 0x40;
         const int recordSize = 0x40;
         const int dataSize = 0x10;
-        var bytes = new byte[tableOffset + recordSize * 2 + dataSize * 2];
+        var bytes = new byte[tableOffset + recordSize * groupCount + dataSize * groupCount];
         BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(0x00, 4), tableOffset);
-        BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(0x04, 4), 2);
+        BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(0x04, 4), groupCount);
         BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(0x08, 4), BitConverter.SingleToInt32Bits(32f));
         BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(0x0C, 4), 2);
-        for (var index = 0; index < 2; index++)
+        for (var index = 0; index < groupCount; index++)
         {
             var record = tableOffset + index * recordSize;
-            var data = tableOffset + recordSize * 2 + index * dataSize;
+            var data = tableOffset + recordSize * groupCount + index * dataSize;
             BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(record, 4),
                 BitConverter.SingleToInt32Bits((index * 3 + 1) * 1024f));
             BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(record + 4, 4),

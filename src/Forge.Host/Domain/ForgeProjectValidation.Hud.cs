@@ -20,6 +20,18 @@ internal static partial class ForgeProjectValidation
         if (!hud.SourceIcons.Select(icon => icon.SourceIconIndex)
             .SequenceEqual(Enumerable.Range(0, hud.SourceIcons.Count)))
             throw new InvalidDataException("Project HUD source icons must retain contiguous source order.");
+        if (hud.SourcePayload is { } sourcePayload)
+        {
+            if (sourcePayload.Kind != AssetKind.World)
+                throw new InvalidDataException("Imported HUD source payload has an invalid asset kind.");
+            var asset = assets.SingleOrDefault(value => value.Id == sourcePayload.Id);
+            if (asset is null || asset.Kind != AssetKind.World
+                || asset.CanonicalFormatVersion != ProjectHudSchema.SourcePayloadCanonicalFormatVersion)
+                throw new InvalidDataException("Imported HUD source payload is not attached to the project.");
+            var value = asset.Id.ToString();
+            if (!File.Exists(Path.Combine(rootPath, "assets", value[..2], $"{value}.blob")))
+                throw new InvalidDataException("Imported HUD source payload blob is missing.");
+        }
 
         var spriteIds = new HashSet<ushort>();
         var sourceFrames = new Dictionary<int, ProjectHudSourceFrame>();
@@ -52,6 +64,14 @@ internal static partial class ForgeProjectValidation
                     ValidateHudTexture(
                         frame.Texture, frame.Width, frame.Height, frame.PaletteBankIndex, frame.TextureBankIndex,
                         $"HUD source frame {frame.SourceFrameIndex}");
+                    if (hud.SourcePayload is not null)
+                    {
+                        var asset = assets.SingleOrDefault(value => value.Id == frame.Texture.Id);
+                        if (asset is null || asset.Kind != AssetKind.Texture
+                            || asset.CanonicalFormatVersion != ProjectTextureAssetSchema.CanonicalFormatVersion)
+                            throw new InvalidDataException(
+                                $"Imported HUD source frame {frame.SourceFrameIndex} has no attached texture.");
+                    }
                 }
                 if (sourceFrames.TryGetValue(frame.SourceFrameIndex, out var existing) && existing != frame)
                     throw new InvalidDataException($"Project HUD source frame {frame.SourceFrameIndex} is inconsistent.");

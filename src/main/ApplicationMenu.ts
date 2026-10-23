@@ -42,6 +42,8 @@ export function installApplicationMenu(runAction: (action: ForgeAction) => void)
         { label: 'New Project…', click: () => runAction('newProject') },
         { label: 'Open Project…', click: () => runAction('openProject') },
         { label: 'Save', click: () => runAction('saveProject') },
+        { id: 'editorImportMapContent', label: 'Import Map Content…', enabled: false,
+          click: () => runAction('importMapContent') },
         { label: 'Project Hub', click: () => runAction('projects') },
         { type: 'separator' },
         { role: process.platform === 'darwin' ? 'close' : 'quit' },
@@ -98,6 +100,8 @@ export function installApplicationMenu(runAction: (action: ForgeAction) => void)
             { label: 'Asset Preview', click: () => runAction('showAssetPreview') },
             { label: 'HUD Bank', click: () => runAction('showHudBank') },
             { label: 'FX Textures', click: () => runAction('showFxTextures') },
+            { label: 'Sounds', click: () => runAction('showSounds') },
+            { label: 'Imports', click: () => runAction('showImports') },
           ],
         },
         { label: 'Reset Layout', click: () => runAction('resetLayout') },
@@ -140,6 +144,7 @@ function updateEditorMenu(): void {
   const copy = menu?.getMenuItemById('editorCopy');
   const paste = menu?.getMenuItemById('editorPaste');
   const selectAll = menu?.getMenuItemById('editorSelectAll');
+  const importMapContent = menu?.getMenuItemById('editorImportMapContent');
   const selectedIds = new Set(editorSnapshot?.selection ?? []);
   const selected = editorSnapshot?.entities.filter((entity) => selectedIds.has(entity.id)) ?? [];
   const mutableSelection = selected.length > 0 && selected.every((entity) => !entity.state.locked);
@@ -163,4 +168,5 @@ function updateEditorMenu(): void {
     paste.enabled = textInputActive || (editorSnapshot?.canPaste ?? false);
   }
   if (selectAll) selectAll.enabled = textInputActive;
+  if (importMapContent) importMapContent.enabled = editorSnapshot?.target.game === 'UYA';
 }

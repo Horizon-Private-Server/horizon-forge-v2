@@ -86,17 +86,24 @@ public static class UyaStaticLayerStore
         foreach (var layer in UyaStaticLayerSchema.Layers)
         {
             var prepared = await PrepareAsync(workspace, catalog, inspection, layer, cancellationToken);
-            var references = layer is BakeLayerId.Ties or BakeLayerId.Shrubs
+            var references = layer is BakeLayerId.Ties or BakeLayerId.Shrubs or BakeLayerId.Mobys
                 ? await UyaStaticReferenceStore.PrepareAsync(workspace.RootPath, workspace, layer, cancellationToken)
                 : null;
-            var relevantSettings = layer is BakeLayerId.Ties or BakeLayerId.Shrubs
-                ? ForgeProjectPersistence.Serialize(new
+            var relevantSettings = layer switch
+            {
+                BakeLayerId.Ties or BakeLayerId.Shrubs => ForgeProjectPersistence.Serialize(new
                 {
                     Groups = references?.Groups is null ? null : Hash(references.Groups),
                     Occlusion = references?.Occlusion is null ? null : Hash(references.Occlusion),
                     references?.AlwaysVisibleBitIndex,
-                })
-                : ReadOnlyMemory<byte>.Empty;
+                }),
+                BakeLayerId.Mobys => ForgeProjectPersistence.Serialize(new
+                {
+                    Sounds = workspace.Content.Sounds,
+                    Groups = references?.Groups is null ? null : Hash(references.Groups),
+                }),
+                _ => ReadOnlyMemory<byte>.Empty,
+            };
             result.Add(new(layer, prepared.AuthoritativeContent, prepared.AssetIds,
                 relevantSettings, prepared.Blockers));
         }
@@ -116,7 +123,7 @@ public static class UyaStaticLayerStore
         var inspection = await InspectAsync(workspace, cancellationToken);
         var prepared = await PrepareAsync(workspace, catalog, inspection, plan.Layer, cancellationToken);
         if (prepared.Blockers.Count > 0) throw new InvalidDataException(string.Join(' ', prepared.Blockers));
-        var references = plan.Layer is BakeLayerId.Ties or BakeLayerId.Shrubs
+        var references = plan.Layer is BakeLayerId.Ties or BakeLayerId.Shrubs or BakeLayerId.Mobys
             ? await UyaStaticReferenceStore.PrepareAsync(projectRoot, workspace, plan.Layer, cancellationToken)
             : null;
 
@@ -283,6 +290,47 @@ public static class UyaStaticLayerStore
                     or ArgumentException or OverflowException)
                 {
                     blockers.Add($"{entity.Name} ({entity.EntityId}) custom TIE is invalid ({exception.Message}).");
+                }
+                continue;
+            }
+            var attached = workspace.Content.Assets.SingleOrDefault(value => value.Id == entity.Asset.Id);
+            if (attached is not null)
+            {
+                try
+                {
+                    var allocation = workspace.Content.CustomClasses.Allocations.SingleOrDefault(
+                        value => value.Asset == entity.Asset
+                            && (value.ClassId == entity.Source.ClassId
+                                || value.Provenance.SourceClassId == entity.Source.ClassId));
+                    var attachedClassId = allocation?.ClassId ?? entity.Source.ClassId;
+                    if (allocation is not null && entity.Source.ClassId != attachedClassId)
+                        throw new InvalidDataException(
+                            $"stale imported class 0x{entity.Source.ClassId:X4}; expected 0x{attachedClassId:X4}");
+                    var attachedAsset = workspace.ResolveAsset(entity.Asset, catalog)
+                        ?? throw new FileNotFoundException($"Project asset {entity.Asset.Id} is missing.");
+                    var attachedBytes = await AssetCatalogBlobReader.ReadVerifiedAsync(
+                        attachedAsset.Effective.Id,
+                        attachedAsset.Effective.Kind,
+                        attachedAsset.CanonicalFormatVersion,
+                        attachedAsset.Size,
+                        attachedAsset.Path,
+                        MaxAssetBytes,
+                        cancellationToken);
+                    if (attachedAsset.CanonicalFormatVersion != UyaStaticLayerSchema.CanonicalFormatVersion
+                        || !ValidCanonicalAsset(attachedBytes, kind))
+                        throw new InvalidDataException("attached canonical data is incompatible");
+                    resolved.Add(new(
+                        entity,
+                        attachedClassId,
+                        entity.Asset,
+                        attachedAsset.Effective,
+                        attachedAsset.CanonicalFormatVersion,
+                        attachedBytes));
+                }
+                catch (Exception exception) when (exception is InvalidDataException or IOException
+                    or ArgumentException or OverflowException)
+                {
+                    blockers.Add($"{entity.Name} ({entity.EntityId}) attached asset is invalid ({exception.Message}).");
                 }
                 continue;
             }
@@ -500,7 +548,8 @@ public static class UyaStaticLayerStore
         };
         var entities = workspace.Content.Entities
             .Where(entity => entity.Layer == layerName && entity.State?.Disabled != true)
-            .OrderBy(entity => entity.Provenance?.SourceIndex ?? int.MaxValue)
+            .OrderBy(entity => entity.Provenance is not null && entity.Source?.SourceIndex is null ? 0 : 1)
+            .ThenBy(entity => entity.Source?.SourceIndex ?? entity.Provenance?.SourceIndex ?? int.MaxValue)
             .ThenBy(entity => entity.EntityId.ToString(), StringComparer.Ordinal)
             .ToArray();
         if (layer is BakeLayerId.Ties or BakeLayerId.Shrubs)

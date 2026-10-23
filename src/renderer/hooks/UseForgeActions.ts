@@ -13,6 +13,7 @@ export function useForgeActions(
   const [isSaving, setIsSaving] = useState(false);
   const [hubAction, setHubAction] = useState<{ id: number; action: 'newProject' | 'openProject' }>();
   const [layoutAction, setLayoutAction] = useState<{ id: number; action: EditorLayoutAction }>();
+  const [contentImportOpened, setContentImportOpened] = useState(false);
 
   const handleForgeAction = useCallback((action: ForgeAction) => {
     if (action === 'setup') setSetupOpened(true);
@@ -37,6 +38,9 @@ export function useForgeActions(
           .catch((error) => setEditorError(errorMessage(error)))
           .finally(() => setIsSaving(false));
       }
+    }
+    else if (action === 'importMapContent') {
+      if (activeProject?.target.game === 'UYA') setContentImportOpened(true);
     }
     else if (action === 'undoEditor' || action === 'redoEditor') {
       if (activeProject && (action === 'undoEditor' ? activeProject.canUndo : activeProject.canRedo)) {
@@ -99,17 +103,19 @@ export function useForgeActions(
     hubAction,
     isSaving,
     layoutAction,
+    contentImportOpened,
     handleForgeAction,
     openProject,
     setActiveProject,
     clearEditorError: () => setEditorError(undefined),
+    closeContentImport: () => setContentImportOpened(false),
   };
 }
 
 function isEditorLayoutAction(action: ForgeAction): action is EditorLayoutAction {
   return ['resetLayout', 'showViewport', 'showSceneTree', 'showGroups', 'showProperties', 'showLevelSettings',
     'showReferences', 'showDiagnostics', 'showBuild', 'showAssetExplorer', 'showCustomAssets', 'showAssetPreview', 'showHudBank',
-    'showFxTextures'].includes(action);
+    'showFxTextures', 'showSounds', 'showImports'].includes(action);
 }
 
 function isEditorEntityAction(action: ForgeAction): action is Extract<ForgeAction,

@@ -112,6 +112,7 @@ public static class UyaProjectService
             baseData.Fx,
             baseData.MobyPVars,
             cancellationToken);
+        await workspace.SetSoundsAsync(baseData.Sounds, cancellationToken: cancellationToken);
         await UyaTfragProjectService.ApplyAsync(workspace, baseData.Tfrags, cancellationToken);
         await workspace.SaveAsync(cancellationToken);
         await OpaqueContentStore.WriteAsync(
@@ -253,7 +254,8 @@ public static class UyaProjectService
         if (opaque.IsValid
             && baseLayers.IsValid
             && staticLayers.IsValid
-            && gameplay.IsValid)
+            && gameplay.IsValid
+            && workspace.Content.Sounds.Programs.Count > 0)
             return await SaveRepairAsync(workspace, catalog, cancellationToken);
         var identity = await UyaIsoService.ValidateAsync(sourceIsoPath, cancellationToken: cancellationToken);
         if (!identity.IsSupported || !identity.Fingerprint.Equals(
@@ -277,9 +279,12 @@ public static class UyaProjectService
         if (!opaque.IsValid
             || !baseLayers.IsValid
             || !staticLayers.IsValid
-            || !gameplay.IsValid)
+            || !gameplay.IsValid
+            || workspace.Content.Sounds.Programs.Count == 0)
         {
             var baseData = ReadBase(iso, catalog, workspace.Manifest.BaseLevel.Level);
+            if (workspace.Content.Sounds.Programs.Count == 0)
+                await workspace.SetSoundsAsync(baseData.Sounds, cancellationToken: cancellationToken);
             await OpaqueContentStore.WriteAsync(
                 workspace.RootPath,
                 OpaqueSource(

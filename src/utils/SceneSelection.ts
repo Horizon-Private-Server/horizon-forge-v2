@@ -1,4 +1,5 @@
 import type { EditorEntity } from '../types/EditorRuntime.js';
+import { entityOriginSearchText } from './ContentOrigin.ts';
 import { editorEntityDisplayName } from './EntityDisplay.ts';
 
 export interface SceneEntityGroup {
@@ -64,11 +65,9 @@ export function buildSceneEntityGroups(
   entities: readonly EditorEntity[],
   filter: string,
 ): { groups: SceneEntityGroup[]; matched: number } {
-  const query = filter.trim().toLocaleLowerCase();
   const groups = new Map<string, EditorEntity[]>();
   for (const entity of entities) {
-    if (query && !`${entity.name} ${entity.sourceClassName ?? ''} ${entity.layer} ${entity.asset?.kind ?? ''} ${entity.geometry?.kind ?? ''}`
-      .toLocaleLowerCase().includes(query)) continue;
+    if (!sceneEntityMatchesFilter(entity, filter)) continue;
     const group = groups.get(entity.layer);
     if (group) group.push(entity);
     else groups.set(entity.layer, [entity]);
@@ -78,6 +77,12 @@ export function buildSceneEntityGroups(
     groups: ordered.map(([layer, values]) => ({ layer, entities: values })),
     matched: ordered.reduce((total, [, values]) => total + values.length, 0),
   };
+}
+
+export function sceneEntityMatchesFilter(entity: EditorEntity, filter: string, extraText = ''): boolean {
+  const query = filter.trim().toLocaleLowerCase();
+  return !query || `${entity.name} ${entity.sourceClassName ?? ''} ${entity.layer} ${entity.asset?.kind ?? ''} ${entity.geometry?.kind ?? ''} ${entityOriginSearchText(entity)} ${extraText}`
+    .toLocaleLowerCase().includes(query);
 }
 
 export function entityStateLabel(entity: EditorEntity): string {
@@ -104,7 +109,10 @@ export function entityTreeText(entity: EditorEntity): string {
     ? { ...entity, name: editorEntityDisplayName(entity) }
     : entity);
   const prefix = `${entityTreeKind(entity)} `;
-  if (!label.toLocaleLowerCase().startsWith(prefix)) return label;
-  const remainder = label.slice(prefix.length);
-  return /^0x[\da-f]+ #\d+(?:\s|$)/i.test(remainder) ? remainder : label;
+  const compact = !label.toLocaleLowerCase().startsWith(prefix)
+    ? label
+    : /^0x[\da-f]+ #\d+(?:\s|$)/i.test(label.slice(prefix.length)) ? label.slice(prefix.length) : label;
+  return entity.origin?.kind === 'imported'
+    ? `${compact} · imported L${entity.origin.sourceLevel ?? entity.provenance?.level ?? '?'}`
+    : compact;
 }

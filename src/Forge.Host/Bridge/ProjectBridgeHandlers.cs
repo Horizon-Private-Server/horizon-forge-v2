@@ -100,6 +100,9 @@ internal static class ProjectBridgeHandlers
         BridgeOpcode.PreviewCatalogGarbageCollection => await PreviewCatalogAsync(frame.Payload, cancellationToken),
         BridgeOpcode.CollectCatalogGarbage => await CollectCatalogAsync(frame.Payload, cancellationToken),
         BridgeOpcode.QueryAssetExplorer => await QueryAssetExplorerAsync(frame.Payload, cancellationToken),
+        BridgeOpcode.GetContentImportCapabilities => ContentImportBridgeHandlers.Capabilities(frame.Payload),
+        BridgeOpcode.PlanContentImport => await ContentImportBridgeHandlers.PlanAsync(
+            frame.Payload, progress, cancellationToken),
         _ => throw new BridgeProtocolException(BridgeErrorCode.UnknownOpcode, $"Unsupported project opcode: {frame.Opcode}"),
     };
 
@@ -340,7 +343,15 @@ internal static class ProjectBridgeHandlers
                     checked((uint)source.TextureUse.OwnerClassId),
                     source.TextureUse.Role,
                     checked((uint)source.TextureUse.Slot),
-                    source.TextureUse.Restorable))).ToArray(),
+                    source.TextureUse.Restorable),
+                source.MobySounds is null ? null : new(
+                    source.MobySounds.Bank.ToString(),
+                    source.MobySounds.Slots.Select(slot => new AssetExplorerSoundSlotPayload(
+                        checked((uint)slot.Slot),
+                        checked((uint)slot.NativeProgramIndex),
+                        slot.Sound?.ToString(),
+                        slot.PreviewSupported,
+                        slot.PreviewBlocker)).ToArray()))).ToArray(),
             classIds.Select(value => checked((uint)value)).ToArray(),
             blobAvailable ? "notCached" : "missingBlob",
             canPlace,

@@ -17,7 +17,7 @@
     "test:settings": "node --experimental-strip-types --test tests/settings.test.ts",
     "test:projects": "node --experimental-strip-types --test tests/projects.test.ts",
     "test:editor-layout": "node --experimental-strip-types --test tests/editor-layout.test.ts",
-    "test:editor-state": "node --experimental-strip-types --test tests/editor-texture-utilities.test.ts tests/editor-reference-utilities.test.ts tests/editor-asset-utilities.test.ts tests/editor-scene-utilities.test.ts tests/editor-command-result.test.ts tests/level-settings.test.ts",
+    "test:editor-state": "node --experimental-strip-types --test tests/editor-texture-utilities.test.ts tests/editor-reference-utilities.test.ts tests/editor-asset-utilities.test.ts tests/editor-scene-utilities.test.ts tests/editor-command-result.test.ts tests/level-settings.test.ts tests/sound-workspace.test.ts tests/content-import-qualification.test.ts tests/moby-simulation.test.ts",
     "test:keybindings": "node --experimental-strip-types --test tests/keybindings.test.ts",
     "test:scene-projection": "node --experimental-strip-types --test tests/scene-projection.test.ts",
     "test:release": "node --test tests/nightly-version.test.mjs",

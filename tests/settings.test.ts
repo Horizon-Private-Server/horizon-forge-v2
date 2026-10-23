@@ -14,6 +14,7 @@ import {
   serializeUyaCollisionVisualization,
 } from '../src/utils/UyaCollisionVisualization.ts';
 import { readHideEmptyGroups } from '../src/utils/GroupVisibility.ts';
+import { readSoundPreviewPreferences } from '../src/utils/SoundPreviewPreferences.ts';
 
 test('settings validate defaults and preserve unknown keys', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'forge-settings-'));
@@ -46,6 +47,9 @@ test('settings validate defaults and preserve unknown keys', async () => {
     assert.equal(invalid.entries.find((entry) => entry.key === 'keybindings.overrides')?.value, '{}');
     assert.equal(invalid.entries.find((entry) => entry.key === 'updates.automaticChecks')?.value, true);
     assert.equal(invalid.entries.find((entry) => entry.key === 'updates.channel')?.value, 'stable');
+    assert.deepEqual(readSoundPreviewPreferences(invalid.entries), {
+      directVolume: 0.75, directMuted: false, ambientVolume: 0.75, ambientMuted: false,
+    });
     assert.equal((await new SettingsStore(paths, 'nightly').getSnapshot()).entries
       .find((entry) => entry.key === 'updates.channel')?.value, 'nightly');
     assert.match(invalid.diagnostics.join('\n'), /editor\.autosaveSeconds/);
@@ -59,6 +63,9 @@ test('settings validate defaults and preserve unknown keys', async () => {
     await store.set('ui.componentSize', 'lg');
     await store.set('ui.selectionColor', '#123456');
     await store.set('ui.sceneTreeColors.tie', '#00ffff');
+    await store.set('preview.sound.directVolume', 0.42);
+    await store.set('preview.sound.directMuted', true);
+    await store.set('preview.sound.ambientVolume', 0.35);
     const persisted = JSON.parse(await readFile(paths.settingsFile, 'utf8'));
     assert.deepEqual(persisted['future.setting'], { enabled: true });
     assert.equal(persisted['editor.autosaveSeconds'], 1);
@@ -70,6 +77,10 @@ test('settings validate defaults and preserve unknown keys', async () => {
     assert.equal(persisted['ui.componentSize'], 'lg');
     assert.equal(persisted['ui.selectionColor'], '#123456');
     assert.equal(persisted['ui.sceneTreeColors.tie'], '#00ffff');
+    assert.equal(persisted['preview.sound.directVolume'], 0.42);
+    assert.equal(persisted['preview.sound.directMuted'], true);
+    assert.equal(persisted['preview.sound.ambientVolume'], 0.35);
+    await assert.rejects(() => store.set('preview.sound.directVolume', 1.01), /Invalid value/);
 
     const resetColor = await store.reset('ui.sceneTreeColors.tie');
     assert.equal(resetColor.entries.find((entry) => entry.key === 'ui.sceneTreeColors.tie')?.value, '#ffd8b1');

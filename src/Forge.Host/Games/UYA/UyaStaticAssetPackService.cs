@@ -32,7 +32,19 @@ internal static class UyaStaticAssetPackService
         var staticAssets = new List<StaticAssetInput>();
         var sourceStaticAssetKeys = new HashSet<(TextureAssetFamily Family, int ClassId)>();
         var sourceLevel = $"level{baseLevel.Level:00}";
-        var staticModelsChanged = false;
+        var replacedFamilies = workspace.Content.ImportBatches
+            .SelectMany(value => value.Families)
+            .Where(value => value.Mode == ContentImportMode.Replace)
+            .Select(value => value.Family switch
+            {
+                "ties" => TextureAssetFamily.Tie,
+                "shrubs" => TextureAssetFamily.Shrub,
+                "mobys" => TextureAssetFamily.Moby,
+                _ => (TextureAssetFamily?)null,
+            })
+            .OfType<TextureAssetFamily>()
+            .ToHashSet();
+        var staticModelsChanged = replacedFamilies.Count > 0;
         foreach (var layer in UyaStaticLayerSchema.Layers)
         {
             var root = SnapshotRoot(staging, layer);
@@ -41,13 +53,14 @@ internal static class UyaStaticAssetPackService
             foreach (var definition in manifest.Definitions)
             {
                 var entry = catalog.Query(new(Id: definition.Asset.Id)).SingleOrDefault();
+                var attached = workspace.Content.Assets.Any(value => value.Id == definition.Asset.Id);
                 var custom = layer == BakeLayerId.Ties
                     && workspace.Content.CustomModels.Models.Any(model => model.Canonical == definition.Asset);
-                if (!custom && (entry is null
+                if (!custom && !attached && (entry is null
                     || entry.CanonicalFormatVersion != UyaAssetImportService.CanonicalFormatVersion))
                     throw new InvalidDataException(
                         $"{layer} definition {definition.ClassId:X4} has no current canonical asset.");
-                var fromSourceLevel = entry?.Sources.Any(value =>
+                var fromSourceLevel = !attached && entry?.Sources.Any(value =>
                     value.Game == baseLevel.Game
                     && value.Region == baseLevel.Region
                     && value.Revision == baseLevel.Revision
@@ -78,7 +91,7 @@ internal static class UyaStaticAssetPackService
                 : UyaClassIdListWriter.Compose(sourceClasses.Bytes, requiredClasses));
             replacements.Add($"gameplay/core/{familyName}_instances.bin",
                 await File.ReadAllBytesAsync(Path.Combine(root, "instances.bin"), cancellationToken));
-            if (layer is BakeLayerId.Ties or BakeLayerId.Shrubs)
+            if (layer is BakeLayerId.Ties or BakeLayerId.Shrubs or BakeLayerId.Mobys)
             {
                 var referenceFiles = new List<(string Name, string Path)>
                 {
@@ -96,8 +109,10 @@ internal static class UyaStaticAssetPackService
         }
 
         if (staticModelsChanged)
+        {
             staticAssets = IncludeSourceStaticAssets(
-                sourceLevelWad.Span, staticAssets, sourceStaticAssetKeys).ToList();
+                sourceLevelWad.Span, staticAssets, sourceStaticAssetKeys, replacedFamilies).ToList();
+        }
         var staticAssetsChanged = staticModelsChanged || customTfragTextures.Count > 0;
         // Preserve retail static model payloads unless a model actually changed. Full
         // recomposition is not byte-compatible with every retail class and can make the
@@ -145,7 +160,8 @@ internal static class UyaStaticAssetPackService
     internal static IReadOnlyList<StaticAssetInput> IncludeSourceStaticAssets(
         ReadOnlySpan<byte> sourceLevelWad,
         IReadOnlyList<StaticAssetInput> selected,
-        IReadOnlySet<(TextureAssetFamily Family, int ClassId)>? sourceAssetKeys = null)
+        IReadOnlySet<(TextureAssetFamily Family, int ClassId)>? sourceAssetKeys = null,
+        IReadOnlySet<TextureAssetFamily>? replacedFamilies = null)
     {
         var extracted = LevelAssetExtractor.ExtractLevelWad(GameId.UYA, sourceLevelWad.ToArray());
         if (extracted.FailedAssetCount > 0)
@@ -184,7 +200,8 @@ internal static class UyaStaticAssetPackService
                 : value;
         }).ToArray();
         var selectedKeys = selected.Select(value => (value.Family, value.ClassId)).ToHashSet();
-        return source.Values.Where(value => !selectedKeys.Contains((value.Family, value.ClassId)))
+        return source.Values.Where(value => !selectedKeys.Contains((value.Family, value.ClassId))
+                && replacedFamilies?.Contains(value.Family) != true)
             .Concat(selected)
             .ToArray();
     }

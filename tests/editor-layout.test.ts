@@ -32,7 +32,7 @@ test('default editor layout matches the established three-column workspace', () 
   } as never);
   assert.deepEqual(panels.map((panel) => panel.id), [
     'sceneTree', 'viewport', 'build', 'levelSettings', 'diagnostics', 'groups',
-    'properties', 'hudBank', 'fxTextures', 'assetPreview', 'references', 'assetExplorer', 'customAssets',
+    'properties', 'hudBank', 'fxTextures', 'sounds', 'assetPreview', 'references', 'assetExplorer', 'customAssets',
   ]);
   assert.deepEqual(panels.find((panel) => panel.id === 'viewport'), {
     id: 'viewport', component: 'viewport', title: 'Viewport', initialWidth: 2194,
@@ -101,6 +101,24 @@ test('reopened HUD Bank rejoins the main viewport group', () => {
     getPanel: (id: string) => id === 'viewport' ? { id } : undefined,
     addPanel: (panel: Record<string, unknown>) => { added = panel; },
   } as never, 'hudBank');
+  assert.deepEqual(added?.position, { referencePanel: 'viewport', direction: 'within' });
+});
+
+test('reopened Sounds rejoins the main viewport group', () => {
+  let added: Record<string, unknown> | undefined;
+  showEditorPanel({
+    getPanel: (id: string) => id === 'viewport' ? { id } : undefined,
+    addPanel: (panel: Record<string, unknown>) => { added = panel; },
+  } as never, 'sounds');
+  assert.deepEqual(added?.position, { referencePanel: 'viewport', direction: 'within' });
+});
+
+test('reopened Imports rejoins the main viewport group', () => {
+  let added: Record<string, unknown> | undefined;
+  showEditorPanel({
+    getPanel: (id: string) => id === 'viewport' ? { id } : undefined,
+    addPanel: (panel: Record<string, unknown>) => { added = panel; },
+  } as never, 'imports');
   assert.deepEqual(added?.position, { referencePanel: 'viewport', direction: 'within' });
 });
 

@@ -29,19 +29,27 @@ internal static class UyaCustomTfragProjectService
             .Where(value => importIds.Contains(value.ImportId)).ToArray();
         if (removedImports.Length != importIds.Count)
             throw new InvalidDataException("Custom terrain import ownership is inconsistent.");
-        var selectedNative = selected.Where(entity => entity.Tfrag!.CustomImportId is null).ToArray();
+        var ownerIds = selected.Select(entity => entity.Tfrag!.ImportedOwnerId)
+            .OfType<string>().ToHashSet(StringComparer.Ordinal);
+        var removedOwners = workspace.Content.Tfrags.ImportedOwners
+            .Where(value => ownerIds.Contains(value.OwnerId)).ToArray();
+        if (removedOwners.Length != ownerIds.Count)
+            throw new InvalidDataException("Imported terrain owner state is inconsistent.");
+        var selectedNative = selected.Where(entity => entity.Tfrag is
+            { CustomImportId: null, ImportedOwnerId: null }).ToArray();
         foreach (var source in selectedNative.GroupBy(entity => (
                      entity.Tfrag!.SourceKind, entity.Tfrag.SourceIndex, entity.Tfrag.SourceArchive)))
         {
             var available = workspace.Content.Entities.Count(entity => entity.Tfrag is
-                { CustomImportId: null } tfrag
+                { CustomImportId: null, ImportedOwnerId: null } tfrag
                 && (tfrag.SourceKind, tfrag.SourceIndex, tfrag.SourceArchive) == source.Key);
             if (source.Count() != available)
                 throw new InvalidOperationException(
                     "Delete every vanilla tfrag in the source together; partial native terrain deletion is not supported yet.");
         }
         var removedIds = selectedNative.Select(value => value.EntityId)
-            .Concat(removedImports.SelectMany(value => value.Pieces)).ToHashSet();
+            .Concat(removedImports.SelectMany(value => value.Pieces))
+            .Concat(removedOwners.SelectMany(value => value.Pieces)).ToHashSet();
         var removedEntities = workspace.Content.Entities.Where(entity => removedIds.Contains(entity.EntityId))
             .ToArray();
         if (removedEntities.Length != removedIds.Count)
@@ -63,6 +71,8 @@ internal static class UyaCustomTfragProjectService
             }).ToArray(),
             CustomImports = workspace.Content.Tfrags.CustomImports
                 .Where(value => !importIds.Contains(value.ImportId)).ToArray(),
+            ImportedOwners = workspace.Content.Tfrags.ImportedOwners
+                .Where(value => !ownerIds.Contains(value.OwnerId)).ToArray(),
         };
         await workspace.CommitTfragStructureAsync(state, entities, cancellationToken);
         return removedIds.OrderBy(value => value.ToString(), StringComparer.Ordinal).ToArray();

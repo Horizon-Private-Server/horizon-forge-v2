@@ -63,6 +63,122 @@ public sealed record CatalogCollectionRequestPayload(
     string CatalogRootPath,
     IReadOnlyList<string> ProjectRoots,
     string ConfirmationToken);
+public sealed record ContentImportFamilyInventoryPayload(
+    string Family,
+    uint State,
+    string? Diagnostic = null);
+public sealed record ContentImportCapabilityRequestPayload(
+    string TargetGame,
+    string TargetRegion,
+    string TargetRevision,
+    IReadOnlyList<ContentImportFamilyInventoryPayload> Inventory);
+public sealed record ContentImportFamilyCapabilityPayload(
+    string Family,
+    string Label,
+    uint Mode,
+    uint SourceState,
+    bool ImplementationReady,
+    bool Selectable,
+    bool DefaultSelectedWhenReady,
+    bool DefaultSelected,
+    string? DisabledReason,
+    string Ownership,
+    IReadOnlyList<string> Dependencies,
+    string ConflictNamespace,
+    string NativeSemantics,
+    string ProtectedSurvivorPolicy,
+    string NoEditIdentity,
+    IReadOnlyList<string> Limits,
+    IReadOnlyList<string> Evidence);
+public sealed record ContentImportCapabilityMatrixPayload(
+    uint SchemaVersion,
+    string Game,
+    string Region,
+    string Revision,
+    IReadOnlyList<ContentImportFamilyCapabilityPayload> Families);
+public sealed record ContentImportSelectionPayload(string Family, uint Mode);
+public sealed record ContentImportReferenceChoicePayload(
+    int OwnerSourceIndex,
+    string FieldKey,
+    int SourceValue,
+    uint Action,
+    string? TargetEntityId);
+public sealed record ContentImportReferenceRequirementPayload(
+    string Family,
+    int OwnerSourceIndex,
+    string FieldKey,
+    int SourceValue,
+    uint TargetKind,
+    bool Nullable,
+    IReadOnlyList<string> CandidateEntityIds);
+public sealed record ContentImportPlanRequestPayload(
+    string ProjectPath,
+    string CatalogRootPath,
+    string SourceIsoPath,
+    string SourceFingerprint,
+    uint SourceLevel,
+    IReadOnlyList<ContentImportSelectionPayload> Selections);
+public sealed record ContentImportApplyRequestPayload(
+    string ProjectPath,
+    string CatalogRootPath,
+    string SourceIsoPath,
+    string SourceFingerprint,
+    uint SourceLevel,
+    string BatchId,
+    IReadOnlyList<ContentImportSelectionPayload> Selections,
+    IReadOnlyList<ContentImportReferenceChoicePayload> ReferenceChoices);
+public sealed record ContentImportFamilyPlanPayload(
+    string Family,
+    string Label,
+    uint SupportedMode,
+    uint Mode,
+    uint SourceState,
+    bool Selected,
+    bool DefaultSelected,
+    bool Selectable,
+    IReadOnlyList<string> Add,
+    IReadOnlyList<string> Reuse,
+    IReadOnlyList<string> Remap,
+    IReadOnlyList<string> Remove,
+    IReadOnlyList<string> Protect,
+    IReadOnlyList<string> DependencyReasons,
+    IReadOnlyList<string> Conflicts,
+    ulong EstimatedBytes,
+    IReadOnlyList<string> Warnings,
+    IReadOnlyList<string> Blockers);
+public sealed record ContentImportPlanPayload(
+    uint SchemaVersion,
+    uint CapabilitySchemaVersion,
+    string BatchId,
+    string Game,
+    string Region,
+    string Revision,
+    string SourceFingerprint,
+    string SourceLevelHash,
+    uint SourceLevel,
+    string TargetProjectId,
+    string TargetFingerprint,
+    uint TargetLevel,
+    ulong EstimatedBytes,
+    IReadOnlyList<ContentImportFamilyPlanPayload> Families,
+    IReadOnlyList<string> Warnings,
+    IReadOnlyList<string> Blockers,
+    IReadOnlyList<ContentImportReferenceRequirementPayload> ReferenceRequirements);
+public sealed record ContentImportRemovalPlanRequestPayload(string ProjectPath, string BatchId);
+public sealed record ContentImportRemovalApplyRequestPayload(
+    string ProjectPath,
+    string BatchId,
+    string TargetFingerprint);
+public sealed record ContentImportRemovalSurvivorPayload(string StableId, string Reason);
+public sealed record ContentImportRemovalPlanPayload(
+    uint SchemaVersion,
+    string BatchId,
+    string TargetFingerprint,
+    IReadOnlyList<string> Delete,
+    IReadOnlyList<ContentImportRemovalSurvivorPayload> Survivors,
+    IReadOnlyList<string> Shared,
+    IReadOnlyList<string> Protected,
+    IReadOnlyList<string> Warnings);
 public enum AssetExplorerCategoryPayload
 {
     Ties = 1,
@@ -93,6 +209,15 @@ public sealed record AssetExplorerTextureUsePayload(
     string Role,
     uint Slot,
     bool Restorable);
+public sealed record AssetExplorerSoundSlotPayload(
+    uint Slot,
+    uint NativeProgramIndex,
+    string? SoundAssetId,
+    bool PreviewSupported,
+    string? PreviewBlocker);
+public sealed record AssetExplorerMobySoundUsePayload(
+    string BankAssetId,
+    IReadOnlyList<AssetExplorerSoundSlotPayload> Slots);
 public sealed record AssetExplorerSourcePayload(
     string Game,
     string Region,
@@ -100,7 +225,8 @@ public sealed record AssetExplorerSourcePayload(
     string Level,
     string Archive,
     uint SourceIndex,
-    AssetExplorerTextureUsePayload? TextureUse = null);
+    AssetExplorerTextureUsePayload? TextureUse = null,
+    AssetExplorerMobySoundUsePayload? MobySounds = null);
 public sealed record AssetExplorerItemPayload(
     string AssetId,
     AssetExplorerCategoryPayload Category,

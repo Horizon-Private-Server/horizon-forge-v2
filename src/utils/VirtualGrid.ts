@@ -22,9 +22,13 @@ export function virtualGridWindow(
   scrollTop: number,
   minimumCardWidth: number,
   rowHeight: number,
+  maximumColumns = Number.POSITIVE_INFINITY,
 ): VirtualGridWindow {
   const gap = 8;
-  const columns = Math.max(1, Math.floor((Math.max(minimumCardWidth, width) + gap) / minimumCardWidth));
+  const columns = Math.min(
+    Math.max(1, Math.floor(maximumColumns)),
+    Math.max(1, Math.floor((Math.max(minimumCardWidth, width) + gap) / minimumCardWidth)),
+  );
   const rows = Math.ceil(itemCount / columns);
   const startRow = Math.max(0, Math.floor(Math.max(0, scrollTop) / rowHeight) - 2);
   const endRow = Math.min(rows, Math.ceil((Math.max(0, scrollTop) + Math.max(1, height)) / rowHeight) + 2);

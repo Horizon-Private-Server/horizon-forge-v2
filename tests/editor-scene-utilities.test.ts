@@ -14,7 +14,7 @@ import {
 } from '../src/utils/SceneGroups.ts';
 import {
   buildSceneEntityGroups, buildSkyTreeItems, buildTerrainTreeItems, entityStateLabel,
-  entityTreeKind, entityTreeText, nextTreeSelection, nextViewportSelection,
+  entityTreeKind, entityTreeText, nextTreeSelection, nextViewportSelection, sceneEntityMatchesFilter,
 } from '../src/utils/SceneSelection.ts';
 import { parseSplinePointId, removeSplinePoints, splinePointId } from '../src/utils/SplinePoints.ts';
 
@@ -68,6 +68,20 @@ test('scene tree grouping filters, labels states, and returns every result', () 
   assert.equal(buildSceneEntityGroups([named], 'blitz gun').matched, 1);
   assert.equal(entityTreeText(entity(42)), 'Moby 42 [dirty, locked, missing asset]');
   assert.equal(entityTreeText({ ...entity(42), name: 'Custom name' }), 'Custom name [dirty, locked, missing asset]');
+  assert.equal(entityTreeText({
+    ...entity(7),
+    origin: { kind: 'imported', sourceLevel: 5, importBatchId: `import-${'a'.repeat(32)}` },
+  }), 'Moby 7 · imported L5');
+  const imported = {
+    ...entity(7), origin: { kind: 'imported' as const, sourceLevel: 5, importBatchId: `import-${'a'.repeat(32)}` },
+  };
+  assert.equal(buildSceneEntityGroups([entity(1), imported], 'imported').matched, 1);
+  assert.equal(buildSceneEntityGroups([entity(1), imported], 'level 5').matched, 1);
+  assert.equal(buildSceneEntityGroups([entity(1), imported], imported.origin.importBatchId).matched, 1);
+  assert.equal(sceneEntityMatchesFilter({ ...imported, tfrag: {
+    sourceArchive: 'level41.wad', sourceKind: 'primary', sourceIndex: 0, groupIndex: 0, textureIds: [], occlusionIndex: -1,
+    occlusionIndexStash: 0,
+  } }, imported.origin.importBatchId, 'primary tfrag terrain'), true);
 });
 
 test('scene tree keeps every populated layer visible', () => {

@@ -13,7 +13,7 @@ internal static class MobyDexProjectTests
             ?? throw new InvalidOperationException("Expected built-in UYA MobyDex entry.");
         Equal(MobyDexEntrySource.BuiltIn, builtIn.Source, "built-in source");
         Equal("forge.uya.builtin", builtIn.DatasetId, "built-in dataset ID");
-        Equal(2, builtIn.DatasetVersion, "built-in dataset version");
+        Equal(3, builtIn.DatasetVersion, "built-in dataset version");
         Equal(75, dataset.Entries.Count, "embedded UYA dataset entry count");
         Equal(75, dataset.Entries.Select(entry => entry.OClass).Distinct().Count(),
             "embedded UYA dataset has unique OClasses");
@@ -27,13 +27,19 @@ internal static class MobyDexProjectTests
         Equal("array", hill.PVar!.Fields.Single().Definition!.Kind, "UYA Hill cuboids are an array");
         Equal(32, hill.PVar.Fields.Single().Definition!.Count, "UYA Hill cuboid count");
         Equal(MobyDexSchema.CurrentVersion, builtIn.SchemaVersion, "built-in entry schema");
+        var water = catalog.Resolve(null, "UYA", 2871)?.Entry
+            ?? throw new InvalidOperationException("Expected built-in UYA Water entry.");
+        Equal(0x30, water.PVar!.Fields.Single(field => field.Key == "overlayColor").Offset,
+            "Water overlay color uses the native pass at 0x30");
+        Equal(0x34, water.PVar.Fields.Single(field => field.Key == "underlayColor").Offset,
+            "Water underlay color uses the native pass at 0x34");
         Equal(null, catalog.Resolve(null, "UYA", 1), "missing entry remains unresolved");
 
         var replacementEntry = builtIn.Entry with { Name = "Reloaded gravity-bomb ammo" };
-        catalog.Reload(dataset with { Version = 3, Entries = [replacementEntry] });
+        catalog.Reload(dataset with { Version = 4, Entries = [replacementEntry] });
         Equal("Reloaded gravity-bomb ammo", catalog.Resolve(null, "UYA", 6300)!.Entry.Name,
             "reload replaces built-in entry");
-        Equal(3, catalog.Dataset.Version, "reload replaces dataset metadata");
+        Equal(4, catalog.Dataset.Version, "reload replaces dataset metadata");
         Throws<InvalidDataException>(() => catalog.Reload(
             dataset with { Entries = [replacementEntry, replacementEntry] }));
         Equal("Reloaded gravity-bomb ammo", catalog.Resolve(null, "UYA", 6300)!.Entry.Name,

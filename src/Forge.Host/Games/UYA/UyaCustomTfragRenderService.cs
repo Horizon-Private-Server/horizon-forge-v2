@@ -3,7 +3,6 @@ using Forge.Host.Domain;
 using RatchetPs2.Core.Games;
 using RatchetPs2.Core.IO;
 using RatchetPs2.Core.LevelAssets;
-using RatchetPs2.Core.Tfrags;
 using RatchetPs2.Core.Wad;
 using RatchetPs2.Core.Wad.Models;
 using RatchetPs2.Sdk;
@@ -14,32 +13,10 @@ internal static class UyaCustomTfragRenderService
 {
     internal static string? CreateRevision(ForgeProjectWorkspace workspace)
     {
-        var customEntities = workspace.Content.Entities
-            .Where(entity => entity.Asset is { Kind: AssetKind.Tfrag }
-                && entity.Tfrag?.CustomImportId is not null)
-            .OrderBy(entity => entity.Tfrag!.SourceIndex)
-            .ThenBy(entity => entity.Tfrag!.GroupIndex)
-            .ToArray();
-        if (customEntities.Length == 0) return null;
-        var textures = workspace.Content.Tfrags?.CustomImports
-            .SelectMany(value => value.Textures)
-            .Select(value => value.Id.ToString())
-            .Order(StringComparer.Ordinal)
-            .ToArray() ?? [];
-        var identity = ForgeProjectPersistence.Serialize(new
-        {
-            CompositionVersion = TfragPieceConverter.CompositionVersion,
-            NativeTerrainGenerationVersion = StaticModelTfragConverter.GetNativeTerrainGenerationVersion(GameId.UYA),
-            Pieces = customEntities.Select(entity => new
-            {
-                entity.EntityId,
-                AssetId = entity.Asset!.Id,
-                entity.Tfrag!.SourceIndex,
-                entity.Tfrag.GroupIndex,
-                entity.Tfrag.SourcePosition,
-            }).ToArray(),
-            Textures = textures,
-        });
+        if (workspace.Content.Tfrags is not { } state
+            || state.CustomImports.Count == 0 && state.ImportedOwners.Count == 0)
+            return null;
+        var identity = UyaTfragBakeService.CreateFingerprintSettings(workspace);
         return Convert.ToHexString(SHA256.HashData(identity)).ToLowerInvariant()[..16];
     }
 
@@ -50,7 +27,8 @@ internal static class UyaCustomTfragRenderService
         AssetCatalogStore catalog,
         CancellationToken cancellationToken)
     {
-        if (workspace.Content.Tfrags?.CustomImports.Count is not > 0)
+        if (workspace.Content.Tfrags is not { } state
+            || state.CustomImports.Count == 0 && state.ImportedOwners.Count == 0)
             return await Task.Run(() => FrontendMapPackageBuilder.BuildLevelWadPart(
                 levelWad, GameId.UYA, FrontendMapAssetGroup.Terrain), cancellationToken);
 
@@ -66,7 +44,12 @@ internal static class UyaCustomTfragRenderService
 
         var sourceAssets = LevelArchiveReader.ReadAssetSourceFiles(GameId.UYA, levelWad);
         var customTextures = await UyaCustomTfragTextureService.ComposeAsync(
-            workspace, terrain, cancellationToken);
+            workspace,
+            new Dictionary<(ProjectTfragSourceKind, int), byte[]>
+            {
+                [(ProjectTfragSourceKind.Primary, 0)] = terrain,
+            },
+            cancellationToken);
 
         var sourceAssetPayload = BinaryMagic.IsWad(sourceAssets.AssetWadBytes)
             ? WadCompression.Decompress(sourceAssets.AssetWadBytes, new(), cancellationToken)
@@ -81,7 +64,9 @@ internal static class UyaCustomTfragRenderService
         terrain = TfragTerrainComposer.FinalizeTerrain(
             GameId.UYA,
             terrain,
-            customTextures.TextureAssetIdsByGroup,
+            customTextures.TextureAssetIdsByOwner.GetValueOrDefault(
+                (ProjectTfragSourceKind.Primary, 0))
+                ?? new Dictionary<int, IReadOnlyDictionary<int, string>>(),
             staticComposition.TerrainTextures,
             firstOcclusionMappingIndex: null,
             cancellationToken);

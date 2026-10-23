@@ -481,6 +481,7 @@ internal static class EditorPayloadCodec
                 writer.WriteBoolean(template.SeedEntityId is not null);
                 if (template.SeedEntityId is { } seedEntityId) writer.WriteString(seedEntityId.ToString());
             }
+            WriteContentOrigin(writer, group.Origin);
         }
         if (value.MapGroups.Count > ProjectGroupSchema.MaximumGroupCount)
             PayloadFormat.Malformed("Map group list exceeds item limit");
@@ -520,6 +521,31 @@ internal static class EditorPayloadCodec
                 writer.WriteDouble(parameter.Maximum);
                 writer.WriteDouble(parameter.Step);
             }
+        }
+        if (value.ImportBatches.Count > ContentImportBatchSchema.MaximumBatches)
+            PayloadFormat.Malformed("Import batch list exceeds item limit");
+        writer.WriteUInt32((uint)value.ImportBatches.Count);
+        foreach (var batch in value.ImportBatches)
+        {
+            if (batch.Families.Count > ContentImportBatchSchema.MaximumFamilies)
+                PayloadFormat.Malformed("Import batch family list exceeds item limit");
+            writer.WriteString(batch.BatchId);
+            writer.WriteUInt64(checked((ulong)batch.ImportedUnixMilliseconds));
+            writer.WriteString(batch.SourceGame);
+            writer.WriteString(batch.SourceRegion);
+            writer.WriteString(batch.SourceRevision);
+            writer.WriteString(batch.SourceFingerprint);
+            writer.WriteUInt32(checked((uint)batch.SourceLevel));
+            writer.WriteUInt32((uint)batch.Families.Count);
+            foreach (var family in batch.Families)
+            {
+                writer.WriteString(family.Family);
+                writer.WriteUInt32((uint)family.Mode);
+            }
+            writer.WriteUInt32(checked((uint)batch.AddedCount));
+            writer.WriteUInt32(checked((uint)batch.ReusedCount));
+            writer.WriteUInt32(checked((uint)batch.ReplacedCount));
+            writer.WriteUInt32(checked((uint)batch.ProtectedCount));
         }
         WriteEntityIds(writer, value.Selection);
         writer.WriteBoolean(value.IsDirty);
@@ -903,6 +929,18 @@ internal static class EditorPayloadCodec
         writer.WriteBoolean(value.State.ReadOnly);
         writer.WriteBoolean(value.State.Invalid);
         writer.WriteBoolean(value.State.MissingAsset);
+        WriteContentOrigin(writer, value.Origin);
+    }
+
+    private static void WriteContentOrigin(PayloadWriter writer, EditorContentOrigin? value)
+    {
+        writer.WriteBoolean(value is not null);
+        if (value is null) return;
+        writer.WriteUInt32((uint)value.Kind);
+        writer.WriteBoolean(value.ImportBatchId is not null);
+        if (value.ImportBatchId is not null) writer.WriteString(value.ImportBatchId);
+        writer.WriteBoolean(value.SourceLevel is not null);
+        if (value.SourceLevel is { } sourceLevel) writer.WriteUInt32(checked((uint)sourceLevel));
     }
 
     private static void WriteInstancedCollisionRecipe(PayloadWriter writer, ProjectInstancedCollisionRecipe value)

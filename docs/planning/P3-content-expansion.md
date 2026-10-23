@@ -1,8 +1,22 @@
 # P3 — Content expansion and runtime fidelity
 
-Status: In progress — M14-001 through M14-006 are complete; the shared importer and
-M12 writer now also support project-local custom tfrag terrain; M14-007 qualification
-remains
+Status: In progress — M14-001 through M14-006, M15-001 through M15-005,
+M16-001 through M16-008, and M17-001, M17-002, and M17-004 are complete; the corrected
+M17-003 ocean renderer awaits visual validation. Safe whole-family Moby model, PVar,
+stable-reference, native-group, sound-closure, and explicit cross-family reference
+import are implemented. The import workflow now has the apply UI, explicit external Moby-reference
+mapping, and entity, group, property, asset-use, and sound origin projection; singleton
+replacement now supports atomic whole-composition skybox swaps, target-native level-
+settings replacement with explicit reference rebinding, and selector-safe whole-array
+directional-light replacement. Whole-bank HUD replacement now attaches the donor source
+and preview textures for portable deterministic baking. Whole-bank FX replacement now
+attaches every donor texture and rebuilds the exact donor index count while relocating
+unrelated target assets. The Imports panel now provides batch-report filtering,
+live-content selection, entity focus, Scene filtering from origin links, and dependency-
+safe removal previews with stale-plan-guarded atomic apply and undo/redo. Collision now
+supports portable whole-family add/replace for solid pieces and player barriers while
+preserving native face types and explicit static-instance links. Final packaged/PCSX2
+qualification remains.
 Priority: P3
 Depends on: P2 authoring contracts by task; P2 release qualification before P3 release
 Task register: [P3 tasks](tasks/P3-tasks.md)
@@ -28,11 +42,10 @@ mutating the vanilla catalog or source maps.
 - **The first custom model is a static TIE.** Shrub and moby conversion can follow the
   canonical pipeline after the TIE round trip proves material, texture, geometry,
   placement, and native writer contracts. Skins and animation do not block M14.
-- **Project-local custom tfrags are authored assets, not donor import.** They reuse the
-  bounded static-model importer and M12 terrain writer to append primary owner groups,
-  textures, and conservative occlusion mappings. This supplies native composition
-  groundwork for M16-005, but it does not satisfy donor preflight, import-batch
-  provenance, streamed-owner import, or add/replace policy.
+- **Project-local custom tfrags remain distinct from donor import.** Authored terrain
+  uses the bounded static-model pipeline; M16 donor terrain instead retains attached
+  raw primary/streamed owners, canonical three-LOD pieces, terrain textures, and batch
+  provenance for lossless add/replace composition.
 - **P3 completes, rather than duplicates, unfinished P1 model work.** P1-001 and
   P1-002 become M14 foundations; P1-005 and P1-006 are satisfied first for the
   constrained TIE slice. Completed P1 texture quantization remains a dependency.
@@ -45,9 +58,9 @@ mutating the vanilla catalog or source maps.
   are copied into project-attached assets, so reopening or sharing the project never
   requires the donor map.
 - **Import capabilities are explicit per family.** TIEs, shrubs, and tfrags are the
-  default-selected core. Skybox, level settings, and directional lights are
-  replace-only. HUD, FX, and opaque/unsupported payloads cannot be imported over the
-  base. Other families are initially unchecked and enabled only when their dependency
+  default-selected core. Skybox, level settings, directional lights, HUD, and FX are
+  replace-only. Opaque/unsupported payloads cannot be imported over the base.
+  Other families are initially unchecked and enabled only when their dependency
   closure and writer are proven.
 - **A sound is not assumed to be one PCM blob.** 989snd banks contain playable sound
   entries, grains/program behavior, sample payloads, and metadata. P3 assigns identity
@@ -212,8 +225,8 @@ per family. UYA initially presents:
 
 - TIEs, shrubs, and tfrags checked by default with add/replace where validated;
 - other validated entity/asset families unchecked by default;
-- skybox, level settings, and directional lights as replace-only; and
-- HUD, FX, opaque payloads, and target-incompatible families as unavailable.
+- skybox, level settings, directional lights, HUD, and FX as replace-only; and
+- opaque payloads and target-incompatible families as unavailable.
 
 The UI never enables a family merely because source bytes were discovered. A reader,
 dependency contract, project representation, native writer, and qualification fixture
@@ -446,6 +459,9 @@ Exit: a level 41 project imports selected level 40 TIE/tfrag/shrub content, then
 optional moby with sounds, remains self-contained, builds deterministically, and can
 remove/undo the batch without damaging base or shared referenced content.
 
+Qualification status and the retained packaged/runtime matrix are tracked in the
+[M16 cross-map import record](../qualification/M16-cross-map-import.md).
+
 ### M17 — Moby simulation framework and ocean plane
 
 Deliver the shared fixed-step simulation lifecycle and the UYA `0x0B37` ocean plane
@@ -482,7 +498,8 @@ hardware checks while failures retain the last known-good project and staging ou
 - Skinning, animation, morph targets, arbitrary shader graphs, and a model editor.
 - A global custom-asset repository or publishing marketplace.
 - Cross-game donor import or automatic semantic translation between incompatible games.
-- General WAV/VAG authoring, music/stream editing, and full 989snd grain emulation.
+- General WAV/VAG authoring, music/stream editing, external 989snd plug-ins/cross-bank
+  named dispatch, and hardware-exact SPU envelope/reverb emulation.
 - Gameplay-accurate moby simulation, physics, scripts, networking, or simulation bake.
 - User-authored GPU shaders/occlusion algorithms and cloud/distributed generation.
 - Claiming PCSX2 or estimated GS cost as identical to every real PS2 workload.

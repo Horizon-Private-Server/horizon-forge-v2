@@ -18,6 +18,7 @@ import {
   readUyaCollisionVisualization,
 } from '../utils/UyaCollisionVisualization.ts';
 import { EditorWorkspace } from './editor/EditorWorkspace.tsx';
+import { MapContentImportDialog } from './editor/MapContentImportDialog.tsx';
 import { useForgeActions } from './hooks/UseForgeActions.ts';
 import { useKeyboardContext } from './hooks/UseKeyboardContext.ts';
 import { useNotifications } from './hooks/UseNotifications.ts';
@@ -52,16 +53,19 @@ function ForgeApp({ uiSize, onUiSizeChange }: { uiSize: UiSize; onUiSizeChange(v
   const [keybindings, setKeybindings] = useState<KeybindingMap>(() => resolveKeybindings({}));
   const [setupOpened, setSetupOpened] = useState(false);
   const [hubRefresh, setHubRefresh] = useState(0);
+  const [contentImportRevision, setContentImportRevision] = useState(0);
   const {
     activeProject,
     editorError,
     hubAction,
     layoutAction,
+    contentImportOpened,
     handleForgeAction,
     isSaving,
     openProject,
     setActiveProject,
     clearEditorError,
+    closeContentImport,
   } = useForgeActions(setSetupOpened, setSettingsOpened);
   useKeyboardContext(keybindings, handleForgeAction);
   const notificationCenter = useNotifications();
@@ -165,6 +169,7 @@ function ForgeApp({ uiSize, onUiSizeChange }: { uiSize: UiSize; onUiSizeChange(v
             collisionVisualization={collisionVisualization}
             hostStatus={hostStatus}
             layoutAction={layoutAction}
+            renderRevision={contentImportRevision}
             showViewportStats={showViewportStats}
             onProjectChange={setActiveProject}
           />
@@ -194,6 +199,15 @@ function ForgeApp({ uiSize, onUiSizeChange }: { uiSize: UiSize; onUiSizeChange(v
         setSetupOpened(false);
         setHubRefresh((value) => value + 1);
       }} />
+      {activeProject && <MapContentImportDialog
+        opened={contentImportOpened}
+        project={activeProject}
+        onClose={closeContentImport}
+        onApplied={(snapshot) => {
+          setActiveProject(snapshot);
+          setContentImportRevision((value) => value + 1);
+        }}
+      />}
     </main>
   );
 }

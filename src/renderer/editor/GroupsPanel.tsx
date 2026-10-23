@@ -357,15 +357,26 @@ function SemanticGroupNode({
   onRename(): void;
   onRegenerate(): void;
 }) {
-  const { project, execute } = useEditor();
+  const { project, execute, openImportBatch } = useEditor();
   const memberIds = new Set(source.members);
   const selectedToAdd = project.selection.filter((entityId) => !memberIds.has(entityId));
   const groupIndex = project.groups.findIndex((candidate) => candidate.id === group.id);
   const missingCount = group.members.filter((member) => member.missing).length;
   const label = <SceneTreeLabel kind={groupTreeKind(entities)}>
     {group.name} ({group.members.length}){missingCount ? ` [${missingCount} missing]` : ''}
+    {source.origin?.kind === 'imported' && ` · imported L${source.origin.sourceLevel ?? '?'}`}
   </SceneTreeLabel>;
   const actions = <>
+    {source.origin?.importBatchId && <Button
+      aria-label={`Open import batch for ${group.name}`}
+      p={0}
+      size="compact-xs"
+      variant="transparent"
+      onClick={(event) => {
+        event.stopPropagation();
+        openImportBatch(source.origin!.importBatchId!);
+      }}
+    >Import</Button>}
     <GroupPageActions
       label={group.name}
       page={page}

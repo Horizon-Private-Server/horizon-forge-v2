@@ -47,6 +47,7 @@ internal static class AuthoringFoundationQualificationTests
             if (version < 10) content.Remove("assetOverrides");
             if (version < 11) MakeLegacyAreaLinks(content);
             if (version < 20) content.Remove("customClasses");
+            if (version < 21) content.Remove("importBatches");
             if (version is >= 2 and <= 7)
                 manifest["baseLevel"]!.AsObject()["entityVersion"] = 13;
 
@@ -71,6 +72,8 @@ internal static class AuthoringFoundationQualificationTests
             Equal(false, opened.IsDirty, $"v{version} opens cleanly");
             Equal(0, opened.Content.CustomClasses.Allocations.Count,
                 $"v{version} custom class registry migration");
+            Equal(0, opened.Content.ImportBatches.Count,
+                $"v{version} import batch migration");
             var manifestAfterOpen = await File.ReadAllBytesAsync(
                 Path.Combine(fixturePath, ForgeProjectWorkspace.ManifestFileName));
             var contentAfterOpen = await File.ReadAllBytesAsync(contentPath);

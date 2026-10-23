@@ -72,6 +72,8 @@ test('lifecycle presentation keeps the required label, severity color, progress,
 });
 
 test('download sizes stay in MiB until they reach one GiB', () => {
+  assert.equal(formatBytes(512), '512 B');
+  assert.equal(formatBytes(1536), '1.5 KiB');
   assert.equal(formatBytes(188_406_585), '179.7 MiB');
   assert.equal(formatBytes(1024 ** 3), '1.00 GiB');
 });

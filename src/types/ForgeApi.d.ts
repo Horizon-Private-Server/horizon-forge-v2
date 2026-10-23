@@ -5,6 +5,11 @@ import type {
 import type { AssetExplorerPage, AssetExplorerQuery, AssetModelKind, AssetPreviewKind, AssetPreviewSource, CustomModelPreviewView } from './AssetExplorer.js';
 import type { ForgeNotification } from './Notifications.js';
 import type { UpdateCheckResult, UpdateLifecycleAction, UpdateLifecycleSnapshot } from './Updates.js';
+import type { SoundPreviewSource, SoundWorkspace } from './SoundWorkspace.js';
+import type {
+  ContentImportOptions, ContentImportPlan, ContentImportReferenceChoice, ContentImportRemovalPlan,
+  ContentImportSelection,
+} from './ContentImport.js';
 
 export type {
   EditorCommand, EditorCommandResult, EditorCustomModelImport, EditorEvent, EditorSnapshot, EditorInstancedCollisionGenerationSettings, EditorInstancedCollisionPreview,
@@ -13,6 +18,11 @@ export type {
 export type { AssetExplorerPage, AssetExplorerQuery, AssetModelKind, AssetPreviewKind, AssetPreviewSource, CustomModelPreviewView } from './AssetExplorer.js';
 export type { ForgeNotification } from './Notifications.js';
 export type { UpdateLifecycleAction, UpdateLifecycleSnapshot } from './Updates.js';
+export type { SoundPreviewSource, SoundWorkspace } from './SoundWorkspace.js';
+export type {
+  ContentImportOptions, ContentImportPlan, ContentImportReferenceChoice, ContentImportRemovalPlan,
+  ContentImportSelection,
+} from './ContentImport.js';
 
 export interface ForgeHostStatus {
   hostVersion: string;
@@ -32,6 +42,10 @@ export interface KnownSettings {
   'imports.uya.completedVersion': number;
   'projects.applyGroupTemplatesOnCreate': boolean;
   'paths.projects': string;
+  'preview.sound.ambientMuted': boolean;
+  'preview.sound.ambientVolume': number;
+  'preview.sound.directMuted': boolean;
+  'preview.sound.directVolume': number;
   'paths.developmentIsos': string;
   'sources.uya.fingerprint': string;
   'sources.uya.game': string;
@@ -298,12 +312,13 @@ export type ForgeDialog = 'setup' | 'settings';
 
 export type EditorLayoutAction = 'resetLayout' | 'showViewport' | 'showSceneTree' | 'showGroups'
   | 'showProperties' | 'showReferences' | 'showLevelSettings' | 'showDiagnostics' | 'showBuild'
-  | 'showAssetExplorer' | 'showCustomAssets' | 'showAssetPreview' | 'showHudBank' | 'showFxTextures';
+  | 'showAssetExplorer' | 'showCustomAssets' | 'showAssetPreview' | 'showHudBank' | 'showFxTextures'
+  | 'showSounds' | 'showImports';
 
 export type ForgeAction = ForgeDialog | EditorLayoutAction
   | 'projects' | 'newProject' | 'openProject' | 'saveProject' | 'undoEditor' | 'redoEditor'
   | 'deleteEntities' | 'duplicateEntities' | 'copyEntities' | 'pasteEntities' | 'checkUpdates'
-  | 'reloadMobyDex';
+  | 'reloadMobyDex' | 'importMapContent';
 
 export type ForgeWindowAction = 'quit' | 'minimize' | 'toggleMaximize'
   | 'resetZoom' | 'zoomIn' | 'zoomOut' | 'toggleFullscreen' | 'toggleDevTools';
@@ -328,6 +343,17 @@ export interface ForgeApi {
   chooseUyaSource(): Promise<{ path: string; identity: UyaIsoIdentity } | undefined>;
   createDevelopmentIso(): Promise<DevelopmentIsoResult | undefined>;
   importUyaAssets(force?: boolean): Promise<UyaAssetImportResult>;
+  getContentImportOptions(): Promise<ContentImportOptions>;
+  planContentImport(sourceLevel: number, selections: ContentImportSelection[]): Promise<ContentImportPlan>;
+  applyContentImport(
+    sourceLevel: number,
+    batchId: string,
+    selections: ContentImportSelection[],
+    referenceChoices: ContentImportReferenceChoice[],
+  ): Promise<EditorSnapshot>;
+  cancelContentImport(): Promise<void>;
+  planContentImportRemoval(batchId: string): Promise<ContentImportRemovalPlan>;
+  applyContentImportRemoval(batchId: string, targetFingerprint: string): Promise<EditorSnapshot>;
   getProjectHub(): Promise<ProjectHubState>;
   preflightUyaProject(level: number): Promise<UyaProjectPreflight>;
   createUyaProject(name: string, level: number, allowPartial: boolean): Promise<ForgeProjectDescriptor | undefined>;
@@ -358,6 +384,13 @@ export interface ForgeApi {
   openEditorProject(path: string): Promise<EditorSnapshot>;
   closeEditorProject(): Promise<void>;
   getEditorSnapshot(): Promise<EditorSnapshot>;
+  getSoundWorkspace(): Promise<SoundWorkspace>;
+  getSoundPreview(
+    nativeIndex: number,
+    preferAudible: boolean,
+    catalogSource?: { bankAssetId: string; game: string },
+  ): Promise<SoundPreviewSource>;
+  cancelSoundPreview(): Promise<void>;
   executeEditorCommand(command: EditorCommand): Promise<EditorCommandResult>;
   chooseCustomTieImport(forceBackfaceCulling: boolean): Promise<EditorCustomModelImport | undefined>;
   chooseCustomTfragImport(): Promise<EditorCustomModelImport | undefined>;
@@ -386,6 +419,7 @@ export interface ForgeApi {
   onEditorTerrainProgress(listener: (progress: Progress) => void): () => void;
   onBuildPatchProgress(listener: (progress: BuildPatchProgress) => void): () => void;
   onSetupProgress(listener: (progress: SetupProgress) => void): () => void;
+  onContentImportProgress(listener: (progress: Progress) => void): () => void;
   onForgeAction(listener: (action: ForgeAction) => void): () => void;
   onNotificationsChanged(listener: (notifications: ForgeNotification[]) => void): () => void;
   onUpdateLifecycleChanged(listener: (snapshot: UpdateLifecycleSnapshot) => void): () => void;

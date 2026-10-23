@@ -17,6 +17,7 @@ import {
   buildTerrainTreeItems,
   entityTreeKind,
   entityTreeText,
+  sceneEntityMatchesFilter,
 } from '../../utils/SceneSelection.ts';
 import { parseSplinePointId, splinePointId } from '../../utils/SplinePoints.ts';
 import { EntityProperties, MultiEntityProperties } from './EntityProperties.tsx';
@@ -38,7 +39,8 @@ export function ViewportPanel() {
     execute, busy, showViewportStats, showOcclusionOctants, splinePointSelection, setSplinePointSelection,
     setSkyCompositionSelected, showSolidCollision, setShowSolidCollision,
     showPlayerBarriers, setShowPlayerBarriers, showDeathHeight, setShowDeathHeight, showTerrain,
-    instancedCollisionOverlay,
+    instancedCollisionOverlay, mobySimulationEnabled, setMobySimulationEnabled,
+    mobySimulationPaused, setMobySimulationPaused,
   } = useEditor();
   const appearance = project.levelSettings && {
     backgroundColor: project.levelSettings.backgroundColor,
@@ -62,6 +64,11 @@ export function ViewportPanel() {
   return <SceneViewport
     disabled={busy}
     entities={project.entities}
+    projectId={project.projectId}
+    projectRevision={project.lastEventSequence}
+    game={project.target.game}
+    references={project.references}
+    fx={project.fx}
     keybindings={keybindings}
     selectionColor={selectionColor}
     sceneTreeColors={sceneTreeColors}
@@ -75,6 +82,8 @@ export function ViewportPanel() {
     showSolidCollision={showSolidCollision}
     showPlayerBarriers={showPlayerBarriers}
     showDeathHeight={showDeathHeight}
+    mobySimulationEnabled={mobySimulationEnabled}
+    mobySimulationPaused={mobySimulationPaused}
     instancedCollisionOverlay={instancedCollisionOverlay}
     terrain={terrain}
     environment={environment}
@@ -84,6 +93,8 @@ export function ViewportPanel() {
     onSolidCollisionVisibilityChange={setShowSolidCollision}
     onPlayerBarrierVisibilityChange={setShowPlayerBarriers}
     onDeathHeightVisibilityChange={setShowDeathHeight}
+    onMobySimulationEnabledChange={setMobySimulationEnabled}
+    onMobySimulationPausedChange={setMobySimulationPaused}
     onSelectionChange={(values) => {
       setSkyCompositionSelected(false);
       const points = values.filter((value) => parseSplinePointId(value));
@@ -131,17 +142,16 @@ export function SceneTreePanel() {
     splinePointSelection, setSplinePointSelection,
     skyCompositionSelected, setSkyCompositionSelected,
     showTerrain, setShowTerrain,
+    sceneFilter: filter, setSceneFilter: setFilter,
   } = useEditor();
-  const [filter, setFilter] = useState('');
   const model = useMemo(() => buildSceneEntityGroups(
     project.entities.filter((entity) => !entity.skyShell && !entity.collision
       && !entity.tfrag && entity.geometry?.kind !== 'area'), filter,
   ), [filter, project.entities]);
   const tfragEntities = useMemo(() => {
-    const query = filter.trim().toLocaleLowerCase();
     return project.entities.filter((entity) => entity.tfrag
-      && (!query || `${entity.name} ${entity.tfrag!.sourceKind} ${entity.tfrag!.sourceIndex} group ${entity.tfrag!.groupIndex} tfrag terrain`
-        .toLocaleLowerCase().includes(query)));
+      && sceneEntityMatchesFilter(entity, filter,
+        `${entity.tfrag!.sourceKind} ${entity.tfrag!.sourceIndex} group ${entity.tfrag!.groupIndex} tfrag terrain`));
   }, [filter, project.entities]);
   const customTfragParents = useMemo(() => {
     const parents = new Map<string, EditorEntity[]>();
@@ -171,16 +181,13 @@ export function SceneTreePanel() {
     ? []
     : buildTerrainTreeItems(terrain?.urls ?? [], filter), [filter, project.entities, terrain, tfragEntities.length]);
   const sky = useMemo(() => {
-    const query = filter.trim().toLocaleLowerCase();
     return project.entities.filter((entity) => entity.skyShell
-      && (!query || `${entity.name} ${entity.layer} sky shell ${entity.skyShell.order + 1}`
-        .toLocaleLowerCase().includes(query)))
+      && sceneEntityMatchesFilter(entity, filter, `sky shell ${entity.skyShell.order + 1}`))
       .sort((left, right) => left.skyShell!.order - right.skyShell!.order);
   }, [filter, project.entities]);
   const collision = useMemo(() => {
-    const query = filter.trim().toLocaleLowerCase();
     return project.entities.filter((entity) => entity.collision
-      && (!query || collisionTreeText(entity, project.target.game).toLocaleLowerCase().includes(query)));
+      && sceneEntityMatchesFilter(entity, filter, collisionTreeText(entity, project.target.game)));
   }, [filter, project.entities, project.target.game]);
   const entityIds = useMemo(() => new Set(project.entities.map((entity) => entity.id)), [project.entities]);
   const nodes = useMemo<TreeNodeData[]>(() => [

@@ -29,7 +29,11 @@ internal static class UyaFxBakeService
             .Where(value => source.Contains(value.Source))
             .OrderBy(value => value.Source.Id.ToString(), StringComparer.Ordinal)
             .ToArray();
-        var assetIds = overrides.Select(value => value.Replacement.Id)
+        var assetIds = (fx.ReplaceSourceBank
+                ? fx.SourceTextures.Select(value => value.Texture).OfType<ProjectAssetReference>()
+                : [])
+            .Concat(overrides.Select(value => value.Replacement))
+            .Select(value => value.Id)
             .Concat(fx.Additions.Select(value => value.Texture.Id))
             .Distinct().ToArray();
         return new(
@@ -62,7 +66,8 @@ internal static class UyaFxBakeService
         CancellationToken cancellationToken)
     {
         var manifest = await ReadManifestAsync(stagedRoot, cancellationToken);
-        if (!manifest.Available || manifest.Replacements.Count == 0 && manifest.Additions.Count == 0)
+        if (!manifest.Available || !manifest.ReplaceSourceBank
+                && manifest.Replacements.Count == 0 && manifest.Additions.Count == 0)
             return null;
         var replacements = new List<FxTextureReplacement>(manifest.Replacements.Count);
         foreach (var value in manifest.Replacements)
@@ -70,8 +75,16 @@ internal static class UyaFxBakeService
         var additions = new List<FxIndexedTexture>(manifest.Additions.Count);
         foreach (var value in manifest.Additions)
             additions.Add(await ReadTextureAsync(stagedRoot, value, cancellationToken));
-        return FxTextureCatalog.Compose(
-            GameId.UYA, headerBytes, assetBytes, replacements, additions, cancellationToken: cancellationToken);
+        return manifest.ReplaceSourceBank
+            ? FxTextureCatalog.ReplaceAll(
+                GameId.UYA,
+                headerBytes,
+                assetBytes,
+                replacements.OrderBy(value => value.Index).Select(value => value.Texture)
+                    .Concat(additions).ToArray(),
+                cancellationToken: cancellationToken)
+            : FxTextureCatalog.Compose(
+                GameId.UYA, headerBytes, assetBytes, replacements, additions, cancellationToken: cancellationToken);
     }
 
     public static async Task ValidatePackedAsync(
@@ -87,6 +100,9 @@ internal static class UyaFxBakeService
             Required(files, "assets/asset_header.bin"),
             Required(files, "assets/asset_wad.bin"),
             cancellationToken: cancellationToken);
+        if (manifest.ReplaceSourceBank
+            && inventory.Entries.Count != manifest.Replacements.Count + manifest.Additions.Count)
+            throw new InvalidDataException("Packed FX bank does not match the imported texture count.");
         foreach (var expected in manifest.Replacements.Concat(manifest.Additions))
         {
             var texture = await ReadTextureAsync(stagedRoot, expected, cancellationToken);
@@ -109,7 +125,8 @@ internal static class UyaFxBakeService
     {
         if (workspace.Content.Fx is not { } fx)
         {
-            await WriteManifestAsync(output, new(UyaFxBakeSchema.CurrentVersion, false, [], []), cancellationToken);
+            await WriteManifestAsync(
+                output, new(UyaFxBakeSchema.CurrentVersion, false, false, [], []), cancellationToken);
             return;
         }
 
@@ -117,7 +134,7 @@ internal static class UyaFxBakeService
         foreach (var source in fx.SourceTextures.Where(value => value.Texture is not null))
         {
             var effective = workspace.ResolveAssetReference(source.Texture!);
-            if (effective == source.Texture) continue;
+            if (!fx.ReplaceSourceBank && effective == source.Texture) continue;
             replacements.Add(await WriteTextureAsync(
                 output, workspace, source.SourceIndex, effective, cancellationToken));
         }
@@ -131,7 +148,7 @@ internal static class UyaFxBakeService
                 cancellationToken));
         await WriteManifestAsync(
             output,
-            new(UyaFxBakeSchema.CurrentVersion, true, replacements, additions),
+            new(UyaFxBakeSchema.CurrentVersion, true, fx.ReplaceSourceBank, replacements, additions),
             cancellationToken);
     }
 
@@ -185,6 +202,11 @@ internal static class UyaFxBakeService
                 || (value.Height & (value.Height - 1)) != 0
                 || !IsAssetId(value.AssetId)))
             throw new InvalidDataException("Staged FX manifest is invalid.");
+        if (manifest.ReplaceSourceBank
+            && (manifest.Replacements.Count == 0
+                || !replacementIndexes.SequenceEqual(Enumerable.Range(0, replacementIndexes.Length))
+                || additionIndexes.Length != 0 && additionIndexes[0] != replacementIndexes.Length))
+            throw new InvalidDataException("Staged whole-bank FX replacement is incomplete.");
         return manifest;
     }
 

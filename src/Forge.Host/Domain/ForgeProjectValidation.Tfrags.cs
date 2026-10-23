@@ -21,9 +21,12 @@ internal static partial class ForgeProjectValidation
         if (state.SchemaVersion != ProjectTfragSchema.CurrentVersion
             || state.Sources is null
             || state.CustomImports is null
+            || state.ImportedOwners is null
             || state.CustomImports.Any(value => value is null)
+            || state.ImportedOwners.Any(value => value is null)
             || state.Sources.Count > ProjectTfragSchema.MaximumSourceCount
             || state.CustomImports.Count > ProjectTfragSchema.MaximumCustomImports
+            || state.ImportedOwners.Count > ProjectTfragSchema.MaximumCustomImports
             || state.Sources.Any(source => source is null))
             throw new InvalidDataException("Project tfrag import state is invalid.");
         if (state.Sources.Select(source => (source.SourceKind, source.SourceIndex)).Distinct().Count()
@@ -86,6 +89,39 @@ internal static partial class ForgeProjectValidation
         if (!customPieceIds.SetEquals(pieces.Where(value => value.Tfrag!.CustomImportId is not null)
                 .Select(value => value.EntityId)))
             throw new InvalidDataException("Project custom tfrag piece inventory is inconsistent.");
+        if (state.ImportedOwners.Select(value => value.OwnerId).Distinct(StringComparer.Ordinal).Count()
+            != state.ImportedOwners.Count)
+            throw new InvalidDataException("Project imported tfrag owner IDs are duplicated.");
+        var importedPieceIds = new HashSet<EntityId>();
+        var importedById = state.ImportedOwners.ToDictionary(value => value.OwnerId, StringComparer.Ordinal);
+        foreach (var owner in state.ImportedOwners)
+        {
+            if (!BakeSchema.IsFingerprint(owner.OwnerId)
+                || owner.BatchId is not { Length: 39 }
+                || owner.SourceLevel is < 0 or > 999
+                || owner.NativePayload is not { Kind: AssetKind.Tfrag }
+                || !attached.TryGetValue(owner.NativePayload.Id, out var native)
+                || native.CanonicalFormatVersion != 0
+                || owner.Textures is null || owner.Pieces is null || owner.Pieces.Count == 0
+                || owner.Textures.Count > ProjectTfragSchema.MaximumTextureDependencies
+                || owner.Textures.Select(value => value.SourceTextureId).Distinct().Count() != owner.Textures.Count
+                || owner.Textures.Any(value => value.SourceTextureId < 0
+                    || value.Asset.Kind != AssetKind.Texture
+                    || !attached.TryGetValue(value.Asset.Id, out var texture)
+                    || texture.CanonicalFormatVersion != ProjectTextureAssetSchema.CanonicalFormatVersion)
+                || owner.Pieces.Any(value => !importedPieceIds.Add(value)))
+                throw new InvalidDataException("Project imported tfrag owner state is invalid.");
+            ValidateRelativeArchive(owner.SourceArchive);
+            if (!Enum.IsDefined(owner.SourceKind) || !Enum.IsDefined(owner.TargetKind)
+                || owner.SourceKind == ProjectTfragSourceKind.Primary && owner.SourceIndex != 0
+                || owner.SourceKind == ProjectTfragSourceKind.Chunk && owner.SourceIndex < 1
+                || owner.TargetKind == ProjectTfragSourceKind.Primary && owner.TargetIndex != 0
+                || owner.TargetKind == ProjectTfragSourceKind.Chunk && owner.TargetIndex < 1)
+                throw new InvalidDataException("Project imported tfrag owner provenance is invalid.");
+        }
+        if (!importedPieceIds.SetEquals(pieces.Where(value => value.Tfrag!.ImportedOwnerId is not null)
+                .Select(value => value.EntityId)) || importedPieceIds.Overlaps(customPieceIds))
+            throw new InvalidDataException("Project imported tfrag piece inventory is inconsistent.");
         var sourcesByOwner = state.Sources.ToDictionary(source => (source.SourceKind, source.SourceIndex));
         var sourceGroups = pieces.GroupBy(entity =>
             (entity.Tfrag!.SourceKind, entity.Tfrag.SourceIndex)).ToDictionary(group => group.Key);
@@ -150,6 +186,13 @@ internal static partial class ForgeProjectValidation
             }
             else if (piece.CustomSourceName is not null)
                 throw new InvalidDataException($"Tfrag entity {entity.EntityId} has incomplete custom import metadata.");
+            if (piece.ImportedOwnerId is { } importedOwnerId
+                && (!importedById.TryGetValue(importedOwnerId, out var owner)
+                    || !owner.Pieces.Contains(entity.EntityId)
+                    || owner.TargetKind != piece.SourceKind || owner.TargetIndex != piece.SourceIndex))
+                throw new InvalidDataException($"Tfrag entity {entity.EntityId} imported owner metadata is invalid.");
+            if (piece.CustomImportId is not null && piece.ImportedOwnerId is not null)
+                throw new InvalidDataException($"Tfrag entity {entity.EntityId} has multiple import owners.");
             if (entity.State?.Disabled == true)
                 throw new InvalidDataException($"Tfrag entity {entity.EntityId} cannot be disabled before native composition is available.");
         }

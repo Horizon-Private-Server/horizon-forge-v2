@@ -40,6 +40,8 @@ internal static class ForgeProjectTests
             var cachedFingerprint = project.CurrentFingerprint;
             Equal(true, ReferenceEquals(cachedFingerprint, project.CurrentFingerprint),
                 "unchanged project fingerprint is memoized");
+            Equal(true, ReferenceEquals(cachedFingerprint, project.CreateProjection().CurrentFingerprint),
+                "unchanged project projection reuses the memoized fingerprint");
             Equal(ProjectPaletteOptimization.Default, project.Manifest.Target.PaletteOptimization,
                 "new projects store the default palette optimization profile");
             var defaultPaletteFingerprint = project.CurrentFingerprint;
@@ -167,6 +169,7 @@ internal static class ForgeProjectTests
                 "previous manifest receives the default palette optimization profile");
             Equal(ProjectSchema.CurrentVersion, project.Content.SchemaVersion, "previous content schema migrates in memory");
             Equal(0, project.Content.Groups.Count, "previous content receives an empty group list");
+            Equal(0, project.Content.MapGroups.Count, "previous content receives an empty map-group list");
             Equal(false, project.IsDirty, "in-memory schema migration opens cleanly");
             Equal(true, (await File.ReadAllTextAsync(Path.Combine(movedPath, ForgeProjectWorkspace.ManifestFileName)))
                 .Contains($"\"schemaVersion\":{ProjectSchema.OldestSupportedVersion}", StringComparison.Ordinal),

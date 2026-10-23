@@ -75,6 +75,12 @@ them in a milestone-wide task register would split one implementation plan:
 - [MobyDex entry schema v1](../features/mobydex-v1.md) — M9-004 onward
 - [Updater package and install contract v1](../features/updater-package-contract-v1.md) — M13-001 onward
 - [UYA custom TIE class contract v1](../features/uya-custom-tie-class-contract-v1.md) — M14-001 onward
+- [UYA 989snd bank and remap contract v1](../features/uya-989snd-contract-v1.md) — M15-001 onward
+- [UYA content-import capability contract v1](../features/uya-content-import-contract-v1.md) — M16-001 onward
+- [UYA content-import planning v1](../features/uya-content-import-planning-v1.md) — M16-002 onward
+- [Content-import batches v1](../features/content-import-batches-v1.md) — M16-003 onward
+- [Moby simulation lifecycle v1](../features/moby-simulation-lifecycle-v1.md) — M17-001 onward
+- [UYA ocean simulation v1](../features/uya-ocean-simulation-v1.md) — M17-003 onward
 
 ## Task conventions
 

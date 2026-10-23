@@ -6,6 +6,7 @@ import type {
   EditorEntity, EditorReference, EditorSnapshot, ProjectQuaternion, ProjectTransform, ProjectVector3,
 } from '../../types/EditorRuntime.js';
 import { formatCollisionType } from '../../utils/CollisionFormat.ts';
+import { contentOriginLabel } from '../../utils/ContentOrigin.ts';
 import { editorEntityDisplayName } from '../../utils/EntityDisplay.ts';
 import { flattenPVarFields } from '../../utils/PVarHex.ts';
 import { useEditor } from './EditorContext.ts';
@@ -148,7 +149,7 @@ function BaseEntityProperties({ entity, disabled, children }: {
   disabled: boolean;
   children?: ReactNode;
 }) {
-  const { execute, busy } = useEditor();
+  const { execute, busy, openImportBatch } = useEditor();
   return <Stack gap="sm">
     <Fieldset legend="General">
       <Stack gap="xs">
@@ -182,6 +183,19 @@ function BaseEntityProperties({ entity, disabled, children }: {
           {entity.sourceClassName}{entity.sourceClassId === undefined ? '' : ` (0x${entity.sourceClassId.toString(16).toUpperCase().padStart(4, '0')})`}
         </EditorProperty>}
         <EditorProperty label="Asset">{entity.asset ? <Code>{entity.asset.id}</Code> : 'None'}</EditorProperty>
+        <EditorProperty label="Origin">
+          {contentOriginLabel(entity.origin, entity.provenance?.level)}
+        </EditorProperty>
+        {entity.origin?.importBatchId && <EditorProperty label="Import batch">
+          <Button
+            p={0}
+            size="compact-xs"
+            variant="transparent"
+            onClick={() => openImportBatch(entity.origin!.importBatchId!)}
+          >
+            <Code>{entity.origin.importBatchId}</Code>
+          </Button>
+        </EditorProperty>}
         <EditorProperty label="Source">{entity.provenance
           ? `${entity.provenance.game} level ${entity.provenance.level}, ${entity.provenance.section} #${entity.provenance.sourceIndex}`
           : 'Project-created'}</EditorProperty>

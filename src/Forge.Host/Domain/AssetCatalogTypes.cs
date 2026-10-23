@@ -7,6 +7,23 @@ public sealed record AssetTextureUse(
     int Slot,
     bool Restorable);
 
+public sealed record AssetSoundSlot(
+    int Slot,
+    int NativeProgramIndex,
+    AssetId? Sound,
+    bool PreviewSupported,
+    string? PreviewBlocker);
+
+public sealed record AssetMobySoundUse(
+    AssetId Bank,
+    IReadOnlyList<AssetSoundSlot> Slots,
+    int? ClassId = null);
+
+public sealed record AssetSoundProgramUse(
+    AssetId Bank,
+    IReadOnlyList<AssetId> ReferencedPrograms,
+    IReadOnlyList<AssetId> Samples);
+
 public sealed record AssetSource(
     string Game,
     string Region,
@@ -15,7 +32,9 @@ public sealed record AssetSource(
     string Archive,
     int SourceIndex,
     string Fingerprint,
-    AssetTextureUse? TextureUse = null);
+    AssetTextureUse? TextureUse = null,
+    AssetMobySoundUse? MobySounds = null,
+    AssetSoundProgramUse? SoundProgram = null);
 
 public sealed record AssetImportMetadata(
     string ImporterVersion,

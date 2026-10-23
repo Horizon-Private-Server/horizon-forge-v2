@@ -13,7 +13,7 @@ store or converter is introduced.
 
 The shared importer now also feeds a project-local custom-tfrag path through the M12
 terrain writer. This is an additional authored-asset capability, not the donor-map
-tfrag workflow tracked by M16-005; its packaged evidence is tracked by M12-008.
+tfrag workflow completed by M16-005; its packaged evidence is tracked by M12-008.
 
 ## Outcome
 

@@ -1,4 +1,5 @@
 import type { EditorEntity, EditorGroup, EditorMapGroup, EditorReference } from '../types/EditorRuntime.js';
+import { entityOriginSearchText } from './ContentOrigin.ts';
 import { editorEntityDisplayName } from './EntityDisplay.ts';
 
 type EditorEntityReference = Extract<EditorReference, { domain: 'entity' }>;
@@ -200,6 +201,6 @@ function semanticEntityMatches(entity: EditorEntity, query: string): boolean {
     entity.state.invalid && 'invalid',
     entity.state.missingAsset && 'missing asset',
   ].filter(Boolean).join(' ');
-  return `${editorEntityDisplayName(entity)} ${entity.name} ${entity.sourceClassName ?? ''} ${entity.layer} ${entity.id} ${states}`
+  return `${editorEntityDisplayName(entity)} ${entity.name} ${entity.sourceClassName ?? ''} ${entity.layer} ${entity.id} ${states} ${entityOriginSearchText(entity)}`
     .toLocaleLowerCase().includes(query);
 }

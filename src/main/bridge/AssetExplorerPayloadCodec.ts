@@ -90,6 +90,19 @@ export function encodeAssetExplorerPage(value: AssetExplorerPage): Buffer {
         writer.writeUInt32(source.textureUse.slot);
         writer.writeBoolean(source.textureUse.restorable);
       }
+      writer.writeBoolean(source.mobySounds !== undefined);
+      if (source.mobySounds) {
+        writer.writeString(source.mobySounds.bankAssetId);
+        if (source.mobySounds.slots.length > MAX_METADATA_ITEMS) malformed('Moby sound slot list exceeds item limit');
+        writer.writeUInt32(source.mobySounds.slots.length);
+        source.mobySounds.slots.forEach((slot) => {
+          writer.writeUInt32(slot.slot);
+          writer.writeUInt32(slot.nativeProgramIndex);
+          writeOptionalString(writer, slot.soundAssetId);
+          writer.writeBoolean(slot.previewSupported);
+          writeOptionalString(writer, slot.previewBlocker);
+        });
+      }
     });
     if (item.classIds.length > MAX_METADATA_ITEMS) malformed('Asset class list exceeds item limit');
     writer.writeUInt32(item.classIds.length);
@@ -141,17 +154,41 @@ function readItem(reader: PayloadReader): AssetExplorerItem {
       archive: reader.readString(),
       sourceIndex: reader.readUInt32(),
     };
-    if (!reader.readBoolean()) return source;
-    const ownerKind = reader.readString();
-    if (ownerKind !== 'tie' && ownerKind !== 'shrub' && ownerKind !== 'moby')
-      malformed('Unknown texture owner kind');
-    return { ...source, textureUse: {
-      ownerKind,
-      ownerClassId: reader.readUInt32(),
-      role: reader.readString(),
-      slot: reader.readUInt32(),
-      restorable: reader.readBoolean(),
-    } };
+    let textureUse: AssetExplorerSource['textureUse'];
+    if (reader.readBoolean()) {
+      const ownerKind = reader.readString();
+      if (ownerKind !== 'tie' && ownerKind !== 'shrub' && ownerKind !== 'moby')
+        malformed('Unknown texture owner kind');
+      textureUse = {
+        ownerKind,
+        ownerClassId: reader.readUInt32(),
+        role: reader.readString(),
+        slot: reader.readUInt32(),
+        restorable: reader.readBoolean(),
+      };
+    }
+    const mobySounds = reader.readBoolean() ? {
+      bankAssetId: reader.readString(),
+      slots: readList(reader, MAX_METADATA_ITEMS, () => {
+        const slot = reader.readUInt32();
+        const nativeProgramIndex = reader.readUInt32();
+        const soundAssetId = readOptionalString(reader);
+        const previewSupported = reader.readBoolean();
+        const previewBlocker = readOptionalString(reader);
+        return {
+          slot,
+          nativeProgramIndex,
+          ...(soundAssetId ? { soundAssetId } : {}),
+          previewSupported,
+          ...(previewBlocker ? { previewBlocker } : {}),
+        };
+      }),
+    } : undefined;
+    return {
+      ...source,
+      ...(textureUse ? { textureUse } : {}),
+      ...(mobySounds ? { mobySounds } : {}),
+    };
   });
   const classIds = readList(reader, MAX_METADATA_ITEMS, () => reader.readUInt32());
   const previewState = reader.readString();

@@ -23,6 +23,7 @@ public sealed partial class EditorRuntime : IAsyncDisposable
         "editor.custom-tfrag.import",
         "editor.instanced-collision.inspect", "editor.instanced-collision.preview", "editor.instanced-collision.apply", "editor.instanced-collision.remove",
         "editor.instanced-collision.toggle", "editor.instanced-collision.raw-type", "editor.instanced-collision.face-types",
+        "editor.sound.workspace", "editor.sound.preview",
     ];
     private static readonly EditorTool[] RuntimeTools =
     [
@@ -329,9 +330,18 @@ public sealed partial class EditorRuntime : IAsyncDisposable
                 case EditorCommandKind.CreateEntityFromAsset:
                     if (_placementResolver is null || _catalogRootPath is null)
                         throw new InvalidOperationException("Asset placement is unavailable.");
-                    var placed = await _placementResolver(
-                        workspace, _catalogRootPath, command.Placement!, cancellationToken);
-                    workspace.AddEntity(placed);
+                    ProjectEntity placed;
+                    try
+                    {
+                        placed = await _placementResolver(
+                            workspace, _catalogRootPath, command.Placement!, cancellationToken);
+                        workspace.AddEntity(placed);
+                    }
+                    catch
+                    {
+                        workspace.RestoreState(stateBefore);
+                        throw;
+                    }
                     _selection = [placed.EntityId];
                     historyEntityIds = _selection;
                     AddEvent(EditorEventKind.ProjectChanged, command.Id, _selection, "Asset placed");

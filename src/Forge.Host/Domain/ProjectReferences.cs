@@ -4,13 +4,19 @@ public sealed class ProjectReferenceGraph
 {
     private readonly IReadOnlyDictionary<EntityId, ProjectReferenceEdge[]> _outgoing;
     private readonly IReadOnlyDictionary<EntityId, ProjectReferenceEdge[]> _incoming;
+    private readonly IReadOnlyDictionary<AssetId, ProjectAssetReferenceEdge[]> _assetOutgoing;
+    private readonly IReadOnlyDictionary<AssetId, ProjectAssetReferenceEdge[]> _assetIncoming;
 
     private ProjectReferenceGraph(
         IReadOnlyDictionary<EntityId, ProjectReferenceEdge[]> outgoing,
-        IReadOnlyDictionary<EntityId, ProjectReferenceEdge[]> incoming)
+        IReadOnlyDictionary<EntityId, ProjectReferenceEdge[]> incoming,
+        IReadOnlyDictionary<AssetId, ProjectAssetReferenceEdge[]> assetOutgoing,
+        IReadOnlyDictionary<AssetId, ProjectAssetReferenceEdge[]> assetIncoming)
     {
         _outgoing = outgoing;
         _incoming = incoming;
+        _assetOutgoing = assetOutgoing;
+        _assetIncoming = assetIncoming;
     }
 
     public static ProjectReferenceGraph Create(ForgeProjectContent content)
@@ -25,12 +31,17 @@ public sealed class ProjectReferenceGraph
                 ? edge with { Reference = edge.Reference with { EntityKind = targetKind } }
                 : edge)
             .ToArray();
+        var assetEdges = ProjectSounds.References(content.Sounds).ToArray();
         return new(
             edges.GroupBy(edge => edge.OwnerEntityId)
                 .ToDictionary(group => group.Key, Sort),
             edges.Where(edge => edge.Reference is { Domain: ProjectReferenceDomain.Entity, EntityId: not null })
                 .GroupBy(edge => edge.Reference.EntityId!.Value)
-                .ToDictionary(group => group.Key, Sort));
+                .ToDictionary(group => group.Key, Sort),
+            assetEdges.GroupBy(edge => edge.Owner.Id)
+                .ToDictionary(group => group.Key, SortAssets),
+            assetEdges.GroupBy(edge => edge.Reference.AssetId!.Value)
+                .ToDictionary(group => group.Key, SortAssets));
     }
 
     public IReadOnlyList<ProjectReferenceEdge> Outgoing(EntityId ownerEntityId) =>
@@ -39,10 +50,22 @@ public sealed class ProjectReferenceGraph
     public IReadOnlyList<ProjectReferenceEdge> Incoming(EntityId targetEntityId) =>
         _incoming.GetValueOrDefault(targetEntityId) ?? [];
 
+    public IReadOnlyList<ProjectAssetReferenceEdge> Outgoing(AssetId ownerAssetId) =>
+        _assetOutgoing.GetValueOrDefault(ownerAssetId) ?? [];
+
+    public IReadOnlyList<ProjectAssetReferenceEdge> Incoming(AssetId targetAssetId) =>
+        _assetIncoming.GetValueOrDefault(targetAssetId) ?? [];
+
     private static ProjectReferenceEdge[] Sort(IEnumerable<ProjectReferenceEdge> edges) => edges
         .OrderBy(edge => edge.OwnerEntityId.ToString(), StringComparer.Ordinal)
         .ThenBy(edge => edge.Reference.FieldKey, StringComparer.Ordinal)
         .ThenBy(edge => edge.Reference.EntityId?.ToString(), StringComparer.Ordinal)
+        .ToArray();
+
+    private static ProjectAssetReferenceEdge[] SortAssets(IEnumerable<ProjectAssetReferenceEdge> edges) => edges
+        .OrderBy(edge => edge.Owner.Id.ToString(), StringComparer.Ordinal)
+        .ThenBy(edge => edge.OwnerField, StringComparer.Ordinal)
+        .ThenBy(edge => edge.Reference.AssetId?.ToString(), StringComparer.Ordinal)
         .ToArray();
 }
 

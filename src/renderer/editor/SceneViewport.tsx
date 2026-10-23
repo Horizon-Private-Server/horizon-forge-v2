@@ -9,8 +9,10 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 
 import type {
-  EditorEntity, EditorLevelSceneSettings, EditorTransformUpdate, ProjectVector3, ProjectVector4,
+  EditorEntity, EditorFx, EditorLevelSceneSettings, EditorReference, EditorTransformUpdate,
+  ProjectVector3, ProjectVector4,
 } from '../../types/EditorRuntime.js';
+import type { MobySimulationProjectSnapshot, MobySimulationStats } from '../../types/MobySimulation.js';
 import type {
   AssetModelPlacementDragData, AssetPlacementDragData, AssetTfragPlacementDragData,
 } from '../../types/AssetExplorer.js';
@@ -61,9 +63,22 @@ import {
   interpolatePointerSegment, shouldOrbitWhileCollisionPainting,
 } from './CollisionPainting.ts';
 import { ViewportToolbar } from './ViewportToolbar.tsx';
+import { MobySimulationController } from '../simulation/MobySimulationController.ts';
+import { createMobySimulationRegistry } from '../simulation/MobySimulationFactories.ts';
+import {
+  buildMobySimulationSnapshot,
+  diffMobySimulationSnapshots,
+  mobySimulationFxSignature,
+  resolveMobySimulationFxAssetId,
+} from '../simulation/MobySimulationSnapshot.ts';
 
 interface SceneViewportProps {
+  projectId: string;
+  projectRevision: number;
+  game: string;
   entities: readonly EditorEntity[];
+  references: readonly EditorReference[];
+  fx?: EditorFx;
   keybindings: KeybindingMap;
   selectionColor: string;
   sceneTreeColors: SceneTreeColors;
@@ -81,12 +96,16 @@ interface SceneViewportProps {
   showSolidCollision: boolean;
   showPlayerBarriers: boolean;
   showDeathHeight: boolean;
+  mobySimulationEnabled: boolean;
+  mobySimulationPaused: boolean;
   instancedCollisionOverlay?: InstancedCollisionOverlay;
   onFocusHandled(): void;
   onLoadProgress(progress?: EditorLoadProgress): void;
   onSolidCollisionVisibilityChange(value: boolean): void;
   onPlayerBarrierVisibilityChange(value: boolean): void;
   onDeathHeightVisibilityChange(value: boolean): void;
+  onMobySimulationEnabledChange(value: boolean): void;
+  onMobySimulationPausedChange(value: boolean): void;
   onSelectionChange(values: string[]): void;
   onTransformsCommit(values: EditorTransformUpdate[]): Promise<boolean>;
   onLevelPositionCommit(field: LevelSettingsPositionField, value: ProjectVector3): Promise<boolean>;
@@ -102,7 +121,12 @@ interface SkyShellProjection {
 }
 
 export function SceneViewport({
+  projectId,
+  projectRevision,
+  game,
   entities,
+  references,
+  fx,
   keybindings,
   selectionColor,
   sceneTreeColors,
@@ -120,12 +144,16 @@ export function SceneViewport({
   showSolidCollision,
   showPlayerBarriers,
   showDeathHeight,
+  mobySimulationEnabled,
+  mobySimulationPaused,
   instancedCollisionOverlay,
   onFocusHandled,
   onLoadProgress,
   onSolidCollisionVisibilityChange,
   onPlayerBarrierVisibilityChange,
   onDeathHeightVisibilityChange,
+  onMobySimulationEnabledChange,
+  onMobySimulationPausedChange,
   onSelectionChange,
   onTransformsCommit,
   onLevelPositionCommit,
@@ -145,6 +173,7 @@ export function SceneViewport({
   const [transformNotice, setTransformNotice] = useState<string>();
   const [skyDropActive, setSkyDropActive] = useState(false);
   const [stats, setStats] = useState<{ fps: number; calls: number; triangles: number }>();
+  const [mobySimulationStats, setMobySimulationStats] = useState<MobySimulationStats>();
   const currentShowStats = useRef(showStats);
   const currentSelection = useRef(selection);
   const currentMissingSelectionMembers = useRef(missingSelectionMembers);
@@ -157,6 +186,7 @@ export function SceneViewport({
   const currentCollisionVisualization = useRef(collisionVisualization);
   const currentSelectionColor = useRef(selectionColor);
   const currentInstancedCollisionOverlay = useRef(instancedCollisionOverlay);
+  const currentFx = useRef(fx);
   const focusHandled = useRef(onFocusHandled);
   const loadProgressChanged = useRef(onLoadProgress);
   const selectionChanged = useRef(onSelectionChange);
@@ -174,6 +204,7 @@ export function SceneViewport({
   currentCollisionVisualization.current = collisionVisualization;
   currentSelectionColor.current = selectionColor;
   currentInstancedCollisionOverlay.current = instancedCollisionOverlay;
+  currentFx.current = fx;
   currentShowStats.current = showStats;
   focusHandled.current = onFocusHandled;
   loadProgressChanged.current = onLoadProgress;
@@ -210,12 +241,16 @@ export function SceneViewport({
     terrainBounds: THREE.Box3;
     syncLevelSettingsBounds(): void;
     syncTransforms(): void;
+    simulationController: MobySimulationController;
+    simulationSnapshot?: MobySimulationProjectSnapshot;
+    simulationFxSignature: string;
   }>(null);
   const dropFrame = useRef<number | undefined>(undefined);
   const pendingDrop = useRef<{ x: number; y: number } | undefined>(undefined);
   const skySourceSignature = useMemo(() => entities.filter((entity) => entity.skyShell && entity.asset)
     .map((entity) => `${entity.id}:${entity.asset!.id}:${entity.skyShell!.sourceShellIndex}`)
     .sort().join('|'), [entities]);
+  const simulationFxSignature = useMemo(() => mobySimulationFxSignature(fx), [fx]);
 
   useEffect(() => {
     const element = container.current;
@@ -251,7 +286,16 @@ export function SceneViewport({
       collisionScenes,
       () => setNotice('Collision candidate overlay unavailable.'),
     );
-    content.add(terrain, occlusion, currentProjection.root, levelSettingsOverlay.root, instancedCollisionPreview.root);
+    const simulationRoot = new THREE.Group();
+    simulationRoot.name = 'Moby simulation preview';
+    content.add(
+      terrain,
+      occlusion,
+      currentProjection.root,
+      simulationRoot,
+      levelSettingsOverlay.root,
+      instancedCollisionPreview.root,
+    );
     skyScene.add(sky);
     scene.add(content);
 
@@ -396,6 +440,76 @@ export function SceneViewport({
       controls.enabled = event.value !== true;
     };
     transformTool.controls.addEventListener('dragging-changed', toggleCameraDuringTransform);
+    const previewRequests = new Set<string>();
+    let simulationProxyFrame: number | undefined;
+    const scheduleSimulationProxySync = () => {
+      if (simulationProxyFrame !== undefined) return;
+      simulationProxyFrame = requestAnimationFrame(() => {
+        simulationProxyFrame = undefined;
+        if (viewport.current?.projection !== currentProjection) return;
+        currentProjection.sync(
+          currentEntities.current,
+          currentSelection.current,
+          undefined,
+          true,
+          currentCollisionVisibility.current,
+        );
+        syncTransformSelection();
+      });
+    };
+    const acquirePreview = async (assetId: string, kind: 'moby' | 'texture') => {
+      const requestToken = crypto.randomUUID();
+      previewRequests.add(requestToken);
+      try {
+        const source = await window.forge.getAssetPreview(assetId, kind, requestToken);
+        let released = false;
+        return {
+          source,
+          release: () => {
+            if (released) return;
+            released = true;
+            void window.forge.cancelAssetPreview(requestToken);
+          },
+        };
+      } finally {
+        previewRequests.delete(requestToken);
+      }
+    };
+    const simulationController = new MobySimulationController(createMobySimulationRegistry(), {
+      root: simulationRoot,
+      camera,
+      acquireAsset: async (assetId) => {
+        const preview = await acquirePreview(assetId, 'moby');
+        return {
+          value: { id: assetId, revision: assetId, url: preview.source.url },
+          release: preview.release,
+        };
+      },
+      acquireFxTexture: async (fxId) => {
+        const assetId = resolveMobySimulationFxAssetId(currentFx.current, fxId);
+        if (!assetId) return undefined;
+        const preview = await acquirePreview(assetId, 'texture');
+        return {
+          value: { id: assetId, fxId, revision: assetId, url: preview.source.url },
+          release: preview.release,
+        };
+      },
+      setProxyVisible: (entityId, visible) => {
+        currentProjection.setSimulationHiddenEntity(entityId, !visible);
+        scheduleSimulationProxySync();
+      },
+      bindSelection: (object, entityId) => {
+        const previous = object.userData.forgeEntityId;
+        object.userData.forgeEntityId = entityId;
+        currentProjection.setSimulationPickableEntity(entityId, true);
+        return () => {
+          currentProjection.setSimulationPickableEntity(entityId, false);
+          if (previous === undefined) delete object.userData.forgeEntityId;
+          else object.userData.forgeEntityId = previous;
+        };
+      },
+      reportDiagnostic: (diagnostic) => setNotice(diagnostic.message),
+    });
     viewport.current = {
       projection: currentProjection,
       scene,
@@ -418,13 +532,15 @@ export function SceneViewport({
       dropGhost,
       placedTemplates: new Map(),
       skyShells: new Map(),
-      previewRequests: new Set(),
+      previewRequests,
       collisionScenes,
       instancedCollisionPreview,
       levelSettingsOverlay,
       terrainBounds,
       syncLevelSettingsBounds,
       syncTransforms: syncTransformSelection,
+      simulationController,
+      simulationFxSignature: '',
     };
 
     let noticeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -633,7 +749,7 @@ export function SceneViewport({
         );
         raycaster.setFromCamera(pointer, camera);
         const intersections = raycaster.intersectObjects(
-          [levelSettingsOverlay.root, currentProjection.root], true,
+          [levelSettingsOverlay.root, simulationRoot, currentProjection.root], true,
         );
         const markerId = levelSettingsOverlay.resolvePick(intersections);
         levelSettingsOverlay.setHovered(markerId);
@@ -676,7 +792,7 @@ export function SceneViewport({
       );
       raycaster.setFromCamera(pointer, camera);
       const intersections = raycaster.intersectObjects(
-        [levelSettingsOverlay.root, currentProjection.root], true,
+        [levelSettingsOverlay.root, simulationRoot, currentProjection.root], true,
       );
       const markerId = levelSettingsOverlay.resolvePick(intersections);
       if (markerId) {
@@ -735,6 +851,19 @@ export function SceneViewport({
     renderer.domElement.addEventListener('pointercancel', pointerCancel);
     renderer.domElement.addEventListener('contextmenu', preventDefault);
     renderer.domElement.addEventListener('auxclick', preventDefault);
+    const webglContextLost = (event: Event) => {
+      event.preventDefault();
+      simulationController.contextLost();
+      setMobySimulationStats(simulationController.getStats());
+      setNotice('Moby simulation paused because the graphics context was lost.');
+    };
+    const webglContextRestored = () => {
+      void simulationController.contextRestored().then(() => {
+        setMobySimulationStats(simulationController.getStats());
+      }).catch((cause) => setNotice(`Moby simulation could not recover: ${errorMessage(cause)}`));
+    };
+    renderer.domElement.addEventListener('webglcontextlost', webglContextLost);
+    renderer.domElement.addEventListener('webglcontextrestored', webglContextRestored);
 
     const resize = () => {
       const clientWidth = Math.max(element.clientWidth, 1);
@@ -751,6 +880,7 @@ export function SceneViewport({
     resize();
 
     let statsStarted = performance.now();
+    let simulationStatsStarted = statsStarted;
     let statsFrames = 0;
     renderer.setAnimationLoop(() => {
       const delta = Math.min(clock.getDelta(), 0.05);
@@ -762,12 +892,17 @@ export function SceneViewport({
       sky.position.copy(camera.position).sub(viewport.current?.skyEye ?? ZERO_VECTOR);
       controls.update();
       transformTool.update();
+      simulationController.advance(delta);
       currentProjection.updateBillboards(camera, element.clientHeight);
       levelSettingsOverlay.updateForCamera(camera, element.clientHeight);
       renderer.info.reset();
       outlinePass.selectedObjects = currentProjection.getSelectionOutlineObjects();
       composer.render(delta);
       const now = performance.now();
+      if (now - simulationStatsStarted >= 500) {
+        setMobySimulationStats(simulationController.getStats());
+        simulationStatsStarted = now;
+      }
       if (currentShowStats.current) {
         statsFrames += 1;
         if (now - statsStarted >= 500) {
@@ -799,6 +934,8 @@ export function SceneViewport({
       renderer.domElement.removeEventListener('pointercancel', pointerCancel);
       renderer.domElement.removeEventListener('contextmenu', preventDefault);
       renderer.domElement.removeEventListener('auxclick', preventDefault);
+      renderer.domElement.removeEventListener('webglcontextlost', webglContextLost);
+      renderer.domElement.removeEventListener('webglcontextrestored', webglContextRestored);
       window.removeEventListener('keydown', keyDown, true);
       window.removeEventListener('keyup', keyUp, true);
       window.removeEventListener('blur', deactivateWindowInput);
@@ -812,6 +949,10 @@ export function SceneViewport({
       dropGhost.geometry.dispose();
       (dropGhost.material as THREE.Material).dispose();
       controls.dispose();
+      simulationController.dispose();
+      if (simulationProxyFrame !== undefined) cancelAnimationFrame(simulationProxyFrame);
+      simulationProxyFrame = undefined;
+      disposeObject(simulationRoot);
       sky.removeFromParent();
       sky.clear();
       terrain.removeFromParent();
@@ -831,6 +972,66 @@ export function SceneViewport({
       renderer.domElement.remove();
     };
   }, []);
+
+  useEffect(() => {
+    const current = viewport.current;
+    if (!current) return;
+    const next = buildMobySimulationSnapshot(
+      projectId,
+      projectRevision,
+      game,
+      entities,
+      references,
+      (classId) => current.simulationController.supports(game, classId),
+    );
+    const previous = current.simulationSnapshot;
+    const previousFxSignature = current.simulationFxSignature;
+    current.simulationSnapshot = next;
+    current.simulationFxSignature = simulationFxSignature;
+    let cancelled = false;
+    const update = async () => {
+      if (!previous || previous.projectId !== next.projectId || previous.game !== next.game) {
+        await current.simulationController.setSnapshot(next);
+      } else {
+        const invalidations = diffMobySimulationSnapshots(previous, next);
+        if (previousFxSignature !== simulationFxSignature) invalidations.push({
+          kind: 'fx',
+          entityIds: next.entities.map((entity) => entity.id),
+          dependencyIds: fxDependencyIds(fx),
+        });
+        for (const invalidation of invalidations) {
+          if (cancelled) return;
+          await current.simulationController.invalidate(next, invalidation);
+        }
+      }
+      if (!cancelled) setMobySimulationStats(current.simulationController.getStats());
+    };
+    void update().catch((cause) => {
+      if (!cancelled) setNotice(`Moby simulation update failed: ${errorMessage(cause)}`);
+    });
+    return () => { cancelled = true; };
+  }, [entities, fx, game, projectId, projectRevision, references, simulationFxSignature]);
+
+  useEffect(() => {
+    const current = viewport.current;
+    if (!current) return;
+    let cancelled = false;
+    void current.simulationController.setEnabled(mobySimulationEnabled, current.simulationSnapshot)
+      .then(() => {
+        if (!cancelled) setMobySimulationStats(current.simulationController.getStats());
+      })
+      .catch((cause) => {
+        if (!cancelled) setNotice(`Moby simulation could not be ${mobySimulationEnabled ? 'enabled' : 'disabled'}: ${errorMessage(cause)}`);
+      });
+    return () => { cancelled = true; };
+  }, [mobySimulationEnabled]);
+
+  useEffect(() => {
+    const controller = viewport.current?.simulationController;
+    if (!controller) return;
+    controller.setPaused(mobySimulationPaused);
+    setMobySimulationStats(controller.getStats());
+  }, [mobySimulationPaused]);
 
   const instancedCollisionEntity = instancedCollisionOverlay
     ? entities.find((entity) => entity.id === instancedCollisionOverlay.entityId)
@@ -1312,6 +1513,13 @@ export function SceneViewport({
     });
   };
 
+  const resetMobySimulation = () => {
+    const controller = viewport.current?.simulationController;
+    if (!controller) return;
+    controller.reset();
+    setMobySimulationStats(controller.getStats());
+  };
+
   return (
     <div
       aria-label="3D scene viewport"
@@ -1342,6 +1550,10 @@ export function SceneViewport({
         showSolidCollision={showSolidCollision}
         showPlayerBarriers={showPlayerBarriers}
         showDeathHeight={showDeathHeight}
+        mobySimulationEnabled={mobySimulationEnabled}
+        mobySimulationPaused={mobySimulationPaused}
+        mobySimulationStats={mobySimulationStats}
+        simulationControlsDisabled={disabled}
         onModeChange={setMode}
         onSpaceChange={setSpace}
         onSnapSourceChange={setSnapSource}
@@ -1353,6 +1565,12 @@ export function SceneViewport({
         onSolidCollisionVisibilityChange={onSolidCollisionVisibilityChange}
         onPlayerBarrierVisibilityChange={onPlayerBarrierVisibilityChange}
         onDeathHeightVisibilityChange={onDeathHeightVisibilityChange}
+        onMobySimulationEnabledChange={(value) => {
+          onMobySimulationEnabledChange(value);
+          if (!value) onMobySimulationPausedChange(false);
+        }}
+        onMobySimulationPausedChange={onMobySimulationPausedChange}
+        onMobySimulationReset={resetMobySimulation}
       />
       {(notice ?? transformNotice) && <div className="scene-notice" role="status">{notice ?? transformNotice}</div>}
       {showStats && <div className="scene-stats">
@@ -1386,6 +1604,14 @@ function syncSkyShellProjections(
     });
   }
   skyEyeFromBounds(bounds, current.skyEye);
+}
+
+function fxDependencyIds(fx?: EditorFx): string[] {
+  return [
+    ...(fx?.sourceTextures.map((texture) => texture.effectiveTexture?.id ?? texture.sourceTexture?.id)
+      .filter(Boolean) ?? []),
+    ...(fx?.additions.map((texture) => texture.texture.id) ?? []),
+  ] as string[];
 }
 
 function createOcclusionOverlay(

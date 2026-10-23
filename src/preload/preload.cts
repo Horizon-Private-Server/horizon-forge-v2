@@ -14,6 +14,8 @@ import type {
   ForgeNotification,
   Progress,
   SetupProgress,
+  ContentImportSelection,
+  ContentImportReferenceChoice,
   UpdateLifecycleAction,
   UpdateLifecycleSnapshot,
 } from '../types/ForgeApi.js';
@@ -38,6 +40,20 @@ const forgeApi = Object.freeze({
   chooseUyaSource: () => ipcRenderer.invoke('forge:setup-choose-source'),
   createDevelopmentIso: () => ipcRenderer.invoke('forge:setup-create-development-iso'),
   importUyaAssets: (force = false) => ipcRenderer.invoke('forge:setup-import-uya-assets', force),
+  getContentImportOptions: () => ipcRenderer.invoke('forge:content-import-options'),
+  planContentImport: (sourceLevel: number, selections: ContentImportSelection[]) =>
+    ipcRenderer.invoke('forge:content-import-plan', sourceLevel, selections),
+  applyContentImport: (
+    sourceLevel: number,
+    batchId: string,
+    selections: ContentImportSelection[],
+    referenceChoices: ContentImportReferenceChoice[],
+  ) => ipcRenderer.invoke('forge:content-import-apply', sourceLevel, batchId, selections, referenceChoices),
+  cancelContentImport: () => ipcRenderer.invoke('forge:content-import-cancel'),
+  planContentImportRemoval: (batchId: string) =>
+    ipcRenderer.invoke('forge:content-import-removal-plan', batchId),
+  applyContentImportRemoval: (batchId: string, targetFingerprint: string) =>
+    ipcRenderer.invoke('forge:content-import-removal-apply', batchId, targetFingerprint),
   getProjectHub: () => ipcRenderer.invoke('forge:projects-hub'),
   preflightUyaProject: (level: number) => ipcRenderer.invoke('forge:projects-preflight-uya', level),
   createUyaProject: (name: string, level: number, allowPartial: boolean) =>
@@ -72,6 +88,10 @@ const forgeApi = Object.freeze({
   openEditorProject: (path: string) => ipcRenderer.invoke('forge:editor-open', path),
   closeEditorProject: () => ipcRenderer.invoke('forge:editor-close'),
   getEditorSnapshot: () => ipcRenderer.invoke('forge:editor-query'),
+  getSoundWorkspace: () => ipcRenderer.invoke('forge:sound-workspace'),
+  getSoundPreview: (nativeIndex: number, preferAudible: boolean, catalogSource?: { bankAssetId: string; game: string }) =>
+    ipcRenderer.invoke('forge:sound-preview', nativeIndex, preferAudible, catalogSource),
+  cancelSoundPreview: () => ipcRenderer.invoke('forge:sound-preview-cancel'),
   executeEditorCommand: (command: EditorCommand) => ipcRenderer.invoke('forge:editor-execute', command),
   chooseCustomTieImport: (forceBackfaceCulling: boolean) =>
     ipcRenderer.invoke('forge:custom-tie-choose-import', forceBackfaceCulling),
@@ -108,6 +128,11 @@ const forgeApi = Object.freeze({
     const handler = (_event: Electron.IpcRendererEvent, progress: SetupProgress) => listener(progress);
     ipcRenderer.on('forge:setup-progress', handler);
     return () => ipcRenderer.removeListener('forge:setup-progress', handler);
+  },
+  onContentImportProgress: (listener: (progress: Progress) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, progress: Progress) => listener(progress);
+    ipcRenderer.on('forge:content-import-progress', handler);
+    return () => ipcRenderer.removeListener('forge:content-import-progress', handler);
   },
   onEditorTerrainProgress: (listener: (progress: Progress) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, progress: Progress) => listener(progress);

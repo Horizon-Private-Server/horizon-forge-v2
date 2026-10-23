@@ -1,4 +1,5 @@
 using Forge.Host.Domain;
+using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text.Json;
 using RatchetPs2.Core.Gameplay;
@@ -328,6 +329,8 @@ public static class UyaGameplayLayerStore
     {
         var references = new List<UyaGameplayInstanceReference>();
         var rebuildCameraCollision = false;
+        var rebuildAreas = workspace.Content.ImportBatches.Any(batch => batch.Families.Any(value =>
+            value.Family is "cuboids" or "spheres" or "splines" or "areas"));
         foreach (var section in UyaGameplayLayerSchema.WritableInstanceSections)
         {
             var entities = workspace.Content.Entities
@@ -336,13 +339,65 @@ public static class UyaGameplayLayerStore
                 .ToArray();
             if (!bytes.TryGetValue(section, out var source))
             {
-                if (entities.Length > 0) blockers.Add($"Gameplay section {section} is missing; migrate it from the verified source ISO.");
-                continue;
+                if (section is "cuboids" or "spheres" or "splines" or "grind_splines"
+                    && entities.Length > 0)
+                {
+                    source = section is "cuboids" or "spheres" ? new byte[0x10] : [];
+                    bytes[section] = source;
+                }
+                else if (section == "areas" && entities.Length > 0 && rebuildAreas)
+                {
+                    source = [];
+                    bytes[section] = source;
+                }
+                else
+                {
+                    if (entities.Length > 0 && section != "areas")
+                        blockers.Add($"Gameplay section {section} is missing; migrate it from the verified source ISO.");
+                    continue;
+                }
             }
             try
             {
                 var count = SourceCount(section, source);
-                if (!entities.Select(value => value.Provenance!.SourceIndex).SequenceEqual(Enumerable.Range(0, count)))
+                var indexesChanged = !entities.Select(value => value.Provenance!.SourceIndex)
+                    .SequenceEqual(Enumerable.Range(0, count));
+                var importedShapes = section is "cuboids" or "spheres"
+                    && entities.Any(value => value.Provenance!.Level != workspace.Manifest.BaseLevel.Level);
+                if (section is "cuboids" or "spheres" && (indexesChanged || importedShapes))
+                {
+                    var needsCameraCollision = entities.Any(value => Shape(value)?.CameraCollision is not null);
+                    if (needsCameraCollision && !bytes.ContainsKey("camera_collision_grid"))
+                    {
+                        blockers.Add("Gameplay camera-collision grid is missing; migrate it from the verified source ISO.");
+                        continue;
+                    }
+                    bytes[section] = ComposeShapes(section, source, entities);
+                    references.AddRange(entities.Select(value => new UyaGameplayInstanceReference(
+                        section, value.Provenance!.SourceIndex, value.EntityId, value.Transform)));
+                    rebuildCameraCollision |= bytes.ContainsKey("camera_collision_grid");
+                    continue;
+                }
+                var importedPaths = section is "splines" or "grind_splines"
+                    && entities.Any(value => value.Provenance!.Level != workspace.Manifest.BaseLevel.Level);
+                if (section is "splines" or "grind_splines" && (indexesChanged || importedPaths))
+                {
+                    bytes[section] = ComposePaths(section, source, entities);
+                    references.AddRange(entities.Select(value => new UyaGameplayInstanceReference(
+                        section, value.Provenance!.SourceIndex, value.EntityId, value.Transform)));
+                    continue;
+                }
+                if (section == "areas")
+                {
+                    var sourceAreas = GameplayGeometryReader.ReadAreas(source);
+                    if (indexesChanged || rebuildAreas || entities.Where((value, index) =>
+                            !EquivalentArea(workspace, value, sourceAreas[index])).Any())
+                        bytes[section] = ComposeAreas(workspace, source, entities);
+                    references.AddRange(entities.Select(value => new UyaGameplayInstanceReference(
+                        section, value.Provenance!.SourceIndex, value.EntityId, value.Transform)));
+                    continue;
+                }
+                if (indexesChanged)
                 {
                     blockers.Add($"Gameplay section {section} has unsupported inserted, deleted, or reordered instances.");
                     continue;
@@ -431,6 +486,7 @@ public static class UyaGameplayLayerStore
         "pills" => GameplayGeometryReader.ReadShapes(source, "pill").Length,
         "splines" => GameplayGeometryReader.ReadSplines(source).Length,
         "grind_splines" => GameplayGeometryReader.ReadGrindPaths(source).Length,
+        "areas" => GameplayGeometryReader.ReadAreas(source).Length,
         "env_sample_points" => UyaGameplayLightingReader.ReadEnvironmentSamplePoints(source).Length,
         "env_transitions" => UyaGameplayLightingReader.ReadEnvironmentTransitions(source).Length,
         _ => throw new ArgumentOutOfRangeException(nameof(section)),
@@ -510,6 +566,24 @@ public static class UyaGameplayLayerStore
         };
     }
 
+    private static byte[] ComposeShapes(
+        string section,
+        byte[] source,
+        IReadOnlyList<ProjectEntity> entities)
+    {
+        var instances = entities.Select((value, index) => new UyaInstanceTransformEdit(
+            index,
+            Position(value.Transform.Position),
+            Rotation(value.Transform.Rotation),
+            Position(value.Transform.Scale))).ToArray();
+        return section switch
+        {
+            "cuboids" => UyaShapeInstancesWriter.ComposeCuboids(source, instances),
+            "spheres" => UyaShapeInstancesWriter.ComposeSpheres(source, instances),
+            _ => throw new ArgumentOutOfRangeException(nameof(section)),
+        };
+    }
+
     private static byte[] WriteSplines(byte[] source, IReadOnlyList<ProjectEntity> entities) =>
         UyaSplineInstancesWriter.Write(source, entities.Select(value => new UyaSplineInstanceEdit(
             value.Provenance!.SourceIndex,
@@ -524,6 +598,106 @@ public static class UyaGameplayLayerStore
             value.Geometry!.GrindPath!.Points.Select(point => new UyaVector4(point.X, point.Y, point.Z, point.W)).ToArray(),
             Position(value.Transform.Position), Rotation(value.Transform.Rotation),
             Position(value.Transform.Scale))).ToArray());
+
+    private static byte[] ComposePaths(
+        string section,
+        byte[] source,
+        IReadOnlyList<ProjectEntity> entities)
+    {
+        if (section == "splines")
+        {
+            var sourceValues = GameplayGeometryReader.ReadSplines(source);
+            return UyaSplineInstancesWriter.Compose(source, entities.Select(value =>
+            {
+                var geometry = value.Geometry!.Spline!;
+                var sourceValue = sourceValues.ElementAtOrDefault(value.Provenance!.SourceIndex);
+                return new UyaSplineInstanceComposition(
+                    geometry.Points.Select(Vector).ToArray(),
+                    geometry.NativeHeader ?? sourceValue?.NativeHeader ?? new byte[0x0c],
+                    Position(value.Transform.Position), Rotation(value.Transform.Rotation),
+                    Position(value.Transform.Scale));
+            }).ToArray());
+        }
+        if (section == "grind_splines")
+        {
+            var sourceValues = GameplayGeometryReader.ReadGrindPaths(source);
+            return UyaGrindPathInstancesWriter.Compose(source, entities.Select(value =>
+            {
+                var geometry = value.Geometry!.GrindPath!;
+                var sourceValue = sourceValues.ElementAtOrDefault(value.Provenance!.SourceIndex);
+                return new UyaGrindPathInstanceComposition(
+                    geometry.Points.Select(Vector).ToArray(),
+                    geometry.NativeRecord ?? sourceValue?.NativeRecord ?? GrindPathRecord(geometry),
+                    geometry.NativeHeader ?? sourceValue?.NativeHeader ?? new byte[0x0c],
+                    Position(value.Transform.Position), Rotation(value.Transform.Rotation),
+                    Position(value.Transform.Scale));
+            }).ToArray());
+        }
+        throw new ArgumentOutOfRangeException(nameof(section));
+    }
+
+    private static byte[] ComposeAreas(
+        ForgeProjectWorkspace workspace,
+        byte[] source,
+        IReadOnlyList<ProjectEntity> entities) =>
+        UyaAreaInstancesWriter.Compose(source, entities.Select(value =>
+        {
+            var area = value.Geometry?.Area
+                ?? throw new InvalidDataException($"{value.Name} has no area geometry.");
+            return new UyaAreaInstanceComposition(
+                Vector(area.BoundingSphere),
+                area.LastUpdateTime,
+                ResolveAreaLinks(workspace, area.Splines, ProjectEntityKind.Spline),
+                ResolveAreaLinks(workspace, area.Cuboids, ProjectEntityKind.Cuboid),
+                ResolveAreaLinks(workspace, area.Spheres, ProjectEntityKind.Sphere),
+                ResolveAreaLinks(workspace, area.Cylinders, ProjectEntityKind.Cylinder),
+                ResolveAreaLinks(workspace, area.NegativeCuboids, ProjectEntityKind.Cuboid));
+        }).ToArray());
+
+    private static int[] ResolveAreaLinks(
+        ForgeProjectWorkspace workspace,
+        IReadOnlyList<ProjectGeometryLink> links,
+        ProjectEntityKind kind) => links.Select(link =>
+    {
+        if (link.Reference?.EntityId is not { } id) return link.SourceIndex;
+        var target = workspace.Content.Entities.SingleOrDefault(value => value.EntityId == id);
+        if (target is null || ProjectReferences.KindOf(target) != kind
+            || target.Provenance is not { Game: "UYA", SourceIndex: >= 0 } provenance)
+            throw new InvalidDataException($"Area reference {link.Reference.FieldKey} cannot resolve {id}.");
+        return provenance.SourceIndex;
+    }).ToArray();
+
+    private static bool EquivalentArea(
+        ForgeProjectWorkspace workspace,
+        ProjectEntity entity,
+        GameplayArea source)
+    {
+        var area = entity.Geometry?.Area
+            ?? throw new InvalidDataException($"{entity.Name} has no area geometry.");
+        return area.LastUpdateTime == source.LastUpdateTime
+            && area.BoundingSphere.X == source.BoundingSphere.X
+            && area.BoundingSphere.Y == source.BoundingSphere.Y
+            && area.BoundingSphere.Z == source.BoundingSphere.Z
+            && area.BoundingSphere.W == source.BoundingSphere.W
+            && ResolveAreaLinks(workspace, area.Splines, ProjectEntityKind.Spline).SequenceEqual(source.SplineIndices)
+            && ResolveAreaLinks(workspace, area.Cuboids, ProjectEntityKind.Cuboid).SequenceEqual(source.CuboidIndices)
+            && ResolveAreaLinks(workspace, area.Spheres, ProjectEntityKind.Sphere).SequenceEqual(source.SphereIndices)
+            && ResolveAreaLinks(workspace, area.Cylinders, ProjectEntityKind.Cylinder).SequenceEqual(source.CylinderIndices)
+            && ResolveAreaLinks(workspace, area.NegativeCuboids, ProjectEntityKind.Cuboid)
+                .SequenceEqual(source.NegativeCuboidIndices);
+    }
+
+    private static byte[] GrindPathRecord(ProjectGrindPathGeometry geometry)
+    {
+        var result = new byte[0x20];
+        BinaryPrimitives.WriteInt32LittleEndian(result.AsSpan(0x10), geometry.Unknown4);
+        BinaryPrimitives.WriteInt32LittleEndian(result.AsSpan(0x14), geometry.Wrap);
+        BinaryPrimitives.WriteInt32LittleEndian(result.AsSpan(0x18), geometry.Inactive);
+        return result;
+    }
+
+    private static UyaVector4 Vector(ProjectVector4 value) =>
+        new(value.X, value.Y, value.Z, value.W);
 
     private static IReadOnlyList<ProjectVector4> PathPoints(ProjectEntity entity) =>
         entity.Geometry!.Spline?.Points ?? entity.Geometry.GrindPath!.Points;

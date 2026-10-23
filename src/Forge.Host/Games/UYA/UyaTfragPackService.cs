@@ -29,7 +29,7 @@ internal static class UyaTfragPackService
             return new(terrainBytes, null, visibilityBit);
 
         if (UyaBaseLayerService.ReadPrimaryTerrain(sourceTerrainBytes) is null
-            && state.CustomImports.Count == 0)
+            && state.CustomImports.Count == 0 && state.ImportedOwners.Count == 0)
             return new(terrainBytes, null, visibilityBit);
 
         var retainedNativeCount = workspace.Content.Entities.Count(entity => entity.Tfrag is
@@ -37,11 +37,27 @@ internal static class UyaTfragPackService
             SourceKind: ProjectTfragSourceKind.Primary,
             SourceIndex: 0,
             CustomImportId: null,
+            ImportedOwnerId: null,
         });
+        var importedOcclusion = await UyaOcclusionImportPayload.ReadAsync(workspace, cancellationToken);
+        if (importedOcclusion is not null)
+        {
+            var sourceLevel = workspace.Content.Occlusion!.SourceLevel;
+            var owner = state.ImportedOwners.SingleOrDefault(value => value.SourceLevel == sourceLevel
+                && value.SourceKind == ProjectTfragSourceKind.Primary && value.SourceIndex == 0
+                && value.TargetKind == ProjectTfragSourceKind.Primary && value.TargetIndex == 0)
+                ?? throw new InvalidDataException(
+                    "Imported occlusion has no matching donor primary tfrag owner.");
+            sourceTerrainBytes = await workspace.ReadAttachedAssetVerifiedAsync(
+                owner.NativePayload, ForgeProjectWorkspace.MaxAttachedAssetBytes, cancellationToken);
+            retainedNativeCount = UyaBaseLayerService.ReadPrimaryTerrain(sourceTerrainBytes)?.TfragCount
+                ?? throw new InvalidDataException("Imported occlusion primary tfrag payload is empty.");
+        }
         var stagedOcclusionPath = Path.Combine(stagedTieRoot, "occlusion.bin");
         var occlusionBytes = File.Exists(stagedOcclusionPath)
             ? await File.ReadAllBytesAsync(stagedOcclusionPath, cancellationToken)
-            : sourcePackage.Files.Single(value => value.Path == "gameplay/core/occlusion.bin").Bytes;
+            : importedOcclusion?.GameplayMappings
+                ?? sourcePackage.Files.Single(value => value.Path == "gameplay/core/occlusion.bin").Bytes;
         var occlusion = TfragTerrainComposer.ComposeOcclusionMappings(
             GameId.UYA,
             terrainBytes,

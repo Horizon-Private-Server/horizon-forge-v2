@@ -84,6 +84,21 @@ internal static class AssetExplorerPayloadCodec
                     writer.WriteUInt32(texture.Slot);
                     writer.WriteBoolean(texture.Restorable);
                 }
+                writer.WriteBoolean(source.MobySounds is not null);
+                if (source.MobySounds is { } sounds)
+                {
+                    writer.WriteString(sounds.BankAssetId);
+                    if (sounds.Slots.Count > MaxMetadataItems) PayloadFormat.Malformed("Moby sound slot list exceeds item limit");
+                    writer.WriteUInt32((uint)sounds.Slots.Count);
+                    foreach (var slot in sounds.Slots)
+                    {
+                        writer.WriteUInt32(slot.Slot);
+                        writer.WriteUInt32(slot.NativeProgramIndex);
+                        WriteOptionalString(writer, slot.SoundAssetId);
+                        writer.WriteBoolean(slot.PreviewSupported);
+                        WriteOptionalString(writer, slot.PreviewBlocker);
+                    }
+                }
             }
             if (item.ClassIds.Count > MaxMetadataItems) PayloadFormat.Malformed("Asset class list exceeds item limit");
             writer.WriteUInt32((uint)item.ClassIds.Count);
@@ -131,7 +146,19 @@ internal static class AssetExplorerPayloadCodec
                     ? new AssetExplorerTextureUsePayload(
                         reader.ReadString(), reader.ReadUInt32(), reader.ReadString(), reader.ReadUInt32(), reader.ReadBoolean())
                     : null;
-                sources[sourceIndex] = new(game, region, revision, level, archive, sourceAssetIndex, texture);
+                AssetExplorerMobySoundUsePayload? sounds = null;
+                if (reader.ReadBoolean())
+                {
+                    var bankAssetId = reader.ReadString();
+                    var slots = new AssetExplorerSoundSlotPayload[
+                        ReadCount(ref reader, MaxMetadataItems, "Moby sound slot list")];
+                    for (var slotIndex = 0; slotIndex < slots.Length; slotIndex++)
+                        slots[slotIndex] = new(
+                            reader.ReadUInt32(), reader.ReadUInt32(), ReadOptionalString(ref reader),
+                            reader.ReadBoolean(), ReadOptionalString(ref reader));
+                    sounds = new(bankAssetId, slots);
+                }
+                sources[sourceIndex] = new(game, region, revision, level, archive, sourceAssetIndex, texture, sounds);
             }
             var classIds = new uint[ReadCount(ref reader, MaxMetadataItems, "Asset class list")];
             for (var classIndex = 0; classIndex < classIds.Length; classIndex++) classIds[classIndex] = reader.ReadUInt32();

@@ -1,6 +1,7 @@
 using Forge.Host.Domain;
 using RatchetPs2.Games.UYA.Gameplay;
 using RatchetPs2.Games.UYA.Level;
+using RatchetPs2.Core.Sounds;
 
 namespace Forge.Host.Games.UYA;
 
@@ -36,8 +37,35 @@ internal static class UyaOpaqueContentService
         ReadOnlySpan<byte> levelWadBytes,
         UyaLevelWadPackage package)
     {
+        var source = UyaLevelWadRenderPackageBuilder.ReadAssetSourceFiles(package.Files);
+        var bankBytes = UyaLevelWadReader.ReadSectorFileBlock(levelWadBytes, package.LevelWad.SoundBank);
+        SoundRemapInventory? remap = null;
+        if (bankBytes.Length > 0)
+        {
+            var bank = RatchetPs2.Sdk.SoundBankReader.Inspect(
+                RatchetPs2.Core.Games.GameId.UYA, bankBytes);
+            var header = RatchetPs2.Core.LevelAssets.LevelAssetReader.ReadHeader(source.HeaderBytes);
+            if (header.SoundRemapOffset != 0)
+                remap = RatchetPs2.Sdk.SoundBankReader.InspectRemap(
+                    RatchetPs2.Core.Games.GameId.UYA, source.HeaderBytes, bank.Programs.Count);
+        }
+        return Capture(levelWadBytes, package, source.HeaderBytes, remap);
+    }
+
+    public static IReadOnlyList<OpaqueSectionCapture> Capture(
+        ReadOnlySpan<byte> levelWadBytes,
+        UyaLevelWadPackage package,
+        ReadOnlySpan<byte> assetHeaderBytes,
+        SoundRemapInventory? soundRemap)
+    {
         var sections = new List<OpaqueSectionCapture>();
         AddSector(sections, "level/sound-bank", "level_wad", 0x18, package.LevelWad.SoundBank, levelWadBytes);
+        if (soundRemap is not null)
+            sections.Add(new(
+                "level/sound-remap",
+                new("level_wad/assets/asset_header.bin", 0x70, soundRemap.Provenance.Offset,
+                    soundRemap.Provenance.Length, 4),
+                assetHeaderBytes.Slice(soundRemap.Provenance.Offset, soundRemap.Provenance.Length).ToArray()));
         AddSector(sections, "level/occlusion", "level_wad", 0x28, package.LevelWad.Occlusion, levelWadBytes);
 
         var files = package.Files.ToDictionary(file => file.Path, StringComparer.Ordinal);

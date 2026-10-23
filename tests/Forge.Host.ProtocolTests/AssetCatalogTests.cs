@@ -57,6 +57,85 @@ internal static class AssetCatalogTests
         Equal(new AssetExplorerTextureUsePayload("tie", 291, "material", 0, true),
             textureItem.Sources.Single().TextureUse, "explorer texture provenance");
 
+        var bank = await store.PutAsync(
+            AssetKind.SoundBank,
+            1,
+            "sound bank"u8.ToArray(),
+            Metadata("level03", 0, ["sound-bank:level03"], ["sound-bank"]));
+        var sound = await store.PutAsync(
+            AssetKind.Sound,
+            ProjectSoundSchema.ProgramCanonicalFormatVersion,
+            Enumerable.Repeat((byte)0x42, 32).ToArray(),
+            new(
+                "uya-importer-v0",
+                new("UYA", "NTSC-U", "1.00", "level03", "level_wad/sound.bnk", 66,
+                    UyaIsoService.SupportedMd5,
+                    SoundProgram: new(bank.Id, [], [])),
+                ["sound:66"],
+                ["sound-program"]));
+        var moby = await store.PutAsync(
+            AssetKind.Moby,
+            1,
+            "moby with sounds"u8.ToArray(),
+            new(
+                "uya-importer-v0",
+                new("UYA", "NTSC-U", "1.00", "level03", "level_wad/assets/asset_wad.bin", 4,
+                    UyaIsoService.SupportedMd5,
+                    MobySounds: new(bank.Id, [new(2, 66, sound.Id, true, null)])),
+                ["moby:0x0123"],
+                ["vanilla"]));
+        await store.PutAsync(
+            AssetKind.Moby,
+            1,
+            "moby with sounds"u8.ToArray(),
+            new(
+                "uya-importer-v1",
+                new("UYA", "NTSC-U", "1.00", "level03", "level_wad/assets/asset_wad.bin", 4,
+                    UyaIsoService.SupportedMd5,
+                    MobySounds: new(bank.Id, [new(2, 66, sound.Id, true, null)], 0x0123)),
+                ["moby:0x0123"],
+                ["vanilla"]));
+        Equal(0x0123, store.Query(new(Id: moby.Id)).Single().Sources.Single().MobySounds!.ClassId,
+            "catalog upgrades legacy Moby sound provenance with its class identity");
+        var updatedSound = await store.PutAsync(
+            AssetKind.Sound,
+            ProjectSoundSchema.ProgramCanonicalFormatVersion,
+            Enumerable.Repeat((byte)0x43, 32).ToArray(),
+            new(
+                "uya-importer-v1",
+                new("UYA", "NTSC-U", "1.00", "level03", "level_wad/sound.bnk", 67,
+                    UyaIsoService.SupportedMd5,
+                    SoundProgram: new(bank.Id, [], [])),
+                ["sound:67"],
+                ["sound-program"]));
+        await store.PutAsync(
+            AssetKind.Moby,
+            1,
+            "moby with sounds"u8.ToArray(),
+            new(
+                "uya-importer-v2",
+                new("UYA", "NTSC-U", "1.00", "level03", "level_wad/assets/asset_wad.bin", 4,
+                    UyaIsoService.SupportedMd5,
+                    MobySounds: new(bank.Id, [new(2, 67, updatedSound.Id, true, null)], 0x0123)),
+                ["moby:0x0123"],
+                ["vanilla"]));
+        var updatedMoby = store.Query(new(Id: moby.Id)).Single();
+        Equal(1, updatedMoby.Sources.Count, "catalog replaces a re-imported source occurrence");
+        Equal(updatedSound.Id, updatedMoby.Sources.Single().MobySounds!.Slots.Single().Sound,
+            "catalog refreshes a re-imported Moby sound mapping");
+        var mobyPage = await QueryExplorerAsync(request with
+        {
+            Category = AssetExplorerCategoryPayload.Mobys,
+            Search = null,
+        });
+        var mobySounds = mobyPage.Items.Single(item => item.AssetId == moby.Id.ToString())
+            .Sources.Single().MobySounds!;
+        Equal(bank.Id.ToString(), mobySounds.BankAssetId, "explorer Moby sound bank");
+        Equal(new AssetExplorerSoundSlotPayload(2, 67, updatedSound.Id.ToString(), true, null),
+            mobySounds.Slots.Single(), "explorer Moby sound slot");
+        var reopenedSound = (await AssetCatalogStore.OpenAsync(root)).Query(new(Id: sound.Id)).Single();
+        Equal(bank.Id, reopenedSound.Sources.Single().SoundProgram!.Bank, "sound program bank provenance");
+
         var skyBytes = BuildUyaSkyboxFixture(2);
         var sky = await store.PutAsync(
             AssetKind.Sky,

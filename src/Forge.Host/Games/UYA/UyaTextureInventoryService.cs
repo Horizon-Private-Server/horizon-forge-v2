@@ -62,11 +62,13 @@ public static class UyaTextureInventoryService
                 }
             }
         }
-        var terrainTextures = project.Content.Tfrags?.CustomImports
-            .SelectMany(value => value.Textures)
+        var terrainTextures = (project.Content.Tfrags?.CustomImports
+                .SelectMany(value => value.Textures) ?? [])
+            .Concat(project.Content.Tfrags?.ImportedOwners
+                .SelectMany(value => value.Textures.Select(texture => texture.Asset)) ?? [])
             .Distinct()
             .OrderBy(value => value.Id.ToString(), StringComparer.Ordinal)
-            .ToArray() ?? [];
+            .ToArray();
         for (var index = 0; index < terrainTextures.Length; index++)
         {
             cancellationToken.ThrowIfCancellationRequested();

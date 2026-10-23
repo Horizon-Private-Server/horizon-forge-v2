@@ -1,12 +1,16 @@
 using Forge.Host.Domain;
 using System.Numerics;
+using System.Security.Cryptography;
 using RatchetPs2.Core.Games;
 using RatchetPs2.Core.Gameplay;
+using RatchetPs2.Core.IO;
 using RatchetPs2.Core.LevelAssets;
 using RatchetPs2.Core.Skyboxes;
+using RatchetPs2.Core.Wad;
 using RatchetPs2.Games.UYA.Gameplay;
 using RatchetPs2.Games.UYA.Level;
 using RatchetPs2.Sdk;
+using RatchetPs2.Core.Sounds;
 
 namespace Forge.Host.Games.UYA;
 
@@ -16,8 +20,10 @@ internal static class UyaBaseLevelService
         Stream iso,
         AssetCatalogStore catalog,
         int level,
-        MobyDexCatalog? mobyDex = null)
+        MobyDexCatalog? mobyDex = null,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var levelWad = LevelArchiveReader.ExtractPrimary(GameId.UYA, iso, level);
         var package = UyaLevelWadUnpacker.Unpack(levelWad);
         var hud = UyaHudProjectService.TryRead(package)?.State;
@@ -44,6 +50,15 @@ internal static class UyaBaseLevelService
 
         var source = UyaLevelWadRenderPackageBuilder.ReadAssetSourceFiles(package.Files);
         var header = LevelAssetReader.ReadHeader(source.HeaderBytes);
+        var soundBankBytes = UyaLevelWadReader.ReadSectorFileBlock(levelWad, package.LevelWad.SoundBank);
+        var soundBank = soundBankBytes.Length == 0
+            ? null
+            : SoundBankReader.Inspect(GameId.UYA, soundBankBytes, cancellationToken);
+        var soundRemap = soundBank is null || header.SoundRemapOffset == 0
+            ? null
+            : SoundBankReader.InspectRemap(
+                GameId.UYA, source.HeaderBytes, soundBank.Programs.Count, cancellationToken);
+        var terrainTextures = ReadTerrainTextures(source, header, cancellationToken);
         var mobyClasses = ModelClasses(source.HeaderBytes, header.MobyModelOffset, header.MobyModelCount);
         var tieClasses = ModelClasses(source.HeaderBytes, header.TieModelOffset, header.TieModelCount);
         var shrubClasses = LevelAssetReader.ReadShrubDefinitions(source.HeaderBytes, header.ShrubModelOffset, header.ShrubModelCount)
@@ -101,7 +116,7 @@ internal static class UyaBaseLevelService
         var baseLayers = UyaBaseLayerService.Extract(package);
         AddSkyShells(entities, baseLayers, level);
         AddCollisionPieces(entities, baseLayers, level);
-        var tfrags = UyaTfragProjectService.Create(baseLayers, level);
+        var tfrags = UyaTfragProjectService.Create(baseLayers, level, cancellationToken);
         _ = UyaInstancedCollisionLinkRecoveryService.Recover(entities, baseLayers, catalog);
         var mobyPVars = UyaMobyPVarService.Import(
             entities,
@@ -114,7 +129,17 @@ internal static class UyaBaseLevelService
         var missingClasses = MissingClasses(mobys.Select(value => value.ClassId), mobyClasses, mobyAssets)
             + MissingClasses(ties.Select(value => value.ClassId), tieClasses, tieAssets)
             + MissingClasses(shrubs.Select(value => value.ClassId), shrubClasses, shrubAssets);
+        var opaqueSections = UyaOpaqueContentService.Capture(levelWad, package, source.HeaderBytes, soundRemap);
+        var gameplayOcclusion = opaqueSections.SingleOrDefault(value => value.Name == "gameplay/occlusion")?.Bytes;
+        var levelOcclusion = opaqueSections.SingleOrDefault(value => value.Name == "level/occlusion")?.Bytes;
+        var assetOcclusion = UyaOcclusionGridReader.ReadLevelAssetPayload(
+            source.HeaderBytes, source.AssetWadBytes);
+        UyaOcclusionImportSource? occlusion = gameplayOcclusion is { Length: > 0 }
+            && levelOcclusion is { Length: > 0 } && assetOcclusion.Length > 0
+                ? new(gameplayOcclusion, assetOcclusion, levelOcclusion)
+                : null;
         return new(
+            Convert.ToHexString(SHA256.HashData(levelWad)).ToLowerInvariant(),
             entities,
             entities.Count + tfrags.Entities.Count,
             entities.Count(entity => entity.Asset is not null) + tfrags.Entities.Count,
@@ -122,7 +147,8 @@ internal static class UyaBaseLevelService
             missing,
             missingClasses,
             fallbackTransforms,
-            UyaOpaqueContentService.Capture(levelWad, package),
+            opaqueSections,
+            occlusion,
             baseLayers,
             [
                 new(BakeLayerId.Ties, UyaTieInstancesReader.RecordSize,
@@ -137,7 +163,30 @@ internal static class UyaBaseLevelService
             hud,
             fx,
             mobyPVars,
-            tfrags);
+            tfrags,
+            soundBank is null || soundRemap is null
+                ? ProjectSoundState.Empty
+                : SoundProjectService.Create(
+                    GameId.UYA, level, soundBankBytes, soundBank, soundRemap, mobyAssets),
+            terrainTextures);
+    }
+
+    private static IReadOnlyList<UyaTerrainTextureSource> ReadTerrainTextures(
+        UyaLevelAssetSourceFiles source,
+        LevelAssetHeader header,
+        CancellationToken cancellationToken)
+    {
+        var assetBytes = BinaryMagic.IsWad(source.AssetWadBytes)
+            ? WadCompression.Decompress(source.AssetWadBytes, new(), cancellationToken)
+            : source.AssetWadBytes;
+        return LevelAssetReader.ReadTextureDefinitions(
+                source.HeaderBytes, header.TerrainTextureOffset, header.TerrainTextureCount)
+            .Select(definition => new UyaTerrainTextureSource(
+                definition.Index,
+                LevelAssetReader.BuildAssetTexture(
+                    "tfrag", definition.Index, definition, source.PaletteBytes, assetBytes,
+                    header.TextureDataOffset, isSwizzled: false).PifBytes))
+            .ToArray();
     }
 
     private static void AddCollisionPieces(
@@ -459,7 +508,8 @@ internal static class UyaBaseLevelService
             new("UYA", level, "gameplay/core/splines", value.Index),
             null,
             Geometry: new(Spline: new(value.Points.Select(point =>
-                new ProjectVector4(point.X, point.Y, point.Z, point.W)).ToArray())))).ToArray();
+                new ProjectVector4(point.X, point.Y, point.Z, point.W)).ToArray(),
+                value.NativeHeader)))).ToArray();
         foreach (var spline in splines) entities.Add(spline);
 
         foreach (var value in geometry.GrindPaths)
@@ -479,7 +529,9 @@ internal static class UyaBaseLevelService
                     value.Unknown4,
                     value.Wrap,
                     value.Inactive,
-                    value.Points.Select(point => new ProjectVector4(point.X, point.Y, point.Z, point.W)).ToArray()))));
+                    value.Points.Select(point => new ProjectVector4(point.X, point.Y, point.Z, point.W)).ToArray(),
+                    value.NativeRecord,
+                    value.NativeHeader))));
         }
 
         var cuboidIds = cuboids.ToDictionary(value => value.Provenance!.SourceIndex, value => value.EntityId);
@@ -713,6 +765,7 @@ internal static class UyaBaseLevelService
 }
 
 internal sealed record UyaBaseLevelData(
+    string SourceSha256,
     IReadOnlyList<ProjectEntity> Entities,
     int SourceInstanceCount,
     int RenderableInstanceCount,
@@ -721,6 +774,7 @@ internal sealed record UyaBaseLevelData(
     int MissingClassCount,
     int FallbackTransformCount,
     IReadOnlyList<OpaqueSectionCapture> OpaqueSections,
+    UyaOcclusionImportSource? Occlusion,
     IReadOnlyList<UyaBaseLayerPayload> BaseLayers,
     IReadOnlyList<UyaStaticLayerSourceRecord> StaticLayers,
     UyaGameplayBlocks Gameplay,
@@ -728,4 +782,8 @@ internal sealed record UyaBaseLevelData(
     ProjectHudState? Hud,
     ProjectFxState? Fx,
     ProjectMobyPVarState? MobyPVars,
-    UyaTfragProjectImport Tfrags);
+    UyaTfragProjectImport Tfrags,
+    ProjectSoundState Sounds,
+    IReadOnlyList<UyaTerrainTextureSource> TerrainTextures);
+
+internal sealed record UyaTerrainTextureSource(int SourceTextureId, byte[] PifBytes);

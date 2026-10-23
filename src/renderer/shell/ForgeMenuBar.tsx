@@ -23,6 +23,7 @@ export function ForgeMenuBar({ keybindings, project, onAction }: ForgeMenuBarPro
       <Item shortcut={shortcut('project.new')} onClick={() => onAction('newProject')}>New Project…</Item>
       <Item shortcut={shortcut('project.open')} onClick={() => onAction('openProject')}>Open Project…</Item>
       <Item shortcut={shortcut('project.save')} disabled={!project} onClick={() => onAction('saveProject')}>Save</Item>
+      <Item disabled={project?.target.game !== 'UYA'} onClick={() => onAction('importMapContent')}>Import Map Content…</Item>
       <Item onClick={() => onAction('projects')}>Project Hub</Item>
       <Menu.Divider />
       <Item onClick={() => windowAction('quit')}>Quit</Item>
@@ -60,6 +61,8 @@ export function ForgeMenuBar({ keybindings, project, onAction }: ForgeMenuBarPro
           <Item onClick={() => onAction('showAssetPreview')}>Asset Preview</Item>
           <Item onClick={() => onAction('showHudBank')}>HUD Bank</Item>
           <Item onClick={() => onAction('showFxTextures')}>FX Textures</Item>
+          <Item onClick={() => onAction('showSounds')}>Sounds</Item>
+          <Item onClick={() => onAction('showImports')}>Imports</Item>
         </Menu.Sub.Dropdown>
       </Menu.Sub>
       <Item disabled={!project} onClick={() => onAction('resetLayout')}>Reset Layout</Item>

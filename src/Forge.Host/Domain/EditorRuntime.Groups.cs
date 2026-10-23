@@ -17,7 +17,8 @@ public sealed partial class EditorRuntime
         var projectCreated = entities.Where(entity => entity.Provenance is null && entity.Source?.SourceIndex is not null)
             .GroupBy(entity => (ProjectReferences.KindOf(entity), entity.Source!.SourceIndex!.Value))
             .ToDictionary(group => group.Key, group => group.Select(entity => entity.EntityId).ToArray());
-        return _mapGroupSources.Select(group =>
+        var projectKinds = workspace.Content.MapGroups.Select(value => value.MemberKind).ToHashSet();
+        var sourceGroups = _mapGroupSources.Where(value => !projectKinds.Contains(ProjectKind(value.Kind))).Select(group =>
         {
             var members = new List<EntityId>();
             var missing = new List<int>();
@@ -38,7 +39,15 @@ public sealed partial class EditorRuntime
                 if (!found) missing.Add(sourceIndex);
             }
             return new EditorMapGroupSnapshot(group.Kind, group.SourceIndex, members, missing);
-        }).ToArray();
+        });
+        var active = entities.Select(value => value.EntityId).ToHashSet();
+        var projectGroups = workspace.Content.MapGroups.SelectMany(table => table.Groups.Select((group, index) =>
+            new EditorMapGroupSnapshot(
+                EditorKind(table.MemberKind),
+                index,
+                group.Members.Where(active.Contains).ToArray(),
+                [])));
+        return sourceGroups.Concat(projectGroups).ToArray();
     }
 
     private static ProjectEntityKind ProjectKind(EditorMapGroupKind kind) => kind switch
@@ -46,6 +55,14 @@ public sealed partial class EditorRuntime
         EditorMapGroupKind.Moby => ProjectEntityKind.Moby,
         EditorMapGroupKind.Tie => ProjectEntityKind.Tie,
         EditorMapGroupKind.Shrub => ProjectEntityKind.Shrub,
+        _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+    };
+
+    private static EditorMapGroupKind EditorKind(ProjectEntityKind kind) => kind switch
+    {
+        ProjectEntityKind.Moby => EditorMapGroupKind.Moby,
+        ProjectEntityKind.Tie => EditorMapGroupKind.Tie,
+        ProjectEntityKind.Shrub => EditorMapGroupKind.Shrub,
         _ => throw new ArgumentOutOfRangeException(nameof(kind)),
     };
 }

@@ -3,6 +3,23 @@ namespace Forge.Host.Domain;
 public sealed partial class EditorRuntime
 {
     internal async Task<TResult> ReadWorkspaceAsync<TResult>(
+        Func<ForgeProjectWorkspace, CancellationToken, Task<TResult>> reader,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(reader);
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            ThrowIfDisposed();
+            return await reader(RequireWorkspace(), cancellationToken);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    internal async Task<TResult> ReadWorkspaceAsync<TResult>(
         string projectPath,
         Func<ForgeProjectWorkspace, CancellationToken, Task<TResult>> reader,
         CancellationToken cancellationToken = default)

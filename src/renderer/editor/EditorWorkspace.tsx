@@ -51,6 +51,8 @@ import { ReferencesPanel } from './ReferencesPanel.tsx';
 import { HudBankPanel } from './HudBankPanel.tsx';
 import { FxTexturePanel } from './FxTexturePanel.tsx';
 import { CustomAssetsPanel } from './CustomAssetsPanel.tsx';
+import { SoundWorkspacePanel } from './SoundWorkspacePanel.tsx';
+import { ImportBatchesPanel } from './ImportBatchesPanel.tsx';
 
 interface EditorWorkspaceProps {
   project: EditorSnapshot;
@@ -60,6 +62,7 @@ interface EditorWorkspaceProps {
   collisionVisualization: CollisionVisualization;
   hostStatus?: ForgeHostStatus;
   layoutAction?: { id: number; action: EditorLayoutAction };
+  renderRevision: number;
   showViewportStats: boolean;
   onProjectChange(project: EditorSnapshot): void;
 }
@@ -78,6 +81,8 @@ const components = {
   assetPreview: AssetPreviewPanel,
   hudBank: HudBankPanel,
   fxTextures: FxTexturePanel,
+  sounds: SoundWorkspacePanel,
+  imports: ImportBatchesPanel,
 };
 
 export function EditorWorkspace({
@@ -88,6 +93,7 @@ export function EditorWorkspace({
   collisionVisualization,
   hostStatus,
   layoutAction,
+  renderRevision,
   showViewportStats,
   onProjectChange,
 }: EditorWorkspaceProps) {
@@ -100,6 +106,8 @@ export function EditorWorkspace({
   const buildRunning = useRef(false);
   const [terrain, setTerrain] = useState<EditorTerrainSource>();
   const [sceneLoad, setSceneLoad] = useState<EditorLoadProgress>();
+  const [sceneFilter, setSceneFilter] = useState('');
+  const [activeImportBatchId, setActiveImportBatchId] = useState<string>();
   const [cameraFocus, setCameraFocus] = useState<{ entityId: string }>();
   const [splinePointSelection, setSplinePointSelection] = useState<string[]>([]);
   const [skyCompositionSelected, setSkyCompositionSelected] = useState(false);
@@ -109,6 +117,8 @@ export function EditorWorkspace({
   const [showSolidCollision, setShowSolidCollision] = useState(true);
   const [showPlayerBarriers, setShowPlayerBarriers] = useState(true);
   const [showDeathHeight, setShowDeathHeight] = useState(true);
+  const [mobySimulationEnabled, setMobySimulationEnabled] = useState(true);
+  const [mobySimulationPaused, setMobySimulationPaused] = useState(false);
   const [assetPreview, setAssetPreview] = useState<AssetExplorerFamily>();
   const [assetThumbnails, setAssetThumbnails] = useState<AssetThumbnailRuntime | null>();
   const [instancedCollisionOverlay, setInstancedCollisionOverlay] = useState<InstancedCollisionOverlay>();
@@ -147,6 +157,10 @@ export function EditorWorkspace({
       setRenderedInstancedCollisionEntityIds(new Set());
       setSplinePointSelection([]);
       setSkyCompositionSelected(false);
+      setMobySimulationEnabled(true);
+      setMobySimulationPaused(false);
+      setSceneFilter('');
+      setActiveImportBatchId(undefined);
       splinePointClipboard.current = [];
     }
     setSceneLoad({ status: 'loading', label: 'Preparing render package…', completed: 0, total: 1 });
@@ -172,7 +186,7 @@ export function EditorWorkspace({
       stopProgress();
       void window.forge.cancelEditorTerrain();
     };
-  }, [customTfragRevision, project.projectId]);
+  }, [customTfragRevision, project.projectId, renderRevision]);
 
   useEffect(() => {
     if (!api) return;
@@ -377,6 +391,30 @@ export function EditorWorkspace({
     if (api) showEditorPanel(api, 'references');
   }, [api]);
 
+  const openImportBatch = useCallback((batchId: string) => {
+    setActiveImportBatchId(batchId);
+    if (api) showEditorPanel(api, 'imports');
+  }, [api]);
+
+  const filterSceneToImportBatch = useCallback((batchId: string) => {
+    setSceneFilter(batchId);
+    if (api) showEditorPanel(api, 'sceneTree');
+  }, [api]);
+
+  const removeImportBatch = useCallback(async (batchId: string, targetFingerprint: string) => {
+    setBusy(true);
+    setError(undefined);
+    try {
+      onProjectChange(await window.forge.applyContentImportRemoval(batchId, targetFingerprint));
+      return true;
+    }
+    catch (cause) {
+      setError(errorMessage(cause));
+      return false;
+    }
+    finally { setBusy(false); }
+  }, [onProjectChange]);
+
   const previewInstancedCollision = useCallback(async (
     entityId: string,
     settings?: EditorInstancedCollisionGenerationSettings,
@@ -505,6 +543,8 @@ export function EditorWorkspace({
     terrain,
     sceneLoad,
     setSceneLoad,
+    sceneFilter,
+    setSceneFilter,
     cameraFocus,
     setCameraFocus,
     splinePointSelection,
@@ -522,11 +562,19 @@ export function EditorWorkspace({
     setShowPlayerBarriers,
     showDeathHeight,
     setShowDeathHeight,
+    mobySimulationEnabled,
+    setMobySimulationEnabled,
+    mobySimulationPaused,
+    setMobySimulationPaused,
     assetPreview,
     assetThumbnails,
     inspectAsset,
     inspectReferencedAsset,
     navigateToEntity,
+    activeImportBatchId,
+    openImportBatch,
+    filterSceneToImportBatch,
+    removeImportBatch,
     showReferences,
     busy,
     hostAvailable: Boolean(hostStatus),
@@ -553,11 +601,12 @@ export function EditorWorkspace({
       catch (cause) { setError(errorMessage(cause)); }
       finally { setBusy(false); }
     },
-  }), [applyGroupTemplatePreview, applyInstancedCollisionPreview, assetPreview, assetThumbnails, buildAndPatch, buildProgress, buildResult, busy, cameraFocus,
+  }), [activeImportBatchId, applyGroupTemplatePreview, applyInstancedCollisionPreview, assetPreview, assetThumbnails, buildAndPatch, buildProgress, buildResult, busy, cameraFocus,
     cancelGroupTemplatePreview,
     cancelInstancedCollisionPreview, execute,
-    hostStatus, inspectAsset, inspectReferencedAsset, navigateToEntity, showReferences, keybindings,
-    collisionVisualization, project, sceneLoad, sceneTreeColors, showDeathHeight, showOcclusionOctants, showPlayerBarriers, showSolidCollision,
+    filterSceneToImportBatch, hostStatus, inspectAsset, inspectReferencedAsset, navigateToEntity, openImportBatch, removeImportBatch, showReferences, keybindings,
+    collisionVisualization, project, sceneFilter, sceneLoad, sceneTreeColors, showDeathHeight, showOcclusionOctants, showPlayerBarriers, showSolidCollision,
+    mobySimulationEnabled, mobySimulationPaused,
     selectionColor, showTerrain,
     showViewportStats, skyCompositionSelected,
     splinePointSelection,

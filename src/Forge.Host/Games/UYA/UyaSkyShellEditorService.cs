@@ -24,7 +24,7 @@ internal static class UyaSkyShellEditorService
             case EditorCommandKind.AddSkyShellFromAsset:
             {
                 var source = command.SkyShellSource!;
-                var resolved = await ResolveAsync(workspace, catalog, source.AssetId, cancellationToken);
+                var resolved = await ResolveAsync(workspace, catalog, source.AssetId, null, cancellationToken);
                 if ((uint)source.ShellIndex >= (uint)resolved.Skybox.Shells.Count)
                     throw new InvalidDataException(
                         $"Sky shell index {source.ShellIndex} is outside its 0..{resolved.Skybox.Shells.Count - 1} range.");
@@ -134,7 +134,7 @@ internal static class UyaSkyShellEditorService
             workspace.RootPath, catalog, BakeLayerId.Sky, cancellationToken);
         var blockers = inspection.Blockers[BakeLayerId.Sky];
         if (blockers.Count > 0) throw new InvalidDataException(string.Join(' ', blockers));
-        var baseAsset = inspection.Manifest!.Layers.Single(layer => layer.Layer == BakeLayerId.Sky)
+        var baseAsset = EffectiveBaseLayerRecord(inspection, entities)
             .Assets.Single(asset => asset.Name == "sky.bin").Asset;
         var basePath = workspace.ResolveAssetPath(baseAsset, catalog)
             ?? throw new FileNotFoundException($"Base sky asset {baseAsset.Id} is missing.");
@@ -149,7 +149,8 @@ internal static class UyaSkyShellEditorService
                 ?? throw new InvalidDataException($"Sky shell {entity.EntityId} has no source asset.");
             if (!resolved.TryGetValue(assetId, out var source))
             {
-                source = await ResolveAsync(workspace, catalog, assetId, cancellationToken);
+                source = await ResolveAsync(
+                    workspace, catalog, assetId, entity.Provenance?.Level, cancellationToken);
                 resolved.Add(assetId, source);
             }
             var shell = entity.SkyShell!;
@@ -168,24 +169,43 @@ internal static class UyaSkyShellEditorService
             cancellationToken);
     }
 
+    internal static UyaBaseLayerRecord EffectiveBaseLayerRecord(
+        UyaBaseLayerInspection inspection,
+        IReadOnlyList<ProjectEntity> entities)
+    {
+        var record = inspection.Manifest!.Layers.Single(layer => layer.Layer == BakeLayerId.Sky);
+        if (record.Assets.Count > 0) return record;
+        var donor = entities.Where(entity => entity.SkyShell is not null)
+            .OrderBy(entity => entity.SkyShell!.Order)
+            .Select(entity => entity.Asset)
+            .FirstOrDefault(asset => asset?.Kind == AssetKind.Sky)
+            ?? throw new InvalidDataException("Sky composition has no base or imported sky asset.");
+        return record with
+        {
+            Assets = [new("sky.bin", donor, UyaBaseLayerSchema.CanonicalFormatVersion)],
+        };
+    }
+
     private static async Task<ResolvedSky> ResolveAsync(
         ForgeProjectWorkspace workspace,
         AssetCatalogStore catalog,
         AssetId assetId,
+        int? attachedSourceLevel,
         CancellationToken cancellationToken)
     {
-        var entry = catalog.Query(new(Id: assetId)).SingleOrDefault()
-            ?? throw new FileNotFoundException($"Sky asset {assetId} is not present in the catalog.");
-        if (entry.Kind != AssetKind.Sky)
+        var entry = catalog.Query(new(Id: assetId)).SingleOrDefault();
+        if (entry is not null && entry.Kind != AssetKind.Sky)
             throw new InvalidDataException($"Asset {assetId} is not a sky asset.");
-        var source = entry.Sources.Where(value => value.Game == workspace.Manifest.Target.Game
+        var source = entry?.Sources.Where(value => value.Game == workspace.Manifest.Target.Game
                 && value.Region == workspace.Manifest.Target.Region
                 && value.Revision == workspace.Manifest.Target.Revision)
             .OrderBy(value => value.Level, StringComparer.Ordinal)
             .ThenBy(value => value.Archive, StringComparer.Ordinal)
             .ThenBy(value => value.SourceIndex)
-            .FirstOrDefault()
-            ?? throw new InvalidDataException($"Sky asset {assetId} is incompatible with the active project target.");
+            .FirstOrDefault();
+        if (source is null && (!workspace.Content.Assets.Any(value => value.Id == assetId)
+                || attachedSourceLevel is null))
+            throw new InvalidDataException($"Sky asset {assetId} is incompatible with the active project target.");
         var resolved = workspace.ResolveAsset(new(assetId, AssetKind.Sky), catalog)
             ?? throw new FileNotFoundException($"Sky asset blob {assetId} is missing.");
         var bytes = await AssetCatalogBlobReader.ReadVerifiedAsync(
@@ -193,7 +213,7 @@ internal static class UyaSkyShellEditorService
             resolved.Path, ForgeProjectWorkspace.MaxAttachedAssetBytes, cancellationToken);
         using var stream = new MemoryStream(bytes, writable: false);
         var skybox = SkyboxReader.Read(stream, GameId.UYA);
-        return new(bytes, skybox, ParseLevel(source.Level));
+        return new(bytes, skybox, source is null ? attachedSourceLevel!.Value : ParseLevel(source.Level));
     }
 
     private static int ParseLevel(string value)
