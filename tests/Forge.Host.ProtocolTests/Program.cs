@@ -10,10 +10,15 @@ using RatchetPs2.Sdk;
 
 internal static class Program
 {
-    public static async Task<int> Main()
+    public static async Task<int> Main(string[] args)
     {
         try
         {
+            if (args.Length == 3 && args[0] == "--catalog-snapshot-worker")
+            {
+                await AssetCatalogSnapshotTests.WriteWorkerAsync(args[1], args[2]);
+                return 0;
+            }
             var json = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "fixtures", "bridge-v4.json"));
             var vectors = JsonSerializer.Deserialize<List<GoldenFrame>>(json, new JsonSerializerOptions
             {
@@ -28,6 +33,7 @@ internal static class Program
             VerifyIdentityAndSchema();
             await UyaIsoSetupTests.RunAsync();
             await AssetCatalogTests.RunAsync();
+            await AssetCatalogSnapshotTests.RunAsync();
             await AssetMaintenanceTests.RunAsync();
             await UyaAssetImportTests.RunAsync();
             await ForgeProjectTests.RunAsync();
@@ -45,11 +51,16 @@ internal static class Program
             MobyDexSchemaTests.Run();
             await MobyDexProjectTests.RunAsync();
             await BakeLayerTests.RunAsync();
+            PaletteBakeReportTests.Run();
             await EditorRuntimeTests.RunAsync();
+            await EditorSelectionTests.RunAsync();
+            await UyaPreflightLayerSummaryCacheTests.RunAsync();
             await UyaProjectTests.RunAsync();
+            await UyaProjectPreparationTests.RunAsync();
             await UyaTfragProjectTests.RunAsync();
             await UyaSoundProjectTests.RunAsync();
             await UyaBakeWorkflowTests.RunAsync();
+            await UyaRenderPreparationProgressTests.RunAsync();
             await UyaRenderPackageTests.RunAsync();
             await UyaArchiveBuildTests.RunAsync();
             await UyaStaticLayerTests.RunAsync();

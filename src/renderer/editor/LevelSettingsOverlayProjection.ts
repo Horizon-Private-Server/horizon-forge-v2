@@ -38,6 +38,7 @@ export class LevelSettingsOverlayProjection {
     fog: false,
     map: this.deathPlaneTexture,
     side: THREE.DoubleSide,
+    forceSinglePass: true,
     transparent: true,
     toneMapped: false,
   });

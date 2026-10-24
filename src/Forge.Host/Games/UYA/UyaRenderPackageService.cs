@@ -10,7 +10,7 @@ using RatchetPs2.Sdk;
 
 namespace Forge.Host.Games.UYA;
 
-public static class UyaRenderPackageService
+public static partial class UyaRenderPackageService
 {
     public const int SchemaVersion = 11;
     private const string MarkerName = ".forge-render-package.json";
@@ -47,41 +47,33 @@ public static class UyaRenderPackageService
         if (string.IsNullOrWhiteSpace(request.SourceIsoPath) || !File.Exists(request.SourceIsoPath))
             throw new IOException("The scene cache is missing and the clean UYA ISO is unavailable. Repair it through Forge → Setup.");
 
-        var identity = await UyaIsoService.ValidateAsync(
-            request.SourceIsoPath,
-            progress is null ? null : value => ReportScaledAsync(progress, value, 0, 2_000),
-            cancellationToken);
-        if (!identity.IsSupported || !identity.Fingerprint.Equals(request.Fingerprint, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException("The UYA source ISO does not match this project's verified fingerprint.");
-
         await using var iso = new FileStream(
             request.SourceIsoPath, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024,
-            FileOptions.Asynchronous | FileOptions.RandomAccess);
-        cancellationToken.ThrowIfCancellationRequested();
-        await ReportAsync(progress, 2_000, 10_000);
-        var levelWad = await Task.Run(
-            () => LevelArchiveReader.ExtractPrimary(GameId.UYA, iso, request.Level),
-            cancellationToken);
-        cancellationToken.ThrowIfCancellationRequested();
-        await ReportAsync(progress, 3_000, 10_000);
-        var terrain = await UyaCustomTfragRenderService.BuildAsync(
-            levelWad, request.Level, project.Workspace, project.Catalog, cancellationToken);
-        var packages = await Task.Run(() =>
+            FileOptions.Asynchronous | FileOptions.SequentialScan);
+        using var preparationCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        using var preparationProgress = new UyaRenderPreparationProgress(progress, preparationCancellation.Token);
+        var verification = UyaIsoService.ValidateAsync(
+            iso, preparationProgress.VerificationAsync, preparationCancellation.Token);
+        var products = PrepareProductsAsync(
+            iso, request.Level, project, preparationProgress.PreparationAsync, preparationCancellation.Token);
+        try
         {
-            var octants = UyaOcclusionGridReader.ReadLevelWad(levelWad).Octants.Select(value =>
-                new RenderOcclusionOctant(value.X, value.Y, value.Z, value.MaskIndex)).ToArray();
-            return (
-                Sky: FrontendMapPackageBuilder.BuildLevelWadPart(
-                    levelWad, GameId.UYA, FrontendMapAssetGroup.Common),
-                Environment: UyaRenderEnvironmentReader.Read(levelWad),
-                Octants: (IReadOnlyList<RenderOcclusionOctant>)octants);
-        }, cancellationToken);
-        cancellationToken.ThrowIfCancellationRequested();
-        await ReportAsync(progress, 5_000, 10_000);
-        var renderedAssets = await BuildAssetsAsync(assets, progress, cancellationToken);
-        return await MaterializeAsync(
-            request, sdkRevision, cacheKey, terrain, packages.Sky, packages.Environment, packages.Octants,
-            renderedAssets, progress, cancellationToken);
+            var identity = await verification;
+            if (!identity.IsSupported || !identity.Fingerprint.Equals(request.Fingerprint, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("The UYA source ISO does not match this project's verified fingerprint.");
+            var prepared = await products;
+            return await MaterializeAsync(
+                request, sdkRevision, cacheKey, prepared.Terrain, prepared.Sky, prepared.Environment, prepared.Octants,
+                prepared.Assets, progress, cancellationToken);
+        }
+        catch
+        {
+            preparationCancellation.Cancel();
+            // Drain both readers before disposing their shared source handle, preserving the original failure.
+            try { await Task.WhenAll(verification, products); }
+            catch { }
+            throw;
+        }
     }
 
     public static async Task<RenderPackageResult> MaterializeAsync(
@@ -484,14 +476,6 @@ public static class UyaRenderPackageService
 
     private static ValueTask ReportAsync(Func<IsoProgress, ValueTask>? progress, long completed, long total) =>
         progress?.Invoke(new(completed, total)) ?? ValueTask.CompletedTask;
-
-    private static ValueTask ReportScaledAsync(
-        Func<IsoProgress, ValueTask> progress,
-        IsoProgress value,
-        long start,
-        long end) => progress(new(
-            value.Total <= 0 ? start : start + value.Completed * (end - start) / value.Total,
-            10_000));
 
     private sealed record CacheMarker(
         int SchemaVersion,

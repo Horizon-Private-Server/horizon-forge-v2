@@ -59,6 +59,27 @@ internal static class UyaRenderPackageTests
             Equal(written.CacheKey, cached.CacheKey, "stable terrain cache key");
             Equal(0, cached.Assets.Count, "sky entities bypass the model render-asset list");
 
+            var rejectedSource = Path.Combine(root, "unsupported.iso");
+            await File.WriteAllBytesAsync(rejectedSource, UyaIsoSetupTests.CreateSyntheticIso("SCUS_973.53", "NTSC"));
+            var rejected = request with { SourceIsoPath = rejectedSource, CacheRootPath = Path.Combine(root, "rejected-cache") };
+            await ThrowsAsync<InvalidDataException>(() => UyaRenderPackageService.PrepareAsync(rejected, sdkRevision));
+            Equal(false, Directory.Exists(rejected.CacheRootPath), "unverified source never publishes prepared products");
+            using (var reopened = new FileStream(rejectedSource, FileMode.Open, FileAccess.ReadWrite, FileShare.None)) { }
+
+            using (var coldCancellation = new CancellationTokenSource())
+            {
+                await ThrowsAsync<OperationCanceledException>(() => UyaRenderPackageService.PrepareAsync(
+                    rejected, sdkRevision, value =>
+                    {
+                        if (value.Completed > 0) coldCancellation.Cancel();
+                        return ValueTask.CompletedTask;
+                    }, coldCancellation.Token));
+                Equal(false, Directory.Exists(rejected.CacheRootPath), "cancelled preparation never publishes products");
+            }
+            await ThrowsAsync<InvalidOperationException>(() => UyaRenderPackageService.PrepareAsync(
+                rejected, sdkRevision, _ => throw new InvalidOperationException("Progress failed")));
+            Equal(false, Directory.Exists(rejected.CacheRootPath), "failed progress never publishes products");
+
             var previewRequest = new AssetPreviewRequest(
                 cache,
                 catalogPath,

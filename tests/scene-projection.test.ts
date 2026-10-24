@@ -6,6 +6,7 @@ import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 
 import { SceneProjection } from '../src/renderer/editor/SceneProjection.ts';
+import { SceneGeometryBatch } from '../src/renderer/editor/SceneGeometryBatch.ts';
 import { addTfragTemplates, tfragSourceIndex } from '../src/renderer/editor/TfragTemplates.ts';
 import { SceneBillboardResources } from '../src/renderer/editor/SceneBillboardGizmo.ts';
 import {
@@ -15,7 +16,7 @@ import { constrainTfragScale, verticalDragScale } from '../src/renderer/editor/T
 import {
   expandLinkedCollisionTransforms, indexLinkedCollisionTransforms, inspectTransformSelection,
 } from '../src/utils/TransformSelection.ts';
-import { AssetPreviewScheduler, collectSkyShellObjects } from '../src/renderer/editor/AssetThumbnailRuntime.ts';
+import { AssetPreviewScheduler, AssetThumbnailRuntime, collectSkyShellObjects, disposeThumbnailModel } from '../src/renderer/editor/AssetThumbnailRuntime.ts';
 import {
   buildGroundPlacement, createGroundSurfaceRaycast,
 } from '../src/renderer/editor/ScenePlacement.ts';
@@ -164,6 +165,8 @@ test('billboard gizmos share resources, bound screen size, and dispose synchrono
   const second = resources.create({ ...options, entityId: 'second', label: 'Second meshless object' });
   assert.equal(first.geometry, second.geometry);
   assert.equal(first.material, second.material);
+  assert.equal(first.material.side, THREE.DoubleSide);
+  assert.equal(first.material.forceSinglePass, true);
   assert.deepEqual(resources.counts(), { geometries: 1, materials: 1, textures: 1 });
   assert.equal(first.userData.forgeAccessibleLabel, options.label);
 
@@ -182,9 +185,15 @@ test('billboard gizmos share resources, bound screen size, and dispose synchrono
     / (2 * camera.position.distanceTo(first.position) * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) / 1_000);
   assert.ok(Math.abs(distantPixels - options.minScreenSize) < 1e-6);
   assert.ok(first.quaternion.angleTo(camera.quaternion) < 1e-6);
+  first.updateMatrixWorld(true);
+  for (const side of [-1, 1]) {
+    const ray = new THREE.Raycaster(new THREE.Vector3(0, 0, side * 100), new THREE.Vector3(0, 0, -side));
+    assert.ok(ray.intersectObject(first).length > 0, 'single-pass billboards remain pickable from either side');
+  }
 
   first.setState(true, false);
   assert.notEqual(first.material, second.material);
+  assert.equal(first.material.forceSinglePass, true);
   assert.deepEqual(resources.counts(), { geometries: 1, materials: 2, textures: 2 });
   first.configure({
     ...options,
@@ -193,6 +202,7 @@ test('billboard gizmos share resources, bound screen size, and dispose synchrono
     selected: true,
   });
   assert.equal(first.material.depthTest, false);
+  assert.equal(first.material.forceSinglePass, true);
   assert.equal(first.renderOrder, 1_000);
   assert.deepEqual(resources.counts(), { geometries: 1, materials: 2, textures: 2 });
   first.dispose();
@@ -288,6 +298,8 @@ test('death height aid follows scene bounds, toggles, ignores picking, and dispo
   assert.equal(plane.rotation.x, -Math.PI / 2);
   assert.equal(plane.renderOrder, -1);
   assert.equal(plane.material.transparent, true);
+  assert.equal(plane.material.side, THREE.DoubleSide);
+  assert.equal(plane.material.forceSinglePass, true);
   assert.equal(plane.material.depthWrite, false);
   assert.equal(plane.material.map!.wrapS, THREE.RepeatWrapping);
   assert.ok(Math.abs(plane.material.map!.repeat.x - 440 / 128) < 0.0001);
@@ -361,6 +373,7 @@ test('asset preview scheduler caps work at four and cancels queued jobs', async 
     return String(index);
   }));
   await Promise.resolve();
+  await Promise.resolve();
   assert.equal(active, 4);
 
   const cancellation = new AbortController();
@@ -377,6 +390,160 @@ test('asset preview scheduler caps work at four and cancels queued jobs', async 
   await Promise.all(jobs);
   assert.equal(maximum, 4);
   scheduler.dispose();
+});
+
+test('asset previews use current visibility and preserve FIFO within each priority', async () => {
+  const scheduler = new AssetPreviewScheduler();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const blockers = Array.from({ length: 4 }, () => scheduler.schedule(undefined, async () => {
+    await gate;
+    return 'active';
+  }));
+  let oldVisible = true;
+  let newVisible = false;
+  const started: string[] = [];
+  const enqueue = (id: string, visible?: () => boolean) => scheduler.schedule(undefined, async () => {
+    started.push(id);
+    return id;
+  }, visible);
+  const queued = [
+    enqueue('old-visible', () => oldVisible), enqueue('prefetch', () => false),
+    enqueue('new-visible', () => newVisible), enqueue('still-visible', () => true), enqueue('default'),
+  ];
+  await Promise.resolve();
+  assert.deepEqual(started, []);
+  oldVisible = false;
+  newVisible = true;
+  release();
+  assert.deepEqual(await Promise.all(queued), ['old-visible', 'prefetch', 'new-visible', 'still-visible', 'default']);
+  assert.deepEqual(started, ['new-visible', 'still-visible', 'default', 'old-visible', 'prefetch']);
+  await Promise.all(blockers);
+  scheduler.dispose();
+});
+
+test('failed previews release capacity and disposal rejects pending work', async () => {
+  const scheduler = new AssetPreviewScheduler();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const blockers = Array.from({ length: 3 }, () => scheduler.schedule(undefined, async () => {
+    await gate;
+    return 'active';
+  }));
+  const failure = scheduler.schedule(undefined, async () => { throw new Error('missing blob'); });
+  const failed = assert.rejects(failure, /missing blob/);
+  const replacement = scheduler.schedule(undefined, async () => 'replacement', () => true);
+  assert.equal(await replacement, 'replacement');
+  await failed;
+
+  const fourth = scheduler.schedule(undefined, async () => { await gate; return 'fourth'; });
+  await Promise.resolve();
+  await Promise.resolve();
+  let pendingRan = false;
+  const pending = scheduler.schedule(undefined, async () => { pendingRan = true; return 'pending'; }, () => true);
+  const rejected = assert.rejects(pending, { name: 'AbortError' });
+  scheduler.dispose();
+  await rejected;
+  await assert.rejects(scheduler.schedule(undefined, async () => 'disposed'), { name: 'AbortError' });
+  release();
+  await Promise.all([...blockers, fourth]);
+  assert.equal(pendingRan, false);
+});
+
+test('cached thumbnails and texture sources still honor cancellation and runtime disposal', async () => {
+  const runtime: AssetThumbnailRuntime = Object.assign(Object.create(AssetThumbnailRuntime.prototype), {
+    cache: new Map([['tie:asset:::', 'cached:tie'], ['texture-source:asset', 'cached:texture']]),
+    disposed: false,
+  });
+  const cancellation = new AbortController();
+  cancellation.abort();
+  await assert.rejects(runtime.get('asset', 'tie', undefined, cancellation.signal), { name: 'AbortError' });
+  await assert.rejects(runtime.getTextureSource('asset', cancellation.signal), { name: 'AbortError' });
+  Object.assign(runtime, { disposed: true });
+  await assert.rejects(runtime.get('asset', 'tie'), { name: 'AbortError' });
+  await assert.rejects(runtime.getTextureSource('asset'), { name: 'AbortError' });
+});
+
+test('texture thumbnails cancelled during persistence do not repopulate the runtime cache', async () => {
+  const names = ['forge', 'fetch', 'document', 'createImageBitmap'] as const;
+  const originals = names.map(name => Object.getOwnPropertyDescriptor(globalThis, name));
+  const scheduler = new AssetPreviewScheduler();
+  const cache = new Map<string, string>();
+  const runtime: AssetThumbnailRuntime = Object.assign(Object.create(AssetThumbnailRuntime.prototype), {
+    scheduler, cache, activeRequests: new Set(), targetGame: 'UYA', disposed: false,
+    encoder: { encode: async () => new Blob(['png']) },
+  });
+  let stored!: () => void;
+  const storing = new Promise<void>(resolve => { stored = resolve; });
+  let finish!: (value: { url: string }) => void;
+  const persisted = new Promise<{ url: string }>(resolve => { finish = resolve; });
+  let closed = 0;
+  const mocks = {
+    forge: {
+      getAssetThumbnail: async () => undefined,
+      getAssetPreview: async () => ({ url: 'source:texture' }),
+      cancelAssetPreview: async () => {},
+      storeAssetThumbnail: () => { stored(); return persisted; },
+    },
+    fetch: async () => new Response(new Blob(['source'])),
+    document: { createElement: () => ({ getContext: () => ({ drawImage() {} }) }) },
+    createImageBitmap: async () => ({ width: 16, height: 16, close() { closed++; } }),
+  };
+  for (const name of names) Object.defineProperty(globalThis, name, { configurable: true, value: mocks[name] });
+  try {
+    const cancellation = new AbortController();
+    const thumbnail = runtime.get('texture', 'texture', undefined, cancellation.signal);
+    await storing;
+    cancellation.abort();
+    finish({ url: 'stored:texture' });
+    await assert.rejects(thumbnail, { name: 'AbortError' });
+    assert.equal(cache.size, 0);
+    assert.equal(closed, 1);
+  } finally {
+    scheduler.dispose();
+    names.forEach((name, index) => {
+      if (originals[index]) Object.defineProperty(globalThis, name, originals[index]!);
+      else Reflect.deleteProperty(globalThis, name);
+    });
+  }
+});
+
+test('cold thumbnail cache lookups enter in grid order with visible cards first', async () => {
+  const savedForge = Object.getOwnPropertyDescriptor(globalThis, 'forge');
+  const scheduler = new AssetPreviewScheduler();
+  const runtime: AssetThumbnailRuntime = Object.assign(Object.create(AssetThumbnailRuntime.prototype), {
+    scheduler, cache: new Map<string, string>(), targetGame: 'UYA', disposed: false,
+  });
+  const lookups: string[] = [];
+  const releases = new Map<string, () => void>();
+  Object.defineProperty(globalThis, 'forge', { configurable: true, value: {
+    getAssetThumbnail: async (_game: string, id: string) => {
+      lookups.push(id);
+      await new Promise<void>(resolve => { releases.set(id, resolve); });
+      return { url: `cached:${id}` };
+    },
+  } });
+  const ids = ['prefetch-0', 'prefetch-1', 'visible-0', 'visible-1', 'visible-2', 'visible-3'];
+  try {
+    const jobs = ids.map(id => runtime.get(id, 'tie', undefined, undefined, undefined, undefined,
+      () => id.startsWith('visible')));
+    await new Promise<void>(resolve => setImmediate(resolve));
+    assert.deepEqual(lookups, ids.slice(2), 'Initial slots belong to visible cards in grid order');
+    const cancelled = new AbortController();
+    const queued = runtime.get('cancelled', 'tie', undefined, cancelled.signal);
+    cancelled.abort();
+    await assert.rejects(queued, { name: 'AbortError' });
+    for (const id of ids.slice(2).reverse()) releases.get(id)!();
+    await new Promise<void>(resolve => setImmediate(resolve));
+    assert.deepEqual(lookups, [...ids.slice(2), ...ids.slice(0, 2)]);
+    releases.get('prefetch-0')!();
+    releases.get('prefetch-1')!();
+    assert.deepEqual(await Promise.all(jobs), ids.map(id => `cached:${id}`));
+  } finally {
+    scheduler.dispose();
+    if (savedForge) Object.defineProperty(globalThis, 'forge', savedForge);
+    else Reflect.deleteProperty(globalThis, 'forge');
+  }
 });
 
 test('sky thumbnail batches collect shell nodes in source order', () => {
@@ -616,6 +783,7 @@ test('scene projection renders decoded geometry and lighting markers', () => {
   const selectedSplineNodes = line.children.find(
     (child) => child instanceof THREE.Points && child !== splineNodes,
   ) as THREE.Points;
+  assert.equal(selectedSplineNodes.visible, true);
   assert.deepEqual(Array.from(selectedSplineNodes.geometry.getAttribute('position').array), [5, 7, -6]);
   const previewSpline = {
     ...spline,
@@ -627,10 +795,17 @@ test('scene projection renders decoded geometry and lighting markers', () => {
   projection.previewSpline(previewSpline, [splinePointId('spline', 1)]);
   assert.deepEqual(Array.from(line.geometry.getAttribute('instanceStart').array), [10, 30, -20, 50, 70, -60]);
   assert.deepEqual(Array.from(selectedSplineNodes.geometry.getAttribute('position').array), [50, 70, -60]);
+  projection.previewSpline(previewSpline, []);
+  assert.equal(selectedSplineNodes.visible, false);
   projection.sync(entities, [splinePointId('spline', 1)]);
   const restoredLine = projection.getObject('spline') as Line2;
   assert.deepEqual(Array.from(restoredLine.geometry.getAttribute('instanceStart').array), [1, 3, -2, 5, 7, -6]);
+  assert.equal(restoredLine.children.find(child => child.userData.forgeSelectedSplineNodes)?.visible, true);
   projection.sync(entities, ['area']);
+  const unselectedNodes = (projection.getObject('spline') as Line2).children.find(
+    (child) => child.userData.forgeSelectedSplineNodes,
+  );
+  assert.equal(unselectedNodes?.visible, false);
   assert.equal(projection.getObject('area'), undefined);
   projection.dispose();
 });
@@ -644,6 +819,9 @@ test('scene projection tolerates empty and single-point paths', () => {
   projection.sync([empty, single]);
   assert.ok(projection.getObject(empty.id));
   assert.ok(projection.getObject(single.id));
+  assert.equal(projection.getObject(single.id)?.children.find(
+    child => child.userData.forgeSelectedSplineNodes,
+  )?.visible, false);
   projection.dispose();
 });
 
@@ -799,6 +977,45 @@ test('scene projection merges matching parts, instances assets, and resolves ins
   disposeObject(template);
 });
 
+test('selection changes preserve instance transforms, bounds and unchanged uploads', () => {
+  const template = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+  const projection = new SceneProjection();
+  projection.setAssetTemplates(new Map([['asset', template]]));
+  const values = [entity('a'), entity('b', 10), entity('mirrored', 20)];
+  values[2].transform.scale.x = -1;
+  projection.sync(values);
+  const meshes: THREE.InstancedMesh[] = [];
+  projection.root.traverse((object) => { if (object instanceof THREE.InstancedMesh) meshes.push(object); });
+  const versions = meshes.map((mesh) => mesh.instanceMatrix.version);
+  const bounds = meshes.map((mesh) => mesh.boundingSphere!.clone());
+  projection.sync(values, ['b', 'mirrored']);
+  meshes.forEach((mesh, index) => {
+    assert.equal(mesh.instanceMatrix.version, versions[index]);
+    assert.ok(mesh.boundingSphere!.equals(bounds[index]));
+  });
+  const colors = meshes.map((mesh) => mesh.instanceColor!.version);
+  projection.setSelectionColor('#123456');
+  projection.sync(values, ['b', 'mirrored']);
+  meshes.forEach((mesh, index) => assert.equal(mesh.instanceColor!.version, colors[index]));
+  const moved = entity('b', 99).transform;
+  projection.previewTransforms([{ entityId: 'b', transform: moved }]);
+  assert.ok(Math.abs(projection.getBounds('b')!.getCenter(new THREE.Vector3()).x - 99) < 1e-6);
+  projection.sync(values, ['b']);
+  assert.ok(Math.abs(projection.getBounds('b')!.getCenter(new THREE.Vector3()).x - 10) < 1e-6);
+  projection.sync([values[1], values[0], values[2]], ['a']);
+  const normal = meshes.find((mesh) => mesh.count === 2)!;
+  assert.equal(projection.resolvePick([{ object: normal, instanceId: 0 }] as unknown as THREE.Intersection[]), 'b');
+  projection.setPreviewHiddenEntity('b');
+  projection.sync(values);
+  assert.equal(normal.count, 1);
+  assert.equal(projection.resolvePick([{ object: normal, instanceId: 0 }] as unknown as THREE.Intersection[]), 'a');
+  projection.setPreviewHiddenEntity();
+  projection.sync(values);
+  assert.equal(normal.count, 2);
+  projection.dispose();
+  disposeObject(template);
+});
+
 test('tfrag source groups become local entity templates with exact picking and visibility', () => {
   const scene = new THREE.Group();
   const lod = new THREE.Group();
@@ -897,6 +1114,8 @@ test('largest observed complete-level tfrag count stays in shared material batch
   assert.equal(batches.length, 1);
   assert.equal(projection.root.children.length, 1);
   assert.equal(batches[0].instanceCount, count);
+  assert.equal(batches[0].matrixAutoUpdate, false);
+  assert.equal(batches[0].parent!.matrixAutoUpdate, false);
   assert.equal(projection.resolvePick([
     { object: batches[0], batchId: count - 1 },
   ] as unknown as THREE.Intersection[]), pieces.at(-1)!.id);
@@ -1144,11 +1363,26 @@ test('scene projection keeps a representative heavy collision level in one batch
   assert.equal(batches.length, 1);
   assert.equal(batches[0].instanceCount, pieceCount);
   const batch = batches[0];
+  let matrixWrites = 0;
+  let colorWrites = 0;
+  const setMatrix = batch.setMatrixAt.bind(batch);
+  const setColor = batch.setColorAt.bind(batch);
+  batch.setMatrixAt = (index, matrix) => { matrixWrites++; return setMatrix(index, matrix); };
+  batch.setColorAt = (index, color) => { colorWrites++; return setColor(index, color); };
+  projection.setSelectionColor('#123456');
+  projection.sync(pieces, ['collision-1']);
+  assert.equal(matrixWrites, 0);
+  assert.equal(colorWrites, 1);
+  projection.sync(pieces, ['collision-1']);
+  assert.equal(matrixWrites, 0);
+  assert.equal(colorWrites, 1);
   pieces[1] = {
     ...pieces[1],
     transform: { ...pieces[1].transform, position: { x: 99, y: 2, z: 3 } },
   };
   projection.sync(pieces, ['collision-1']);
+  assert.equal(matrixWrites, 1);
+  assert.equal(colorWrites, 1);
   assert.equal(batches[0], batch);
   assert.ok(Math.abs(projection.getBounds('collision-1')!.getCenter(new THREE.Vector3()).x - 99.5) < 1e-6);
 
@@ -1188,6 +1422,47 @@ test('scene disposal releases shared geometry, materials, and textures once', ()
   disposeObject(root);
   assert.deepEqual(disposals, { geometry: 1, material: 1, texture: 1 });
   assert.equal(root.children.length, 0);
+});
+
+test('thumbnail disposal releases shared skeleton textures and owned bitmaps once', () => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'ImageBitmap');
+  class Bitmap {
+    closes = 0;
+    close() { this.closes++; }
+  }
+  Object.defineProperty(globalThis, 'ImageBitmap', { value: Bitmap, configurable: true });
+  try {
+    const bitmap = new Bitmap();
+    const firstTexture = new THREE.Texture(bitmap as unknown as ImageBitmap);
+    const secondTexture = new THREE.Texture(bitmap as unknown as ImageBitmap);
+    const externalImage = { close() { assert.fail('Non-bitmap images must not be closed'); } };
+    const externalTexture = new THREE.Texture(externalImage as unknown as HTMLImageElement);
+    const geometry = new THREE.BoxGeometry();
+    const material = new THREE.MeshStandardMaterial({ map: firstTexture, emissiveMap: secondTexture, alphaMap: externalTexture });
+    const skeleton = new THREE.Skeleton([]);
+    const boneTexture = new THREE.DataTexture(new Float32Array(4), 1, 1);
+    skeleton.boneTexture = boneTexture;
+    const first = new THREE.SkinnedMesh(geometry, material);
+    const second = new THREE.SkinnedMesh(geometry, material);
+    first.skeleton = second.skeleton = skeleton;
+    const root = new THREE.Group();
+    root.add(first, second);
+    const counts = { geometry: 0, material: 0, texture: 0, bones: 0 };
+    geometry.addEventListener('dispose', () => { counts.geometry++; });
+    material.addEventListener('dispose', () => { counts.material++; });
+    for (const texture of [firstTexture, secondTexture, externalTexture])
+      texture.addEventListener('dispose', () => { counts.texture++; });
+    boneTexture.addEventListener('dispose', () => { counts.bones++; });
+    disposeThumbnailModel(root);
+    disposeThumbnailModel(root);
+    assert.deepEqual(counts, { geometry: 1, material: 1, texture: 3, bones: 1 });
+    assert.equal(bitmap.closes, 1);
+    assert.equal(skeleton.boneTexture, null);
+    assert.equal(root.children.length, 0);
+  } finally {
+    if (original) Object.defineProperty(globalThis, 'ImageBitmap', original);
+    else Reflect.deleteProperty(globalThis, 'ImageBitmap');
+  }
 });
 
 test('scene environment and sky configure WebGL fidelity defaults', () => {
@@ -1693,6 +1968,45 @@ test('translation snapping resolves centers, visible vertices, surfaces, and nea
   disposeObject(template);
 });
 
+test('fixed instance nodes keep parent motion and transform previews correct without local matrix rebuilds', () => {
+  const template = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), new THREE.MeshBasicMaterial());
+  const projection = new SceneProjection();
+  projection.setAssetTemplates(new Map([['asset', template]]));
+  const normal = entity('normal', 10);
+  const mirrored = entity('mirrored', 30);
+  mirrored.transform.scale.x = -1;
+  projection.sync([normal, mirrored]);
+  const parent = new THREE.Group();
+  parent.add(projection.root);
+  parent.position.set(50, 60, 70);
+  parent.updateMatrixWorld(true);
+  const fixed: THREE.Object3D[] = [projection.root, ...projection.root.children];
+  projection.root.traverse(object => { if (object instanceof THREE.InstancedMesh) fixed.push(object); });
+  let updates = 0;
+  for (const object of fixed) {
+    assert.equal(object.matrixAutoUpdate, false);
+    const update = object.updateMatrix.bind(object);
+    object.updateMatrix = () => { updates++; update(); };
+  }
+  const pick = (x: number) => {
+    const ray = new THREE.Raycaster(new THREE.Vector3(x, 63, 90), new THREE.Vector3(0, 0, -1));
+    return projection.resolvePick(ray.intersectObject(projection.root, true));
+  };
+  assert.equal(pick(60), 'normal');
+  assert.equal(pick(80), 'mirrored');
+  const moved = entity('normal', 20).transform;
+  projection.previewTransforms([{ entityId: normal.id, transform: moved }]);
+  parent.updateMatrixWorld();
+  assert.equal(pick(70), 'normal');
+  parent.position.x += 100;
+  parent.updateMatrixWorld();
+  assert.equal(pick(170), 'normal');
+  assert.equal(pick(180), 'mirrored');
+  assert.equal(updates, 0);
+  projection.dispose();
+  disposeObject(template);
+});
+
 test('mirrored instances use a culling-aware outer reflection without changing their world transform', () => {
   const template = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
   const mirrored = entity('mirrored');
@@ -1712,6 +2026,108 @@ test('mirrored instances use a culling-aware outer reflection without changing t
   assert.ok(projection.getSelectionOutlineObjects()[0].matrix.determinant() < 0);
   projection.dispose();
   disposeObject(template);
+});
+
+test('editor geometry batches reuse buffers, track previews and leave picking resources owned by the projection', () => {
+  const geometry = new THREE.BoxGeometry(2, 2, 2);
+  const material = new THREE.MeshBasicMaterial({ color: '#123456', wireframe: true, fog: false });
+  const batch = new SceneGeometryBatch([material]);
+  const sources = [new THREE.Mesh(geometry, batch.pickMaterial(material)), new THREE.Mesh(geometry, batch.pickMaterial(material))];
+  sources[1].position.x = 20;
+  sources.forEach(source => source.updateMatrix());
+  batch.sync(sources);
+  const mesh = batch.root.children[0] as THREE.InstancedMesh;
+  assert.equal(batch.root.children.length, 1);
+  assert.equal(mesh.count, 2);
+  assert.equal(mesh.geometry, geometry);
+  assert.equal(mesh.material, material, 'batching retains the original material sort order');
+  assert.equal(sources[0].material.visible, false);
+  assert.equal(material.visible, true);
+  assert.equal((mesh.material as THREE.MeshBasicMaterial).visible, true);
+  material.color.set('#abcdef');
+  assert.equal((mesh.material as THREE.MeshBasicMaterial).color.getHexString(), 'abcdef');
+  const version = mesh.instanceMatrix.version;
+  batch.sync(sources);
+  assert.equal(mesh.instanceMatrix.version, version, 'unchanged sync does not upload instance matrices');
+  sources[0].position.x = 80;
+  sources[0].scale.x = -2;
+  sources[0].updateMatrix();
+  batch.previewTransforms([sources[0], sources[1]]);
+  const matrix = new THREE.Matrix4();
+  mesh.getMatrixAt(0, matrix);
+  assert.ok(matrix.equals(sources[0].matrix));
+  assert.equal(mesh.instanceMatrix.version, version + 1);
+  assert.ok(mesh.boundingSphere!.containsPoint(new THREE.Vector3(80, 0, 0)));
+  let geometryDisposals = 0;
+  let materialDisposals = 0;
+  let meshDisposals = 0;
+  let pickMaterialDisposals = 0;
+  geometry.addEventListener('dispose', () => geometryDisposals++);
+  material.addEventListener('dispose', () => materialDisposals++);
+  mesh.addEventListener('dispose', () => meshDisposals++);
+  sources[0].material.addEventListener('dispose', () => pickMaterialDisposals++);
+  batch.sync([]);
+  assert.equal(batch.root.children.length, 0);
+  assert.equal(meshDisposals, 1);
+  batch.dispose();
+  assert.equal(material.visible, true);
+  assert.equal(geometryDisposals, 0);
+  assert.equal(materialDisposals, 0);
+  assert.equal(pickMaterialDisposals, 1);
+  geometry.dispose();
+  material.dispose();
+});
+
+test('batched geometry preserves volume picking, selection colors, visibility and parent motion', () => {
+  const first = entity('first', 0, false);
+  const second = entity('second', 10, false);
+  const hidden = entity('hidden', 20, false, { hidden: true });
+  for (const value of [first, second, hidden]) value.geometry = { kind: 'cuboid', points: [] };
+  second.transform.scale.x = -2;
+  const projection = new SceneProjection();
+  projection.setViewportSize(800, 600);
+  const parent = new THREE.Group();
+  parent.add(projection.root);
+  const values = [first, second, hidden];
+  projection.sync(values);
+  const batches = () => {
+    const result: THREE.InstancedMesh[] = [];
+    projection.root.traverse(object => { if (object instanceof THREE.InstancedMesh) result.push(object); });
+    return result;
+  };
+  assert.equal(batches().length, 1);
+  assert.equal(batches()[0].count, 2);
+  const camera = new THREE.PerspectiveCamera(60, 800 / 600, 0.1, 1_000);
+  const pick = (x: number) => {
+    parent.updateMatrixWorld(true);
+    camera.position.set(x, 3, 30);
+    camera.lookAt(x, 3, -2);
+    camera.updateMatrixWorld(true);
+    const ray = new THREE.Raycaster();
+    ray.setFromCamera(new THREE.Vector2(), camera);
+    const hits = ray.intersectObject(projection.root, true);
+    assert.ok(hits.every(hit => !(hit.object instanceof THREE.InstancedMesh)));
+    return projection.resolvePick(hits);
+  };
+  assert.equal(pick(0), first.id);
+  assert.equal(pick(10), second.id);
+  assert.equal(pick(20), undefined);
+  projection.sync(values, [first.id]);
+  const selected = batches().find(mesh => (mesh.material as THREE.MeshBasicMaterial).color.getHexString() === '22d3ee')!;
+  assert.equal(selected.count, 1);
+  projection.setSelectionColor('#ff8800');
+  assert.equal((selected.material as THREE.MeshBasicMaterial).color.getHexString(), 'ff8800');
+  const transform = { ...first.transform, position: { ...first.transform.position, x: 30 } };
+  projection.previewTransforms([{ entityId: first.id, transform }]);
+  assert.equal(pick(0), undefined);
+  assert.equal(pick(30), first.id);
+  parent.position.x = 50;
+  assert.equal(pick(80), first.id);
+  assert.equal(pick(60), second.id);
+  assert.ok(projection.getWorldVertices([first.id]).every(point => point.x >= 79 && point.x <= 81));
+  projection.sync(values, [], new Set());
+  assert.equal(batches().length, 0);
+  projection.dispose();
 });
 
 test('camera movement accelerates and translates the camera and orbit target together', () => {

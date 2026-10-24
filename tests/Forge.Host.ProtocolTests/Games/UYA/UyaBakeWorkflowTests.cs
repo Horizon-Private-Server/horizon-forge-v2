@@ -816,6 +816,8 @@ internal static class UyaBakeWorkflowTests
             Equal(true, noOpBuild.Succeeded, "repeated one-click build succeeds");
             Equal(true, noOpBuild.BakeWasCurrent, "repeated one-click build skips clean layers");
             Equal(0, noOpBuild.BakedLayerCount, "repeated one-click build bakes no layers");
+            Equal("Development ISO is already current and verified.", noOpBuild.Message,
+                "repeated one-click build explains verified reuse");
             Equal(built.OutputLevelWadSha256, noOpBuild.OutputLevelWadSha256,
                 "repeated one-click build is byte deterministic");
 
@@ -826,6 +828,17 @@ internal static class UyaBakeWorkflowTests
                 new(workspace.Manifest.Target, "ratchet-sdk:sdk-test", "forge-host:host-test"));
             Equal(true, interruptedPack.Succeeded, "interrupted patch fixture packs");
             var interruptedPlan = await UyaIsoPatchService.PlanAsync(
+                cleanIso, developmentIso, 3, interruptedPack.OutputBytes!, expectedIsoSize: physicalIso.Length);
+            // An interrupted-write fixture needs a changed preimage; identical output skips writes.
+            await using (var target = new FileStream(developmentIso, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            {
+                var range = interruptedPlan.SdkPlan.Ranges.Last();
+                target.Position = range.Offset + range.Length - 1;
+                var previous = target.ReadByte();
+                target.Position--;
+                target.WriteByte((byte)(previous ^ 1));
+            }
+            interruptedPlan = await UyaIsoPatchService.PlanAsync(
                 cleanIso, developmentIso, 3, interruptedPack.OutputBytes!, expectedIsoSize: physicalIso.Length);
             await ThrowsAsync<InvalidOperationException>(() => UyaIsoPatchService.ApplyAsync(
                 interruptedPlan,

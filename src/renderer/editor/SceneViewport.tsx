@@ -50,6 +50,7 @@ import {
 import { nextViewportSelection } from '../../utils/SceneSelection.ts';
 import { buildGroundPlacement, createGroundSurfaceRaycast } from './ScenePlacement.ts';
 import { assetTemplateKey, SceneProjection } from './SceneProjection.ts';
+import { ViewportPicking } from './ViewportPicking.ts';
 import { resolvePointerSnapTarget } from './SceneSnapping.ts';
 import { TransformTool } from './TransformTool.ts';
 import { addTfragTemplates } from './TfragTemplates.ts';
@@ -259,15 +260,20 @@ export function SceneViewport({
     const scene = new THREE.Scene();
     const skyScene = new THREE.Scene();
     const toolScene = new THREE.Scene();
+    // Identity roots must not force every static descendant's world matrix to rebuild each frame.
+    scene.matrixAutoUpdate = skyScene.matrixAutoUpdate = toolScene.matrixAutoUpdate = false;
     applySceneEnvironment(scene, undefined, skyScene);
     scene.add(new THREE.HemisphereLight(0xffffff, 0x5c6370, 2));
     const content = new THREE.Group();
     content.name = 'Forge scene content';
+    content.matrixAutoUpdate = false;
     const terrain = new THREE.Group();
     terrain.name = 'Terrain';
+    terrain.matrixAutoUpdate = false;
     terrain.visible = showTerrain;
     const occlusion = new THREE.Group();
     occlusion.name = 'Occlusion octants';
+    occlusion.matrixAutoUpdate = false;
     occlusion.visible = showOcclusionOctants;
     const sky = new THREE.Group();
     sky.name = 'Sky';
@@ -313,6 +319,7 @@ export function SceneViewport({
     scenePass.clear = false;
     scenePass.clearDepth = true;
     const outlineScene = new THREE.Scene();
+    outlineScene.matrixAutoUpdate = false;
     outlineScene.add(currentProjection.outlineRoot);
     const outlinePass = new OutlinePass(new THREE.Vector2(1, 1), outlineScene, camera);
     setOutlineColor(outlinePass, selectionColor);
@@ -617,16 +624,18 @@ export function SceneViewport({
       snapModifiers.clear();
       transformTool.setSnapInverted(false);
     };
+    const picking = new ViewportPicking(camera, currentProjection, levelSettingsOverlay, simulationRoot);
     const deactivateCameraInput = () => {
       cameraInputActive = false;
       movement.clear();
-      currentProjection.setHoveredEntityId(undefined);
+      picking.clearHover();
       if (!transformTool.isInteracting && document.activeElement !== renderer.domElement) clearSnapModifiers();
     };
     const deactivateWindowInput = () => {
       cameraInputActive = false;
       movement.clear();
       clearSnapModifiers();
+      picking.clearHover();
     };
     const activateCameraInput = () => { cameraInputActive = true; };
     window.addEventListener('keydown', keyDown, true);
@@ -682,8 +691,8 @@ export function SceneViewport({
     };
     const pointerDown = (event: PointerEvent) => {
       renderer.domElement.focus({ preventScroll: true });
+      picking.clearHover();
       if (transformTool.isInteracting) return;
-      currentProjection.setHoveredEntityId(undefined);
       if (viewport.current) viewport.current.flight = undefined;
       const paintState = currentInstancedCollisionOverlay.current?.paint;
       const paint = paintState?.active ? paintState : undefined;
@@ -719,7 +728,10 @@ export function SceneViewport({
       }
     };
     const pointerMove = (event: PointerEvent) => {
-      if (transformTool.isInteracting) return;
+      if (transformTool.isInteracting) {
+        picking.clearHover();
+        return;
+      }
       if (paintStroke && event.pointerId === paintStroke.pointerId) {
         for (const point of interpolatePointerSegment(
           paintStroke.last,
@@ -738,24 +750,12 @@ export function SceneViewport({
       }
       if (currentInstancedCollisionOverlay.current?.paint?.active
         && lookPointerId === undefined && !event.altKey) {
+        picking.clearHover();
         paintAt(event.clientX, event.clientY);
         return;
       }
       if (lookPointerId === undefined) {
-        const bounds = renderer.domElement.getBoundingClientRect();
-        pointer.set(
-          (event.clientX - bounds.left) / bounds.width * 2 - 1,
-          -(event.clientY - bounds.top) / bounds.height * 2 + 1,
-        );
-        raycaster.setFromCamera(pointer, camera);
-        const intersections = raycaster.intersectObjects(
-          [levelSettingsOverlay.root, simulationRoot, currentProjection.root], true,
-        );
-        const markerId = levelSettingsOverlay.resolvePick(intersections);
-        levelSettingsOverlay.setHovered(markerId);
-        currentProjection.setHoveredEntityId(markerId
-          ? undefined
-          : currentProjection.resolvePick(intersections));
+        picking.queueHover(event.clientX, event.clientY);
         return;
       }
       if (event.pointerId !== lookPointerId || !lookPosition) return;
@@ -785,16 +785,9 @@ export function SceneViewport({
       const select = selectOnLookRelease;
       selectOnLookRelease = false;
       if (!select || distance > 4) return;
-      const bounds = renderer.domElement.getBoundingClientRect();
-      pointer.set(
-        (event.clientX - bounds.left) / bounds.width * 2 - 1,
-        -(event.clientY - bounds.top) / bounds.height * 2 + 1,
+      const { markerId, entityId } = picking.pick(
+        event.clientX, event.clientY, renderer.domElement.getBoundingClientRect(),
       );
-      raycaster.setFromCamera(pointer, camera);
-      const intersections = raycaster.intersectObjects(
-        [levelSettingsOverlay.root, simulationRoot, currentProjection.root], true,
-      );
-      const markerId = levelSettingsOverlay.resolvePick(intersections);
       if (markerId) {
         currentLevelSettingsSelection.current = markerId;
         levelSettingsOverlay.setSelected(markerId);
@@ -816,8 +809,7 @@ export function SceneViewport({
         currentLevelSettingsSelection.current = undefined;
         levelSettingsOverlay.setSelected();
       }
-      const id = currentProjection.resolvePick(intersections);
-      const next = nextViewportSelection(currentSelection.current, id, {
+      const next = nextViewportSelection(currentSelection.current, entityId, {
         toggle: event.ctrlKey || event.metaKey,
         add: event.shiftKey,
       });
@@ -831,6 +823,7 @@ export function SceneViewport({
       syncTransformSelection();
     };
     const pointerCancel = (event: PointerEvent) => {
+      picking.clearHover();
       if (transformTool.isInteracting) return;
       if (paintStroke?.pointerId === event.pointerId) {
         cancelPaintStroke();
@@ -853,6 +846,7 @@ export function SceneViewport({
     renderer.domElement.addEventListener('auxclick', preventDefault);
     const webglContextLost = (event: Event) => {
       event.preventDefault();
+      picking.clearHover();
       simulationController.contextLost();
       setMobySimulationStats(simulationController.getStats());
       setNotice('Moby simulation paused because the graphics context was lost.');
@@ -895,6 +889,10 @@ export function SceneViewport({
       simulationController.advance(delta);
       currentProjection.updateBillboards(camera, element.clientHeight);
       levelSettingsOverlay.updateForCamera(camera, element.clientHeight);
+      if (picking.hasPendingHover) {
+        if (transformTool.isInteracting || lookPointerId !== undefined) picking.clearHover();
+        else picking.flushHover(renderer.domElement.getBoundingClientRect());
+      }
       renderer.info.reset();
       outlinePass.selectedObjects = currentProjection.getSelectionOutlineObjects();
       composer.render(delta);
@@ -921,6 +919,7 @@ export function SceneViewport({
     });
 
     return () => {
+      picking.clearHover();
       observer.disconnect();
       if (noticeTimer) clearTimeout(noticeTimer);
       if (dropFrame.current !== undefined) cancelAnimationFrame(dropFrame.current);

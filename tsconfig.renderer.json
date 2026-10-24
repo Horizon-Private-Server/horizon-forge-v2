@@ -9,6 +9,8 @@
     "isolatedModules": true,
     "jsx": "react-jsx",
     "noEmit": true,
+    "incremental": true,
+    "tsBuildInfoFile": "node_modules/.cache/forge/renderer.tsbuildinfo",
     "strict": true,
     "skipLibCheck": true
   },

@@ -190,18 +190,19 @@ public sealed partial class EditorRuntime : IAsyncDisposable
     public Task<EditorSnapshot> ExecuteAsync(
         EditorCommand command,
         CancellationToken cancellationToken = default) => ExecuteCoreAsync(
-            command, static (runtime, _, _) => runtime.Snapshot(), cancellationToken);
+            command, static (runtime, _, _, _) => runtime.Snapshot(), cancellationToken);
 
     internal Task<EditorCommandResult> ExecuteResultAsync(
         EditorCommand command,
         CancellationToken cancellationToken = default) => ExecuteCoreAsync(
             command,
-            static (runtime, executed, transforms) => runtime.CommandResult(executed, transforms),
+            static (runtime, executed, transforms, selectionBefore) =>
+                runtime.CommandResult(executed, transforms, selectionBefore),
             cancellationToken);
 
     private async Task<TResult> ExecuteCoreAsync<TResult>(
         EditorCommand command,
-        Func<EditorRuntime, EditorCommand, IReadOnlyList<EditorTransformUpdate>?, TResult> result,
+        Func<EditorRuntime, EditorCommand, IReadOnlyList<EditorTransformUpdate>?, EntityId[], TResult> result,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(command);
@@ -524,7 +525,7 @@ public sealed partial class EditorRuntime : IAsyncDisposable
                     or EditorCommandKind.Undo or EditorCommandKind.Redo) && projectChanged)
                 _history.Push(stateBefore, workspace.CaptureState(), selectionBefore, _selection,
                     historyEntityIds, EstimateHistoryBytes(command, stateBefore));
-            return result(this, command, normalizedTransforms);
+            return result(this, command, normalizedTransforms, selectionBefore);
         }
         finally
         {

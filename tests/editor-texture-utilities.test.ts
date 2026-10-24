@@ -7,7 +7,7 @@ import {
   buildFxTextureItems, buildHudBankItems, formatHudSpriteId, hudThumbnailDimensions,
   nextHudSpriteId, validateFxPng, validateHudPng,
 } from '../src/utils/TextureInventory.ts';
-import { assetGridWindow, virtualGridWindow } from '../src/utils/VirtualGrid.ts';
+import { assetGridItemVisible, assetGridWindow, virtualGridWindow } from '../src/utils/VirtualGrid.ts';
 
 test('shared editor build-layer allowlist includes FX textures', () => {
   assert.ok(BUILD_LAYERS.includes('Fx'));
@@ -34,6 +34,19 @@ test('virtual sound grid uses two or three columns and bounds large banks', () =
   assert.equal(wide.totalHeight, Math.ceil(32_767 / 3) * 112 - 8);
   assert.equal(wide.endIndex - wide.startIndex <= 39, true);
   assert.equal(wide.startIndex > 0, true);
+});
+
+test('asset preview priority includes partial rows and excludes gaps and overscan', () => {
+  assert.equal(assetGridItemVisible(0, 4, 440, 0), true);
+  assert.equal(assetGridItemVisible(11, 4, 440, 0), true);
+  assert.equal(assetGridItemVisible(12, 4, 440, 0), false);
+  assert.equal(assetGridItemVisible(0, 4, 440, 210), false);
+  assert.equal(assetGridItemVisible(4, 4, 8, 210), false);
+  assert.equal(assetGridItemVisible(4, 4, 9, 210), true);
+  assert.equal(assetGridItemVisible(0, 4, 0, 0), false);
+  assert.equal(assetGridItemVisible(12, 3, 440, 654), true);
+  assert.equal(assetGridItemVisible(12, 4, 440, 654), true);
+  assert.equal(assetGridItemVisible(8, 4, 440, 654), false);
 });
 
 test('HUD bank state exposes native placement, change, issue, and search metadata', () => {

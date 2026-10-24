@@ -4,9 +4,28 @@ public sealed partial class EditorRuntime
 {
     private EditorCommandResult CommandResult(
         EditorCommand command,
-        IReadOnlyList<EditorTransformUpdate>? transforms)
+        IReadOnlyList<EditorTransformUpdate>? transforms,
+        IReadOnlyList<EntityId> selectionBefore)
     {
         var workspace = RequireWorkspace();
+        if (command.Kind == EditorCommandKind.SetSelection)
+        {
+            var selected = _selection.ToHashSet();
+            var changed = selectionBefore.ToHashSet();
+            changed.SymmetricExceptWith(selected);
+            var pvars = new List<EditorMobyPVarPatch>();
+            if (_mobyPVarResolver is not null && changed.Count > 0)
+            {
+                var index = CreateMobyPVarResolutionIndex(workspace.Content);
+                foreach (var entity in workspace.GetEntities(changed.ToArray()))
+                    pvars.Add(new(entity.EntityId,
+                        _mobyPVarResolver(workspace, entity, index, selected.Contains(entity.EntityId))));
+            }
+            return new(
+                EditorCommandResultKind.Selection, null, [], null,
+                workspace.IsDirty, _history.CanUndo, _history.CanRedo, _eventSequence,
+                new(_selection.ToArray(), pvars));
+        }
         if (command.Kind is EditorCommandKind.UpdateTransform or EditorCommandKind.UpdateTransforms)
         {
             var entities = workspace.GetEntities(transforms!.Select(value => value.EntityId).ToArray());

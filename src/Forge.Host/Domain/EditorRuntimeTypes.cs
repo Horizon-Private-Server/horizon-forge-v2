@@ -328,7 +328,14 @@ public enum EditorCommandResultKind : byte
     Snapshot = 1,
     Transforms = 2,
     LevelSettings = 3,
+    Selection = 4,
 }
+
+public sealed record EditorMobyPVarPatch(EntityId EntityId, EditorMobyPVarDescriptor? MobyPVar);
+
+public sealed record EditorSelectionPatch(
+    IReadOnlyList<EntityId> EntityIds,
+    IReadOnlyList<EditorMobyPVarPatch> MobyPVars);
 
 public sealed record EditorTransformPatch(
     EntityId EntityId,
@@ -343,7 +350,8 @@ public sealed record EditorCommandResult(
     bool IsDirty,
     bool CanUndo,
     bool CanRedo,
-    long LastEventSequence);
+    long LastEventSequence,
+    EditorSelectionPatch? Selection = null);
 
 public sealed record EditorEntityStateChange(
     bool? Hidden = null,

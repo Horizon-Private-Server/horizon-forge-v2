@@ -15,6 +15,11 @@ export function assetGridWindow(
   return virtualGridWindow(itemCount, width, height, scrollTop, 168, 218);
 }
 
+export function assetGridItemVisible(index: number, columns: number, height: number, scrollTop: number): boolean {
+  const top = Math.floor(index / columns) * 218;
+  return height > 0 && top < scrollTop + height && top + 210 > scrollTop;
+}
+
 export function virtualGridWindow(
   itemCount: number,
   width: number,

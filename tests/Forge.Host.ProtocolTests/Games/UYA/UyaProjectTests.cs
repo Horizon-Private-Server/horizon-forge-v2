@@ -44,6 +44,34 @@ internal static class UyaProjectTests
             Equal(0, preflight.MissingAssetInstanceCount, "missing asset instance count");
             Equal(0, preflight.MissingClassCount, "missing class count");
             Equal(0, preflight.Warnings.Count, "preflight warnings");
+            AssertPreflightMatchesFullRead(iso, catalog, preflight);
+            var cachedPreflight = UyaProjectService.Preflight(new MemoryStream(iso, writable: false), catalog, 3);
+            Equal(preflight.SourceInstanceCount, cachedPreflight.SourceInstanceCount, "cached base summary preserves counts");
+            var malformedIso = iso.ToArray();
+            WriteInt32(malformedIso, (0x500 + 1) * UyaLevelConstants.SectorSize + 0x300, 0);
+            await ThrowsAsync<InvalidDataException>(() => Task.FromResult(UyaProjectService.Preflight(
+                new MemoryStream(malformedIso, writable: false), catalog, 3)));
+            var isoPath = Path.Combine(root, "source.iso");
+            await File.WriteAllBytesAsync(isoPath, iso);
+            var partialPath = Path.Combine(catalog.RootPath, "active.partial");
+            await File.WriteAllTextAsync(partialPath, "active writer");
+            var asyncPreflight = await UyaProjectService.PreflightAsync(isoPath, catalog.RootPath, 3);
+            Equal(preflight.SourceInstanceCount, asyncPreflight.SourceInstanceCount, "async preflight uses the same summary");
+            Equal(true, File.Exists(partialPath), "preflight does not clean up a writer's partial files");
+            File.Delete(partialPath);
+            using (var cancelled = new CancellationTokenSource())
+            {
+                cancelled.Cancel();
+                await ThrowsAsync<OperationCanceledException>(() => Task.FromResult(UyaProjectService.Preflight(
+                    new MemoryStream(iso, writable: false), catalog, 3, cancelled.Token)));
+            }
+            using (var cancelledDuringRead = new CancellationTokenSource())
+            {
+                await ThrowsAsync<OperationCanceledException>(() => Task.FromResult(UyaProjectService.Preflight(
+                    new CancelOnReadStream(iso, cancelledDuringRead), catalog, 3, cancelledDuringRead.Token)));
+            }
+            await ThrowsAsync<InvalidDataException>(() => Task.FromResult(UyaProjectService.Preflight(
+                new MemoryStream(iso, writable: false), catalog, 4)));
 
             var projectPath = Path.Combine(root, "project");
             var request = new UyaProjectCreationRequest(
@@ -441,10 +469,32 @@ internal static class UyaProjectTests
 
             var refusedPath = Path.Combine(root, "refused");
             var missingCatalog = await AssetCatalogStore.OpenAsync(Path.Combine(root, "missing-catalog"));
+            var cachedMissing = UyaProjectService.Preflight(new MemoryStream(iso, writable: false), missingCatalog, 3);
+            Equal(3, cachedMissing.MissingAssetInstanceCount, "catalog changes update warnings with a cached base summary");
+            Equal(0, cachedMissing.RenderableInstanceCount, "catalog changes update renderable native instances");
+            var fallbackIso = iso.ToArray();
+            const int tieBasisX = (0x500 + 2) * UyaLevelConstants.SectorSize + 0xa0 + 0x10 + 0x10;
+            WriteSingle(fallbackIso, tieBasisX, 0);
+            var partial = UyaProjectService.Preflight(new MemoryStream(fallbackIso, writable: false), missingCatalog, 3);
+            Equal(3, partial.MissingAssetInstanceCount, "partial preflight missing instances");
+            Equal(3, partial.MissingClassCount, "partial preflight missing classes");
+            Equal(true, partial.Warnings.SequenceEqual(new[]
+            {
+                "3 instances across 3 model classes are absent from the global catalog and will use placeholders.",
+                "1 tie or shrub transforms could not be decomposed and will use identity rotation and scale.",
+            }), "partial preflight preserves exact warnings");
+            AssertPreflightMatchesFullRead(fallbackIso, missingCatalog, partial);
             await ThrowsAsync<InvalidDataException>(() => UyaProjectService.CreateValidatedAsync(
                 new MemoryStream(iso, writable: false), missingCatalog,
                 request with { ProjectPath = refusedPath, AllowPartial = false }));
             Equal(false, Directory.Exists(refusedPath), "warning confirmation precedes project write");
+            await missingCatalog.PutAsync(AssetKind.Moby, UyaAssetImportService.CanonicalFormatVersion,
+                CanonicalAsset(AssetKind.Moby, 0x11),
+                new("test-importer", new("UYA", "NTSC-U", "1.00", "level03", "asset_wad.bin", 0, new string('a', 32)),
+                    ["moby:100"], []));
+            var repairedPreflight = UyaProjectService.Preflight(new MemoryStream(iso, writable: false), missingCatalog, 3);
+            Equal(2, repairedPreflight.MissingAssetInstanceCount, "catalog repair updates missing counts without repeating base inspection");
+            Equal(1, repairedPreflight.RenderableInstanceCount, "catalog repair updates renderable count");
 
             var recoveryTieId = EntityId.New();
             var recoveryEntities = new List<ProjectEntity>
@@ -465,6 +515,35 @@ internal static class UyaProjectTests
         finally
         {
             Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static void AssertPreflightMatchesFullRead(byte[] iso, AssetCatalogStore catalog, UyaProjectPreflight preflight)
+    {
+        var full = UyaBaseLevelService.Read(new MemoryStream(iso, writable: false), catalog, preflight.Level);
+        Equal(full.SourceInstanceCount, preflight.SourceInstanceCount, "preflight/full source count equivalence");
+        Equal(full.RenderableInstanceCount, preflight.RenderableInstanceCount, "preflight/full renderable count equivalence");
+        Equal(full.ModelLessInstanceCount, preflight.ModelLessInstanceCount, "preflight/full model-less count equivalence");
+        Equal(full.MissingInstanceCount, preflight.MissingAssetInstanceCount, "preflight/full missing count equivalence");
+        Equal(full.MissingClassCount, preflight.MissingClassCount, "preflight/full missing class equivalence");
+        Equal(true, UyaBaseLevelService.CreateWarnings(full.MissingInstanceCount, full.MissingClassCount,
+            full.FallbackTransformCount).SequenceEqual(preflight.Warnings), "preflight/full warning equivalence");
+    }
+
+    private sealed class CancelOnReadStream(byte[] bytes, CancellationTokenSource cancellation) : MemoryStream(bytes, writable: false)
+    {
+        public override int Read(Span<byte> buffer)
+        {
+            var count = base.Read(buffer);
+            cancellation.Cancel();
+            return count;
+        }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            var read = base.Read(buffer, offset, count);
+            cancellation.Cancel();
+            return read;
         }
     }
 

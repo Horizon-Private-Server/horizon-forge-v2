@@ -6,6 +6,10 @@ This directory turns the [Forge v2 specification](../forge-v2-spec.md), the
 and issue-ready tasks. The specifications define behavior; these documents define
 delivery order and completion evidence.
 
+The [intermediate performance milestone](milestones/MPERF-intermediate-performance.md)
+adds measurable requirements and tasks for optimizing the existing feature set
+before further expansion.
+
 ## Priority model
 
 - **P0/MVP:** the first usable vanilla NTSC-U UYA editor release.
@@ -13,6 +17,8 @@ delivery order and completion evidence.
 - **P2:** asset-override, texture-bank, semantic, terrain, and update authoring.
 - **P3:** custom TIE/tfrag assets, cross-map imports, sound banks, moby simulations, and
   generated occlusion.
+- **Intermediate stabilization:** MPERF improves existing workflows before further
+  feature expansion; it does not renumber P0-P3 or waive their release gates.
 - **Future:** cross-game expansion, collaboration, plugins, macOS, and other work
   explicitly deferred by the specification.
 
@@ -41,6 +47,10 @@ qualification remains after M13-007 and the M14-M18 exit gates.
 
 M6 workflow scaffolding may begin earlier, but its release gate remains last.
 
+MPERF begins from the currently implemented workflows and freezes baselines before
+optimization. It can run ahead of unfinished P3 features, including M18; see its
+[task dependency graph](tasks/MPERF-tasks.md#delivery-order).
+
 ## Milestones and task registers
 
 | Priority | Milestone | Plan | Tasks |
@@ -56,6 +66,7 @@ M6 workflow scaffolding may begin earlier, but its release gate remains last.
 | P1 | P1 — Custom asset pipeline | [Milestone](milestones/P1-custom-assets.md) | [Tasks](tasks/P1-tasks.md) |
 | P2 | M7-M13 — Advanced authoring | [Plan and requirements](P2-next-phase.md) | [Tasks](tasks/P2-tasks.md) |
 | P3 | M14-M19 — Content expansion and runtime fidelity | [Plan and requirements](P3-content-expansion.md) | [Tasks](tasks/P3-tasks.md) |
+| Intermediate | MPERF — Intermediate performance improvements | [Milestone and requirements](milestones/MPERF-intermediate-performance.md) | [Tasks](tasks/MPERF-tasks.md) |
 
 See [P0/MVP scope](P0-MVP.md) for the release boundary.
 

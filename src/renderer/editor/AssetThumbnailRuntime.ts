@@ -6,12 +6,14 @@ import type { ForgeApi } from '../../types/ForgeApi.js';
 import { configurePs2AssetPreview } from '../../utils/Ps2Materials.ts';
 import { disposeObject, frameCameraOnObject } from '../../utils/Scene.ts';
 import { configureSkybox } from '../../utils/SkyboxScene.ts';
+import { ThumbnailPngEncoder } from './ThumbnailPngEncoder.ts';
 
 const THUMBNAIL_SIZE = 256;
 const MAX_THUMBNAILS = 128;
 
 interface ScheduledPreview {
   signal?: AbortSignal;
+  isVisible?: () => boolean;
   run(): Promise<string>;
   resolve(value: string): void;
   reject(reason: unknown): void;
@@ -29,12 +31,17 @@ export class AssetPreviewMeshMissingError extends Error {
 export class AssetPreviewScheduler {
   private readonly pending: ScheduledPreview[] = [];
   private active = 0;
+  private pumpQueued = false;
   private disposed = false;
 
-  schedule(signal: AbortSignal | undefined, run: () => Promise<string>): Promise<string> {
+  schedule(
+    signal: AbortSignal | undefined,
+    run: () => Promise<string>,
+    isVisible?: () => boolean,
+  ): Promise<string> {
     if (this.disposed || signal?.aborted) return Promise.reject(cancelled(signal));
     return new Promise((resolve, reject) => {
-      const job: ScheduledPreview = { signal, run, resolve, reject };
+      const job: ScheduledPreview = { signal, run, resolve, reject, isVisible };
       job.abort = () => {
         const index = this.pending.indexOf(job);
         if (index < 0) return;
@@ -43,7 +50,14 @@ export class AssetPreviewScheduler {
       };
       signal?.addEventListener('abort', job.abort, { once: true });
       this.pending.push(job);
-      this.pump();
+      // Batch mounted cards so visible work starts before overscan requests.
+      if (!this.pumpQueued) {
+        this.pumpQueued = true;
+        queueMicrotask(() => {
+          this.pumpQueued = false;
+          this.pump();
+        });
+      }
     });
   }
 
@@ -58,7 +72,8 @@ export class AssetPreviewScheduler {
 
   private pump(): void {
     while (!this.disposed && this.active < 4 && this.pending.length) {
-      const job = this.pending.shift()!;
+      const visible = this.pending.findIndex((job) => job.isVisible?.() !== false);
+      const [job] = this.pending.splice(visible < 0 ? 0 : visible, 1);
       if (job.abort) job.signal?.removeEventListener('abort', job.abort);
       this.active += 1;
       void Promise.resolve().then(job.run).then(job.resolve, job.reject).finally(() => {
@@ -71,6 +86,7 @@ export class AssetPreviewScheduler {
 
 export class AssetThumbnailRuntime {
   private readonly scheduler = new AssetPreviewScheduler();
+  private readonly encoder = new ThumbnailPngEncoder();
   private readonly loader = new GLTFLoader();
   private readonly renderer = new THREE.WebGLRenderer({ antialias: true });
   private readonly scene = new THREE.Scene();
@@ -98,7 +114,9 @@ export class AssetThumbnailRuntime {
     signal?: AbortSignal,
     customView?: CustomModelPreviewView,
     previewRevision?: string,
+    isVisible?: () => boolean,
   ): Promise<string> {
+    this.throwIfCancelled(signal);
     const key = `${kind}:${assetId}:${shellIndex ?? ''}:${customView ?? ''}:${previewRevision ?? ''}`;
     const cached = this.cache.get(key);
     if (cached) {
@@ -106,13 +124,16 @@ export class AssetThumbnailRuntime {
       this.cache.set(key, cached);
       return cached;
     }
-    this.throwIfCancelled(signal);
-    const persisted = customView || previewRevision ? undefined : await forgeApi().getAssetThumbnail(
-      this.targetGame, assetId, kind, shellIndex,
-    ).catch(() => undefined);
-    this.throwIfCancelled(signal);
-    if (persisted) return this.remember(key, persisted.url);
+    const loadPersisted = async () => {
+      const persisted = customView || previewRevision ? undefined : await forgeApi().getAssetThumbnail(
+        this.targetGame, assetId, kind, shellIndex,
+      ).catch(() => undefined);
+      this.throwIfCancelled(signal);
+      return persisted ? this.remember(key, persisted.url) : undefined;
+    };
     if (kind === 'sky') {
+      const persisted = await loadPersisted();
+      if (persisted) return persisted;
       if (shellIndex === undefined) throw new AssetPreviewMeshMissingError();
       await this.getSkyBatch(assetId);
       this.throwIfCancelled(signal);
@@ -122,6 +143,8 @@ export class AssetThumbnailRuntime {
     }
     return this.scheduler.schedule(signal, async () => {
       this.throwIfCancelled(signal);
+      const persisted = await loadPersisted();
+      if (persisted) return persisted;
       const requestToken = crypto.randomUUID();
       const cancel = () => { void forgeApi().cancelAssetPreview(requestToken); };
       signal?.addEventListener('abort', cancel, { once: true });
@@ -131,12 +154,14 @@ export class AssetThumbnailRuntime {
         const source = await forgeApi().getAssetPreview(assetId, kind, requestToken, shellIndex, customView);
         this.throwIfCancelled(signal);
         if (kind === 'texture') {
-          const blob = await textureThumbnail(source.url, signal);
+          const blob = await textureThumbnail(source.url, this.encoder, signal);
+          this.throwIfCancelled(signal);
+          const bytes = new Uint8Array(await blob.arrayBuffer());
           this.throwIfCancelled(signal);
           const thumbnail = (await forgeApi().storeAssetThumbnail(
-            this.targetGame, assetId, kind, new Uint8Array(await blob.arrayBuffer()),
-            shellIndex,
+            this.targetGame, assetId, kind, bytes, shellIndex,
           ).catch(() => undefined))?.url ?? source.url;
+          this.throwIfCancelled(signal);
           return this.remember(key, thumbnail);
         }
         root = (await this.loader.loadAsync(source.url)).scene;
@@ -145,22 +170,29 @@ export class AssetThumbnailRuntime {
         frameCameraOnObject(this.camera, root, this.target);
         this.scene.add(root);
         this.renderer.render(this.scene, this.camera);
-        const raster = this.renderer.domElement.toDataURL('image/png');
+        const encoding = this.encoder.encode(this.renderer.domElement);
         root.removeFromParent();
-        const bytes = decodeDataUrl(raster);
-        const thumbnail = customView || previewRevision ? raster
-          : (await forgeApi().storeAssetThumbnail(this.targetGame, assetId, kind, bytes, shellIndex)
-            .catch(() => undefined))?.url ?? raster;
+        const blob = await encoding;
+        this.throwIfCancelled(signal);
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        this.throwIfCancelled(signal);
+        const stored = customView || previewRevision ? undefined
+          : await forgeApi().storeAssetThumbnail(this.targetGame, assetId, kind, bytes, shellIndex)
+            .catch(() => undefined);
+        this.throwIfCancelled(signal);
+        const thumbnail = stored?.url ?? await thumbnailDataUrl(blob);
+        this.throwIfCancelled(signal);
         return this.remember(key, thumbnail);
       } finally {
         signal?.removeEventListener('abort', cancel);
         this.activeRequests.delete(requestToken);
-        if (root) disposeObject(root);
+        if (root) disposeThumbnailModel(root);
       }
-    });
+    }, isVisible);
   }
 
   async getTextureSource(assetId: string, signal?: AbortSignal): Promise<string> {
+    this.throwIfCancelled(signal);
     const key = `texture-source:${assetId}`;
     const cached = this.cache.get(key);
     if (cached) {
@@ -190,6 +222,7 @@ export class AssetThumbnailRuntime {
     this.disposed = true;
     this.lifetime.abort();
     this.scheduler.dispose();
+    this.encoder.dispose();
     for (const requestToken of this.activeRequests) void forgeApi().cancelAssetPreview(requestToken);
     this.activeRequests.clear();
     this.cache.clear();
@@ -244,20 +277,26 @@ export class AssetThumbnailRuntime {
         for (const [, candidate] of shells) candidate.visible = candidate === shell;
         frameCameraOnObject(this.camera, shell, this.target);
         this.renderer.render(this.scene, this.camera);
-        const raster = this.renderer.domElement.toDataURL('image/png');
-        return { shellIndex, raster, bytes: decodeDataUrl(raster) };
+        return { shellIndex, encoding: this.encoder.encode(this.renderer.domElement) };
       });
       root.removeFromParent();
-      await Promise.all(rasters.map(async ({ shellIndex, raster, bytes }) => {
-        const thumbnail = (await forgeApi().storeAssetThumbnail(
+      await Promise.all(rasters.map(async ({ shellIndex, encoding }) => {
+        const blob = await encoding;
+        this.throwIfCancelled(signal);
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        this.throwIfCancelled(signal);
+        const stored = await forgeApi().storeAssetThumbnail(
           this.targetGame, assetId, 'sky', bytes, shellIndex,
-        ).catch(() => undefined))?.url ?? raster;
-        this.remember(`sky:${assetId}:${shellIndex}`, thumbnail);
+        ).catch(() => undefined);
+        this.throwIfCancelled(signal);
+        const thumbnail = stored?.url ?? await thumbnailDataUrl(blob);
+        this.throwIfCancelled(signal);
+        this.remember(`sky:${assetId}:${shellIndex}::`, thumbnail);
       }));
     } finally {
       signal.removeEventListener('abort', cancel);
       this.activeRequests.delete(requestToken);
-      if (root) disposeObject(root);
+      if (root) disposeThumbnailModel(root);
     }
   }
 }
@@ -271,6 +310,26 @@ export function collectSkyShellObjects(root: THREE.Object3D): [number, THREE.Obj
   return [...shells].sort(([left], [right]) => left - right);
 }
 
+export function disposeThumbnailModel(root: THREE.Object3D): void {
+  // Each thumbnail load owns its skeletons and decoded images; scene templates may share theirs.
+  const skeletons = new Set<THREE.Skeleton>();
+  const images = new Set<ImageBitmap>();
+  root.traverse((object) => {
+    if (!(object instanceof THREE.Mesh)) return;
+    if (object instanceof THREE.SkinnedMesh && object.skeleton) skeletons.add(object.skeleton);
+    for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
+      for (const value of Object.values(material)) {
+        if (!(value instanceof THREE.Texture)) continue;
+        const image: unknown = value.source.data;
+        if (typeof ImageBitmap !== 'undefined' && image instanceof ImageBitmap) images.add(image);
+      }
+    }
+  });
+  disposeObject(root);
+  for (const skeleton of skeletons) skeleton.dispose();
+  for (const image of images) image.close();
+}
+
 function cancelled(signal?: AbortSignal): Error {
   return signal?.reason instanceof Error
     ? signal.reason
@@ -281,13 +340,16 @@ function forgeApi(): ForgeApi {
   return (globalThis as unknown as { forge: ForgeApi }).forge;
 }
 
-function decodeDataUrl(value: string): Uint8Array {
-  const encoded = value.slice(value.indexOf(',') + 1);
-  const decoded = atob(encoded);
-  return Uint8Array.from(decoded, (character) => character.charCodeAt(0));
+function thumbnailDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error ?? new Error('Thumbnail PNG reading failed'));
+    reader.readAsDataURL(blob);
+  });
 }
 
-async function textureThumbnail(url: string, signal?: AbortSignal): Promise<Blob> {
+async function textureThumbnail(url: string, encoder: ThumbnailPngEncoder, signal?: AbortSignal): Promise<Blob> {
   const response = await fetch(url, { signal });
   if (!response.ok) throw new Error(`Texture preview returned ${response.status}`);
   const image = await createImageBitmap(await response.blob());
@@ -302,9 +364,7 @@ async function textureThumbnail(url: string, signal?: AbortSignal): Promise<Blob
     const width = Math.max(1, Math.round(image.width * scale));
     const height = Math.max(1, Math.round(image.height * scale));
     context.drawImage(image, (THUMBNAIL_SIZE - width) / 2, (THUMBNAIL_SIZE - height) / 2, width, height);
-    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
-    if (!blob) throw new Error('Texture thumbnail encoding failed');
-    return blob;
+    return await encoder.encode(canvas);
   } finally {
     image.close();
   }

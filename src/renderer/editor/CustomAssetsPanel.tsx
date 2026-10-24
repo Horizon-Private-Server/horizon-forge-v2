@@ -5,7 +5,7 @@ import type { AssetExplorerItem } from '../../types/AssetExplorer.js';
 import type { EditorSnapshot } from '../../types/EditorRuntime.js';
 import { buildAssetFamilies } from '../../utils/AssetExplorer.ts';
 import { errorMessage } from '../../utils/Errors.ts';
-import { assetGridWindow } from '../../utils/VirtualGrid.ts';
+import { assetGridItemVisible, assetGridWindow } from '../../utils/VirtualGrid.ts';
 import { AssetCard } from './AssetExplorerPanel.tsx';
 import { useEditor } from './EditorContext.ts';
 
@@ -139,7 +139,7 @@ export function CustomAssetsPanel() {
         role="list"
         style={{ height: windowed.totalHeight }}
       >
-        {families.slice(windowed.startIndex, windowed.endIndex).map((family, offset) => {
+        {viewport.height > 0 && families.slice(windowed.startIndex, windowed.endIndex).map((family, offset) => {
           const index = windowed.startIndex + offset;
           const row = Math.floor(index / windowed.columns);
           const column = index % windowed.columns;
@@ -155,7 +155,7 @@ export function CustomAssetsPanel() {
             <AssetCard
               color={assetType === 'ties' ? sceneTreeColors.tie : sceneTreeColors.tfrag}
               family={family}
-              root={scrollElement}
+              visible={assetGridItemVisible(index, windowed.columns, viewport.height, viewport.scrollTop)}
               runtime={assetThumbnails}
               onActivate={() => inspectAsset(family)}
             />

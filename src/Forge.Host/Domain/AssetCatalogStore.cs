@@ -1,97 +1,34 @@
+using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 
 namespace Forge.Host.Domain;
 
-public sealed class AssetCatalogStore
+public sealed partial class AssetCatalogStore
 {
     public const int SchemaVersion = 0;
     public const int MaxQueryLimit = 1_000;
     public const int DefaultPageLimit = 64;
     public const int MaxPageLimit = 128;
-    private const long MaxCatalogBytes = 64L * 1024 * 1024;
     private const int MaxMetadataItems = 1_024;
     private const int MaxTextLength = 4_096;
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        WriteIndented = true,
-        MaxDepth = 32,
-        Converters = { new JsonStringEnumConverter() },
-    };
-
     private readonly SemaphoreSlim _writes = new(1, 1);
-    private readonly HashSet<string> _verifiedBlobs = new(StringComparer.Ordinal);
-    private IReadOnlyDictionary<string, AssetCatalogEntry> _entries;
-    private string _revision;
+    private readonly ConcurrentDictionary<string, byte> _verifiedBlobs = new(StringComparer.Ordinal);
+    private volatile AssetCatalogSnapshot _snapshot;
 
-    private AssetCatalogStore(string rootPath, IReadOnlyDictionary<string, AssetCatalogEntry> entries)
+    private AssetCatalogStore(string rootPath, AssetCatalogSnapshot snapshot)
     {
         RootPath = rootPath;
         BlobRootPath = Path.Combine(rootPath, "blobs");
         CatalogPath = Path.Combine(rootPath, "catalog-v0.json");
-        _entries = entries;
-        _revision = AssetCatalogPaging.ComputeRevision(entries.Values);
+        _snapshot = snapshot;
     }
 
     public string RootPath { get; }
     public string BlobRootPath { get; }
     public string CatalogPath { get; }
-    internal string Revision => _revision;
-
-    public static Task<AssetCatalogStore> OpenAsync(
-        string rootPath,
-        CancellationToken cancellationToken = default) => OpenAsync(rootPath, prepareForWrites: true, cancellationToken);
-
-    public static Task<AssetCatalogStore> OpenReadOnlyAsync(
-        string rootPath,
-        CancellationToken cancellationToken = default) => OpenAsync(rootPath, prepareForWrites: false, cancellationToken);
-
-    private static async Task<AssetCatalogStore> OpenAsync(
-        string rootPath,
-        bool prepareForWrites,
-        CancellationToken cancellationToken)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(rootPath);
-        var root = Path.GetFullPath(rootPath);
-        var blobs = Path.Combine(root, "blobs");
-        if (prepareForWrites)
-        {
-            Directory.CreateDirectory(blobs);
-            CleanupPartials(root);
-        }
-
-        var catalogPath = Path.Combine(root, "catalog-v0.json");
-        if (!File.Exists(catalogPath)) return new(root, new Dictionary<string, AssetCatalogEntry>(StringComparer.Ordinal));
-        if (new FileInfo(catalogPath).Length > MaxCatalogBytes) throw new InvalidDataException("Asset catalog exceeds the size limit.");
-
-        await using var stream = new FileStream(
-            catalogPath, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024,
-            FileOptions.Asynchronous | FileOptions.SequentialScan);
-        CatalogDocument document;
-        try
-        {
-            document = await JsonSerializer.DeserializeAsync<CatalogDocument>(stream, JsonOptions, cancellationToken)
-                ?? throw new InvalidDataException("Asset catalog is empty.");
-        }
-        catch (JsonException exception)
-        {
-            throw new InvalidDataException("Asset catalog contains invalid JSON.", exception);
-        }
-
-        if (document.SchemaVersion != SchemaVersion)
-            throw new InvalidDataException($"Unsupported asset catalog schema {document.SchemaVersion}.");
-        var entries = new Dictionary<string, AssetCatalogEntry>(StringComparer.Ordinal);
-        foreach (var stored in document.Assets)
-        {
-            var entry = FromStored(stored);
-            if (!entries.TryAdd(entry.Id.ToString(), entry))
-                throw new InvalidDataException($"Asset catalog contains duplicate ID {entry.Id}.");
-        }
-        return new(root, entries);
-    }
+    internal string Revision => _snapshot.Revision;
 
     public async Task<AssetCatalogEntry> PutAsync(
         AssetKind kind,
@@ -112,28 +49,46 @@ public sealed class AssetCatalogStore
         await _writes.WaitAsync(cancellationToken);
         try
         {
-            var next = new Dictionary<string, AssetCatalogEntry>(_entries, StringComparer.Ordinal);
+            await using var lease = await AcquireWriteLeaseAsync(RootPath, cancellationToken);
+            var current = await ReadSnapshotAsync(RootPath, cancellationToken);
+            if (!ReferenceEquals(current, _snapshot)) _verifiedBlobs.Clear();
             var ids = new AssetId[assets.Count];
+            var blobs = new Dictionary<AssetId, AssetCatalogPut>();
             for (var index = 0; index < assets.Count; index++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var asset = assets[index];
                 var id = AssetId.Compute(asset.Kind, asset.CanonicalFormatVersion, asset.CanonicalBytes.Span);
                 ids[index] = id;
-                await EnsureBlobAsync(
-                    id, asset.Kind, asset.CanonicalFormatVersion, asset.CanonicalBytes, cancellationToken);
+                blobs.TryAdd(id, asset);
+            }
+            // Overlap durable file I/O without parallel metadata mutation or extra asset copies.
+            await Parallel.ForEachAsync(blobs,
+                new ParallelOptions { MaxDegreeOfParallelism = 16, CancellationToken = cancellationToken },
+                async (pair, token) => await EnsureBlobAsync(
+                    pair.Key, pair.Value.Kind, pair.Value.CanonicalFormatVersion,
+                    pair.Value.CanonicalBytes, token));
+            var next = new Dictionary<string, AssetCatalogEntry>(current.Entries, StringComparer.Ordinal);
+            var changed = false;
+            for (var index = 0; index < assets.Count; index++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var asset = assets[index];
+                var id = ids[index];
                 next.TryGetValue(id.ToString(), out var existing);
-                next[id.ToString()] = Merge(
+                var merged = Merge(
                     existing,
                     id,
                     asset.Kind,
                     asset.CanonicalFormatVersion,
                     asset.CanonicalBytes.Length,
                     asset.Metadata);
+                next[id.ToString()] = merged;
+                changed |= !ReferenceEquals(existing, merged);
             }
-            await WriteCatalogAsync(next.Values, cancellationToken);
-            _entries = next;
-            _revision = AssetCatalogPaging.ComputeRevision(next.Values);
+            var committed = changed ? new AssetCatalogSnapshot(next) : current;
+            if (changed) await WriteCatalogAsync(committed, current.Revision, cancellationToken);
+            _snapshot = committed;
             return ids.Select(id => next[id.ToString()]).ToArray();
         }
         finally
@@ -150,19 +105,21 @@ public sealed class AssetCatalogStore
         await _writes.WaitAsync(cancellationToken);
         try
         {
-            if (!_entries.TryGetValue(id.ToString(), out var existing))
+            await using var lease = await AcquireWriteLeaseAsync(RootPath, cancellationToken);
+            var current = await ReadSnapshotAsync(RootPath, cancellationToken);
+            if (!current.Entries.TryGetValue(id.ToString(), out var existing))
                 throw new KeyNotFoundException($"Asset {id} is not present in the catalog.");
             ValidateMetadata(existing.Kind, metadata);
             if (!File.Exists(BlobPath(id))) throw new FileNotFoundException($"Asset blob {id} is missing.");
             var entry = Merge(
                 existing, id, existing.Kind, existing.CanonicalFormatVersion, existing.Size, metadata);
-            var next = new Dictionary<string, AssetCatalogEntry>(_entries, StringComparer.Ordinal)
+            var next = new Dictionary<string, AssetCatalogEntry>(current.Entries, StringComparer.Ordinal)
             {
                 [id.ToString()] = entry,
             };
-            await WriteCatalogAsync(next.Values, cancellationToken);
-            _entries = next;
-            _revision = AssetCatalogPaging.ComputeRevision(next.Values);
+            var committed = ReferenceEquals(entry, existing) ? current : new AssetCatalogSnapshot(next);
+            if (!ReferenceEquals(committed, current)) await WriteCatalogAsync(committed, current.Revision, cancellationToken);
+            _snapshot = committed;
             return entry;
         }
         finally
@@ -180,23 +137,24 @@ public sealed class AssetCatalogStore
         var id = query.Id?.ToString();
         if (id is not null && id.Length != AssetId.TextLength) throw new ArgumentException("Query Asset ID is empty.", nameof(query));
 
-        return _entries.Values
-            .Where(entry => id is null || entry.Id.ToString() == id)
+        var snapshot = _snapshot;
+        IEnumerable<AssetCatalogEntry> candidates = id is null ? snapshot.Ordered(query.Kind)
+            : snapshot.Entries.TryGetValue(id, out var entry) ? [entry] : [];
+        return candidates
             .Where(entry => query.Kind is null || entry.Kind == query.Kind)
             .Where(entry => query.Game is null || entry.Sources.Any(source => source.Game == query.Game))
             .Where(entry => query.Level is null || entry.Sources.Any(source => source.Level == query.Level))
             .Where(entry => tags.Count == 0 || tags.All(tag => entry.Tags.Contains(tag, StringComparer.Ordinal)))
-            .OrderBy(entry => entry.Id.ToString(), StringComparer.Ordinal)
             .Take(query.Limit)
             .ToArray();
     }
 
     public AssetCatalogPage QueryPage(AssetCatalogPageQuery query, CancellationToken cancellationToken = default) =>
-        AssetCatalogPaging.Query(_entries.Values, _revision, query, cancellationToken);
+        AssetCatalogPaging.Query(_snapshot, query, cancellationToken);
 
     public string? ResolveBlobPath(AssetId id)
     {
-        if (!_entries.ContainsKey(id.ToString())) return null;
+        if (!_snapshot.Entries.ContainsKey(id.ToString())) return null;
         var path = BlobPath(id);
         return File.Exists(path) ? path : null;
     }
@@ -207,7 +165,7 @@ public sealed class AssetCatalogStore
         var protectedIds = referencedAssets.Select(id => id.ToString()).ToHashSet(StringComparer.Ordinal);
         if (protectedIds.Any(id => id.Length != AssetId.TextLength))
             throw new ArgumentException("Referenced Asset IDs cannot be empty.", nameof(referencedAssets));
-        return BuildGarbageCollectionPreview(protectedIds);
+        return BuildGarbageCollectionPreview(_snapshot, protectedIds);
     }
 
     public async Task<AssetGarbageCollectionPreview> CollectGarbageAsync(
@@ -220,7 +178,9 @@ public sealed class AssetCatalogStore
         await _writes.WaitAsync(cancellationToken);
         try
         {
-            var preview = BuildGarbageCollectionPreview(protectedIds);
+            await using var lease = await AcquireWriteLeaseAsync(RootPath, cancellationToken);
+            var current = await ReadSnapshotAsync(RootPath, cancellationToken);
+            var preview = BuildGarbageCollectionPreview(current, protectedIds);
             if (!CryptographicOperations.FixedTimeEquals(
                 Encoding.ASCII.GetBytes(preview.ConfirmationToken),
                 Encoding.ASCII.GetBytes(confirmationToken)))
@@ -228,15 +188,15 @@ public sealed class AssetCatalogStore
 
             var removedIds = preview.Candidates.Select(candidate => candidate.Id.ToString()).ToHashSet(StringComparer.Ordinal);
             var next = new Dictionary<string, AssetCatalogEntry>(
-                _entries.Where(pair => !removedIds.Contains(pair.Key)), StringComparer.Ordinal);
-            if (next.Count != _entries.Count) await WriteCatalogAsync(next.Values, cancellationToken);
-            _entries = next;
-            _revision = AssetCatalogPaging.ComputeRevision(next.Values);
+                current.Entries.Where(pair => !removedIds.Contains(pair.Key)), StringComparer.Ordinal);
+            var committed = next.Count == current.Entries.Count ? current : new AssetCatalogSnapshot(next);
+            if (!ReferenceEquals(committed, current)) await WriteCatalogAsync(committed, current.Revision, cancellationToken);
+            _snapshot = committed;
             foreach (var candidate in preview.Candidates)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 File.Delete(BlobPath(candidate.Id));
-                _verifiedBlobs.Remove(candidate.Id.ToString());
+                _verifiedBlobs.TryRemove(candidate.Id.ToString(), out _);
             }
             return preview;
         }
@@ -246,10 +206,10 @@ public sealed class AssetCatalogStore
         }
     }
 
-    private AssetGarbageCollectionPreview BuildGarbageCollectionPreview(IReadOnlySet<string> protectedIds)
+    private AssetGarbageCollectionPreview BuildGarbageCollectionPreview(AssetCatalogSnapshot snapshot, IReadOnlySet<string> protectedIds)
     {
         var candidates = new Dictionary<string, AssetGarbageCandidate>(StringComparer.Ordinal);
-        foreach (var entry in _entries.Values.Where(entry => !protectedIds.Contains(entry.Id.ToString())))
+        foreach (var entry in snapshot.Entries.Values.Where(entry => !protectedIds.Contains(entry.Id.ToString())))
         {
             var path = BlobPath(entry.Id);
             candidates[entry.Id.ToString()] = new(entry.Id, entry.Kind, File.Exists(path) ? new FileInfo(path).Length : 0, true);
@@ -264,10 +224,10 @@ public sealed class AssetCatalogStore
                 candidates[value] = new(id, null, new FileInfo(path).Length, false);
         }
         var ordered = candidates.Values.OrderBy(candidate => candidate.Id.ToString(), StringComparer.Ordinal).ToArray();
-        var tokenInput = string.Join('\n', protectedIds.Order(StringComparer.Ordinal)
+        var tokenInput = string.Join('\n', new[] { snapshot.Revision }.Concat(protectedIds.Order(StringComparer.Ordinal))
             .Concat(ordered.Select(candidate => $"{candidate.Id}:{candidate.Size}:{candidate.Cataloged}")));
         var token = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(tokenInput))).ToLowerInvariant();
-        return new(_entries.Count, _entries.Count - ordered.Count(candidate => candidate.Cataloged), ordered, token);
+        return new(snapshot.Entries.Count, snapshot.Entries.Count - ordered.Count(candidate => candidate.Cataloged), ordered, token);
     }
 
     private async Task EnsureBlobAsync(
@@ -280,9 +240,9 @@ public sealed class AssetCatalogStore
         var finalPath = BlobPath(id);
         if (File.Exists(finalPath))
         {
-            if (_verifiedBlobs.Contains(id.ToString())) return;
+            if (_verifiedBlobs.ContainsKey(id.ToString())) return;
             await VerifyBlobAsync(finalPath, id, kind, canonicalFormatVersion, cancellationToken);
-            _verifiedBlobs.Add(id.ToString());
+            _verifiedBlobs.TryAdd(id.ToString(), 0);
             return;
         }
 
@@ -293,22 +253,23 @@ public sealed class AssetCatalogStore
         {
             await using (var stream = new FileStream(
                 temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None, 64 * 1024,
-                FileOptions.Asynchronous | FileOptions.WriteThrough))
+                FileOptions.Asynchronous))
             {
                 await stream.WriteAsync(bytes, cancellationToken);
                 await stream.FlushAsync(cancellationToken);
+                // Publish only after one durable flush; syncing every partial-file write is redundant.
                 stream.Flush(flushToDisk: true);
             }
             cancellationToken.ThrowIfCancellationRequested();
             try
             {
                 File.Move(temporary, finalPath);
-                _verifiedBlobs.Add(id.ToString());
+                _verifiedBlobs.TryAdd(id.ToString(), 0);
             }
             catch (IOException) when (File.Exists(finalPath))
             {
                 await VerifyBlobAsync(finalPath, id, kind, canonicalFormatVersion, cancellationToken);
-                _verifiedBlobs.Add(id.ToString());
+                _verifiedBlobs.TryAdd(id.ToString(), 0);
             }
         }
         finally
@@ -338,32 +299,6 @@ public sealed class AssetCatalogStore
         var actual = Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
         if (actual != expected.ToString())
             throw new InvalidDataException($"Asset blob {expected} failed integrity verification.");
-    }
-
-    private async Task WriteCatalogAsync(IEnumerable<AssetCatalogEntry> entries, CancellationToken cancellationToken)
-    {
-        var document = new CatalogDocument(
-            SchemaVersion,
-            entries.OrderBy(entry => entry.Id.ToString(), StringComparer.Ordinal).Select(ToStored).ToList());
-        var temporary = Path.Combine(RootPath, $".catalog-v0.{Guid.NewGuid():N}.partial");
-        try
-        {
-            await using (var stream = new FileStream(
-                temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None, 64 * 1024,
-                FileOptions.Asynchronous | FileOptions.WriteThrough))
-            {
-                await JsonSerializer.SerializeAsync(stream, document, JsonOptions, cancellationToken);
-                await stream.WriteAsync("\n"u8.ToArray(), cancellationToken);
-                await stream.FlushAsync(cancellationToken);
-                stream.Flush(flushToDisk: true);
-            }
-            cancellationToken.ThrowIfCancellationRequested();
-            File.Move(temporary, CatalogPath, overwrite: true);
-        }
-        finally
-        {
-            File.Delete(temporary);
-        }
     }
 
     private string BlobPath(AssetId id)
@@ -404,10 +339,17 @@ public sealed class AssetCatalogStore
             .ToArray();
         if (sources.Length > MaxMetadataItems)
             throw new ArgumentException($"Asset source appearances exceed {MaxMetadataItems} items.", nameof(metadata));
-        return new(
+        var merged = new AssetCatalogEntry(
             id, kind, canonicalFormatVersion, size, aliases, tags, sources,
             existing?.ImportedAtUtc ?? DateTimeOffset.UtcNow,
             metadata.ImporterVersion.Trim());
+        return existing is not null
+            && existing.Sources.Count == sources.Length
+            && existing.Aliases.Count == aliases.Count
+            && existing.Tags.Count == tags.Count
+            && existing.ImporterVersion == merged.ImporterVersion
+            && JsonSerializer.SerializeToUtf8Bytes(existing, JsonOptions).AsSpan()
+            .SequenceEqual(JsonSerializer.SerializeToUtf8Bytes(merged, JsonOptions)) ? existing : merged;
     }
 
     private static IReadOnlyList<string> MergeValues(IEnumerable<string>? existing, IEnumerable<string>? added) =>
@@ -501,12 +443,12 @@ public sealed class AssetCatalogStore
     {
         var identity = SourceIdentity(added);
         return existing
-            .Where(source => !SourceIdentity(source).Equals(identity, StringComparison.Ordinal))
+            .Where(source => !SourceIdentity(source).Equals(identity))
             .Append(added);
     }
 
-    private static string SourceIdentity(AssetSource source) =>
-        JsonSerializer.Serialize(source with { MobySounds = null, SoundProgram = null }, JsonOptions);
+    private static AssetSource SourceIdentity(AssetSource source) =>
+        source with { MobySounds = null, SoundProgram = null };
 
     private static AssetId[] NormalizeAssetIds(IReadOnlyList<AssetId> values, string name)
     {
@@ -551,21 +493,4 @@ public sealed class AssetCatalogStore
             stored.ImportedAtUtc, stored.ImporterVersion.Trim());
     }
 
-    private static void CleanupPartials(string root)
-    {
-        foreach (var partial in Directory.EnumerateFiles(root, "*.partial", SearchOption.AllDirectories))
-            File.Delete(partial);
-    }
-
-    private sealed record CatalogDocument(int SchemaVersion, List<StoredAsset> Assets);
-    private sealed record StoredAsset(
-        string Id,
-        AssetKind Kind,
-        uint CanonicalFormatVersion,
-        long Size,
-        List<string> Aliases,
-        List<string> Tags,
-        List<AssetSource> Sources,
-        DateTimeOffset ImportedAtUtc,
-        string ImporterVersion);
 }

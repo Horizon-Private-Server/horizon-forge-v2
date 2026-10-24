@@ -48,6 +48,8 @@ export class SceneBillboardResources {
       fog: false,
       map: texture,
       side: THREE.DoubleSide,
+      // A camera-facing plane needs one draw; the default two-sided path invalidates shaders every frame.
+      forceSinglePass: true,
       transparent: true,
       toneMapped: false,
     });

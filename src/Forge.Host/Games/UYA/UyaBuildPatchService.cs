@@ -129,7 +129,9 @@ public static class UyaBuildPatchService
             var replacedIso = patched.Mode == UyaIsoPatchMode.FullImageReplacement;
             var completionMessage = replacedIso
                 ? "Development ISO replaced and verified. Start PCSX2 without loading a savestate."
-                : "Development ISO patched and verified.";
+                : patched.WrittenRanges == 0
+                    ? "Development ISO is already current and verified."
+                    : "Development ISO patched and verified.";
             await ReportAsync(progress, new(
                 UyaBuildPatchPhase.Complete, 1, 1, completionMessage));
             return new(

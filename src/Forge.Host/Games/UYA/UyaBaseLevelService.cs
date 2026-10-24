@@ -14,7 +14,7 @@ using RatchetPs2.Core.Sounds;
 
 namespace Forge.Host.Games.UYA;
 
-internal static class UyaBaseLevelService
+internal static partial class UyaBaseLevelService
 {
     public static UyaBaseLevelData Read(
         Stream iso,
@@ -23,151 +23,74 @@ internal static class UyaBaseLevelService
         MobyDexCatalog? mobyDex = null,
         CancellationToken cancellationToken = default)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-        var levelWad = LevelArchiveReader.ExtractPrimary(GameId.UYA, iso, level);
-        var package = UyaLevelWadUnpacker.Unpack(levelWad);
-        var hud = UyaHudProjectService.TryRead(package)?.State;
-        var fx = UyaFxProjectService.TryRead(package)?.State;
-        var files = package.Files.ToDictionary(file => file.Path, StringComparer.Ordinal);
-        var mobyBytes = Required(files, "gameplay/core/moby_instances.bin", level);
-        var tieBytes = Required(files, "gameplay/core/tie_instances.bin", level);
-        var shrubBytes = Required(files, "gameplay/core/shrub_instances.bin", level);
-        var gameplay = UyaGameplayBlockReader.ReadCore(
-            Required(files, "gameplay/gameplay_core.bin", level));
-        var levelSettings = gameplay.Blocks.SingleOrDefault(value => value.SemanticName == "level_settings")?.LevelSettings;
-        var mobyTable = mobyBytes.Length == 0
-            ? new UyaMobyInstances(0, 0, 0, 0, [], [])
-            : UyaMobyInstancesReader.Read(mobyBytes);
-        var mobys = mobyTable.Instances;
-        var tieTable = tieBytes.Length == 0
-            ? new UyaTieInstances(0, [0, 0, 0], [], [])
-            : UyaTieInstancesReader.Read(tieBytes);
-        var shrubTable = shrubBytes.Length == 0
-            ? new UyaShrubInstances(0, [0, 0, 0], [], [])
-            : UyaShrubInstancesReader.Read(shrubBytes);
-        var ties = tieTable.Instances;
-        var shrubs = shrubTable.Instances;
+        var prepared = Prepare(iso, catalog, level, cancellationToken);
+        var layers = PrepareLayers(prepared.Package, prepared.Entities, level, cancellationToken);
 
-        var source = UyaLevelWadRenderPackageBuilder.ReadAssetSourceFiles(package.Files);
-        var header = LevelAssetReader.ReadHeader(source.HeaderBytes);
-        var soundBankBytes = UyaLevelWadReader.ReadSectorFileBlock(levelWad, package.LevelWad.SoundBank);
+        var hud = UyaHudProjectService.TryRead(prepared.Package)?.State;
+        var fx = UyaFxProjectService.TryRead(prepared.Package)?.State;
+
+        var soundBankBytes = UyaLevelWadReader.ReadSectorFileBlock(prepared.Wad, prepared.Package.LevelWad.SoundBank);
+
         var soundBank = soundBankBytes.Length == 0
             ? null
             : SoundBankReader.Inspect(GameId.UYA, soundBankBytes, cancellationToken);
-        var soundRemap = soundBank is null || header.SoundRemapOffset == 0
+        var soundRemap = soundBank is null || prepared.Header.SoundRemapOffset == 0
             ? null
             : SoundBankReader.InspectRemap(
-                GameId.UYA, source.HeaderBytes, soundBank.Programs.Count, cancellationToken);
-        var terrainTextures = ReadTerrainTextures(source, header, cancellationToken);
-        var mobyClasses = ModelClasses(source.HeaderBytes, header.MobyModelOffset, header.MobyModelCount);
-        var tieClasses = ModelClasses(source.HeaderBytes, header.TieModelOffset, header.TieModelCount);
-        var shrubClasses = LevelAssetReader.ReadShrubDefinitions(source.HeaderBytes, header.ShrubModelOffset, header.ShrubModelCount)
-            .Where(model => model.ModelOffset > 0).Select(model => model.ModelId).ToHashSet();
-        var mobyAssets = AssetLookup(catalog, AssetKind.Moby, "moby", level);
-        var tieAssets = AssetLookup(catalog, AssetKind.Tie, "tie", level);
-        var shrubAssets = AssetLookup(catalog, AssetKind.Shrub, "shrub", level);
+                GameId.UYA, prepared.Source.HeaderBytes, soundBank.Programs.Count, cancellationToken);
 
-        var geometry = gameplay.Geometry;
-        var lighting = gameplay.Lighting;
-        var cameras = gameplay.Blocks.FirstOrDefault(value => value.CameraInstances is not null)?.CameraInstances?.Instances ?? [];
-        var sounds = gameplay.Blocks.FirstOrDefault(value => value.SoundInstances is not null)?.SoundInstances?.Instances ?? [];
-        var cameraCollision = gameplay.Blocks.FirstOrDefault(value => value.CameraCollisionGrid is not null)
-            ?.CameraCollisionGrid?.Primitives ?? [];
-        var entities = new List<ProjectEntity>(
-            mobys.Count + ties.Count + shrubs.Count + geometry.Cuboids.Length + geometry.Spheres.Length
-            + geometry.Cylinders.Length + geometry.Pills.Length + geometry.Splines.Length
-            + geometry.GrindPaths.Length + geometry.Areas.Length + lighting.DirectionalLights.Length
-            + lighting.PointLights.Lights.Length + lighting.EnvironmentSamplePoints.Length
-            + lighting.EnvironmentTransitions.Length + cameras.Count + sounds.Count);
-        for (var index = 0; index < mobys.Count; index++)
-        {
-            var instance = mobys[index];
-            entities.Add(new(
-                EntityId.New(),
-                $"Moby 0x{instance.ClassId:X4} #{index}",
-                "mobys",
-                new(
-                    new(instance.Position.X, instance.Position.Y, instance.Position.Z),
-                    FromZyxEuler(instance.Rotation),
-                    new(instance.Scale, instance.Scale, instance.Scale)),
-                Reference(mobyAssets, instance.ClassId, AssetKind.Moby),
-                new("UYA", level, "gameplay/core/moby_instances", index),
-                Source: new(instance.ClassId, mobyBytes.AsSpan(
-                    UyaMobyInstancesReader.HeaderSize + index * UyaMobyInstancesReader.RecordSize,
-                    UyaMobyInstancesReader.RecordSize).ToArray(), !mobyClasses.Contains(instance.ClassId))));
-        }
+        var terrainTextures = ReadTerrainTextures(prepared.Source, prepared.Header, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        var levelSettings = prepared.Gameplay.Blocks.SingleOrDefault(value => value.SemanticName == "level_settings")?.LevelSettings;
 
-        var fallbackTransforms = 0;
-        for (var index = 0; index < ties.Count; index++)
-        {
-            var tie = ties[index];
-            entities.Add(CreateStaticEntity(tie.ClassId, tie.Transform, tie.RawBytes,
-                index, level, "Tie", "ties", "gameplay/core/tie_instances", AssetKind.Tie, tieAssets, ref fallbackTransforms) with
-            {
-                TieLighting = new(tie.DirectionalLights, lighting.TieAmbientRgbas[index]),
-            });
-        }
-        for (var index = 0; index < shrubs.Count; index++)
-            entities.Add(CreateStaticEntity(shrubs[index].ClassId, shrubs[index].Transform, shrubs[index].RawBytes,
-                index, level, "Shrub", "shrubs", "gameplay/core/shrub_instances", AssetKind.Shrub, shrubAssets, ref fallbackTransforms));
-        AddGeometryEntities(entities, geometry, cameraCollision, level, ref fallbackTransforms);
-        AddLightingEntities(entities, lighting, level, ref fallbackTransforms);
-        AddEnvironmentInstances(entities, cameras, sounds, level, ref fallbackTransforms);
-        var baseLayers = UyaBaseLayerService.Extract(package);
-        AddSkyShells(entities, baseLayers, level);
-        AddCollisionPieces(entities, baseLayers, level);
-        var tfrags = UyaTfragProjectService.Create(baseLayers, level, cancellationToken);
-        _ = UyaInstancedCollisionLinkRecoveryService.Recover(entities, baseLayers, catalog);
+        _ = UyaInstancedCollisionLinkRecoveryService.Recover(prepared.Entities, layers.BaseLayers, catalog);
+
+        cancellationToken.ThrowIfCancellationRequested();
+
         var mobyPVars = UyaMobyPVarService.Import(
-            entities,
-            gameplay.PvarTables,
+            prepared.Entities,
+            prepared.Gameplay.PvarTables,
             mobyDex ?? new MobyDexCatalog(UyaMobyDexDataset.Create()));
 
-        var missing = CountMissing(mobys.Select(value => value.ClassId), mobyClasses, mobyAssets)
-            + CountMissing(ties.Select(value => value.ClassId), tieClasses, tieAssets)
-            + CountMissing(shrubs.Select(value => value.ClassId), shrubClasses, shrubAssets);
-        var missingClasses = MissingClasses(mobys.Select(value => value.ClassId), mobyClasses, mobyAssets)
-            + MissingClasses(ties.Select(value => value.ClassId), tieClasses, tieAssets)
-            + MissingClasses(shrubs.Select(value => value.ClassId), shrubClasses, shrubAssets);
-        var opaqueSections = UyaOpaqueContentService.Capture(levelWad, package, source.HeaderBytes, soundRemap);
+        var opaqueSections = UyaOpaqueContentService.Capture(prepared.Wad, prepared.Package, prepared.Source.HeaderBytes, soundRemap);
         var gameplayOcclusion = opaqueSections.SingleOrDefault(value => value.Name == "gameplay/occlusion")?.Bytes;
         var levelOcclusion = opaqueSections.SingleOrDefault(value => value.Name == "level/occlusion")?.Bytes;
         var assetOcclusion = UyaOcclusionGridReader.ReadLevelAssetPayload(
-            source.HeaderBytes, source.AssetWadBytes);
+            prepared.Source.HeaderBytes, prepared.Source.AssetWadBytes);
         UyaOcclusionImportSource? occlusion = gameplayOcclusion is { Length: > 0 }
             && levelOcclusion is { Length: > 0 } && assetOcclusion.Length > 0
                 ? new(gameplayOcclusion, assetOcclusion, levelOcclusion)
                 : null;
         return new(
-            Convert.ToHexString(SHA256.HashData(levelWad)).ToLowerInvariant(),
-            entities,
-            entities.Count + tfrags.Entities.Count,
-            entities.Count(entity => entity.Asset is not null) + tfrags.Entities.Count,
-            mobys.Count(instance => !mobyClasses.Contains(instance.ClassId)),
-            missing,
-            missingClasses,
-            fallbackTransforms,
+            Convert.ToHexString(SHA256.HashData(prepared.Wad)).ToLowerInvariant(),
+            prepared.Entities,
+            prepared.Entities.Count + layers.Tfrags.Entities.Count,
+            prepared.Entities.Count(entity => entity.Asset is not null) + layers.Tfrags.Entities.Count,
+            prepared.ModelLessInstances,
+            prepared.MissingInstances,
+            prepared.MissingClasses,
+            prepared.FallbackTransforms,
             opaqueSections,
             occlusion,
-            baseLayers,
+            layers.BaseLayers,
             [
                 new(BakeLayerId.Ties, UyaTieInstancesReader.RecordSize,
-                    tieTable.HeaderWords, tieTable.TrailingBytes),
+                    prepared.Ties.HeaderWords, prepared.Ties.TrailingBytes),
                 new(BakeLayerId.Shrubs, UyaShrubInstancesReader.RecordSize,
-                    shrubTable.HeaderWords, shrubTable.TrailingBytes),
+                    prepared.Shrubs.HeaderWords, prepared.Shrubs.TrailingBytes),
                 new(BakeLayerId.Mobys, UyaMobyInstancesReader.RecordSize,
-                    [mobyTable.SpawnableMobyCount, mobyTable.Pad8, mobyTable.PadC], mobyTable.TrailingBytes),
+                    [prepared.Mobys.SpawnableMobyCount, prepared.Mobys.Pad8, prepared.Mobys.PadC], prepared.Mobys.TrailingBytes),
             ],
-            gameplay,
-            levelSettings is null ? null : ProjectSettings(levelSettings, entities),
+            prepared.Gameplay,
+            levelSettings is null ? null : ProjectSettings(levelSettings, prepared.Entities),
             hud,
             fx,
             mobyPVars,
-            tfrags,
+            layers.Tfrags,
             soundBank is null || soundRemap is null
                 ? ProjectSoundState.Empty
                 : SoundProjectService.Create(
-                    GameId.UYA, level, soundBankBytes, soundBank, soundRemap, mobyAssets),
+                    GameId.UYA, level, soundBankBytes, soundBank, soundRemap, prepared.MobyAssets),
             terrainTextures);
     }
 

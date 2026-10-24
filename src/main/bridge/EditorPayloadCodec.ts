@@ -16,6 +16,7 @@ import type {
   EditorMobyPropertyValue,
   EditorMobyPVarFieldDescriptor,
   EditorMobyPVarValue,
+  EditorMobyPVarDescriptor,
   EditorContentOrigin,
 } from '../../types/EditorRuntime.js';
 import { editorEntityKinds } from './EditorEntityKinds.js';
@@ -597,6 +598,16 @@ export function decodeEditorCommandResult(payload: Uint8Array): EditorCommandRes
     reader.complete();
     return { kind: 'levelSettings', levelSettings, ...status };
   }
+  if (kind === 4) {
+    const selection = readList(reader, MAX_ENTITIES, () => reader.readString());
+    const mobyPVars = readList(reader, MAX_ENTITIES, () => ({
+      entityId: reader.readString(),
+      mobyPVar: reader.readBoolean() ? readMobyPVar(reader) : undefined,
+    }));
+    const status = readCommandStatus(reader);
+    reader.complete();
+    return { kind: 'selection', selection, mobyPVars, ...status };
+  }
   throw malformed(`Unknown editor command result kind ${kind}`);
 }
 
@@ -840,21 +851,7 @@ function readEntity(reader: PayloadReader): EditorEntity {
     }));
   }
   if (reader.readBoolean()) {
-    value.mobyPVar = {
-      datasetId: reader.readString(),
-      datasetVersion: reader.readUInt32(),
-      schemaVersion: reader.readUInt32(),
-      schemaSource: reader.readString(),
-      schemaFingerprint: reader.readString(),
-      stateFingerprint: reader.readString(),
-      length: reader.readUInt32(),
-      hasData: reader.readBoolean(),
-      canInitialize: reader.readBoolean(),
-      diagnostic: optionalString(reader.readString()),
-      rawData: reader.readBoolean() ? reader.readBytes(MAX_MOBY_PVAR_BYTES) : undefined,
-      modifiedByteMask: reader.readBoolean() ? reader.readBytes(MAX_MOBY_PVAR_MASK_BYTES) : undefined,
-      fields: readMobyPVarFields(reader, 0),
-    };
+    value.mobyPVar = readMobyPVar(reader);
   }
   const transformCapabilities = reader.readUInt32();
   value.transformModes = [
@@ -939,6 +936,24 @@ function readMobyPVarValue(reader: PayloadReader): EditorMobyPVarValue {
     case 7: return { kind: 'reference', value: reader.readBoolean() ? reader.readString() : undefined };
     default: throw malformed('Unknown PVar value kind');
   }
+}
+
+function readMobyPVar(reader: PayloadReader): EditorMobyPVarDescriptor {
+  return {
+    datasetId: reader.readString(),
+    datasetVersion: reader.readUInt32(),
+    schemaVersion: reader.readUInt32(),
+    schemaSource: reader.readString(),
+    schemaFingerprint: reader.readString(),
+    stateFingerprint: reader.readString(),
+    length: reader.readUInt32(),
+    hasData: reader.readBoolean(),
+    canInitialize: reader.readBoolean(),
+    diagnostic: optionalString(reader.readString()),
+    rawData: reader.readBoolean() ? reader.readBytes(MAX_MOBY_PVAR_BYTES) : undefined,
+    modifiedByteMask: reader.readBoolean() ? reader.readBytes(MAX_MOBY_PVAR_MASK_BYTES) : undefined,
+    fields: readMobyPVarFields(reader, 0),
+  };
 }
 
 function readMobyPVarFields(reader: PayloadReader, depth: number): EditorMobyPVarFieldDescriptor[] {

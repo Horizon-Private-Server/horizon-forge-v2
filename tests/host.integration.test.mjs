@@ -11,6 +11,8 @@ import {
   HostClient,
   HostOperationError,
 } from '../dist-electron/main/bridge/HostClient.js';
+import { decodeEditorCommandResult } from '../dist-electron/main/bridge/EditorPayloadCodec.js';
+import { PayloadWriter } from '../dist-electron/main/bridge/PayloadIO.js';
 import { BridgeErrorCode } from '../dist-electron/main/bridge/BridgeProtocol.js';
 import { applyEditorCommandResult } from '../dist-electron/utils/EditorCommandResult.js';
 
@@ -147,6 +149,8 @@ test('host handshake, echo, progress, cancellation, crash recovery, and concurre
     entityIds: [entityId],
   });
   assert.deepEqual(selected.selection, [entityId]);
+  assert.equal(lastCommandResult.kind, 'selection');
+  assert.equal(selected.entities, opened.entities);
   const transformed = await executeEditorCommand({
     id: '30000000-0000-4000-8000-000000000002',
     kind: 'updateTransform',
@@ -286,3 +290,28 @@ async function waitForRestart(client, previousProcessId) {
   }
   throw new Error('Forge host did not restart');
 }
+
+test('selection result codec bounds lists and rejects truncated or trailing data', () => {
+  const writer = new PayloadWriter();
+  writer.writeUInt32(4);
+  writer.writeUInt32(1);
+  writer.writeString('a');
+  writer.writeUInt32(1);
+  writer.writeString('a');
+  writer.writeBoolean(false);
+  writer.writeBoolean(false);
+  writer.writeBoolean(true);
+  writer.writeBoolean(false);
+  writer.writeUInt64(12);
+  const bytes = writer.toBuffer();
+  assert.deepEqual(decodeEditorCommandResult(bytes), {
+    kind: 'selection', selection: ['a'], mobyPVars: [{ entityId: 'a', mobyPVar: undefined }],
+    isDirty: false, canUndo: true, canRedo: false, lastEventSequence: 12,
+  });
+  assert.throws(() => decodeEditorCommandResult(bytes.slice(0, -1)));
+  assert.throws(() => decodeEditorCommandResult(new Uint8Array([...bytes, 0])));
+  const oversized = new PayloadWriter();
+  oversized.writeUInt32(4);
+  oversized.writeUInt32(100_001);
+  assert.throws(() => decodeEditorCommandResult(oversized.toBuffer()));
+});

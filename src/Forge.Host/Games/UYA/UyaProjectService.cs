@@ -28,24 +28,19 @@ public static class UyaProjectService
         CancellationToken cancellationToken = default)
     {
         await using var iso = OpenIso(sourceIsoPath);
-        var catalog = await AssetCatalogStore.OpenAsync(catalogRootPath, cancellationToken);
+        var catalog = await AssetCatalogStore.OpenReadOnlyAsync(catalogRootPath, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
-        return Preflight(iso, catalog, level);
+        return Preflight(iso, catalog, level, cancellationToken);
     }
 
-    public static UyaProjectPreflight Preflight(Stream iso, AssetCatalogStore catalog, int level)
+    public static UyaProjectPreflight Preflight(
+        Stream iso, AssetCatalogStore catalog, int level, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(iso);
         ArgumentNullException.ThrowIfNull(catalog);
-        var baseData = ReadBase(iso, catalog, level);
-        return new(
-            level,
-            baseData.SourceInstanceCount,
-            baseData.RenderableInstanceCount,
-            baseData.ModelLessInstanceCount,
-            baseData.MissingInstanceCount,
-            baseData.MissingClassCount,
-            CreateWarnings(baseData));
+        cancellationToken.ThrowIfCancellationRequested();
+        ValidateLevel(iso, level);
+        return UyaBaseLevelService.Preflight(iso, catalog, level, cancellationToken);
     }
 
     public static async Task<ForgeProjectDescriptor> CreateAsync(
@@ -55,23 +50,46 @@ public static class UyaProjectService
         MobyDexCatalog? mobyDex = null)
     {
         ValidateRequest(request);
-
-        var identity = await UyaIsoService.ValidateAsync(
-            request.SourceIsoPath,
-            progress is null ? null : value => ReportScaledAsync(progress, value, 0, 3_000),
-            cancellationToken);
-        if (!identity.IsSupported || !identity.Fingerprint.Equals(request.Fingerprint, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException("The UYA source ISO no longer matches its verified fingerprint.");
-
-        await using var iso = OpenIso(request.SourceIsoPath);
-        var catalog = await AssetCatalogStore.OpenAsync(request.CatalogRootPath, cancellationToken);
-        return await CreateValidatedAsync(
+        ValidateDestination(request);
+        await using var iso = OpenIso(request.SourceIsoPath, FileOptions.SequentialScan);
+        using var preparationCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var verification = UyaIsoService.ValidateAsync(
             iso,
-            catalog,
-            request,
-            progress is null ? null : value => ReportScaledAsync(progress, value, 3_000, 10_000),
-            cancellationToken,
-            mobyDex);
+            progress is null ? null : value => ReportScaledAsync(progress, value, 0, 3_000),
+            preparationCancellation.Token);
+        var preparation = Task.Run(async () =>
+        {
+            var snapshot = await AssetCatalogStore.OpenReadOnlyAsync(
+                request.CatalogRootPath, preparationCancellation.Token);
+            var data = ReadBase(iso, snapshot, request.Level, mobyDex, preparationCancellation.Token);
+            return (snapshot.Revision, Data: data);
+        }, preparationCancellation.Token);
+        try
+        {
+            var identity = await verification;
+            if (!identity.IsSupported || !identity.Fingerprint.Equals(request.Fingerprint, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("The UYA source ISO no longer matches its verified fingerprint.");
+            var prepared = await preparation;
+            var catalog = await AssetCatalogStore.OpenAsync(request.CatalogRootPath, cancellationToken);
+            var baseData = prepared.Data;
+            if (catalog.Revision != prepared.Revision)
+            {
+                baseData = ReadBase(iso, catalog, request.Level, mobyDex, cancellationToken);
+            }
+            Func<IsoProgress, ValueTask>? creationProgress = progress is null ? null
+                : value => ReportScaledAsync(progress, value, 3_000, 10_000);
+            await ReportAsync(creationProgress, 1, 4);
+            cancellationToken.ThrowIfCancellationRequested();
+            return await CreatePreparedAsync(catalog, request, baseData, creationProgress, cancellationToken);
+        }
+        catch
+        {
+            preparationCancellation.Cancel();
+            // Both readers must stop before their shared source handle is disposed.
+            try { await Task.WhenAll(verification, preparation); }
+            catch { }
+            throw;
+        }
     }
 
     public static async Task<ForgeProjectDescriptor> CreateValidatedAsync(
@@ -86,13 +104,24 @@ public static class UyaProjectService
         ArgumentNullException.ThrowIfNull(iso);
         ArgumentNullException.ThrowIfNull(catalog);
         if (!iso.CanRead || !iso.CanSeek) throw new ArgumentException("The UYA ISO stream must be readable and seekable.", nameof(iso));
-        if (Directory.Exists(request.ProjectPath) && Directory.EnumerateFileSystemEntries(request.ProjectPath).Any())
-            throw new IOException($"The project directory is not empty: {request.ProjectPath}");
+        ValidateDestination(request);
 
         await ReportAsync(progress, 1, 4);
         cancellationToken.ThrowIfCancellationRequested();
-        var baseData = ReadBase(iso, catalog, request.Level, mobyDex);
-        var warnings = CreateWarnings(baseData);
+        var baseData = ReadBase(iso, catalog, request.Level, mobyDex, cancellationToken);
+        return await CreatePreparedAsync(catalog, request, baseData, progress, cancellationToken);
+    }
+
+    private static async Task<ForgeProjectDescriptor> CreatePreparedAsync(
+        AssetCatalogStore catalog,
+        UyaProjectCreationRequest request,
+        UyaBaseLevelData baseData,
+        Func<IsoProgress, ValueTask>? progress,
+        CancellationToken cancellationToken)
+    {
+        ValidateDestination(request);
+        var warnings = UyaBaseLevelService.CreateWarnings(
+            baseData.MissingInstanceCount, baseData.MissingClassCount, baseData.FallbackTransformCount);
         if (!request.AllowPartial && warnings.Count > 0) throw new InvalidDataException(string.Join(' ', warnings));
         await ReportAsync(progress, 2, 4);
         var entities = baseData.Entities;
@@ -282,7 +311,7 @@ public static class UyaProjectService
             || !gameplay.IsValid
             || workspace.Content.Sounds.Programs.Count == 0)
         {
-            var baseData = ReadBase(iso, catalog, workspace.Manifest.BaseLevel.Level);
+            var baseData = ReadBase(iso, catalog, workspace.Manifest.BaseLevel.Level, cancellationToken: cancellationToken);
             if (workspace.Content.Sounds.Programs.Count == 0)
                 await workspace.SetSoundsAsync(baseData.Sounds, cancellationToken: cancellationToken);
             await OpaqueContentStore.WriteAsync(
@@ -364,12 +393,19 @@ public static class UyaProjectService
         Stream iso,
         AssetCatalogStore catalog,
         int level,
-        MobyDexCatalog? mobyDex = null)
+        MobyDexCatalog? mobyDex = null,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ValidateLevel(iso, level);
+        return UyaBaseLevelService.Read(iso, catalog, level, mobyDex, cancellationToken);
+    }
+
+    private static void ValidateLevel(Stream iso, int level)
     {
         if (!iso.CanRead || !iso.CanSeek) throw new ArgumentException("The UYA ISO stream must be readable and seekable.", nameof(iso));
         if (!LevelCatalogReader.FindAvailable(GameId.UYA, iso).Contains(level))
             throw new InvalidDataException($"UYA level {level} is not present in the source ISO.");
-        return UyaBaseLevelService.Read(iso, catalog, level, mobyDex);
     }
 
     private static OpaqueContentSource OpaqueSource(string revision, int level, string fingerprint) =>
@@ -388,20 +424,16 @@ public static class UyaProjectService
         await UyaBaseLayerStore.WriteAsync(projectRoot, source, payloads, entries, cancellationToken);
     }
 
-    private static IReadOnlyList<string> CreateWarnings(UyaBaseLevelData value)
-    {
-        var warnings = new List<string>();
-        if (value.MissingInstanceCount > 0)
-            warnings.Add($"{value.MissingInstanceCount} instances across {value.MissingClassCount} model classes are absent from the global catalog and will use placeholders.");
-        if (value.FallbackTransformCount > 0)
-            warnings.Add($"{value.FallbackTransformCount} tie or shrub transforms could not be decomposed and will use identity rotation and scale.");
-        return warnings;
-    }
-
-    private static FileStream OpenIso(string path)
+    private static FileStream OpenIso(string path, FileOptions accessPattern = FileOptions.RandomAccess)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        return new(path, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024, FileOptions.Asynchronous | FileOptions.RandomAccess);
+        return new(path, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024, FileOptions.Asynchronous | accessPattern);
+    }
+
+    private static void ValidateDestination(UyaProjectCreationRequest request)
+    {
+        if (Directory.Exists(request.ProjectPath) && Directory.EnumerateFileSystemEntries(request.ProjectPath).Any())
+            throw new IOException($"The project directory is not empty: {request.ProjectPath}");
     }
 
     private static void ValidateRequest(UyaProjectCreationRequest request)

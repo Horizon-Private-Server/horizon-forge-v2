@@ -323,7 +323,8 @@ internal static class AssetCatalogTests
         Equal(false, File.Exists(stale), "stale partial cleanup");
 
         Directory.CreateDirectory(store.CatalogPath);
-        var bytes = "complete orphan"u8.ToArray();
+        var bytes = new byte[256 * 1024 + 17];
+        new Random(42).NextBytes(bytes);
         await ExpectFileSystemFailureAsync(() => store.PutAsync(
             AssetKind.Moby,
             canonicalFormatVersion: 0,
@@ -338,6 +339,13 @@ internal static class AssetCatalogTests
         Directory.Delete(store.CatalogPath);
         var reopened = await AssetCatalogStore.OpenAsync(root);
         Equal(0, reopened.Query(new()).Count, "failed catalog remains empty after reopen");
+        var corrupt = bytes.ToArray();
+        corrupt[^1] ^= 0xff;
+        await File.WriteAllBytesAsync(blobs[0], corrupt);
+        await ExpectAsync<InvalidDataException>(() => reopened.PutAsync(
+            AssetKind.Moby, 0, bytes, Metadata("level09", 3, ["Vendor"], ["vanilla"])));
+        Equal(0, reopened.Query(new()).Count, "corrupt orphan cannot publish a catalog row");
+        await File.WriteAllBytesAsync(blobs[0], bytes);
         var inserted = await reopened.PutAsync(
             AssetKind.Moby,
             canonicalFormatVersion: 0,

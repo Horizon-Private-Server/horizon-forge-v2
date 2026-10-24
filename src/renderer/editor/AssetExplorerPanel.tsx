@@ -21,7 +21,7 @@ import {
 } from '../../utils/AssetExplorer.ts';
 import { errorMessage } from '../../utils/Errors.ts';
 import { formatUyaLevelLabel } from '../../utils/UyaLevels.ts';
-import { assetGridWindow } from '../../utils/VirtualGrid.ts';
+import { assetGridItemVisible, assetGridWindow } from '../../utils/VirtualGrid.ts';
 import { AssetPreviewMeshMissingError, AssetThumbnailRuntime } from './AssetThumbnailRuntime.ts';
 import { useEditor } from './EditorContext.ts';
 
@@ -81,7 +81,8 @@ export function AssetExplorerPanel() {
         search: currentSearch || undefined,
         ...currentFilters,
         cursor: nextCursor,
-        limit: 64,
+        // Moby classes can have dozens of variants, so 64 items fill very few cards.
+        limit: currentCategory === 'mobys' ? 128 : 64,
       });
       let restart = false;
       let page: AssetExplorerPage;
@@ -236,7 +237,7 @@ export function AssetExplorerPanel() {
         role="list"
         style={{ height: windowed.totalHeight }}
       >
-        {families.slice(windowed.startIndex, windowed.endIndex).map((family, offset) => {
+        {viewport.height > 0 && families.slice(windowed.startIndex, windowed.endIndex).map((family, offset) => {
           const index = windowed.startIndex + offset;
           const row = Math.floor(index / windowed.columns);
           const column = index % windowed.columns;
@@ -252,7 +253,7 @@ export function AssetExplorerPanel() {
             <AssetCard
               color={assetCategoryColor(family.category, sceneTreeColors)}
               family={family}
-              root={scrollElement}
+              visible={assetGridItemVisible(index, windowed.columns, viewport.height, viewport.scrollTop)}
               runtime={assetThumbnails}
               onActivate={() => inspectAsset(family)}
             />
@@ -265,16 +266,17 @@ export function AssetExplorerPanel() {
   </section>;
 }
 
-export function AssetCard({ color, family, root, runtime, onActivate }: {
+export function AssetCard({ color, family, runtime, onActivate, visible = true }: {
   color: string;
   family: AssetExplorerFamily;
-  root: HTMLElement | null;
   runtime: AssetThumbnailRuntime | null | undefined;
   onActivate(): void;
+  visible?: boolean;
 }) {
   const item = family.variants.find((variant) => variant.assetId === family.representativeAssetId)
     ?? family.variants[0];
-  const element = useRef<HTMLButtonElement>(null);
+  const previewVisible = useRef(visible);
+  previewVisible.current = visible;
   const [thumbnail, setThumbnail] = useState<string>();
   const [failure, setFailure] = useState<'none' | 'meshless' | 'unavailable'>('none');
   const kind = previewKind(item);
@@ -282,31 +284,25 @@ export function AssetCard({ color, family, root, runtime, onActivate }: {
   useEffect(() => {
     setThumbnail(undefined);
     setFailure('none');
-    if (!root || !runtime || !kind || item.previewState === 'missingBlob') return;
+    if (!runtime || !kind || item.previewState === 'missingBlob') return;
     const cancellation = new AbortController();
-    const observer = new IntersectionObserver((entries) => {
-      if (!entries.some((entry) => entry.isIntersecting)) return;
-      observer.disconnect();
-      void runtime.get(
-        item.assetId,
-        kind,
-        item.shellIndex,
-        cancellation.signal,
-        customModel ? 'thumbnail' : undefined,
-        item.previewRevision,
-      )
-        .then(setThumbnail)
-        .catch((cause: unknown) => {
-          if (cause instanceof DOMException && cause.name === 'AbortError') return;
-          setFailure(cause instanceof AssetPreviewMeshMissingError ? 'meshless' : 'unavailable');
-        });
-    }, { root, rootMargin: '436px 0px' });
-    if (element.current) observer.observe(element.current);
-    return () => {
-      observer.disconnect();
-      cancellation.abort();
-    };
-  }, [customModel, item.assetId, item.previewRevision, item.previewState, item.shellIndex, kind, root, runtime]);
+    void runtime.get(
+      item.assetId,
+      kind,
+      item.shellIndex,
+      cancellation.signal,
+      customModel ? 'thumbnail' : undefined,
+      item.previewRevision,
+      () => previewVisible.current,
+    )
+      .then((url) => { if (!cancellation.signal.aborted) setThumbnail(url); })
+      .catch((cause: unknown) => {
+        if (cancellation.signal.aborted) return;
+        if (cause instanceof DOMException && cause.name === 'AbortError') return;
+        setFailure(cause instanceof AssetPreviewMeshMissingError ? 'meshless' : 'unavailable');
+      });
+    return () => cancellation.abort();
+  }, [customModel, item.assetId, item.previewRevision, item.previewState, item.shellIndex, kind, runtime]);
 
   const previewLabel = item.previewState === 'missingBlob' ? 'Blob missing'
     : failure === 'unavailable' || runtime === null || !kind ? 'Preview unavailable'
@@ -319,7 +315,6 @@ export function AssetCard({ color, family, root, runtime, onActivate }: {
         : family.classId !== undefined && kind !== 'texture');
   const texture = kind === 'texture';
   return <button
-    ref={element}
     aria-label={`Inspect ${family.displayLabel}, ${categoryLabel(family.category)}, ${family.variants.length} exact variants${failure === 'meshless' ? ', no mesh data' : ''}`}
     className={`asset-explorer-card${texture ? ' asset-explorer-card-texture' : ''}`}
     draggable={draggable}

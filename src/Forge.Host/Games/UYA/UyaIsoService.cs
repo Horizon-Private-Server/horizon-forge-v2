@@ -23,16 +23,25 @@ public static partial class UyaIsoService
         string? expectedMd5 = null,
         long? expectedSize = null)
     {
-        expectedMd5 ??= SupportedMd5;
-        expectedSize ??= SupportedSize;
         var fullPath = Path.GetFullPath(sourcePath);
         await using var source = new FileStream(
             fullPath, FileMode.Open, FileAccess.Read, FileShare.Read, BufferSize,
             FileOptions.Asynchronous | FileOptions.SequentialScan);
+        return await ValidateAsync(source, progress, cancellationToken, expectedMd5, expectedSize);
+    }
+
+    internal static async Task<UyaIsoIdentity> ValidateAsync(
+        FileStream source,
+        Func<IsoProgress, ValueTask>? progress = null,
+        CancellationToken cancellationToken = default,
+        string? expectedMd5 = null,
+        long? expectedSize = null)
+    {
+        expectedMd5 ??= SupportedMd5;
+        expectedSize ??= SupportedSize;
         var disc = DiscImageInspector.Inspect(GameId.UYA, source);
         var game = disc.Game?.ToString() ?? "Unknown";
 
-        source.Position = 0;
         var fingerprint = await HashAsync(source, progress, cancellationToken);
         var supported = disc.Game == GameId.UYA && disc.Region == SupportedProfile.Region && source.Length == expectedSize
             && fingerprint.Equals(expectedMd5, StringComparison.OrdinalIgnoreCase);
@@ -178,7 +187,7 @@ public static partial class UyaIsoService
     }
 
     private static async Task<string> HashAsync(
-        Stream source,
+        FileStream source,
         Func<IsoProgress, ValueTask>? progress,
         CancellationToken cancellationToken,
         long completedBase = 0,
@@ -186,9 +195,13 @@ public static partial class UyaIsoService
     {
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.MD5);
         var buffer = GC.AllocateUninitializedArray<byte>(BufferSize);
+        // Offset reads let level extraction use this same open file without disturbing the hash.
+        var handle = source.SafeFileHandle;
+        // Cached reads may complete synchronously; allow sibling preparation to start first.
+        await Task.Yield();
         long completed = 0;
         int count;
-        while ((count = await source.ReadAsync(buffer, cancellationToken)) != 0)
+        while ((count = await RandomAccess.ReadAsync(handle, buffer, completed, cancellationToken)) != 0)
         {
             hash.AppendData(buffer, 0, count);
             completed += count;

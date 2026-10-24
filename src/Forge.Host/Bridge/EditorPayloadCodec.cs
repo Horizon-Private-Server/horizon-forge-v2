@@ -600,6 +600,22 @@ internal static class EditorPayloadCodec
                 WriteLevelSettings(writer, levelSettings);
                 WriteCommandStatus(writer, value);
                 break;
+            case EditorCommandResultKind.Selection:
+                var selection = value.Selection
+                    ?? throw new InvalidOperationException("Editor selection patch is missing.");
+                if (selection.EntityIds.Count > MaxEntities || selection.MobyPVars.Count > MaxEntities)
+                    PayloadFormat.Malformed("Editor selection patch exceeds item limit");
+                writer.WriteUInt32(checked((uint)selection.EntityIds.Count));
+                foreach (var id in selection.EntityIds) writer.WriteString(id.ToString());
+                writer.WriteUInt32(checked((uint)selection.MobyPVars.Count));
+                foreach (var patch in selection.MobyPVars)
+                {
+                    writer.WriteString(patch.EntityId.ToString());
+                    writer.WriteBoolean(patch.MobyPVar is not null);
+                    if (patch.MobyPVar is { } pvar) WriteMobyPVar(writer, pvar);
+                }
+                WriteCommandStatus(writer, value);
+                break;
             default:
                 PayloadFormat.Malformed("Unknown editor command result kind");
                 break;

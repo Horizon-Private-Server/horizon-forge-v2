@@ -104,10 +104,49 @@ internal static class UyaAssetImportTests
             Equal(true, forced.Resumed, "forced import resumes its interrupted rescan");
             Equal(result.AssetAppearances, forced.AssetAppearances, "forced import appearance count");
             Equal(result.UniqueAssets, forced.UniqueAssets, "forced import asset count");
+            await VerifyFailedPublicationAsync(root, request, isoBytes, result);
         }
         finally
         {
             Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static async Task VerifyFailedPublicationAsync(
+        string root,
+        UyaAssetImportRequest request,
+        byte[] isoBytes,
+        UyaAssetImportResult expected)
+    {
+        var failedRoot = Path.Combine(root, "failed-publication");
+        var blockedCatalog = Path.Combine(failedRoot, "catalog-v0.json");
+        Directory.CreateDirectory(blockedCatalog);
+        var failedRequest = request with { CatalogRootPath = failedRoot };
+        try
+        {
+            await UyaAssetImportService.ImportValidatedAsync(
+                new MemoryStream(isoBytes, writable: false), failedRequest);
+            throw new InvalidOperationException("Expected import catalog publication failure.");
+        }
+        catch (IOException)
+        {
+        }
+        Equal(0, Directory.EnumerateFiles(failedRoot, "*.partial", SearchOption.AllDirectories).Count(),
+            "failed import publication cleans partial files");
+        Equal(false, Directory.Exists(Path.Combine(failedRoot, "imports")),
+            "failed publication does not advance the level checkpoint");
+        Directory.Delete(blockedCatalog);
+        var retried = await UyaAssetImportService.ImportValidatedAsync(
+            new MemoryStream(isoBytes, writable: false), failedRequest);
+        Equal(false, retried.Resumed, "failed first publication retries without a completed level");
+        Equal(expected.AssetAppearances, retried.AssetAppearances, "publication retry appearance count");
+        Equal(expected.UniqueAssets, retried.UniqueAssets, "publication retry unique count");
+        var catalog = await AssetCatalogStore.OpenAsync(failedRoot);
+        foreach (var entry in catalog.Query(new()))
+        {
+            var bytes = await File.ReadAllBytesAsync(catalog.ResolveBlobPath(entry.Id)!);
+            Equal(entry.Id, AssetId.Compute(entry.Kind, entry.CanonicalFormatVersion, bytes),
+                "publication retry retains complete canonical blobs");
         }
     }
 

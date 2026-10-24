@@ -74,6 +74,21 @@ public static class UyaIsoPatchService
         await using var target = opened.Target;
         EnsurePlannedTarget(plan, opened);
         await Task.Run(() => IsoPatchApplier.ValidateSource(GameId.UYA, target, plan.SdkPlan, cancellationToken), cancellationToken);
+        if (plan.SdkPlan.Ranges.All(range => range.SourceSha256 == range.OutputSha256))
+        {
+            if (Directory.Exists(UyaIsoPatchJournalStore.PathFor(plan.DevelopmentIsoPath)))
+                throw new InvalidOperationException("The development ISO has an unfinished patch journal; recover it first.");
+            await Task.Run(() => VerifyInstalledOutput(target, plan, cancellationToken), cancellationToken);
+            if (progress is not null)
+                await progress(new("verify", 1, 1, "Development ISO is already current and verified."));
+            return new(
+                plan.DevelopmentIsoPath,
+                plan.SdkPlan.LevelIndex,
+                plan.SdkPlan.OutputLevelWadSha256,
+                0,
+                UyaIsoPatchMode.InPlace,
+                "The verified patch ranges already contain the requested output.");
+        }
         var journal = await UyaIsoPatchJournalStore.CreateAsync(plan, target, cancellationToken);
         fault?.Invoke(new(UyaIsoPatchFaultPhase.JournalDurable, -1));
 
@@ -95,10 +110,7 @@ public static class UyaIsoPatchService
                     "write", index + 1, plan.SdkPlan.Ranges.Count, $"Patched {plan.SdkPlan.Ranges[index].Name}."));
         }
 
-        await Task.Run(() => IsoPatchApplier.VerifyOutput(GameId.UYA, target, plan.SdkPlan), CancellationToken.None);
-        var identity = UyaIsoService.InspectDevelopment(target, plan.SdkPlan.IsoLength);
-        if (!identity.IsSupported) throw new InvalidDataException(identity.Diagnostic);
-        IsoPatchApplier.VerifyInstalledLevel(GameId.UYA, target, plan.SdkPlan);
+        await Task.Run(() => VerifyInstalledOutput(target, plan, CancellationToken.None), CancellationToken.None);
         journal = journal with { WritesComplete = true };
         await UyaIsoPatchJournalStore.UpdateAsync(journal, CancellationToken.None);
         fault?.Invoke(new(UyaIsoPatchFaultPhase.OutputVerified, plan.SdkPlan.Ranges.Count - 1));
@@ -110,6 +122,17 @@ public static class UyaIsoPatchService
             plan.SdkPlan.Ranges.Count,
             UyaIsoPatchMode.InPlace,
             plan.SdkPlan.StrategyReason);
+    }
+
+    private static void VerifyInstalledOutput(
+        FileStream target,
+        UyaDevelopmentIsoPatchPlan plan,
+        CancellationToken cancellationToken)
+    {
+        IsoPatchApplier.VerifyOutput(GameId.UYA, target, plan.SdkPlan, cancellationToken);
+        var identity = UyaIsoService.InspectDevelopment(target, plan.SdkPlan.IsoLength);
+        if (!identity.IsSupported) throw new InvalidDataException(identity.Diagnostic);
+        IsoPatchApplier.VerifyInstalledLevel(GameId.UYA, target, plan.SdkPlan, cancellationToken);
     }
 
     private static async Task<UyaIsoPatchResult> ApplyReplacementAsync(

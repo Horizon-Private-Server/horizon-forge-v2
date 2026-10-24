@@ -22,8 +22,7 @@ internal static class AssetCatalogPaging
     }
 
     public static AssetCatalogPage Query(
-        IEnumerable<AssetCatalogEntry> entries,
-        string revision,
+        AssetCatalogSnapshot snapshot,
         AssetCatalogPageQuery query,
         CancellationToken cancellationToken)
     {
@@ -42,10 +41,10 @@ internal static class AssetCatalogPaging
         var sourceRevision = NormalizeOptional(query.Revision, nameof(query.Revision));
         var tags = NormalizeTags(query.Tags);
         var signature = QuerySignature(query.Kind, search, game, level, region, sourceRevision, tags, query.Order);
-        var after = DecodeCursor(query.Cursor, revision, signature, query.Order);
+        var after = DecodeCursor(query.Cursor, snapshot.Revision, signature, query.Order);
         var matches = new List<AssetCatalogEntry>();
 
-        foreach (var entry in entries)
+        foreach (var entry in snapshot.Ordered(query.Kind, query.Order))
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (entry.Kind != query.Kind || !MatchesSearch(entry, search) || !MatchesTags(entry, tags)) continue;
@@ -57,13 +56,12 @@ internal static class AssetCatalogPaging
             matches.Add(entry);
         }
 
-        matches.Sort((left, right) => StringComparer.Ordinal.Compare(OrderToken(left, query.Order), OrderToken(right, query.Order)));
         var filtered = after is null
             ? matches
             : matches.Where(entry => StringComparer.Ordinal.Compare(OrderToken(entry, query.Order), after) > 0).ToList();
         var page = TakePage(filtered, query.Limit, query.Order);
         var nextCursor = filtered.Count > page.Length
-            ? EncodeCursor(revision, signature, OrderToken(page[^1], query.Order))
+            ? EncodeCursor(snapshot.Revision, signature, OrderToken(page[^1], query.Order))
             : null;
 
         return new(page, Facets(matches), nextCursor);

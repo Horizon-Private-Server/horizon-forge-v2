@@ -106,7 +106,43 @@ public static class PaletteBakeReportService
     }
 
     public static bool Equivalent(PaletteBakeReport left, PaletteBakeReport right) =>
-        ForgeProjectPersistence.Serialize(left).AsSpan().SequenceEqual(ForgeProjectPersistence.Serialize(right));
+        left.SchemaVersion == right.SchemaVersion
+        && left.InputTextureCount == right.InputTextureCount
+        && left.InputPaletteCount == right.InputPaletteCount
+        && left.OutputPaletteCount == right.OutputPaletteCount
+        && left.InputPaletteBytes == right.InputPaletteBytes
+        && left.OutputPaletteBytes == right.OutputPaletteBytes
+        && left.EstimatedPaletteVramSavingsBytes == right.EstimatedPaletteVramSavingsBytes
+        && left.IsLossless == right.IsLossless
+        && BitConverter.DoubleToInt64Bits(left.ImportedQuantizationError)
+            == BitConverter.DoubleToInt64Bits(right.ImportedQuantizationError)
+        && left.Optimization.SchemaVersion == right.Optimization.SchemaVersion
+        && left.Optimization.Method == right.Optimization.Method
+        && left.Optimization.IsProvenOptimal == right.Optimization.IsProvenOptimal
+        && SequenceEquivalent(left.Optimization.Palettes, right.Optimization.Palettes, (a, b) =>
+            a.PaletteIndex == b.PaletteIndex
+            && a.Encoding == b.Encoding
+            && a.PaletteFormat == b.PaletteFormat
+            && a.PaletteOrder == b.PaletteOrder
+            && a.Capacity == b.Capacity
+            && a.Entries.SequenceEqual(b.Entries)
+            && a.TextureKeys.SequenceEqual(b.TextureKeys, StringComparer.Ordinal))
+        && SequenceEquivalent(left.Optimization.Assignments, right.Optimization.Assignments, (a, b) =>
+            a.TextureKey == b.TextureKey
+            && a.PaletteIndex == b.PaletteIndex
+            && a.IndexRemaps.SequenceEqual(b.IndexRemaps))
+        && left.Optimization.Violations.SequenceEqual(right.Optimization.Violations);
+
+    private static bool SequenceEquivalent<T>(
+        IReadOnlyList<T> left,
+        IReadOnlyList<T> right,
+        Func<T, T, bool> equivalent)
+    {
+        if (left.Count != right.Count) return false;
+        for (var index = 0; index < left.Count; index++)
+            if (!equivalent(left[index], right[index])) return false;
+        return true;
+    }
 
     private static string SourcePaletteKey(TextureInventoryEntry texture)
     {

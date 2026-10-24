@@ -683,6 +683,15 @@ export interface EditorSnapshot {
 export type EditorCommandResult =
   | { kind: 'snapshot'; snapshot: EditorSnapshot }
   | {
+    kind: 'selection';
+    selection: string[];
+    mobyPVars: { entityId: string; mobyPVar?: EditorMobyPVarDescriptor }[];
+    isDirty: boolean;
+    canUndo: boolean;
+    canRedo: boolean;
+    lastEventSequence: number;
+  }
+  | {
     kind: 'transforms';
     transforms: (EditorTransformUpdate & { dirty: boolean })[];
     isDirty: boolean;

@@ -18,6 +18,9 @@ tag such as `v0.4.4`. Publish and tag ratchet-ps2-cli first, update that file to
 the new tag, then build or publish Forge.
 
 `npm run build` verifies the Electron/React application and the .NET host.
+Renderer and test typechecks reuse TypeScript's incremental cache under
+`node_modules/.cache/forge/`. Remove that directory to force fresh checks;
+Electron JavaScript compilation still runs on every desktop build.
 `npm test` runs the protocol, identity/schema, host lifecycle, and desktop security checks.
 `npm run package:linux` creates a self-contained Linux x64 app in `artifacts/`.
 Pull requests and pushes run the locked Linux/Windows build matrix in GitHub Actions.

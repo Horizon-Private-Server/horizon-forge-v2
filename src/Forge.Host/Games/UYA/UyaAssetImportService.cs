@@ -478,7 +478,7 @@ public static class UyaAssetImportService
         {
             await using (var stream = new FileStream(
                 temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None, 16 * 1024,
-                FileOptions.Asynchronous | FileOptions.WriteThrough))
+                FileOptions.Asynchronous))
             {
                 await JsonSerializer.SerializeAsync(stream, state, JsonOptions, cancellationToken);
                 await stream.WriteAsync("\n"u8.ToArray(), cancellationToken);

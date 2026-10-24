@@ -31,6 +31,24 @@ internal static class UyaIsoSetupTests
             Equal("NTSC-U", identity.Region, "synthetic UYA region");
             Equal(md5, identity.Fingerprint, "synthetic UYA MD5");
 
+            await using (var shared = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read,
+                64 * 1024, FileOptions.Asynchronous))
+            {
+                long hashedBytes = 0;
+                var sharedIdentity = await UyaIsoService.ValidateAsync(shared, value =>
+                {
+                    hashedBytes = value.Completed;
+                    var extracted = UyaLooseLevelWadExtractor.ExtractPrimary(shared, 3).Bytes;
+                    Equal(true, extracted.Length > 0, "level extraction shares the verified file");
+                    shared.Position = shared.Length;
+                    return ValueTask.CompletedTask;
+                }, expectedMd5: md5, expectedSize: sourceBytes.Length);
+                Equal(true, sharedIdentity.IsSupported, "position-independent verification identity");
+                Equal(md5, sharedIdentity.Fingerprint, "seeking level reader cannot disturb the full-file hash");
+                Equal((long)sourceBytes.Length, hashedBytes, "all source bytes are verified despite concurrent seeks");
+                Equal(true, shared.CanRead, "verification preserves caller ownership of the shared stream");
+            }
+
             var wrong = Path.Combine(directory, "wrong.iso");
             var wrongBytes = CreateSyntheticIso("SCES_524.56", "PAL");
             await File.WriteAllBytesAsync(wrong, wrongBytes);
@@ -141,6 +159,7 @@ internal static class UyaIsoSetupTests
             }
 
             await VerifyJournaledPatchingAsync(source, target, sourceBytes, packedLevel, md5);
+            await UyaIsoPatchReuseTests.RunAsync(source, target, sourceBytes.Length, packedLevel);
             await VerifyFullImageReplacementAsync(source, target, sourceBytes, packedLevel, oversizedLevel, md5);
 
             await File.WriteAllTextAsync(target, "last-known-good");
@@ -377,7 +396,7 @@ internal static class UyaIsoSetupTests
         Equal(sourceMd5, await HashFileAsync(source), "clean source after full-image replacements");
     }
 
-    private static byte[] CreateSyntheticIso(string serial, string videoMode)
+    internal static byte[] CreateSyntheticIso(string serial, string videoMode)
     {
         const int levelWadSector = 1200;
         var bytes = new byte[1300 * UyaLevelConstants.SectorSize];

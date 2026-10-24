@@ -13,6 +13,9 @@ import { ps2PositionToScene } from '../../utils/Scene.ts';
 import { DEFAULT_SCENE_TREE_COLORS } from '../../utils/SceneTreeColors.ts';
 import { createSelectionOverrideMaterial, INSTANCE_SELECTION_MARKER } from '../../utils/SelectionMaterials.ts';
 import { parseSplinePointId, splinePointId } from '../../utils/SplinePoints.ts';
+import { refreshAssetPickIndex, updateAssetPickBounds } from './AssetInstancePicking.ts';
+import { SceneGeometryBatch } from './SceneGeometryBatch.ts';
+import { configureAssetMaterialPasses } from './AssetMaterialPasses.ts';
 import {
   isSceneBillboardGizmo, SceneBillboardGizmo, SceneBillboardResources,
 } from './SceneBillboardGizmo.ts';
@@ -61,6 +64,12 @@ interface UniqueAssetBatchState {
   selected: boolean;
 }
 
+interface InstanceState {
+  id: string;
+  transform: EditorEntity['transform'];
+  selected: boolean;
+}
+
 interface UniqueAssetBatch {
   root: THREE.Group;
   meshes: THREE.BatchedMesh[];
@@ -73,6 +82,7 @@ interface UniqueAssetBatch {
 }
 
 export class SceneProjection {
+  private readonly instanceStates = new WeakMap<THREE.InstancedMesh, InstanceState[]>();
   readonly root = new THREE.Group();
   readonly outlineRoot = new THREE.Group();
 
@@ -124,6 +134,11 @@ export class SceneProjection {
   });
   private readonly selectedLineMaterial = new THREE.LineBasicMaterial({ color: SELECTED_COLOR, fog: false });
   private readonly billboardResources = new SceneBillboardResources();
+  private readonly geometryBatch = new SceneGeometryBatch([
+    this.cuboidMaterial, this.sphereMaterial, this.cylinderMaterial, this.pillMaterial,
+    this.environmentSampleMaterial, this.environmentTransitionMaterial,
+    this.cameraMaterial, this.ambientSoundMaterial, this.selectedGeometryMaterial,
+  ]);
   private readonly objects = new Map<string, THREE.Object3D>();
   private readonly instances = new Map<string, InstancedAsset>();
   private readonly selectionOutlines = new Map<string, THREE.Group>();
@@ -149,6 +164,8 @@ export class SceneProjection {
 
   constructor() {
     this.root.name = 'Forge project entities';
+    this.root.matrixAutoUpdate = false;
+    this.outlineRoot.matrixAutoUpdate = false;
     this.outlineRoot.name = 'Forge selection outlines';
     this.selectionBoundsOutline.name = 'Selection bounds outline';
     this.selectionBoundsOutline.matrixAutoUpdate = false;
@@ -180,7 +197,6 @@ export class SceneProjection {
     this.selectedSplineMaterial.color.copy(this.selectionColor);
     this.selectedSplineNodeMaterial.color.copy(this.selectionColor);
     this.selectedLineMaterial.color.copy(this.selectionColor);
-    this.uniqueAssetBatch?.states.clear();
   }
 
   setTfragsVisible(visible: boolean): void {
@@ -381,12 +397,15 @@ export class SceneProjection {
         this.uniqueAssetBatch, uniqueAssetEntities, selected, visibleLayers, visibleCollisionKinds,
       );
     this.updateSelectionOutlines(renderedEntities, selected, visibleLayers, visibleCollisionKinds);
+    this.geometryBatch.sync(this.objects.values());
+    if (this.geometryBatch.root.children.length) this.root.add(this.geometryBatch.root);
     return { created, updated, removed };
   }
 
   previewTransforms(updates: readonly { entityId: string; transform: EditorEntity['transform'] }[]): void {
     if (this.disposed) throw new Error('Scene projection is disposed');
     const touchedInstances = new Set<THREE.InstancedMesh>();
+    const touchedBatches = new Set<THREE.BatchedMesh>();
     for (const update of updates) {
       const current = this.entitiesById.get(update.entityId);
       if (!current) continue;
@@ -410,6 +429,9 @@ export class SceneProjection {
           this.instanceMatrix.copy(matrix);
           if (mesh.userData[MIRRORED_BATCH_KEY] === true) this.instanceMatrix.premultiply(INSTANCE_MIRROR);
           mesh.setMatrixAt(index, this.instanceMatrix);
+          updateAssetPickBounds(mesh, index, this.instanceMatrix);
+          const state = this.instanceStates.get(mesh)?.[index];
+          if (state) state.transform = entity.transform;
           mesh.instanceMatrix.needsUpdate = true;
           touchedInstances.add(mesh);
         }
@@ -417,8 +439,11 @@ export class SceneProjection {
 
       const uniqueAssetBatch = this.uniqueAssetBatch;
       if (uniqueAssetBatch) {
-        for (const entry of uniqueAssetBatch.entries.get(entity.id) ?? [])
+        for (const entry of uniqueAssetBatch.entries.get(entity.id) ?? []) {
           entry.mesh.setMatrixAt(entry.instanceId, matrix);
+          updateAssetPickBounds(entry.mesh, entry.instanceId, matrix);
+          touchedBatches.add(entry.mesh);
+        }
         if (uniqueAssetBatch.entries.has(entity.id)) {
           const storedMatrix = uniqueAssetBatch.matrices.get(entity.id);
           if (storedMatrix) storedMatrix.copy(matrix);
@@ -435,7 +460,12 @@ export class SceneProjection {
       }
 
     }
-    touchedInstances.forEach((mesh) => mesh.computeBoundingSphere());
+    touchedInstances.forEach((mesh) => {
+      mesh.computeBoundingSphere();
+      refreshAssetPickIndex(mesh);
+    });
+    touchedBatches.forEach(refreshAssetPickIndex);
+    this.geometryBatch.previewTransforms(updates.map(update => this.objects.get(update.entityId)));
   }
 
   previewSpline(entity: EditorEntity, selection: readonly string[]): void {
@@ -456,6 +486,7 @@ export class SceneProjection {
         .map((value) => points[value!.index]);
       selectedNodes.geometry.setFromPoints(selected);
       selectedNodes.geometry.computeBoundingSphere();
+      selectedNodes.visible = selected.length > 0;
     }
     object.userData[PROJECTION_KEY] = this.projectionKey(entity);
     this.entitiesById.set(entity.id, entity);
@@ -514,6 +545,19 @@ export class SceneProjection {
       if (current === this.root) break;
     }
     return undefined;
+  }
+
+  pickHoveredEntity(raycaster: THREE.Raycaster, otherRoots: THREE.Object3D[] = []): string | undefined {
+    const hits: THREE.Intersection[] = [];
+    for (const [id, object] of this.objects) {
+      if (!(object instanceof SceneBillboardGizmo) || !this.isEntityPickable(id)) continue;
+      raycaster.intersectObject(object, false, hits);
+      if (hits.length) break;
+    }
+    if (!hits.length) return undefined;
+    // Only billboards display entity hover; retain the full query for their occlusion rules.
+    const id = this.resolvePick(raycaster.intersectObjects([...otherRoots, this.root], true));
+    return id && this.objects.get(id) instanceof SceneBillboardGizmo ? id : undefined;
   }
 
   resolvePick(intersections: readonly THREE.Intersection[]): string | undefined {
@@ -622,6 +666,7 @@ export class SceneProjection {
     this.clearProjection();
     this.root.removeFromParent();
     this.outlineRoot.removeFromParent();
+    this.geometryBatch.dispose();
     this.geometry.dispose();
     this.cuboidGeometry.dispose();
     this.areaGeometry.dispose();
@@ -702,6 +747,7 @@ export class SceneProjection {
         const nodes = new THREE.Points(new THREE.BufferGeometry().setFromPoints(points), this.splineNodeMaterial);
         nodes.userData[SPLINE_NODES_KEY] = true;
         const selectedNodes = new THREE.Points(new THREE.BufferGeometry(), this.selectedSplineNodeMaterial);
+        selectedNodes.visible = false;
         selectedNodes.raycast = () => {};
         selectedNodes.userData[SPLINE_SELECTED_NODES_KEY] = true;
         line.add(nodes, selectedNodes);
@@ -792,6 +838,8 @@ export class SceneProjection {
       selectedSplineNodes.geometry.computeBoundingSphere();
       selectedSplineNodes.userData.pointSelection = pointSelection;
     }
+    if (selectedSplineNodes)
+      selectedSplineNodes.visible = selectedSplineNodes.geometry.getAttribute('position').count > 0;
     object.updateMatrix();
     return changed;
   }
@@ -818,17 +866,35 @@ export class SceneProjection {
     projection.meshes.forEach((mesh) => {
       const mirrored = mesh.userData[MIRRORED_BATCH_KEY] === true;
       const batch = visible.filter((entity) => isMirrored(entity) === mirrored);
+      const previous = this.instanceStates.get(mesh);
+      let matricesChanged = mesh.count !== batch.length;
+      let colorsChanged = false;
       mesh.count = batch.length;
       mesh.userData[INSTANCE_IDS_KEY] = batch.map((entity) => entity.id);
-      batch.forEach((entity, index) => {
-        this.instanceMatrix.copy(this.projectedMatrix(entity));
-        if (mirrored) this.instanceMatrix.premultiply(INSTANCE_MIRROR);
-        mesh.setMatrixAt(index, this.instanceMatrix);
-        mesh.setColorAt(index, selected.has(entity.id) ? INSTANCE_SELECTION_MARKER : NORMAL_COLOR);
+      const states = batch.map((entity, index) => {
+        const prior = previous?.[index];
+        const sameEntity = prior?.id === entity.id;
+        const isSelected = selected.has(entity.id);
+        if (!sameEntity || prior.transform !== entity.transform) {
+          this.instanceMatrix.copy(this.projectedMatrix(entity));
+          if (mirrored) this.instanceMatrix.premultiply(INSTANCE_MIRROR);
+          mesh.setMatrixAt(index, this.instanceMatrix);
+          updateAssetPickBounds(mesh, index, this.instanceMatrix);
+          matricesChanged = true;
+        }
+        if (!sameEntity || prior.selected !== isSelected) {
+          mesh.setColorAt(index, isSelected ? INSTANCE_SELECTION_MARKER : NORMAL_COLOR);
+          colorsChanged = true;
+        }
+        return { id: entity.id, transform: entity.transform, selected: isSelected };
       });
-      mesh.instanceMatrix.needsUpdate = true;
-      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-      mesh.computeBoundingSphere();
+      this.instanceStates.set(mesh, states);
+      if (matricesChanged) {
+        mesh.instanceMatrix.needsUpdate = true;
+        mesh.computeBoundingSphere();
+      }
+      if (colorsChanged && mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+      refreshAssetPickIndex(mesh);
     });
   }
 
@@ -846,21 +912,29 @@ export class SceneProjection {
       if (previous?.transform === entity.transform
         && previous.visible === visible
         && previous.selected === isSelected) continue;
-      const matrix = this.projectedMatrix(entity);
+      const transformChanged = previous?.transform !== entity.transform;
+      const matrix = transformChanged ? this.projectedMatrix(entity) : undefined;
       for (const entry of batch.entries.get(entity.id) ?? []) {
-        entry.mesh.setMatrixAt(entry.instanceId, matrix);
-        entry.mesh.setVisibleAt(entry.instanceId, visible);
-        entry.mesh.setColorAt(entry.instanceId, isSelected ? INSTANCE_SELECTION_MARKER : NORMAL_COLOR);
+        if (matrix) {
+          entry.mesh.setMatrixAt(entry.instanceId, matrix);
+          updateAssetPickBounds(entry.mesh, entry.instanceId, matrix);
+        }
+        if (previous?.visible !== visible) entry.mesh.setVisibleAt(entry.instanceId, visible);
+        if (previous?.selected !== isSelected)
+          entry.mesh.setColorAt(entry.instanceId, isSelected ? INSTANCE_SELECTION_MARKER : NORMAL_COLOR);
       }
-      const storedMatrix = batch.matrices.get(entity.id);
-      if (storedMatrix) storedMatrix.copy(matrix);
-      else batch.matrices.set(entity.id, matrix.clone());
+      if (matrix) {
+        const storedMatrix = batch.matrices.get(entity.id);
+        if (storedMatrix) storedMatrix.copy(matrix);
+        else batch.matrices.set(entity.id, matrix.clone());
+      }
       batch.states.set(entity.id, {
         transform: entity.transform,
         visible,
         selected: isSelected,
       });
     }
+    batch.meshes.forEach(refreshAssetPickIndex);
   }
 
   private updateSelectionOutlines(
@@ -961,16 +1035,16 @@ export class SceneProjection {
     if (entity.geometry?.kind === 'grindPath') return selected ? this.selectedSplineMaterial : this.grindPathMaterial;
     if (entity.geometry?.kind === 'directionalLight')
       return selected ? this.selectedLineMaterial : this.directionalLightMaterial;
-    if (selected && entity.geometry) return this.selectedGeometryMaterial;
+    if (selected && entity.geometry) return this.geometryBatch.pickMaterial(this.selectedGeometryMaterial);
     if (selected) return this.selectedMaterial;
-    if (entity.geometry?.kind === 'cuboid') return this.cuboidMaterial;
-    if (entity.geometry?.kind === 'sphere') return this.sphereMaterial;
-    if (entity.geometry?.kind === 'cylinder') return this.cylinderMaterial;
-    if (entity.geometry?.kind === 'pill') return this.pillMaterial;
-    if (entity.geometry?.kind === 'environmentSample') return this.environmentSampleMaterial;
-    if (entity.geometry?.kind === 'environmentTransition') return this.environmentTransitionMaterial;
-    if (entity.geometry?.kind === 'camera') return this.cameraMaterial;
-    if (entity.geometry?.kind === 'ambientSound') return this.ambientSoundMaterial;
+    if (entity.geometry?.kind === 'cuboid') return this.geometryBatch.pickMaterial(this.cuboidMaterial);
+    if (entity.geometry?.kind === 'sphere') return this.geometryBatch.pickMaterial(this.sphereMaterial);
+    if (entity.geometry?.kind === 'cylinder') return this.geometryBatch.pickMaterial(this.cylinderMaterial);
+    if (entity.geometry?.kind === 'pill') return this.geometryBatch.pickMaterial(this.pillMaterial);
+    if (entity.geometry?.kind === 'environmentSample') return this.geometryBatch.pickMaterial(this.environmentSampleMaterial);
+    if (entity.geometry?.kind === 'environmentTransition') return this.geometryBatch.pickMaterial(this.environmentTransitionMaterial);
+    if (entity.geometry?.kind === 'camera') return this.geometryBatch.pickMaterial(this.cameraMaterial);
+    if (entity.geometry?.kind === 'ambientSound') return this.geometryBatch.pickMaterial(this.ambientSoundMaterial);
     if (!entity.asset) return this.modelLessMaterial;
     return this.failedAssets.has(entity.asset.id) ? this.failedMaterial : this.assetMaterial;
   }
@@ -996,6 +1070,7 @@ export class SceneProjection {
   }
 
   private clearProjection(): void {
+    this.geometryBatch.clear();
     this.objects.forEach((object) => this.removeObject(object));
     this.objects.clear();
     this.instances.forEach((projection) => {
@@ -1143,6 +1218,7 @@ function createUniqueAssetBatch(
 
   const root = new THREE.Group();
   root.name = 'Forge unique asset batch';
+  root.matrixAutoUpdate = false;
   const meshes: THREE.BatchedMesh[] = [];
   const materials = new Set<THREE.Material>();
   const entries = new Map<string, UniqueAssetBatchEntry[]>();
@@ -1154,6 +1230,7 @@ function createUniqueAssetBatch(
       const vertexCount = parts.reduce((total, part) => total + part.geometry.getAttribute('position').count, 0);
       const indexCount = parts.reduce((total, part) => total + (part.geometry.index?.count ?? 0), 0);
       const mesh = new THREE.BatchedMesh(instanceCount, vertexCount, indexCount, renderMaterial);
+      mesh.matrixAutoUpdate = false;
       const ids: string[] = [];
       mesh.frustumCulled = false;
       mesh.perObjectFrustumCulled = true;
@@ -1170,6 +1247,7 @@ function createUniqueAssetBatch(
         part.geometry.dispose();
       }
       mesh.userData[INSTANCE_IDS_KEY] = ids;
+      configureAssetMaterialPasses(mesh, materials);
       root.add(mesh);
       meshes.push(mesh);
     }
@@ -1192,6 +1270,7 @@ function createInstancedAsset(
   selectionColor: THREE.Color,
 ): InstancedAsset {
   const root = new THREE.Group();
+  root.matrixAutoUpdate = false;
   const meshes: THREE.InstancedMesh[] = [];
   const geometries = new Set<THREE.BufferGeometry>();
   const materials = new Set<THREE.Material>();
@@ -1292,8 +1371,8 @@ function addInstancedMesh(
       ? sourceMaterial.map((value) => createSelectionOverrideMaterial(value, selectionColor))
       : createSelectionOverrideMaterial(sourceMaterial, selectionColor);
     for (const owned of Array.isArray(renderMaterial) ? renderMaterial : [renderMaterial]) materials.add(owned);
-    if (hasNormal) addMesh(root, meshes, geometry, renderMaterial, capacity, false);
-    if (hasMirrored) addMesh(root, meshes, geometry, renderMaterial, capacity, true);
+    if (hasNormal) addMesh(root, meshes, geometry, renderMaterial, capacity, false, materials);
+    if (hasMirrored) addMesh(root, meshes, geometry, renderMaterial, capacity, true, materials);
   }
   temporaryMaterials.forEach((value) => value.dispose());
   geometries.add(geometry);
@@ -1306,14 +1385,17 @@ function addMesh(
   material: THREE.Material | THREE.Material[],
   capacity: number,
   mirrored: boolean,
+  ownedMaterials: Set<THREE.Material>,
 ): void {
   const mesh = new THREE.InstancedMesh(geometry, material, capacity);
+  // Entity edits update instance buffers; this node's local matrix stays fixed.
+  mesh.matrixAutoUpdate = false;
   mesh.userData[MIRRORED_BATCH_KEY] = mirrored;
   if (mirrored) {
     mesh.matrix.copy(INSTANCE_MIRROR);
-    mesh.matrixAutoUpdate = false;
     mesh.matrixWorldNeedsUpdate = true;
   }
+  configureAssetMaterialPasses(mesh, ownedMaterials);
   root.add(mesh);
   meshes.push(mesh);
 }

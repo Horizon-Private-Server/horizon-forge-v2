@@ -21,7 +21,11 @@ export function registerRenderIpcHandlers(options: RenderIpcHandlersOptions): vo
   const {
     host, settings, renderAssets, getEditorTargetGame, getEditorProjectPath, getMainWindow, assertSender,
   } = options;
-  const activePreviewRequests = new Map<string, number>();
+  interface PreviewRequest {
+    requestId?: number;
+    cancellation: AbortController;
+  }
+  const activePreviewRequests = new Map<string, PreviewRequest>();
   interface TerrainLoad {
     promise: Promise<unknown>;
     requestId?: number;
@@ -33,6 +37,27 @@ export function registerRenderIpcHandlers(options: RenderIpcHandlersOptions): vo
     load.cancelRequested = true;
     if (load.requestId !== undefined) await host.cancel(load.requestId);
     try { await load.promise; } catch { /* A superseded load is expected to reject. */ }
+  }
+
+  async function loadPreview(requestToken: string, prepare: () => ReturnType<HostClient['prepareAssetPreview']>) {
+    if (activePreviewRequests.has(requestToken)) throw new Error('Preview request token is already active');
+    const load: PreviewRequest = { cancellation: new AbortController() };
+    activePreviewRequests.set(requestToken, load);
+    try {
+      const request = await prepare();
+      load.requestId = request.requestId;
+      // Cancellation can arrive while host startup or its write queue is still pending.
+      const [, result] = await Promise.all([
+        load.cancellation.signal.aborted ? host.cancel(request.requestId) : undefined,
+        request.result,
+      ]);
+      load.cancellation.signal.throwIfAborted();
+      const preview = await renderAssets.addPreview(result);
+      load.cancellation.signal.throwIfAborted();
+      return preview;
+    } finally {
+      activePreviewRequests.delete(requestToken);
+    }
   }
 
   function assertPreview(assetId: unknown, kind?: unknown, shellIndex?: unknown): asserts assetId is string {
@@ -108,10 +133,9 @@ export function registerRenderIpcHandlers(options: RenderIpcHandlersOptions): vo
     if (customView !== undefined && (kind !== 'tie'
       || (customView !== 'source' && customView !== 'target' && customView !== 'thumbnail')))
       throw new TypeError('Custom model preview view is invalid');
-    if (activePreviewRequests.has(requestToken)) throw new Error('Asset preview request token is already active');
     const targetGame = getEditorTargetGame();
     if (targetGame !== 'UYA') throw new Error('Asset previews currently require a UYA project');
-    const request = await host.prepareAssetPreview({
+    return loadPreview(requestToken, () => host.prepareAssetPreview({
       cacheRootPath: settings.paths.renderCache,
       catalogRootPath: settings.paths.assets,
       projectPath: getEditorProjectPath() ?? '',
@@ -121,20 +145,16 @@ export function registerRenderIpcHandlers(options: RenderIpcHandlersOptions): vo
       viewPreset: customView ? `custom-${customView}`
         : kind === 'texture' ? 'texture-default' : kind === 'sky' ? 'sky-default' : 'model-default',
       ...(shellIndex !== undefined ? { shellIndex: shellIndex as number } : {}),
-    });
-    activePreviewRequests.set(requestToken, request.requestId);
-    try {
-      return await renderAssets.addPreview(await request.result);
-    } finally {
-      if (activePreviewRequests.get(requestToken) === request.requestId) activePreviewRequests.delete(requestToken);
-    }
+    }));
   });
 
   ipcMain.handle('forge:asset-preview-cancel', async (event, requestToken: unknown) => {
     assertSender(event.sender.id);
     assertRequestToken(requestToken);
-    const requestId = activePreviewRequests.get(requestToken);
-    if (requestId !== undefined) await host.cancel(requestId);
+    const load = activePreviewRequests.get(requestToken);
+    if (!load) return;
+    load.cancellation.abort();
+    if (load.requestId !== undefined) await host.cancel(load.requestId);
   });
 
   ipcMain.handle('forge:asset-preview-export-diagnostic', async (
@@ -164,14 +184,8 @@ export function registerRenderIpcHandlers(options: RenderIpcHandlersOptions): vo
     assertSender(event.sender.id);
     assertRequestToken(token);
     assertRequestToken(requestToken);
-    if (activePreviewRequests.has(requestToken)) throw new Error('Preview request token is already active');
-    const request = await host.prepareInstancedCollisionPreview(
-      settings.paths.renderCache, settings.paths.assets, token);
-    activePreviewRequests.set(requestToken, request.requestId);
-    try { return await renderAssets.addPreview(await request.result); }
-    finally {
-      if (activePreviewRequests.get(requestToken) === request.requestId) activePreviewRequests.delete(requestToken);
-    }
+    return loadPreview(requestToken, () => host.prepareInstancedCollisionPreview(
+      settings.paths.renderCache, settings.paths.assets, token));
   });
 
   ipcMain.handle('forge:editor-instanced-collision-applied-model', async (
@@ -180,14 +194,8 @@ export function registerRenderIpcHandlers(options: RenderIpcHandlersOptions): vo
     assertSender(event.sender.id);
     assertPreview(proxyAssetId);
     assertRequestToken(requestToken);
-    if (activePreviewRequests.has(requestToken)) throw new Error('Preview request token is already active');
-    const request = await host.prepareAppliedInstancedCollision(
-      settings.paths.renderCache, settings.paths.assets, proxyAssetId);
-    activePreviewRequests.set(requestToken, request.requestId);
-    try { return await renderAssets.addPreview(await request.result); }
-    finally {
-      if (activePreviewRequests.get(requestToken) === request.requestId) activePreviewRequests.delete(requestToken);
-    }
+    return loadPreview(requestToken, () => host.prepareAppliedInstancedCollision(
+      settings.paths.renderCache, settings.paths.assets, proxyAssetId));
   });
 
   ipcMain.handle('forge:asset-thumbnail', async (

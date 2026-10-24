@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import type { EditorSnapshot } from '../src/types/EditorRuntime.js';
+import type { EditorCommandResult, EditorMobyPVarDescriptor, EditorSnapshot } from '../src/types/EditorRuntime.js';
 import { applyEditorCommandResult } from '../src/utils/EditorCommandResult.ts';
 
 const transform = (x: number) => ({
@@ -54,4 +54,32 @@ test('level settings patches preserve the entity collection', () => {
 
   assert.equal(after.entities, before.entities);
   assert.equal(after.levelSettings, levelSettings);
+});
+
+test('selection patches preserve geometry and update selected and deselected PVars', () => {
+  const before = snapshot();
+  const pvar = { fields: [], rawData: new Uint8Array([1, 2]) } as unknown as EditorMobyPVarDescriptor;
+  before.entities[0].mobyPVar = pvar;
+  const patch = {
+    kind: 'selection', selection: ['b'], mobyPVars: [{ entityId: 'a', mobyPVar: { ...pvar, rawData: undefined } }],
+    isDirty: false, canUndo: true, canRedo: false, lastEventSequence: 2,
+  } satisfies EditorCommandResult;
+  const after = applyEditorCommandResult(before, patch);
+  assert.deepEqual(after.selection, ['b']);
+  assert.equal(after.entities[0].transform, before.entities[0].transform);
+  assert.equal(after.entities[0].state, before.entities[0].state);
+  assert.equal(after.entities[0].mobyPVar?.rawData, undefined);
+  assert.equal(before.entities[0].mobyPVar.rawData, pvar.rawData);
+  assert.equal(after.entities[1], before.entities[1]);
+  assert.equal(after.canUndo, true);
+  const cleared = applyEditorCommandResult(after, { ...patch, selection: [], mobyPVars: [] });
+  assert.equal(cleared.entities, after.entities);
+  assert.deepEqual(cleared.selection, []);
+  const removed = applyEditorCommandResult(after, { ...patch, mobyPVars: [{ entityId: 'a' }] });
+  assert.equal(Object.hasOwn(removed.entities[0], 'mobyPVar'), false);
+  for (const invalid of [
+    { selection: ['unknown'] }, { selection: ['b', 'b'] },
+    { mobyPVars: [{ entityId: 'unknown' }] },
+    { mobyPVars: [{ entityId: 'a' }, { entityId: 'a' }] },
+  ]) assert.throws(() => applyEditorCommandResult(before, { ...patch, ...invalid }), TypeError);
 });
