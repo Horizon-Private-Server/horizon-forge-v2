@@ -12,7 +12,7 @@ namespace Forge.Host.Games.UYA;
 
 public static class UyaAssetPreviewService
 {
-    public const int SchemaVersion = 4;
+    public const int SchemaVersion = 6;
     private const int TextureRasterSchemaVersion = 2;
     private const int SkyRenderSchemaVersion = 2;
     private const int CollisionRenderSchemaVersion = 2;

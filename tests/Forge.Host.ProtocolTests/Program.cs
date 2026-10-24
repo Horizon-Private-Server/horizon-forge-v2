@@ -19,7 +19,7 @@ internal static class Program
                 await AssetCatalogSnapshotTests.WriteWorkerAsync(args[1], args[2]);
                 return 0;
             }
-            var json = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "fixtures", "bridge-v4.json"));
+            var json = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "fixtures", "bridge-v5.json"));
             var vectors = JsonSerializer.Deserialize<List<GoldenFrame>>(json, new JsonSerializerOptions
             {
                 PropertyNameCaseInsensitive = true,

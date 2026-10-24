@@ -332,6 +332,9 @@ internal static class UyaProjectTests
             {
                 var snapshot = await runtime.OpenAsync(projectPath, TimeSpan.Zero);
                 Equal(13, snapshot.Entities.Count(value => value.Geometry is not null), "visualizations reach editor snapshot");
+                Equal(directionalLight.Lighting!.DirectionalLight,
+                    snapshot.Entities.Single(value => value.EntityId == directionalLight.EntityId).DirectionalLight,
+                    "directional light colors and both directions reach the renderer snapshot");
                 Equal(false, snapshot.Entities.Single(value => value.EntityId == cuboid.EntityId).State.ReadOnly,
                     "editor exposes writable shape transforms");
                 Equal(false, snapshot.Entities.Single(value => value.EntityId == camera.EntityId).State.ReadOnly,

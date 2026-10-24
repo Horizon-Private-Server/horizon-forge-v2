@@ -54,6 +54,7 @@ import { ViewportPicking } from './ViewportPicking.ts';
 import { resolvePointerSnapTarget } from './SceneSnapping.ts';
 import { TransformTool } from './TransformTool.ts';
 import { addTfragTemplates } from './TfragTemplates.ts';
+import { configureTfragLighting } from './TfragLighting.ts';
 import type { EditorTransformMode, EditorTransformSpace } from './TransformTool.ts';
 import { InstancedCollisionOverlayProjection } from './InstancedCollisionOverlayProjection.ts';
 import {
@@ -179,6 +180,7 @@ export function SceneViewport({
   const currentSelection = useRef(selection);
   const currentMissingSelectionMembers = useRef(missingSelectionMembers);
   const currentEntities = useRef(entities);
+  const tfragScenes = useRef(new Set<THREE.Object3D>());
   const currentCollisionVisibility = useRef(collisionVisibility(showSolidCollision, showPlayerBarriers));
   const currentKeybindings = useRef(keybindings);
   const currentEnvironment = useRef(environment);
@@ -252,6 +254,9 @@ export function SceneViewport({
     .map((entity) => `${entity.id}:${entity.asset!.id}:${entity.skyShell!.sourceShellIndex}`)
     .sort().join('|'), [entities]);
   const simulationFxSignature = useMemo(() => mobySimulationFxSignature(fx), [fx]);
+  const tfragLightingSignature = useMemo(() => JSON.stringify(entities
+    .filter((entity) => entity.directionalLight)
+    .map((entity) => [entity.provenance?.sourceIndex, entity.directionalLight, entity.transform.rotation])), [entities]);
 
   useEffect(() => {
     const element = container.current;
@@ -1125,6 +1130,8 @@ export function SceneViewport({
       let matchedTfrags = 0;
       viewport.current.terrainBounds.makeEmpty();
       for (const { scene, url } of loaded) {
+        configureTfragLighting(scene, currentEntities.current);
+        tfragScenes.current.add(scene);
         configurePs2MaterialAlpha(scene, 'tfrag');
         configurePs2MaterialFog(scene, currentEnvironment.current);
         scene.traverse((object) => { if (/^lod_[1-9]/i.test(object.name)) object.visible = false; });
@@ -1222,9 +1229,15 @@ export function SceneViewport({
         applySceneEnvironment(viewport.current.scene, undefined, viewport.current.skyScene);
       }
       for (const scene of loadedScenes) disposeObject(scene);
+      loadedScenes.forEach((scene) => tfragScenes.current.delete(scene));
       if (viewport.current) loadedScenes.forEach((scene) => viewport.current!.collisionScenes.delete(scene));
     };
   }, [terrainSource]);
+
+  useEffect(() => {
+    for (const scene of tfragScenes.current) configureTfragLighting(scene, currentEntities.current);
+    if (viewport.current) configureTfragLighting(viewport.current.content, currentEntities.current);
+  }, [tfragLightingSignature]);
 
   useEffect(() => {
     viewport.current?.collisionScenes.forEach((scene) => configureCollisionMaterials(scene, collisionVisualization));

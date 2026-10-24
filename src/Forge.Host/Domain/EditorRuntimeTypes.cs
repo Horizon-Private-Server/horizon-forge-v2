@@ -433,7 +433,8 @@ public sealed record EditorEntitySnapshot(
     IReadOnlyList<EditorMobyPropertyDescriptor>? MobyProperties,
     EditorMobyPVarDescriptor? MobyPVar,
     string? SourceClassName = null,
-    EditorContentOrigin? Origin = null);
+    EditorContentOrigin? Origin = null,
+    ProjectDirectionalLight? DirectionalLight = null);
 
 public sealed record EditorReferenceSnapshot(
     EntityId OwnerEntityId,

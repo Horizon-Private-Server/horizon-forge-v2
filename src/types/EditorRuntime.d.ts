@@ -243,6 +243,12 @@ export interface EditorEntity {
     points: ProjectVector4[];
   };
   skyShell?: EditorSkyShell;
+  directionalLight?: {
+    topColor: ProjectVector4;
+    topDirection: ProjectVector4;
+    inverseColor: ProjectVector4;
+    inverseDirection: ProjectVector4;
+  };
   collision?: EditorCollisionPiece;
   tfrag?: {
     sourceArchive: string;

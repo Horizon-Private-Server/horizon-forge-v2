@@ -12,7 +12,7 @@ namespace Forge.Host.Games.UYA;
 
 public static partial class UyaRenderPackageService
 {
-    public const int SchemaVersion = 11;
+    public const int SchemaVersion = 14;
     private const string MarkerName = ".forge-render-package.json";
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
@@ -435,7 +435,8 @@ public static partial class UyaRenderPackageService
         };
         return await Task.Run(
             () => FrontendAssetPackageBuilder.Build(
-                GameId.UYA, frontendKind, canonical.ModelBytes, canonical.Textures),
+                GameId.UYA, frontendKind, canonical.ModelBytes, canonical.Textures,
+                new(PreserveAuthoredRepeatedTexCoordTiles: kind == AssetKind.Tie)),
             cancellationToken);
     }
 

@@ -869,6 +869,19 @@ function readEntity(reader: PayloadReader): EditorEntity {
     missingAsset: reader.readBoolean(),
   };
   value.origin = readContentOrigin(reader);
+  if (reader.readBoolean()) {
+    const readVector4 = () => {
+      const vector = {
+        x: reader.readFloat32(), y: reader.readFloat32(), z: reader.readFloat32(), w: reader.readFloat32(),
+      };
+      if (!Object.values(vector).every(Number.isFinite)) malformed('Non-finite directional light vector');
+      return vector;
+    };
+    value.directionalLight = {
+      topColor: readVector4(), topDirection: readVector4(),
+      inverseColor: readVector4(), inverseDirection: readVector4(),
+    };
+  }
   return value;
 }
 

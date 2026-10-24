@@ -315,3 +315,41 @@ test('selection result codec bounds lists and rejects truncated or trailing data
   oversized.writeUInt32(100_001);
   assert.throws(() => decodeEditorCommandResult(oversized.toBuffer()));
 });
+
+test('editor snapshots carry directional-light colors and directions across the host bridge', async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'forge-host-lighting-'));
+  const client = new HostClient('dotnet', [hostDll], 25);
+  context.after(async () => {
+    await client.stop();
+    await rm(root, { recursive: true, force: true });
+  });
+  const directionalLight = {
+    topColor: { x: 0.5, y: 0.25, z: 1, w: -0.5 },
+    topDirection: { x: 1, y: 0, z: -1, w: 0 },
+    inverseColor: { x: 0.25, y: 0.5, z: 0, w: 0 },
+    inverseDirection: { x: 0, y: 1, z: 0, w: 0 },
+  };
+  await mkdir(path.join(root, 'content'));
+  await writeFile(path.join(root, 'forge-project.json'), JSON.stringify({
+    schemaVersion: 9, documentType: 'forge-project',
+    projectId: '10000000-0000-4000-8000-000000000001', name: 'Lighting bridge project',
+    target: { game: 'UYA', region: 'NTSC-U', revision: '1.00', bakeProfile: 'uya-ntsc-u' },
+    baseLevel: { game: 'UYA', region: 'NTSC-U', revision: '1.00', level: 14, sourceFingerprint: 'a'.repeat(32) },
+    content: 'content/project.json.gz',
+  }));
+  await writeFile(path.join(root, 'content/project.json.gz'), gzipSync(JSON.stringify({
+    schemaVersion: 9, documentType: 'forge-project-content', assets: [], instancedCollisionBindings: [],
+    entities: [{
+      entityId: '20000000-0000-4000-8000-000000000002', name: 'Directional light', layer: 'lighting',
+      transform: {
+        position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 }, scale: { x: 1, y: 1, z: 1 },
+      },
+      provenance: { game: 'UYA', level: 14, section: 'directional_lights', sourceIndex: 0 },
+      lighting: { directionalLight },
+    }],
+  })));
+  await client.start();
+  const snapshot = await (await client.openEditorProject(root, path.join(root, 'catalog'), 0)).result;
+  assert.deepEqual(snapshot.entities[0].directionalLight, directionalLight);
+  assert.equal(snapshot.entities[0].provenance.sourceIndex, 0);
+});

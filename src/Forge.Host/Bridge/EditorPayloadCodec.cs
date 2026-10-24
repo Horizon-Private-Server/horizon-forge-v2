@@ -946,6 +946,17 @@ internal static class EditorPayloadCodec
         writer.WriteBoolean(value.State.Invalid);
         writer.WriteBoolean(value.State.MissingAsset);
         WriteContentOrigin(writer, value.Origin);
+        writer.WriteBoolean(value.DirectionalLight is not null);
+        if (value.DirectionalLight is { } light)
+        {
+            foreach (var vector in new[] { light.TopColor, light.TopDirection, light.InverseColor, light.InverseDirection })
+            {
+                writer.WriteSingle(vector.X);
+                writer.WriteSingle(vector.Y);
+                writer.WriteSingle(vector.Z);
+                writer.WriteSingle(vector.W);
+            }
+        }
     }
 
     private static void WriteContentOrigin(PayloadWriter writer, EditorContentOrigin? value)

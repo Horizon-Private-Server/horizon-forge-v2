@@ -163,6 +163,25 @@ internal static class UyaCustomTieProjectTests
                 Equal(true, texCoords.Max(value => value.U) - texCoords.Min(value => value.U) > 0.9f,
                     "target preview preserves authored repeated-UV tile offsets");
             }
+            var uvNative = UyaCustomTieNativeCodec.Read(await uvWorkspace.ReadAttachedAssetVerifiedAsync(
+                uvModel.Native, ForgeProjectWorkspace.MaxAttachedAssetBytes));
+            var uvTextures = await UyaCustomTieTextureReader.ReadMaterialTexturesAsync(
+                uvWorkspace, uvModel, CancellationToken.None);
+            var canonicalUv = UyaCanonicalAssetCodec.Encode(
+                uvNative.DefinitionBytes, uvNative.ModelBytes, uvTextures);
+            var uvPath = Path.Combine(root, "vanilla-tie.bin");
+            await File.WriteAllBytesAsync(uvPath, canonicalUv);
+            var vanillaUvPackage = await UyaRenderPackageService.BuildAssetPackageAsync(
+                AssetId.Compute(AssetKind.Tie, UyaAssetImportService.CanonicalFormatVersion, canonicalUv),
+                AssetKind.Tie, UyaAssetImportService.CanonicalFormatVersion,
+                canonicalUv.Length, uvPath, CancellationToken.None);
+            using (var uvDocument = JsonDocument.Parse(ReadPackageEntry(vanillaUvPackage, "model.gltf")))
+            {
+                var texCoords = ReadIndexedTexCoords(
+                    uvDocument.RootElement, ReadPackageEntry(vanillaUvPackage, "model.buffer.bin"));
+                Equal(true, texCoords.Max(value => value.U) - texCoords.Min(value => value.U) > 0.9f,
+                    "catalog TIE rendering preserves authored UV spans like the custom preview");
+            }
 
             var unsavedProjectPath = Path.Combine(root, "unsaved-project");
             var unsavedWorkspace = await CreateAsync(unsavedProjectPath);

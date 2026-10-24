@@ -112,7 +112,7 @@ interface GoldenFrame {
 }
 
 const vectors = JSON.parse(
-  readFileSync(new URL('./fixtures/bridge-v4.json', import.meta.url), 'utf8'),
+  readFileSync(new URL('./fixtures/bridge-v5.json', import.meta.url), 'utf8'),
 ) as GoldenFrame[];
 
 function frameFrom(vector: GoldenFrame): BridgeFrame {

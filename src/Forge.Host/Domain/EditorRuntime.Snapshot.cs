@@ -135,7 +135,8 @@ public sealed partial class EditorRuntime
                     ? new(EditorContentOriginKind.Imported, import.BatchId, import.SourceLevel)
                     : new(entity.Provenance?.Level == workspace.Manifest.BaseLevel.Level
                         ? EditorContentOriginKind.Base
-                        : EditorContentOriginKind.Project));
+                        : EditorContentOriginKind.Project),
+                entity.Lighting?.DirectionalLight);
         }).ToArray();
         var entitiesById = entities.ToDictionary(entity => entity.EntityId);
         var references = ReferenceSnapshots(workspace, entitiesById);
