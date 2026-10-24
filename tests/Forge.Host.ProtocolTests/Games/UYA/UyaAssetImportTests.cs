@@ -128,8 +128,9 @@ internal static class UyaAssetImportTests
                 new MemoryStream(isoBytes, writable: false), failedRequest);
             throw new InvalidOperationException("Expected import catalog publication failure.");
         }
-        catch (IOException)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
+            // Windows reports the directory blocking the catalog filename as access denied.
         }
         Equal(0, Directory.EnumerateFiles(failedRoot, "*.partial", SearchOption.AllDirectories).Count(),
             "failed import publication cleans partial files");
