@@ -1,7 +1,7 @@
 import { FloppyDiskIcon } from '@phosphor-icons/react/dist/csr/FloppyDisk';
 import { FolderOpenIcon } from '@phosphor-icons/react/dist/csr/FolderOpen';
-import { ActionIcon, Alert, Badge, Group, MantineProvider, Text, Tooltip } from '@mantine/core';
-import { useEffect, useMemo, useState } from 'react';
+import { ActionIcon, Badge, Drawer, Group, MantineProvider, Text, Tooltip } from '@mantine/core';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import type { KeybindingMap } from '../types/Keybindings.js';
 import type { ForgeHostStatus, UiSize } from '../types/ForgeApi.js';
@@ -27,11 +27,16 @@ import { ProjectHub } from './projects/ProjectHub.tsx';
 import { SettingsModal } from './settings/SettingsModal.tsx';
 import { SetupWizard } from './setup/SetupWizard.tsx';
 import { ForgeMenuBar } from './shell/ForgeMenuBar.tsx';
-import { NotificationMenu } from './shell/NotificationMenu.tsx';
 import { createForgeTheme } from './theme.ts';
 import { UpdateStatusMenu } from './updates/UpdateStatusMenu.tsx';
+import { errorMessage } from '../utils/Errors.ts';
 import { isUiSize } from '../utils/UiSize.ts';
 import { DEFAULT_SELECTION_COLOR, readSelectionColor } from '../utils/SelectionVisualization.ts';
+
+import { LogPanel } from './log/LogPanel.tsx';
+import { forgeLog } from './log/LogStore.ts';
+import { LogButton } from './log/LogButton.tsx';
+import { LogNotificationsContext } from './log/LogNotificationsContext.ts';
 
 export function App() {
   const [uiSize, setUiSize] = useState<UiSize>('xs');
@@ -42,6 +47,8 @@ export function App() {
 }
 
 function ForgeApp({ uiSize, onUiSizeChange }: { uiSize: UiSize; onUiSizeChange(value: UiSize): void }) {
+  const [logOpened, setLogOpened] = useState(false);
+  const openSessionLog = useCallback(() => setLogOpened(true), []);
   const [hostStatus, setHostStatus] = useState<ForgeHostStatus>();
   const [settingsOpened, setSettingsOpened] = useState(false);
   const [showViewportStats, setShowViewportStats] = useState(true);
@@ -56,7 +63,6 @@ function ForgeApp({ uiSize, onUiSizeChange }: { uiSize: UiSize; onUiSizeChange(v
   const [contentImportRevision, setContentImportRevision] = useState(0);
   const {
     activeProject,
-    editorError,
     hubAction,
     layoutAction,
     contentImportOpened,
@@ -64,9 +70,8 @@ function ForgeApp({ uiSize, onUiSizeChange }: { uiSize: UiSize; onUiSizeChange(v
     isSaving,
     openProject,
     setActiveProject,
-    clearEditorError,
     closeContentImport,
-  } = useForgeActions(setSetupOpened, setSettingsOpened);
+  } = useForgeActions(setSetupOpened, setSettingsOpened, openSessionLog);
   useKeyboardContext(keybindings, handleForgeAction);
   const notificationCenter = useNotifications();
   const updateLifecycle = useUpdateLifecycle();
@@ -77,8 +82,11 @@ function ForgeApp({ uiSize, onUiSizeChange }: { uiSize: UiSize; onUiSizeChange(v
       .then((status) => {
         if (mounted) setHostStatus(status);
       })
-      .catch(() => {
-        if (mounted) setHostStatus(undefined);
+      .catch((cause) => {
+        if (mounted) {
+          setHostStatus(undefined);
+          forgeLog.write('Host', 'error', errorMessage(cause));
+        }
       });
     return () => {
       mounted = false;
@@ -96,17 +104,18 @@ function ForgeApp({ uiSize, onUiSizeChange }: { uiSize: UiSize; onUiSizeChange(v
       )));
       const storedSize = snapshot.entries.find((entry) => entry.key === 'ui.componentSize')?.value;
       if (isUiSize(storedSize)) onUiSizeChange(storedSize);
-    }).catch(() => undefined);
+    }).catch((cause) => forgeLog.write('Settings', 'error', errorMessage(cause)));
   }, []);
 
   useEffect(() => {
-    void window.forge.getSetupState().then((state) => setSetupOpened(state.required));
+    void window.forge.getSetupState().then((state) => setSetupOpened(state.required))
+      .catch((cause) => forgeLog.write('Setup', 'error', errorMessage(cause)));
   }, []);
 
   useEffect(() => window.forge.onForgeAction(handleForgeAction), [handleForgeAction]);
 
   return (
-    <main className="app-shell" data-ui-size={uiSize} style={sceneTreeColorVariables(sceneTreeColors)}>
+    <LogNotificationsContext.Provider value={notificationCenter}><main className="app-shell" data-ui-size={uiSize} style={sceneTreeColorVariables(sceneTreeColors)}>
       <ForgeMenuBar keybindings={keybindings} project={activeProject} onAction={handleForgeAction} />
       <header className="app-header">
         <Group className="app-header-content" wrap="nowrap">
@@ -150,16 +159,11 @@ function ForgeApp({ uiSize, onUiSizeChange }: { uiSize: UiSize; onUiSizeChange(v
           </Group>}
           <Group className="app-header-status" gap="xs" wrap="nowrap">
             <UpdateStatusMenu snapshot={updateLifecycle.snapshot} onAction={updateLifecycle.runAction} />
-            <NotificationMenu
-              notifications={notificationCenter.notifications}
-              onDismiss={notificationCenter.dismiss}
-              onAction={notificationCenter.runAction}
-            />
+            <LogButton onOpen={() => activeProject ? handleForgeAction('showDiagnostics') : setLogOpened(true)} />
           </Group>
         </Group>
       </header>
       <div className="app-content">
-        {editorError && <Alert color="red" withCloseButton onClose={clearEditorError}>{editorError}</Alert>}
         {activeProject
           ? <EditorWorkspace
             project={activeProject}
@@ -181,6 +185,11 @@ function ForgeApp({ uiSize, onUiSizeChange }: { uiSize: UiSize; onUiSizeChange(v
             onOpenSetup={() => setSetupOpened(true)}
           />}
       </div>
+      <Drawer opened={logOpened} onClose={() => setLogOpened(false)} title="Log" position="bottom" size="45%"
+        styles={{ content: { display: 'flex', flexDirection: 'column' },
+          header: { flexShrink: 0 }, body: { flex: 1, minHeight: 0, padding: 0 } }}>
+        <LogPanel visible={logOpened} />
+      </Drawer>
       <SettingsModal
         opened={settingsOpened}
         onClose={() => setSettingsOpened(false)}
@@ -208,6 +217,6 @@ function ForgeApp({ uiSize, onUiSizeChange }: { uiSize: UiSize; onUiSizeChange(v
           setContentImportRevision((value) => value + 1);
         }}
       />}
-    </main>
+    </main></LogNotificationsContext.Provider>
   );
 }

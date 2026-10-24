@@ -3,12 +3,13 @@ import { Button, Group, Progress, Text } from '@mantine/core';
 import type { BuildPatchProgress, BuildPatchResult, ForgeHostStatus } from '../../types/ForgeApi.js';
 import { useEditorSnapshot } from './EditorContext.ts';
 
-export function EditorStatusBar({ hostStatus, busy, buildProgress, buildResult, onCancel }: {
+export function EditorStatusBar({ hostStatus, busy, buildProgress, buildResult, onCancel, onShowLog }: {
   hostStatus?: ForgeHostStatus;
   busy: boolean;
   buildProgress?: BuildPatchProgress;
   buildResult?: BuildPatchResult;
   onCancel(): void;
+  onShowLog(): void;
 }) {
   const project = useEditorSnapshot();
   const layers = new Set(project.entities.map((entity) => entity.layer));
@@ -33,6 +34,6 @@ export function EditorStatusBar({ hostStatus, busy, buildProgress, buildResult, 
     />}
     <Text c={warnings ? 'yellow' : 'dimmed'}>{warnings} warnings/errors</Text>
     {busy && <Button ml="auto" variant="subtle" onClick={onCancel}>Cancel</Button>}
-    <Button ml={busy ? undefined : 'auto'} variant="subtle" onClick={() => void window.forge.revealLogs()}>Logs</Button>
+    <Button ml={busy ? undefined : 'auto'} variant="subtle" onClick={onShowLog}>Log</Button>
   </Group>;
 }

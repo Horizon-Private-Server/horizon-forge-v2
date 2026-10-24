@@ -5,6 +5,9 @@ import type { SetupProgress, SetupState } from '../../types/ForgeApi.js';
 import { errorMessage } from '../../utils/Errors.ts';
 import { formatBytes } from '../../utils/Format.ts';
 
+import { forgeLog } from '../log/LogStore.ts';
+import { useLoggedMessage } from '../log/UseLog.ts';
+
 interface SetupWizardProps {
   opened: boolean;
   onClose(): void;
@@ -14,10 +17,14 @@ export function SetupWizard({ opened, onClose }: SetupWizardProps) {
   const [state, setState] = useState<SetupState>();
   const [progress, setProgress] = useState<SetupProgress>();
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string>();
-  const [notice, setNotice] = useState<string>();
+  const [error, setError] = useLoggedMessage('Setup');
 
-  useEffect(() => window.forge.onSetupProgress(setProgress), []);
+  useEffect(() => window.forge.onSetupProgress((value) => {
+    setProgress(value);
+    forgeLog.sync('Setup progress', [{ source: 'Setup', severity: 'info',
+      message: { validate: 'Verifying clean ISO…', copy: 'Creating and verifying development ISO…',
+        import: 'Importing reusable assets…' }[value.operation] }]);
+  }), []);
   useEffect(() => {
     if (opened) void refresh().catch(showError);
   }, [opened]);
@@ -68,9 +75,14 @@ export function SetupWizard({ opened, onClose }: SetupWizardProps) {
       }
       if (next.importUyaAssets && !next.assetImportComplete) {
         setProgress({ operation: 'import', completed: 0, total: 1 });
-        await window.forge.importUyaAssets();
+        const result = await window.forge.importUyaAssets();
+        forgeLog.write('Setup', result.failedAssets ? 'warning' : 'success',
+          `Imported ${result.assetAppearances.toLocaleString()} asset appearances. ${result.failedAssets} assets failed.`);
       }
-      if (!(await refresh()).required) onClose();
+      if (!(await refresh()).required) {
+        forgeLog.write('Setup', 'success', 'Setup complete.');
+        onClose();
+      }
     } catch (reason) {
       showError(reason);
     } finally {
@@ -82,11 +94,12 @@ export function SetupWizard({ opened, onClose }: SetupWizardProps) {
   async function reimportAssets(): Promise<void> {
     setBusy(true);
     setError(undefined);
-    setNotice(undefined);
     setProgress({ operation: 'import', completed: 0, total: 1 });
     try {
       const result = await window.forge.importUyaAssets(true);
-      setNotice(`Re-imported ${result.assetAppearances.toLocaleString()} asset appearances across ${result.completedLevels} levels.`);
+      forgeLog.write('Setup', result.failedAssets ? 'warning' : 'success',
+        `Re-imported ${result.assetAppearances.toLocaleString()} asset appearances across ${result.completedLevels} levels. `
+        + `${result.failedAssets} assets failed.`);
       await refresh();
     } catch (reason) {
       showError(reason);
@@ -114,7 +127,6 @@ export function SetupWizard({ opened, onClose }: SetupWizardProps) {
       <Stack>
         <Text c="dimmed">Forge keeps the clean source read-only and creates a separate development ISO for patching.</Text>
         {error && <Alert color="red" title="Setup could not continue">{error}</Alert>}
-        {notice && <Alert color="teal" title="Asset import complete">{notice}</Alert>}
 
         <Title order={5}>Locations</Title>
         <PathRow label="Projects directory" value={state?.projectsDirectory ?? ''} onChoose={() => void chooseDirectory('projects')} disabled={busy} />
@@ -154,7 +166,7 @@ export function SetupWizard({ opened, onClose }: SetupWizardProps) {
         )}
 
         <Group justify="flex-end">
-          {busy && <Button variant="default" onClick={() => void window.forge.cancelSetupOperation()}>Cancel operation</Button>}
+          {busy && <Button variant="default" onClick={() => void window.forge.cancelSetupOperation().catch(showError)}>Cancel operation</Button>}
           {state?.assetImportComplete && !busy && (
             <Button variant="default" onClick={() => void reimportAssets()}>Re-import UYA assets</Button>
           )}

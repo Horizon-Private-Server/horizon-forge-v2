@@ -10,6 +10,8 @@ import {
 } from '../../utils/Keybindings.ts';
 import { errorMessage } from '../../utils/Errors.ts';
 
+import { useLoggedMessage } from '../log/UseLog.ts';
+
 interface KeybindingsSettingsProps {
   overrides: KeybindingOverrides;
   bindings: KeybindingMap;
@@ -19,7 +21,7 @@ interface KeybindingsSettingsProps {
 export function KeybindingsSettings({ overrides, bindings, onChange }: KeybindingsSettingsProps) {
   const [filter, setFilter] = useState('');
   const [capturing, setCapturing] = useState<KeybindingCommandId>();
-  const [error, setError] = useState<string>();
+  const [error, setError] = useLoggedMessage('Keybindings');
   const commands = useMemo(() => {
     const query = filter.trim().toLowerCase();
     return KEYBINDING_COMMANDS.filter((command) => !query

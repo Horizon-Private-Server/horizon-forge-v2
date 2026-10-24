@@ -37,7 +37,6 @@ import {
   showEditorPanel,
 } from './EditorLayout.ts';
 import {
-  DiagnosticsPanel,
   EditorWatermark,
   PropertiesPanel,
   SceneTreePanel,
@@ -45,7 +44,6 @@ import {
 } from './EditorPanels.tsx';
 import { GroupsPanel } from './GroupsPanel.tsx';
 import { LevelSettingsPanel } from './LevelSettingsPanel.tsx';
-import { EditorErrorState } from './EditorPrimitives.tsx';
 import { EditorStatusBar } from './EditorStatusBar.tsx';
 import { ReferencesPanel } from './ReferencesPanel.tsx';
 import { HudBankPanel } from './HudBankPanel.tsx';
@@ -53,6 +51,11 @@ import { FxTexturePanel } from './FxTexturePanel.tsx';
 import { CustomAssetsPanel } from './CustomAssetsPanel.tsx';
 import { SoundWorkspacePanel } from './SoundWorkspacePanel.tsx';
 import { ImportBatchesPanel } from './ImportBatchesPanel.tsx';
+
+import { LogPanel } from '../log/LogPanel.tsx';
+import { forgeLog } from '../log/LogStore.ts';
+import { useEditorLog } from '../log/UseEditorLog.ts';
+import { useLogReporter } from '../log/UseLog.ts';
 
 interface EditorWorkspaceProps {
   project: EditorSnapshot;
@@ -74,7 +77,7 @@ const components = {
   properties: PropertiesPanel,
   references: ReferencesPanel,
   levelSettings: LevelSettingsPanel,
-  diagnostics: DiagnosticsPanel,
+  diagnostics: LogPanel,
   build: BuildPanel,
   assetExplorer: AssetExplorerPanel,
   customAssets: CustomAssetsPanel,
@@ -99,13 +102,14 @@ export function EditorWorkspace({
 }: EditorWorkspaceProps) {
   const [api, setApi] = useState<DockviewApi>();
   const [initialized, setInitialized] = useState(false);
-  const [error, setError] = useState<string>();
+  const reportError = useLogReporter('Editor');
   const [busy, setBusy] = useState(false);
   const [buildProgress, setBuildProgress] = useState<BuildPatchProgress>();
   const [buildResult, setBuildResult] = useState<BuildPatchResult>();
   const buildRunning = useRef(false);
   const [terrain, setTerrain] = useState<EditorTerrainSource>();
   const [sceneLoad, setSceneLoad] = useState<EditorLoadProgress>();
+  useEditorLog(project, sceneLoad);
   const [sceneFilter, setSceneFilter] = useState('');
   const [activeImportBatchId, setActiveImportBatchId] = useState<string>();
   const [cameraFocus, setCameraFocus] = useState<{ entityId: string }>();
@@ -195,7 +199,7 @@ export function EditorWorkspace({
     let timer: ReturnType<typeof setTimeout> | undefined;
     let pending: string | undefined;
     const save = (layout: string) => window.forge.setSetting('ui.editorLayout', layout)
-      .catch((cause) => { if (!disposed) setError(errorMessage(cause)); });
+      .catch((cause) => { if (!disposed) reportError(errorMessage(cause)); });
 
     void window.forge.getSettings().then((settings) => {
       if (disposed) return;
@@ -237,7 +241,7 @@ export function EditorWorkspace({
     }).catch((cause) => {
       if (disposed) return;
       createDefaultEditorLayout(api);
-      setError(errorMessage(cause));
+      reportError(errorMessage(cause));
       setInitialized(true);
     });
 
@@ -246,7 +250,7 @@ export function EditorWorkspace({
       subscription?.dispose();
       if (timer) clearTimeout(timer);
       if (pending) void window.forge.setSetting('ui.editorLayout', pending)
-        .catch((cause) => console.error('Could not persist editor layout', cause));
+        .catch((cause) => reportError(`Could not persist editor layout: ${errorMessage(cause)}`));
     };
   }, [api]);
 
@@ -256,24 +260,30 @@ export function EditorWorkspace({
     else showEditorPanel(api, panelForLayoutAction(layoutAction.action));
   }, [api, initialized, layoutAction]);
 
-  useEffect(() => window.forge.onBuildPatchProgress(setBuildProgress), []);
+  useEffect(() => window.forge.onBuildPatchProgress((progress) => {
+    setBuildProgress(progress);
+    forgeLog.sync('Build progress', [{ source: 'Build', severity: 'info',
+      message: `${progress.phase}: ${progress.message}` }]);
+  }), []);
 
   const buildAndPatch = useCallback(async (includedLayers: BuildLayerId[]) => {
     if (buildRunning.current) return;
     buildRunning.current = true;
     setBusy(true);
-    setError(undefined);
     setBuildResult(undefined);
     setBuildProgress({ phase: 'Preflight', completed: 0, total: 1, message: 'Starting build…' });
+    forgeLog.sync('Build progress', []);
+    forgeLog.write('Build', 'info', 'Starting build…');
     try {
       const result = await window.forge.buildAndPatchProject(includedLayers);
       setBuildResult(result);
-      if (!result.succeeded) {
-        setError([result.message, ...result.diagnostics, result.nextAction].filter(Boolean).join(' '));
-      }
+      forgeLog.write('Build', result.succeeded ? 'success' : result.requiresWarningAcknowledgement ? 'warning' : 'error',
+        [result.message, result.nextAction].filter(Boolean).join(' '));
+      forgeLog.append(result.diagnostics.map((message) => ({ source: 'Build',
+        severity: result.succeeded || result.requiresWarningAcknowledgement ? 'warning' : 'error', message })));
       onProjectChange(await window.forge.getEditorSnapshot());
     } catch (cause) {
-      setError(errorMessage(cause));
+      reportError(errorMessage(cause));
     } finally {
       buildRunning.current = false;
       setBusy(false);
@@ -286,7 +296,6 @@ export function EditorWorkspace({
   }, [api]);
 
   const execute = useCallback(async (command: EditorCommand) => {
-    setError(undefined);
     try {
       const next = applyEditorCommandResult(
         projectRef.current,
@@ -297,7 +306,7 @@ export function EditorWorkspace({
       return true;
     }
     catch (cause) {
-      setError(errorMessage(cause));
+      reportError(errorMessage(cause));
       return false;
     }
   }, [onProjectChange]);
@@ -316,10 +325,9 @@ export function EditorWorkspace({
   const inspectReferencedAsset = useCallback(async (assetId: string, assetKind: string) => {
     const category = referenceAssetCategory(assetKind);
     if (!category) {
-      setError(`${assetKind} assets do not have an interactive preview.`);
+      reportError(`${assetKind} assets do not have an interactive preview.`);
       return;
     }
-    setError(undefined);
     try {
       const page = await window.forge.queryAssetExplorer({ category, search: assetId, limit: 128 });
       const item = page.items.find((candidate) => candidate.assetId === assetId);
@@ -371,7 +379,7 @@ export function EditorWorkspace({
       if (!family) throw new Error(`Asset ${assetId} has no previewable catalog entry.`);
       inspectAsset(family);
     } catch (cause) {
-      setError(errorMessage(cause));
+      reportError(errorMessage(cause));
     }
   }, [inspectAsset, project.baseLevel.level, project.customModels, project.target]);
 
@@ -403,13 +411,13 @@ export function EditorWorkspace({
 
   const removeImportBatch = useCallback(async (batchId: string, targetFingerprint: string) => {
     setBusy(true);
-    setError(undefined);
     try {
       onProjectChange(await window.forge.applyContentImportRemoval(batchId, targetFingerprint));
+      forgeLog.write('Imports', 'success', `Removed import batch ${batchId}.`);
       return true;
     }
     catch (cause) {
-      setError(errorMessage(cause));
+      reportError(errorMessage(cause));
       return false;
     }
     finally { setBusy(false); }
@@ -419,19 +427,17 @@ export function EditorWorkspace({
     entityId: string,
     settings?: EditorInstancedCollisionGenerationSettings,
   ) => {
-    setError(undefined);
     try { return await window.forge.previewInstancedCollision(entityId, settings); }
     catch (cause) {
-      setError(errorMessage(cause));
+      reportError(errorMessage(cause));
       throw cause;
     }
   }, []);
 
   const inspectInstancedCollisionSource = useCallback(async (entityId: string) => {
-    setError(undefined);
     try { return await window.forge.inspectInstancedCollisionSource(entityId); }
     catch (cause) {
-      setError(errorMessage(cause));
+      reportError(errorMessage(cause));
       throw cause;
     }
   }, []);
@@ -440,38 +446,30 @@ export function EditorWorkspace({
 
   const applyInstancedCollisionPreview = useCallback(async (token: string) => {
     setBusy(true);
-    setError(undefined);
     try {
       onProjectChange(await window.forge.applyInstancedCollisionPreview(crypto.randomUUID(), token));
       return true;
     }
     catch (cause) {
-      setError(errorMessage(cause));
+      reportError(errorMessage(cause));
       return false;
     }
     finally { setBusy(false); }
   }, [onProjectChange]);
 
-  const previewGroupTemplate = useCallback(async (request: EditorGroupTemplateRequest) => {
-    setError(undefined);
-    try { return await window.forge.previewGroupTemplate(request); }
-    catch (cause) {
-      setError(errorMessage(cause));
-      throw cause;
-    }
-  }, []);
+  const previewGroupTemplate = useCallback((request: EditorGroupTemplateRequest) =>
+    window.forge.previewGroupTemplate(request), []);
 
   const cancelGroupTemplatePreview = useCallback(() => window.forge.cancelGroupTemplatePreview(), []);
 
   const applyGroupTemplatePreview = useCallback(async (token: string) => {
     setBusy(true);
-    setError(undefined);
     try {
       onProjectChange(await window.forge.applyGroupTemplatePreview(crypto.randomUUID(), token));
       return true;
     }
     catch (cause) {
-      setError(errorMessage(cause));
+      reportError(errorMessage(cause));
       return false;
     }
     finally { setBusy(false); }
@@ -581,7 +579,7 @@ export function EditorWorkspace({
     buildProgress,
     buildResult,
     build: buildAndPatch,
-    cancelBuild: () => window.forge.cancelBuildAndPatch(),
+    cancelBuild: () => window.forge.cancelBuildAndPatch().catch((cause) => reportError(errorMessage(cause))),
     execute,
     previewInstancedCollision,
     inspectInstancedCollisionSource,
@@ -596,9 +594,11 @@ export function EditorWorkspace({
     setInstancedCollisionRendered,
     save: async () => {
       setBusy(true);
-      setError(undefined);
-      try { onProjectChange(await window.forge.saveEditorProject()); }
-      catch (cause) { setError(errorMessage(cause)); }
+      try {
+        onProjectChange(await window.forge.saveEditorProject());
+        forgeLog.write('Project', 'success', 'Project saved.');
+      }
+      catch (cause) { reportError(errorMessage(cause)); }
       finally { setBusy(false); }
     },
   }), [activeImportBatchId, applyGroupTemplatePreview, applyInstancedCollisionPreview, assetPreview, assetThumbnails, buildAndPatch, buildProgress, buildResult, busy, cameraFocus,
@@ -615,9 +615,6 @@ export function EditorWorkspace({
 
   return <EditorContext.Provider value={context}>
     <div className="editor-workspace">
-      {error && <div className="editor-layout-error">
-        <EditorErrorState message={error} onClose={() => setError(undefined)} />
-      </div>}
       <DockviewReact
         components={components}
         keyboardNavigation
@@ -630,7 +627,8 @@ export function EditorWorkspace({
         busy={busy}
         buildProgress={buildProgress}
         buildResult={buildResult}
-        onCancel={() => void window.forge.cancelBuildAndPatch()}
+        onCancel={() => void window.forge.cancelBuildAndPatch().catch((cause) => reportError(errorMessage(cause)))}
+        onShowLog={() => { if (api) showEditorPanel(api, 'diagnostics'); }}
       />
     </div>
   </EditorContext.Provider>;

@@ -47,6 +47,7 @@ test('default editor layout matches the established three-column workspace', () 
   assert.deepEqual(panels.find((panel) => panel.id === 'diagnostics')?.position,
     { referencePanel: 'viewport', direction: 'below' });
   assert.equal(panels.find((panel) => panel.id === 'diagnostics')?.initialHeight, 485);
+  assert.equal(panels.find((panel) => panel.id === 'diagnostics')?.title, 'Log');
   assert.deepEqual(panels.find((panel) => panel.id === 'groups')?.position,
     { referencePanel: 'viewport', direction: 'left' });
   assert.equal(panels.find((panel) => panel.id === 'groups')?.initialWidth, 283);
@@ -59,7 +60,7 @@ test('default editor layout matches the established three-column workspace', () 
     { referencePanel: 'assetExplorer', direction: 'within' });
 });
 
-test('reopened Asset Explorer rejoins the Diagnostics group', () => {
+test('reopened Asset Explorer rejoins the Log group', () => {
   let added: Record<string, unknown> | undefined;
   showEditorPanel({
     getPanel: (id: string) => id === 'diagnostics' ? { id } : undefined,
@@ -138,4 +139,16 @@ test('reopened Scene panel sits beside Groups for cross-tree drag and drop', () 
     addPanel: (panel: Record<string, unknown>) => { added = panel; },
   } as never, 'sceneTree');
   assert.deepEqual(added?.position, { referencePanel: 'groups', direction: 'left' });
+});
+
+test('saved Diagnostics panel restores as Log without changing panel identity or geometry', () => {
+  const decoded = decodeEditorLayout(layout({
+    diagnostics: { id: 'diagnostics', contentComponent: 'diagnostics', title: 'Diagnostics' },
+    viewport: { id: 'viewport', contentComponent: 'viewport', title: 'Viewport' },
+  }));
+  assert.equal(decoded?.panels.diagnostics.title, 'Log');
+  assert.equal(decoded?.panels.diagnostics.id, 'diagnostics');
+  assert.equal(decoded?.panels.diagnostics.contentComponent, 'diagnostics');
+  assert.equal(decoded?.panels.viewport.title, 'Viewport');
+  assert.deepEqual(decoded?.grid, JSON.parse(layout({})).grid);
 });

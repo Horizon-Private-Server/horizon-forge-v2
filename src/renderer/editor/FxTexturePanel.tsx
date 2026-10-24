@@ -19,6 +19,8 @@ import {
 
 type FxTextureItem = ReturnType<typeof buildFxTextureItems>[number];
 
+import { useLogReporter } from '../log/UseLog.ts';
+
 interface PendingImage {
   mode: 'replace' | 'append';
   bytes: Uint8Array;
@@ -35,7 +37,7 @@ export function FxTexturePanel() {
   const fx = project.fx;
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | 'changed' | 'issues'>('all');
-  const [error, setError] = useState('');
+  const reportError = useLogReporter('FX textures');
   const [preparing, setPreparing] = useState(false);
   const [pending, setPending] = useState<PendingImage>();
   const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null);
@@ -52,7 +54,6 @@ export function FxTexturePanel() {
   ) => {
     if (!file) return;
     setPreparing(true);
-    setError('');
     try {
       const image = await prepareTextureImage(file, validateFxPng);
       setPending({
@@ -62,7 +63,7 @@ export function FxTexturePanel() {
         sourceDimensions: target ? `${target.width} × ${target.height}` : undefined,
       });
     } catch (cause) {
-      setError(errorMessage(cause));
+      reportError(errorMessage(cause));
     } finally {
       setPreparing(false);
     }
@@ -110,8 +111,6 @@ export function FxTexturePanel() {
         ]} value={filter} onChange={(value) => setFilter(value as typeof filter)} />
       </div>
       {fx.authoringDisabledReason && <Alert color="yellow">{fx.authoringDisabledReason}</Alert>}
-      {error && <Alert color="red" title="FX image could not be prepared" withCloseButton
-        onClose={() => setError('')}>{error}</Alert>}
     </div>
     <div className="hud-bank-grid-scroll" ref={setScrollElement}>
       <div aria-label="FX texture entries" className="hud-bank-grid" role="list" style={{ height: windowed.totalHeight }}>

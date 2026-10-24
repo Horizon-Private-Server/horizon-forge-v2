@@ -1,8 +1,5 @@
 import {
-  Alert,
   Box,
-  Progress,
-  Stack,
   Text,
   TextInput,
   Tree,
@@ -207,24 +204,6 @@ export function EditorProperty({ label, children }: { label: string; children: R
   return <><Text component="dt" c="dimmed">{label}</Text><Text component="dd">{children}</Text></>;
 }
 
-export function EditorDiagnosticList({ messages }: { messages: string[] }) {
-  return messages.length
-    ? <Stack component="ul" className="editor-diagnostics">{messages.map((message, index) => <Text component="li" key={`${index}:${message}`}>{message}</Text>)}</Stack>
-    : <EditorEmptyState message="No diagnostics." />;
-}
-
-export function EditorProgressState({ label, completed, total }: { label: string; completed: number; total: number }) {
-  const value = total > 0 ? Math.min(100, Math.max(0, completed / total * 100)) : 0;
-  return <Stack role="status" aria-label={label}>
-    <Text>{label}</Text>
-    <Progress value={value} aria-label={`${label}: ${Math.round(value)}%`} />
-  </Stack>;
-}
-
 export function EditorEmptyState({ message }: { message: string }) {
   return <Text c="dimmed" className="editor-empty" role="status">{message}</Text>;
-}
-
-export function EditorErrorState({ message, onClose }: { message: string; onClose?(): void }) {
-  return <Alert color="red" title="Error" withCloseButton={Boolean(onClose)} onClose={onClose}>{message}</Alert>;
 }

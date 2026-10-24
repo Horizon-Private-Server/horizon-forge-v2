@@ -1,4 +1,4 @@
-import { Alert, Button, Checkbox, Select, Text } from '@mantine/core';
+import { Button, Checkbox, Select, Text } from '@mantine/core';
 import { useEffect, useMemo, useState } from 'react';
 
 import type { AssetExplorerItem } from '../../types/AssetExplorer.js';
@@ -9,12 +9,15 @@ import { assetGridItemVisible, assetGridWindow } from '../../utils/VirtualGrid.t
 import { AssetCard } from './AssetExplorerPanel.tsx';
 import { useEditor } from './EditorContext.ts';
 
+import { forgeLog } from '../log/LogStore.ts';
+import { useLogReporter } from '../log/UseLog.ts';
+
 export function CustomAssetsPanel() {
   const { assetPreview, assetThumbnails, busy, execute, inspectAsset, project, sceneTreeColors } = useEditor();
   const [forceBackfaceCulling, setForceBackfaceCulling] = useState(false);
   const [assetType, setAssetType] = useState<'ties' | 'tfrags'>('ties');
   const [importing, setImporting] = useState(false);
-  const [error, setError] = useState('');
+  const reportError = useLogReporter('Custom assets');
   const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null);
   const [viewport, setViewport] = useState({ width: 0, height: 0, scrollTop: 0 });
   const families = useMemo(() => buildAssetFamilies(assetType === 'ties'
@@ -66,7 +69,6 @@ export function CustomAssetsPanel() {
 
   const importAsset = () => {
     setImporting(true);
-    setError('');
     const choose = assetType === 'ties'
       ? window.forge.chooseCustomTieImport(forceBackfaceCulling)
       : window.forge.chooseCustomTfragImport();
@@ -98,9 +100,10 @@ export function CustomAssetsPanel() {
           level: snapshot.baseLevel.level,
         })[0];
         if (!family) throw new Error('The imported custom asset could not be displayed.');
+        forgeLog.write('Custom assets', 'success', `Imported ${value.sourceName}.`);
         inspectAsset(family);
       })
-      .catch((cause: unknown) => setError(errorMessage(cause)))
+      .catch((cause: unknown) => reportError(errorMessage(cause)))
       .finally(() => setImporting(false));
   };
 
@@ -130,7 +133,6 @@ export function CustomAssetsPanel() {
           : undefined}
         onClick={importAsset}
       >{assetType === 'ties' ? 'Import custom TIE' : 'Import or re-import tfrag'}</Button>
-      {error && <Alert color="red" title="Could not import asset"><Text size="sm">{error}</Text></Alert>}
     </div>
     <div className="asset-explorer-grid-scroll" ref={setScrollElement}>
       <div

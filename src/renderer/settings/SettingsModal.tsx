@@ -22,6 +22,9 @@ import { readSelectionColor, SELECTION_COLOR_KEY } from '../../utils/SelectionVi
 import { readUyaCollisionVisualization } from '../../utils/UyaCollisionVisualization.ts';
 import { UyaCollisionVisualizationSettings } from './UyaCollisionVisualizationSettings.tsx';
 
+import { forgeLog } from '../log/LogStore.ts';
+import { useLoggedMessage } from '../log/UseLog.ts';
+
 interface SettingsModalProps {
   opened: boolean;
   onClose(): void;
@@ -60,9 +63,8 @@ export function SettingsModal({
   const [keybindingOverrides, setKeybindingOverrides] = useState<KeybindingOverrides>({});
   const [resettingTreeColors, setResettingTreeColors] = useState(false);
   const [clearingRenderCache, setClearingRenderCache] = useState(false);
-  const [renderCacheCleared, setRenderCacheCleared] = useState(false);
   const [savedUiSize, setSavedUiSize] = useState<UiSize>('xs');
-  const [error, setError] = useState<string>();
+  const [error, setError] = useLoggedMessage('Settings');
 
   useEffect(() => {
     if (!opened) return;
@@ -91,7 +93,6 @@ export function SettingsModal({
       onCollisionVisualizationChange(readUyaCollisionVisualization(snapshot.entries));
       onKeybindingsChange(resolveKeybindings(overrides));
       onViewportStatsChange(stats?.value === true);
-      setRenderCacheCleared(false);
       setError(undefined);
     }).catch((reason: unknown) => setError(errorMessage(reason)));
   }, [opened]);
@@ -111,10 +112,10 @@ export function SettingsModal({
 
   const clearRenderCache = async () => {
     setClearingRenderCache(true);
-    setRenderCacheCleared(false);
     setError(undefined);
     try {
-      setRenderCacheCleared(await window.forge.clearRenderCache());
+      if (await window.forge.clearRenderCache())
+        forgeLog.write('Settings', 'success', 'Render cache cleared. Previews will be regenerated as needed.');
     } catch (reason) {
       setError(errorMessage(reason));
     } finally {
@@ -226,9 +227,6 @@ export function SettingsModal({
                 Clear render cache
               </Button>
             </Paper>
-            {renderCacheCleared && <Alert color="green" title="Render cache cleared">
-              Previews will be regenerated as needed.
-            </Alert>}
             {error && <Alert color="red" title="Settings error">{error}</Alert>}
           </Stack>
         </Tabs.Panel>

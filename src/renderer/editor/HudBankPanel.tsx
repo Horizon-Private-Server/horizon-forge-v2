@@ -21,6 +21,8 @@ import {
 
 type HudBankItem = ReturnType<typeof buildHudBankItems>[number];
 
+import { useLogReporter } from '../log/UseLog.ts';
+
 interface PendingImage {
   mode: 'replace' | 'append';
   bytes: Uint8Array;
@@ -37,7 +39,7 @@ export function HudBankPanel() {
   const hud = project.hud;
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | 'changed' | 'issues'>('all');
-  const [error, setError] = useState('');
+  const reportError = useLogReporter('HUD');
   const [preparing, setPreparing] = useState(false);
   const [pending, setPending] = useState<PendingImage>();
   const [spriteIdText, setSpriteIdText] = useState('');
@@ -56,7 +58,6 @@ export function HudBankPanel() {
   ) => {
     if (!file) return;
     setPreparing(true);
-    setError('');
     try {
       const image = await prepareTextureImage(file, validateHudPng);
       setPending({
@@ -71,7 +72,7 @@ export function HudBankPanel() {
         setBankIndex(hud.minimumAppendBank);
       }
     } catch (cause) {
-      setError(errorMessage(cause));
+      reportError(errorMessage(cause));
     } finally {
       setPreparing(false);
     }
@@ -134,8 +135,6 @@ export function HudBankPanel() {
         ]} value={filter} onChange={(value) => setFilter(value as typeof filter)} />
       </div>
       {hud.authoringDisabledReason && <Alert color="yellow">{hud.authoringDisabledReason}</Alert>}
-      {error && <Alert color="red" title="HUD image could not be prepared" withCloseButton
-        onClose={() => setError('')}>{error}</Alert>}
     </div>
     <div className="hud-bank-grid-scroll" ref={setScrollElement}>
       <div aria-label="HUD entries" className="hud-bank-grid" role="list" style={{ height: windowed.totalHeight }}>

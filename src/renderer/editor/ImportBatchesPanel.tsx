@@ -7,6 +7,8 @@ import { errorMessage } from '../../utils/Errors.ts';
 import { useEditor } from './EditorContext.ts';
 import { EditorEmptyState, EditorFilter, EditorPanel } from './EditorPrimitives.tsx';
 
+import { useLogReporter } from '../log/UseLog.ts';
+
 export function ImportBatchesPanel() {
   const {
     project, busy, execute, navigateToEntity, activeImportBatchId, openImportBatch, filterSceneToImportBatch,
@@ -15,7 +17,7 @@ export function ImportBatchesPanel() {
   const [filter, setFilter] = useState('');
   const [removalPlan, setRemovalPlan] = useState<ContentImportRemovalPlan>();
   const [removalLoading, setRemovalLoading] = useState<string>();
-  const [removalError, setRemovalError] = useState('');
+  const reportError = useLogReporter('Imports');
   useEffect(() => {
     if (activeImportBatchId) setFilter(activeImportBatchId);
   }, [activeImportBatchId]);
@@ -42,18 +44,14 @@ export function ImportBatchesPanel() {
   }, [filter, project.importBatches]);
   const previewRemoval = async (batchId: string) => {
     setRemovalLoading(batchId);
-    setRemovalError('');
     try { setRemovalPlan(await window.forge.planContentImportRemoval(batchId)); }
-    catch (cause) { setRemovalError(errorMessage(cause)); }
+    catch (cause) { reportError(errorMessage(cause)); }
     finally { setRemovalLoading(undefined); }
   };
 
   return <EditorPanel label="Imports">
     <Stack gap="xs" p="xs" h="100%">
       <EditorFilter label="Filter import batches" value={filter} onChange={setFilter} />
-      {removalError && <Alert color="red" withCloseButton onClose={() => setRemovalError('')}>
-        {removalError}
-      </Alert>}
       {!project.importBatches.length
         ? <EditorEmptyState message="This project has no map content imports." />
         : !batches.length

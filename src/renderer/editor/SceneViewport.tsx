@@ -74,6 +74,9 @@ import {
   resolveMobySimulationFxAssetId,
 } from '../simulation/MobySimulationSnapshot.ts';
 
+import { forgeLog } from '../log/LogStore.ts';
+import { useLogReporter } from '../log/UseLog.ts';
+
 interface SceneViewportProps {
   projectId: string;
   projectRevision: number;
@@ -171,7 +174,8 @@ export function SceneViewport({
   const [translationSnap, setTranslationSnap] = useState(1);
   const [rotationSnap, setRotationSnap] = useState(15);
   const [scaleSnap, setScaleSnap] = useState(0.1);
-  const [notice, setNotice] = useState<string>();
+  const reportWarning = useLogReporter('Viewport', 'warning');
+  const reportError = useLogReporter('Viewport');
   const [transformNotice, setTransformNotice] = useState<string>();
   const [skyDropActive, setSkyDropActive] = useState(false);
   const [stats, setStats] = useState<{ fps: number; calls: number; triangles: number }>();
@@ -295,7 +299,7 @@ export function SceneViewport({
     const collisionScenes = new Set<THREE.Object3D>();
     const instancedCollisionPreview = new InstancedCollisionOverlayProjection(
       collisionScenes,
-      () => setNotice('Collision candidate overlay unavailable.'),
+      () => reportWarning('Collision candidate overlay unavailable.'),
     );
     const simulationRoot = new THREE.Group();
     simulationRoot.name = 'Moby simulation preview';
@@ -520,7 +524,7 @@ export function SceneViewport({
           else object.userData.forgeEntityId = previous;
         };
       },
-      reportDiagnostic: (diagnostic) => setNotice(diagnostic.message),
+      reportDiagnostic: (diagnostic) => forgeLog.write('Moby simulation', diagnostic.severity, diagnostic.message, diagnostic.code),
     });
     viewport.current = {
       projection: currentProjection,
@@ -555,12 +559,6 @@ export function SceneViewport({
       simulationFxSignature: '',
     };
 
-    let noticeTimer: ReturnType<typeof setTimeout> | undefined;
-    const showNotice = (message: string) => {
-      setNotice(message);
-      if (noticeTimer) clearTimeout(noticeTimer);
-      noticeTimer = setTimeout(() => setNotice(undefined), 2_000);
-    };
     const viewportInputActive = () => cameraInputActive
       || document.activeElement === renderer.domElement
       || transformTool.isInteracting;
@@ -604,12 +602,12 @@ export function SceneViewport({
             currentMissingSelectionMembers.current,
           );
         } catch (cause) {
-          showNotice(`Could not place selection: ${errorMessage(cause)}`);
+          reportError(`Could not place selection: ${errorMessage(cause)}`);
           return;
         }
-        if (!result.updates.length) showNotice(result.message);
+        if (!result.updates.length) reportWarning(result.message);
         else void transformsCommitted.current(result.updates).then((committed) => {
-          if (committed) showNotice(result.message);
+          if (committed) forgeLog.write('Viewport', 'success', result.message);
         });
         return;
       }
@@ -854,12 +852,12 @@ export function SceneViewport({
       picking.clearHover();
       simulationController.contextLost();
       setMobySimulationStats(simulationController.getStats());
-      setNotice('Moby simulation paused because the graphics context was lost.');
+      reportWarning('Moby simulation paused because the graphics context was lost.');
     };
     const webglContextRestored = () => {
       void simulationController.contextRestored().then(() => {
         setMobySimulationStats(simulationController.getStats());
-      }).catch((cause) => setNotice(`Moby simulation could not recover: ${errorMessage(cause)}`));
+      }).catch((cause) => reportError(`Moby simulation could not recover: ${errorMessage(cause)}`));
     };
     renderer.domElement.addEventListener('webglcontextlost', webglContextLost);
     renderer.domElement.addEventListener('webglcontextrestored', webglContextRestored);
@@ -926,7 +924,6 @@ export function SceneViewport({
     return () => {
       picking.clearHover();
       observer.disconnect();
-      if (noticeTimer) clearTimeout(noticeTimer);
       if (dropFrame.current !== undefined) cancelAnimationFrame(dropFrame.current);
       dropFrame.current = undefined;
       pendingDrop.current = undefined;
@@ -1011,7 +1008,7 @@ export function SceneViewport({
       if (!cancelled) setMobySimulationStats(current.simulationController.getStats());
     };
     void update().catch((cause) => {
-      if (!cancelled) setNotice(`Moby simulation update failed: ${errorMessage(cause)}`);
+      if (!cancelled) reportError(`Moby simulation update failed: ${errorMessage(cause)}`);
     });
     return () => { cancelled = true; };
   }, [entities, fx, game, projectId, projectRevision, references, simulationFxSignature]);
@@ -1025,7 +1022,7 @@ export function SceneViewport({
         if (!cancelled) setMobySimulationStats(current.simulationController.getStats());
       })
       .catch((cause) => {
-        if (!cancelled) setNotice(`Moby simulation could not be ${mobySimulationEnabled ? 'enabled' : 'disabled'}: ${errorMessage(cause)}`);
+        if (!cancelled) reportError(`Moby simulation could not be ${mobySimulationEnabled ? 'enabled' : 'disabled'}: ${errorMessage(cause)}`);
       });
     return () => { cancelled = true; };
   }, [mobySimulationEnabled]);
@@ -1302,7 +1299,7 @@ export function SceneViewport({
         })
         .catch(() => {
           if (!disposed && viewport.current === current && desired.has(entity.id))
-            setNotice(`Sky shell ${entity.skyShell!.order + 1} preview unavailable.`);
+            reportWarning(`Sky shell ${entity.skyShell!.order + 1} preview unavailable.`);
         })
         .finally(() => {
           requests.delete(requestToken);
@@ -1486,7 +1483,7 @@ export function SceneViewport({
       }
       return groundOffset();
     } catch {
-      if (viewport.current === current) setNotice('Asset preview unavailable; placing from its origin.');
+      if (viewport.current === current) reportWarning('Asset preview unavailable; placing from its origin.');
       return viewport.current === current ? 0 : undefined;
     } finally {
       current.previewRequests.delete(requestToken);
@@ -1506,11 +1503,11 @@ export function SceneViewport({
     if (asset.kind === 'sky') {
       current.dropGhost.visible = false;
       if (asset.dropError) {
-        setNotice(asset.dropError);
+        reportError(asset.dropError);
         return;
       }
       void assetDropped.current(asset).then((placed) => {
-        setNotice(placed ? 'Sky shell added.' : 'Sky shell addition failed.');
+        forgeLog.write('Viewport', placed ? 'success' : 'error', placed ? 'Sky shell added.' : 'Sky shell addition failed.');
       });
       return;
     }
@@ -1521,7 +1518,7 @@ export function SceneViewport({
     void preparePlacedAsset(asset).then(async (offset) => {
       if (offset === undefined) return;
       const placed = await assetDropped.current(asset, { x: point.x, y: -point.z, z: point.y + offset });
-      if (!placed) setNotice('Asset placement failed.');
+      if (!placed) reportError('Asset placement failed.');
     });
   };
 
@@ -1584,7 +1581,7 @@ export function SceneViewport({
         onMobySimulationPausedChange={onMobySimulationPausedChange}
         onMobySimulationReset={resetMobySimulation}
       />
-      {(notice ?? transformNotice) && <div className="scene-notice" role="status">{notice ?? transformNotice}</div>}
+      {transformNotice && <div className="scene-notice" role="status">{transformNotice}</div>}
       {showStats && <div className="scene-stats">
         {stats ? `${stats.fps} FPS · ${stats.calls} calls · ${stats.triangles.toLocaleString()} tris` : 'Measuring…'}
       </div>}

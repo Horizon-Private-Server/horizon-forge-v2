@@ -11,7 +11,7 @@ export const EDITOR_PANELS = {
   properties: { component: 'properties', title: 'Properties' },
   references: { component: 'references', title: 'References' },
   levelSettings: { component: 'levelSettings', title: 'Level Settings' },
-  diagnostics: { component: 'diagnostics', title: 'Diagnostics' },
+  diagnostics: { component: 'diagnostics', title: 'Log' },
   build: { component: 'build', title: 'Build' },
   assetExplorer: { component: 'assetExplorer', title: 'Asset Explorer' },
   customAssets: { component: 'customAssets', title: 'Custom Assets' },
@@ -33,6 +33,8 @@ export function decodeEditorLayout(value: string): SerializedDockview | undefine
       if (!isEditorPanelId(id) || !isRecord(panel)
         || panel.id !== id || panel.contentComponent !== EDITOR_PANELS[id].component) return undefined;
     }
+    // Keep the saved panel identity and geometry while updating its visible name.
+    if (isRecord(layout.panels.diagnostics)) layout.panels.diagnostics.title = EDITOR_PANELS.diagnostics.title;
     return layout as unknown as SerializedDockview;
   } catch {
     return undefined;

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { errorMessage } from '../../utils/Errors.ts';
+import { forgeLog } from '../log/LogStore.ts';
 import type { UpdateLifecycleAction, UpdateLifecycleSnapshot } from '../../types/Updates.js';
 
 export function useUpdateLifecycle() {
@@ -14,7 +16,7 @@ export function useUpdateLifecycle() {
     });
     void window.forge.getUpdateLifecycle().then((value) => {
       if (mounted && !receivedEvent.current) setSnapshot(value);
-    }).catch(() => undefined);
+    }).catch((cause) => { if (mounted) forgeLog.write('Updates', 'error', errorMessage(cause)); });
     return () => {
       mounted = false;
       unsubscribe();

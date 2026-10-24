@@ -12,6 +12,8 @@ import { errorMessage } from '../../utils/Errors.ts';
 import { formatBytes } from '../../utils/Format.ts';
 import { describeUpdateLifecycle } from '../../utils/UpdateLifecycle.ts';
 
+import { useLoggedMessage } from '../log/UseLog.ts';
+
 interface UpdateStatusMenuProps {
   snapshot?: UpdateLifecycleSnapshot;
   onAction(action: UpdateLifecycleAction): Promise<void>;
@@ -19,7 +21,7 @@ interface UpdateStatusMenuProps {
 
 export function UpdateStatusMenu({ snapshot, onAction }: UpdateStatusMenuProps) {
   const [pending, setPending] = useState<UpdateLifecycleAction>();
-  const [error, setError] = useState<string>();
+  const [error, setError] = useLoggedMessage('Updates');
   const view = snapshot ? describeUpdateLifecycle(snapshot) : undefined;
   if (!snapshot || !view) return null;
 

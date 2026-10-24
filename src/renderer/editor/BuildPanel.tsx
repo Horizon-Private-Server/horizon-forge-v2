@@ -1,4 +1,4 @@
-import { Alert, Box, Button, Checkbox, Group, Progress, Stack, Text } from '@mantine/core';
+import { Box, Button, Checkbox, Group, Progress, Stack, Text } from '@mantine/core';
 import { useEffect, useMemo, useState } from 'react';
 
 import type { EditorSnapshot } from '../../types/EditorRuntime.js';
@@ -8,10 +8,12 @@ import { errorMessage } from '../../utils/Errors.ts';
 import { useEditor } from './EditorContext.ts';
 import { EditorPanel } from './EditorPrimitives.tsx';
 
+import { useLoggedMessage } from '../log/UseLog.ts';
+
 export function BuildPanel() {
   const { project, busy, hostAvailable, buildProgress, buildResult, build, cancelBuild } = useEditor();
   const [plan, setPlan] = useState<BuildPlan>();
-  const [planError, setPlanError] = useState<string>();
+  const [planError, setPlanError] = useLoggedMessage('Build plan');
   const [selected, setSelected] = useState(() => new Set<BuildLayerId>(BUILD_LAYERS));
   const unsaved = useMemo(() => unsavedLayerStates(project), [project]);
 
@@ -50,7 +52,7 @@ export function BuildPanel() {
         <Text fw={600}>Build development ISO</Text>
         <Text size="xs" c="dimmed">Choose which changed layers to rebuild. Unchecked layers keep their last staged output.</Text>
       </div>
-      {planError && <Alert color="red" title="Build plan unavailable">{planError}</Alert>}
+      {planError && <Text size="xs" c="dimmed">Build plan unavailable. See Log for details.</Text>}
       {layers.map((layer) => {
         const required = layer.state !== 'Clean' && !layer.canDefer;
         return <Checkbox
@@ -75,9 +77,6 @@ export function BuildPanel() {
           size="xs"
         />
       </div>}
-      {buildResult && <Alert color={buildResult.succeeded ? 'teal' : 'red'} title={buildResult.succeeded ? 'Build complete' : 'Build failed'}>
-        {buildResult.message} {buildResult.nextAction}
-      </Alert>}
       <Box mt="auto">
         {busy
           ? <Button fullWidth variant="default" onClick={() => void cancelBuild()}>Cancel</Button>

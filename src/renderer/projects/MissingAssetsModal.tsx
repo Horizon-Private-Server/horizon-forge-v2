@@ -4,6 +4,8 @@ import { useState } from 'react';
 import type { ForgeProjectDescriptor } from '../../types/ForgeApi.js';
 import { errorMessage } from '../../utils/Errors.ts';
 
+import { useLoggedMessage } from '../log/UseLog.ts';
+
 interface MissingAssetsModalProps {
   project: ForgeProjectDescriptor;
   opened: boolean;
@@ -22,7 +24,7 @@ export function MissingAssetsModal({
   onRepaired,
 }: MissingAssetsModalProps) {
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string>();
+  const [error, setError] = useLoggedMessage('Project repair');
   const repairable = project.missingAssets.some((asset) => asset.repairable);
   const omitted = project.missingAssetCount - project.missingAssets.reduce((sum, asset) => sum + asset.entityCount, 0);
 

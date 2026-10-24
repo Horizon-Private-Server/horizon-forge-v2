@@ -13,6 +13,8 @@ import { useEditor } from './EditorContext.ts';
 import { EditorEmptyState, EditorPanel } from './EditorPrimitives.tsx';
 import { MobySoundButtons } from './MobySoundButtons.tsx';
 
+import { useLoggedMessage } from '../log/UseLog.ts';
+
 export function AssetPreviewPanel() {
   const { assetPreview: family, busy, execute, inspectAsset, openImportBatch, project } = useEditor();
   const [assetId, setAssetId] = useState('');
@@ -144,7 +146,7 @@ function CustomModelPreview({ assetId, label, previewRevision }: {
   const [view, setView] = useState<'source' | 'target'>('target');
   const [source, setSource] = useState<AssetPreviewSource>();
   const [details, setDetails] = useState<CustomModelPreviewDetails>();
-  const [detailsError, setDetailsError] = useState('');
+  const [detailsError, setDetailsError] = useLoggedMessage('Asset preview');
   const [primitive, setPrimitive] = useState('0');
   useEffect(() => {
     setSource(undefined);
@@ -188,7 +190,7 @@ function CustomModelPreview({ assetId, label, previewRevision }: {
       onSource={setSource}
       previewRevision={previewRevision}
     />
-    {detailsError && <Text c="red" role="alert" size="sm">{detailsError}</Text>}
+    {detailsError && <Text c="dimmed" size="sm">Preview details unavailable. See Log.</Text>}
     {details && <Stack gap="xs">
       <Group gap="xs">
         <Badge variant="light">{details.vertexCount.toLocaleString()} vertices</Badge>
@@ -251,7 +253,7 @@ function AssetTexturePreview({ assetId, label }: { assetId: string; label: strin
   const [image, setImage] = useState<ImageBitmap>();
   const [channel, setChannel] = useState<TextureChannel>('rgba');
   const [dimensions, setDimensions] = useState('');
-  const [error, setError] = useState('');
+  const [error, setError] = useLoggedMessage('Texture preview');
   const canvas = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const requestToken = crypto.randomUUID();
@@ -318,7 +320,7 @@ function AssetTexturePreview({ assetId, label }: { assetId: string; label: strin
     <div className="asset-texture-preview">
       {source && <canvas ref={canvas} aria-label={`${label} texture preview`} role="img" />}
       {!image && !error && <Text c="dimmed" role="status" size="sm">Loading texture…</Text>}
-      {error && <Text c="red" role="alert" size="sm">{error}</Text>}
+      {error && <Text c="dimmed" size="sm">Texture preview unavailable. See Log.</Text>}
       {dimensions && <Text className="asset-texture-preview-size" size="xs">{dimensions}</Text>}
     </div>
     <SegmentedControl

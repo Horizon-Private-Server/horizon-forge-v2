@@ -1,7 +1,7 @@
 import { EyeIcon } from '@phosphor-icons/react/dist/csr/Eye';
 import { EyeSlashIcon } from '@phosphor-icons/react/dist/csr/EyeSlash';
 import {
-  ActionIcon, Alert, Button, Group, Stack, Text,
+  ActionIcon, Button, Group, Stack, Text,
 } from '@mantine/core';
 import type { TreeNodeData } from '@mantine/core';
 import { useMemo, useState } from 'react';
@@ -26,7 +26,6 @@ import {
   EditorEmptyState,
   EditorFilter,
   EditorPanel,
-  EditorProgressState,
   EditorTree,
 } from './EditorPrimitives.tsx';
 import { SceneViewport } from './SceneViewport.tsx';
@@ -424,34 +423,6 @@ export function PropertiesPanel() {
       : entities.length > 1
         ? <MultiEntityProperties entities={entities} />
         : <EditorEmptyState message="Select an object to inspect its properties." />}
-  </EditorPanel>;
-}
-
-export function DiagnosticsPanel() {
-  const { project, sceneLoad } = useEditor();
-  return <EditorPanel label="Diagnostics">
-    <Stack>
-      {sceneLoad?.status === 'loading' && <EditorProgressState
-        label={sceneLoad.label}
-        completed={sceneLoad.completed}
-        total={sceneLoad.total}
-      />}
-      {sceneLoad?.status === 'error' && <Alert color="red" title="Scene loading failed">
-        {sceneLoad.label}
-      </Alert>}
-      {project.baseLevel.missingAssetCount > 0 && <Alert color="yellow" title="Base assets missing">
-        {project.baseLevel.missingAssetCount} source instances were unavailable when this project was created.
-        Re-import the source catalog and recreate the project to include them.
-      </Alert>}
-      {project.diagnostics.map((diagnostic) => <Alert
-        color={diagnostic.severity === 'error' ? 'red' : diagnostic.severity === 'warning' ? 'yellow' : 'blue'}
-        title={diagnostic.code}
-        key={`${diagnostic.code}:${diagnostic.message}`}
-      >{diagnostic.message}</Alert>)}
-      {!sceneLoad && !project.baseLevel.missingAssetCount && !project.diagnostics.length
-        && <EditorEmptyState message="No diagnostics." />}
-      <Button variant="default" onClick={() => void window.forge.revealLogs()}>Open detailed logs</Button>
-    </Stack>
   </EditorPanel>;
 }
 

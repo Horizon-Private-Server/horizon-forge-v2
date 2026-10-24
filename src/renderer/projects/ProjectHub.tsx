@@ -28,6 +28,8 @@ import { formatUyaLevelLabel } from '../../utils/UyaLevels.ts';
 import { CatalogMaintenanceModal } from './CatalogMaintenanceModal.tsx';
 import { MissingAssetsModal } from './MissingAssetsModal.tsx';
 
+import { useLogReporter, useLogStatus } from '../log/UseLog.ts';
+
 interface ProjectHubProps {
   hostStatus?: ForgeHostStatus;
   requestedAction?: { id: number; action: 'newProject' | 'openProject' };
@@ -39,7 +41,8 @@ interface ProjectHubProps {
 export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen, onOpenSetup }: ProjectHubProps) {
   const [hub, setHub] = useState<ProjectHubState>();
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string>();
+  const reportError = useLogReporter('Projects');
+  useLogStatus('Project hub', hub?.diagnostic, 'error');
   const [createOpened, setCreateOpened] = useState(false);
   const [renameProject, setRenameProject] = useState<ForgeProjectSummary>();
   const [name, setName] = useState('');
@@ -67,21 +70,19 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen, 
 
   const refresh = useCallback(async () => {
     try {
-      setError(undefined);
       setHub(await window.forge.getProjectHub());
     } catch (cause) {
-      setError(errorMessage(cause));
+      reportError(errorMessage(cause));
     }
   }, []);
 
   const openPicker = useCallback(async () => {
     try {
       setBusy(true);
-      setError(undefined);
       const project = await window.forge.openForgeProject();
       if (project) offerProject(project);
     } catch (cause) {
-      setError(errorMessage(cause));
+      reportError(errorMessage(cause));
     } finally {
       setBusy(false);
     }
@@ -99,7 +100,7 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen, 
     setPreflightBusy(true);
     void window.forge.preflightUyaProject(Number(level))
       .then((value) => { if (current) setPreflight(value); })
-      .catch((cause) => { if (current) setError(errorMessage(cause)); })
+      .catch((cause) => { if (current) reportError(errorMessage(cause)); })
       .finally(() => { if (current) setPreflightBusy(false); });
     return () => { current = false; };
   }, [level]);
@@ -108,14 +109,13 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen, 
     if (!name.trim() || level === null) return;
     try {
       setBusy(true);
-      setError(undefined);
       const project = await window.forge.createUyaProject(name.trim(), Number(level), allowPartial);
       if (project) {
         setCreateOpened(false);
         offerProject(project);
       }
     } catch (cause) {
-      setError(errorMessage(cause));
+      reportError(errorMessage(cause));
     } finally {
       setBusy(false);
     }
@@ -124,10 +124,9 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen, 
   async function openRecent(path: string) {
     try {
       setBusy(true);
-      setError(undefined);
       offerProject(await window.forge.openRecentProject(path));
     } catch (cause) {
-      setError(errorMessage(cause));
+      reportError(errorMessage(cause));
     } finally {
       setBusy(false);
     }
@@ -137,12 +136,11 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen, 
     if (!renameProject || !rename.trim()) return;
     try {
       setBusy(true);
-      setError(undefined);
       await window.forge.renameForgeProject(renameProject.path, rename.trim());
       setRenameProject(undefined);
       await refresh();
     } catch (cause) {
-      setError(errorMessage(cause));
+      reportError(errorMessage(cause));
     } finally {
       setBusy(false);
     }
@@ -152,7 +150,6 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen, 
     if (!recoveryProject || !recoveryId) return;
     try {
       setBusy(true);
-      setError(undefined);
       const restored = await window.forge.restoreForgeProject(recoveryProject.path, recoveryId);
       const project = restored.repairRequired
         ? await window.forge.repairForgeProject(restored.path)
@@ -161,7 +158,7 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen, 
       setRecoveryId(null);
       onOpen(project);
     } catch (cause) {
-      setError(errorMessage(cause));
+      reportError(errorMessage(cause));
     } finally {
       setBusy(false);
     }
@@ -171,7 +168,6 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen, 
     if (!recoveryProject) return;
     try {
       setBusy(true);
-      setError(undefined);
       const project = recoveryProject.repairRequired
         ? await window.forge.repairForgeProject(recoveryProject.path)
         : recoveryProject;
@@ -179,7 +175,7 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen, 
       setRecoveryId(null);
       onOpen(project);
     } catch (cause) {
-      setError(errorMessage(cause));
+      reportError(errorMessage(cause));
     } finally {
       setBusy(false);
     }
@@ -203,8 +199,6 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen, 
           <Button onClick={() => setCreateOpened(true)} disabled={!canCreate}>New project</Button>
         </Group>
       </Group>
-
-      {(error || hub?.diagnostic) && <Alert color="red" title="Project hub">{error ?? hub?.diagnostic}</Alert>}
 
       <Paper withBorder className="project-list">
         <Table highlightOnHover verticalSpacing="xs">
@@ -249,7 +243,7 @@ export function ProjectHub({ hostStatus, requestedAction, refreshToken, onOpen, 
                       <Button variant="subtle" onClick={() => void window.forge.revealForgeProject(recent.path)}>Reveal</Button>
                       <Button variant="subtle" color="gray" onClick={async () => {
                         try { setHub(await window.forge.removeRecentProject(recent.path)); }
-                        catch (cause) { setError(errorMessage(cause)); }
+                        catch (cause) { reportError(errorMessage(cause)); }
                       }}>Remove</Button>
                     </Group>
                   </Table.Td>

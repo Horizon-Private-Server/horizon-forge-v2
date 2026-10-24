@@ -1,5 +1,5 @@
 import {
-  Alert, Badge, Button, Checkbox, Group, Loader, Menu, SegmentedControl, Slider, Stack, Switch, Text, TextInput,
+  Badge, Button, Checkbox, Group, Loader, Menu, SegmentedControl, Slider, Stack, Switch, Text, TextInput,
 } from '@mantine/core';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
@@ -16,6 +16,9 @@ import {
 } from './SoundPreviewRuntime.ts';
 import { useVirtualGridViewport } from './TexturePanelHooks.ts';
 
+import { useLoggedMessage } from '../log/UseLog.ts';
+import { forgeLog } from '../log/LogStore.ts';
+
 const CARD_MIN_WIDTH = 340;
 const GRID_ROW_HEIGHT = 112;
 const EMPTY_PLAYBACK: SoundPreviewPlaybackState = {
@@ -28,7 +31,7 @@ const DEFAULT_PREFERENCES: SoundPreviewPreferences = {
 export function SoundWorkspacePanel() {
   const { inspectReferencedAsset, openImportBatch, project } = useEditor();
   const [workspace, setWorkspace] = useState<SoundWorkspace>();
-  const [loadingError, setLoadingError] = useState('');
+  const [loadingError, setLoadingError] = useLoggedMessage('Sounds');
   const [entryError, setEntryError] = useState<{ nativeIndex: number; message: string }>();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | 'playable' | 'issues'>('all');
@@ -110,8 +113,10 @@ export function SoundWorkspacePanel() {
       );
     }
     catch (cause) {
-      if (generation === playGeneration.current)
+      if (generation === playGeneration.current) {
         setEntryError({ nativeIndex: entry.nativeIndex, message: errorMessage(cause) });
+        forgeLog.write('Sound preview', 'error', `Program ${entry.nativeIndex}: ${errorMessage(cause)}`);
+      }
     }
   };
   const stopPlayback = () => {
@@ -120,7 +125,7 @@ export function SoundWorkspacePanel() {
   };
 
   if (loadingError && !workspace) return <section aria-label="Sounds" className="editor-panel">
-    <Alert color="red" title="Sound workspace could not be loaded">{loadingError}</Alert>
+    <Text c="dimmed">Sound workspace unavailable. See Log for details.</Text>
   </section>;
   if (!workspace) return <section aria-label="Sounds" className="editor-panel sound-workspace-loading">
     <Loader size="sm" /><Text size="sm">Reading sound and remap inventory…</Text>
@@ -170,7 +175,6 @@ export function SoundWorkspacePanel() {
           onVolume={(value) => setPreference('ambientVolume', value)}
           onVolumeCommit={(value) => persistPreference('ambientVolume', value)} />
       </div>
-      {loadingError && <Alert color="red" withCloseButton onClose={() => setLoadingError('')}>{loadingError}</Alert>}
     </div>
     <div className="sound-workspace-scroll" ref={setScrollElement}>
       <div aria-label="Sound entries" className="sound-workspace-list" role="list"

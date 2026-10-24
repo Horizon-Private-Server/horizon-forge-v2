@@ -5,6 +5,8 @@ import type { AssetExplorerSource } from '../../types/AssetExplorer.js';
 import type { SoundProgramEntry, SoundWorkspace } from '../../types/SoundWorkspace.js';
 import { errorMessage } from '../../utils/Errors.ts';
 import { readSoundPreviewPreferences } from '../../utils/SoundPreviewPreferences.ts';
+import { forgeLog } from '../log/LogStore.ts';
+import { useLoggedMessage } from '../log/UseLog.ts';
 import { soundSlotsForMoby } from '../../utils/SoundWorkspace.ts';
 import {
   SoundPreviewRuntime, type SoundPreviewPlaybackState,
@@ -23,7 +25,7 @@ interface MobySoundButtonsProps {
 
 export function MobySoundButtons({ assetId, classId, projectId, sources }: MobySoundButtonsProps) {
   const [workspace, setWorkspace] = useState<SoundWorkspace>();
-  const [loadingError, setLoadingError] = useState('');
+  const [loadingError, setLoadingError] = useLoggedMessage('Moby sounds');
   const [entryError, setEntryError] = useState<{ nativeIndex: number; message: string }>();
   const [playback, setPlayback] = useState(EMPTY_PLAYBACK);
   const runtime = useRef<SoundPreviewRuntime | undefined>(undefined);
@@ -90,8 +92,10 @@ export function MobySoundButtons({ assetId, classId, projectId, sources }: MobyS
         sourceKey ? `${sourceKey}:${entry.nativeIndex}` : String(entry.nativeIndex),
       );
     } catch (cause) {
-      if (generation === playGeneration.current)
+      if (generation === playGeneration.current) {
         setEntryError({ nativeIndex: entry.nativeIndex, message: errorMessage(cause) });
+        forgeLog.write('Moby sounds', 'error', `Sound ${entry.nativeIndex}: ${errorMessage(cause)}`);
+      }
     }
   };
   const stop = () => {
@@ -110,7 +114,7 @@ export function MobySoundButtons({ assetId, classId, projectId, sources }: MobyS
     </Group>
     {catalogSources.length === 0 && !workspace && !loadingError
       && <Text c="dimmed" size="sm">Reading sound remaps…</Text>}
-    {loadingError && <Text c="red" role="alert" size="sm">{loadingError}</Text>}
+    {loadingError && <Text c="dimmed" size="sm">Sound remaps unavailable. See Log.</Text>}
     {catalogSources.length === 0 && workspace && slots.length === 0 && <Text c="dimmed" size="sm">
       This moby has no sound remaps in the current level.
     </Text>}

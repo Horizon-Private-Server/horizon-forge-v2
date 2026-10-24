@@ -4,12 +4,16 @@ import type { EditorCommand, EditorLayoutAction, EditorSnapshot, ForgeAction } f
 import { errorMessage } from '../../utils/Errors.ts';
 import { applyEditorCommandResult } from '../../utils/EditorCommandResult.ts';
 
+import { forgeLog } from '../log/LogStore.ts';
+import { useLogReporter } from '../log/UseLog.ts';
+
 export function useForgeActions(
   setSetupOpened: (value: boolean) => void,
   setSettingsOpened: (value: boolean) => void,
+  openSessionLog: () => void,
 ) {
   const [activeProject, setActiveProject] = useState<EditorSnapshot>();
-  const [editorError, setEditorError] = useState<string>();
+  const reportError = useLogReporter('Project');
   const [isSaving, setIsSaving] = useState(false);
   const [hubAction, setHubAction] = useState<{ id: number; action: 'newProject' | 'openProject' }>();
   const [layoutAction, setLayoutAction] = useState<{ id: number; action: EditorLayoutAction }>();
@@ -19,23 +23,25 @@ export function useForgeActions(
     if (action === 'setup') setSetupOpened(true);
     else if (action === 'settings') setSettingsOpened(true);
     else if (action === 'checkUpdates') {
-      void window.forge.checkForUpdates().catch((error) => setEditorError(errorMessage(error)));
+      void window.forge.checkForUpdates().catch((error) => reportError(errorMessage(error)));
     }
     else if (action === 'reloadMobyDex') {
       void window.forge.reloadMobyDexDataset()
         .then(async (result) => {
           if (!result) return;
-          setEditorError(undefined);
           if (activeProject) setActiveProject(await window.forge.getEditorSnapshot());
         })
-        .catch((error) => setEditorError(errorMessage(error)));
+        .catch((error) => reportError(errorMessage(error)));
     }
     else if (action === 'saveProject') {
       if (activeProject && !isSaving) {
         setIsSaving(true);
         void window.forge.saveEditorProject()
-          .then(setActiveProject)
-          .catch((error) => setEditorError(errorMessage(error)))
+          .then((snapshot) => {
+            setActiveProject(snapshot);
+            forgeLog.write('Project', 'success', `${snapshot.projectName} saved.`);
+          })
+          .catch((error) => reportError(errorMessage(error)))
           .finally(() => setIsSaving(false));
       }
     }
@@ -50,7 +56,7 @@ export function useForgeActions(
           entityIds: [],
         }).then((result) => setActiveProject((project) => project
           ? applyEditorCommandResult(project, result)
-          : project)).catch((error) => setEditorError(errorMessage(error)));
+          : project)).catch((error) => reportError(errorMessage(error)));
       }
     }
     else if (isEditorEntityAction(action)) {
@@ -67,8 +73,9 @@ export function useForgeActions(
         .then((result) => setActiveProject((project) => project
           ? applyEditorCommandResult(project, result)
           : project))
-        .catch((error) => setEditorError(errorMessage(error)));
+        .catch((error) => reportError(errorMessage(error)));
     }
+    else if (action === 'showDiagnostics' && !activeProject) openSessionLog();
     else if (isEditorLayoutAction(action)) {
       if (activeProject) setLayoutAction({ id: Date.now(), action });
     }
@@ -77,29 +84,30 @@ export function useForgeActions(
         setHubAction(undefined);
         setLayoutAction(undefined);
         setActiveProject(undefined);
-      }).catch((error) => setEditorError(errorMessage(error)));
+        if (activeProject) forgeLog.write('Project', 'info', `Closed ${activeProject.projectName}.`);
+      }).catch((error) => reportError(errorMessage(error)));
     }
     else {
       void (activeProject ? window.forge.closeEditorProject() : Promise.resolve()).then(() => {
         setActiveProject(undefined);
         setLayoutAction(undefined);
         setHubAction({ id: Date.now(), action });
-      }).catch((error) => setEditorError(errorMessage(error)));
+      }).catch((error) => reportError(errorMessage(error)));
     }
-  }, [activeProject, isSaving, setSettingsOpened, setSetupOpened]);
+  }, [activeProject, isSaving, setSettingsOpened, setSetupOpened, openSessionLog]);
 
   const openProject = useCallback((path: string) => {
     void window.forge.openEditorProject(path).then((snapshot) => {
-      setEditorError(undefined);
+      forgeLog.clear();
+      forgeLog.write('Project', 'success', `Opened ${snapshot.projectName}.`);
       setHubAction(undefined);
       setLayoutAction(undefined);
       setActiveProject(snapshot);
-    }).catch((error) => setEditorError(errorMessage(error)));
+    }).catch((error) => reportError(errorMessage(error)));
   }, []);
 
   return {
     activeProject,
-    editorError,
     hubAction,
     isSaving,
     layoutAction,
@@ -107,7 +115,6 @@ export function useForgeActions(
     handleForgeAction,
     openProject,
     setActiveProject,
-    clearEditorError: () => setEditorError(undefined),
     closeContentImport: () => setContentImportOpened(false),
   };
 }

@@ -5,6 +5,9 @@ import type { CatalogMaintenancePreview } from '../../types/ForgeApi.js';
 import { errorMessage } from '../../utils/Errors.ts';
 import { formatBytes } from '../../utils/Format.ts';
 
+import { forgeLog } from '../log/LogStore.ts';
+import { useLoggedMessage } from '../log/UseLog.ts';
+
 interface CatalogMaintenanceModalProps {
   onChanged(): void;
 }
@@ -13,7 +16,7 @@ export function CatalogMaintenanceModal({ onChanged }: CatalogMaintenanceModalPr
   const [opened, setOpened] = useState(false);
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState<CatalogMaintenancePreview>();
-  const [error, setError] = useState<string>();
+  const [error, setError] = useLoggedMessage('Catalog');
 
   async function open() {
     setOpened(true);
@@ -30,6 +33,7 @@ export function CatalogMaintenanceModal({ onChanged }: CatalogMaintenanceModalPr
     setError(undefined);
     try {
       await window.forge.collectCatalogGarbage(preview.confirmationToken);
+      forgeLog.write('Catalog', 'success', 'Unreferenced assets removed.');
       setPreview(await window.forge.previewCatalogGarbageCollection());
       onChanged();
     } catch (cause) {

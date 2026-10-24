@@ -11,6 +11,9 @@ import { errorMessage } from '../../utils/Errors.ts';
 import { entityTreeKind, entityTreeText } from '../../utils/SceneSelection.ts';
 import { useEditor } from './EditorContext.ts';
 
+import { forgeLog } from '../log/LogStore.ts';
+import { useLoggedMessage } from '../log/UseLog.ts';
+
 export function GroupTemplateDialog({ group, onClose }: {
   group?: EditorGroup;
   onClose(): void;
@@ -25,7 +28,7 @@ export function GroupTemplateDialog({ group, onClose }: {
     parameterValues(definition, group));
   const [preview, setPreview] = useState<EditorGroupTemplatePreview>();
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string>();
+  const [error, setError] = useLoggedMessage('Group template');
   const seedId = group?.template?.seedEntityId
     ?? (project.selection.length === 1 ? project.selection[0] : undefined);
   const seed = project.entities.find((entity) => entity.id === seedId);
@@ -37,6 +40,11 @@ export function GroupTemplateDialog({ group, onClose }: {
     setPreview(undefined);
     setError(undefined);
   }, [definition, group]);
+
+  useEffect(() => {
+    forgeLog.sync('Group template preview', (preview?.diagnostics ?? [])
+      .map((value) => ({ ...value, source: 'Group template' })));
+  }, [preview]);
 
   const close = () => {
     void cancelGroupTemplatePreview();

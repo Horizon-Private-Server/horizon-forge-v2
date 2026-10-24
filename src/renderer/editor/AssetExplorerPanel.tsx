@@ -1,4 +1,4 @@
-import { Alert, Badge, Button, MultiSelect, Popover, Select, Text, TextInput } from '@mantine/core';
+import { Badge, Button, MultiSelect, Popover, Select, Text, TextInput } from '@mantine/core';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type {
@@ -25,6 +25,8 @@ import { assetGridItemVisible, assetGridWindow } from '../../utils/VirtualGrid.t
 import { AssetPreviewMeshMissingError, AssetThumbnailRuntime } from './AssetThumbnailRuntime.ts';
 import { useEditor } from './EditorContext.ts';
 
+import { useLoggedMessage } from '../log/UseLog.ts';
+
 const CATEGORIES: { label: string; value: AssetExplorerCategory }[] = [
   { label: 'Ties', value: 'ties' },
   { label: 'Shrubs', value: 'shrubs' },
@@ -48,7 +50,7 @@ export function AssetExplorerPanel() {
   const skyShellCount = project.entities.filter((entity) => entity.skyShell).length;
   const [nextCursor, setNextCursor] = useState<string>();
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useLoggedMessage('Asset Explorer');
   const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null);
   const [viewport, setViewport] = useState({ width: 0, height: 0, scrollTop: 0 });
   const generation = useRef(0);
@@ -223,12 +225,12 @@ export function AssetExplorerPanel() {
           </Popover.Dropdown>
         </Popover>
       </div>
-      {error && <Alert color="red" title="Could not load assets">
-        <Text size="sm">{error}</Text>
+      {error && <div>
+        <Text size="sm" c="dimmed">Could not load assets. See Log for details.</Text>
         <Button mt="xs" size="compact-xs" variant="light" onClick={() => void loadPage(
           category, querySearch, filters, nextCursor, items.length > 0, generation.current,
         )}>Retry</Button>
-      </Alert>}
+      </div>}
     </div>
     <div className="asset-explorer-grid-scroll" ref={setScrollElement}>
       <div

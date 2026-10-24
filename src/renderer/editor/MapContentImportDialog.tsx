@@ -13,6 +13,9 @@ import { errorMessage } from '../../utils/Errors.ts';
 import { formatBytes } from '../../utils/Format.ts';
 import { ContentImportFamilyBoard } from './ContentImportFamilyBoard.tsx';
 
+import { forgeLog } from '../log/LogStore.ts';
+import { useLoggedMessage } from '../log/UseLog.ts';
+
 interface MapContentImportDialogProps {
   opened: boolean;
   project: EditorSnapshot;
@@ -28,7 +31,7 @@ export function MapContentImportDialog({ opened, project, onClose, onApplied }: 
   const [plannedSignature, setPlannedSignature] = useState('');
   const [progress, setProgress] = useState<ForgeProgress>();
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string>();
+  const [error, setError] = useLoggedMessage('Map content import');
   const [showPreview, setShowPreview] = useState(false);
   const [applying, setApplying] = useState(false);
   const [referenceTargets, setReferenceTargets] = useState<Record<string, string>>({});
@@ -59,6 +62,14 @@ export function MapContentImportDialog({ opened, project, onClose, onApplied }: 
   );
   const signature = JSON.stringify([sourceLevel, selectionList]);
   const reportCurrent = Boolean(plan) && signature === plannedSignature;
+
+  useEffect(() => {
+    if (!opened || !reportCurrent || !plan) return;
+    forgeLog.sync('Map import plan', [
+      ...plan.blockers.map((message) => ({ source: 'Map import plan', severity: 'error' as const, message })),
+      ...plan.warnings.map((message) => ({ source: 'Map import plan', severity: 'warning' as const, message })),
+    ]);
+  }, [opened, plan, reportCurrent]);
 
   useEffect(() => window.forge.onContentImportProgress(setProgress), []);
   useEffect(() => {
@@ -145,6 +156,7 @@ export function MapContentImportDialog({ opened, project, onClose, onApplied }: 
       setBusy(false);
       setApplying(false);
       setProgress(undefined);
+      forgeLog.write('Map content import', 'success', `Imported content from level ${sourceLevel}. Batch ${plan.batchId}.`);
       onApplied(snapshot);
       onClose();
     } catch (cause) {

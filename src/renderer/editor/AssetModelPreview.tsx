@@ -11,6 +11,8 @@ import { configurePs2AssetPreview } from '../../utils/Ps2Materials.ts';
 import { disposeObject, frameCameraOnObject } from '../../utils/Scene.ts';
 import { configureSkybox } from '../../utils/SkyboxScene.ts';
 
+import { useLoggedMessage } from '../log/UseLog.ts';
+
 interface AssetModelPreviewProps {
   assetId: string;
   kind: AssetModelKind | 'tfrag' | 'sky';
@@ -27,7 +29,7 @@ export function AssetModelPreview({
   const container = useRef<HTMLDivElement>(null);
   const resetView = useRef<() => void>(() => undefined);
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
-  const [error, setError] = useState('');
+  const [, setError] = useLoggedMessage('Model preview');
   const [retry, setRetry] = useState(0);
   const [visible, setVisible] = useState(false);
 
@@ -165,8 +167,8 @@ export function AssetModelPreview({
       <Loader size="sm" />
       <Text size="sm">Loading preview…</Text>
     </div>}
-    {state === 'error' && <Text className="asset-model-preview-state" c="red" role="alert" size="sm">
-      {error || 'Preview unavailable.'}
+    {state === 'error' && <Text className="asset-model-preview-state" c="dimmed" size="sm">
+      Preview unavailable. See Log.
     </Text>}
     <ActionIcon
       aria-label={state === 'error' ? 'Retry model preview' : 'Reset model preview view'}
