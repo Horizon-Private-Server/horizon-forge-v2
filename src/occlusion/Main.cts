@@ -4,7 +4,6 @@ import type { IpcMainEvent, IpcMainInvokeEvent } from 'electron';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { createHash } from 'node:crypto';
-import { rmSync } from 'node:fs';
 import type { OcclusionWorkerResult } from '../types/OcclusionWorker.js';
 
 const flag = process.argv.indexOf('--forge-occlusion-worker');
@@ -131,4 +130,3 @@ app.on('before-quit', event => {
     cancel();
   }
 });
-app.on('will-quit', () => { rmSync(userData, { recursive: true, force: true }); });

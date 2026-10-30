@@ -121,5 +121,6 @@ async function withOcclusionJob<T>(signal: AbortSignal, progress: (value: BuildP
     return summary;
   };
   try { return await action(directory, run); }
-  finally { await rm(directory, { recursive: true, force: true }); }
+  // Chromium can keep its profile locked until the GPU worker has fully exited.
+  finally { await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }
 }

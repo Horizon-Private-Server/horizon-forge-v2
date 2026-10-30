@@ -23,13 +23,13 @@ const previewFixture = {
   cells: [{ x: 0, y: 0, z: 0, samples: [0, 1, 2, 3, 4, 5, 6, 7, 8], reservedVisible: true }], triangles: 100
 };
 const ioUrl = `data:text/javascript,${encodeURIComponent(`
-  export const removed=[];
+  export const removed=[], removalOptions=[];
   let scene=${JSON.stringify(previewFixture)},symlink=false,size=1000;
   export function setScene(value,link=false,bytes=1000){scene=value;symlink=link;size=bytes;}
   export const lstat=async()=>({isFile:()=>!symlink,isSymbolicLink:()=>symlink,size});
   export const readFile=async()=>Buffer.from(JSON.stringify(scene));
   export const mkdtemp=async()=>'/tmp/occlusion-test-job';
-  export const rm=async directory=>{removed.push(directory);};
+  export const rm=async (directory,options)=>{removed.push(directory);removalOptions.push(options);};
 `)}`;
 const processUrl = `data:text/javascript,${encodeURIComponent(`
   import {EventEmitter} from 'node:events';
@@ -74,6 +74,7 @@ finally {
 function run(scenario, progress = () => { }, controller = new AbortController()) {
   processMock.reset(scenario);
   ioMock.removed.length = 0;
+  ioMock.removalOptions.length = 0;
   return rebuildOcclusion('/project', '/catalog', '/source.iso', controller.signal, progress);
 }
 test('occlusion orchestration returns the host summary without loading the full mask file', async () => {
@@ -85,6 +86,7 @@ test('occlusion orchestration returns the host summary without loading the full 
   assert.equal(processMock.calls[1].options.env.ELECTRON_RUN_AS_NODE, undefined);
   assert.equal(progress.at(-1).phase, 'Validate occlusion');
   assert.deepEqual(ioMock.removed, ['/tmp/occlusion-test-job']);
+  assert.deepEqual(ioMock.removalOptions, [{ recursive: true, force: true, maxRetries: 5, retryDelay: 100 }]);
 });
 function visibilityFixture() {
   return {
