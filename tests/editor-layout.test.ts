@@ -32,7 +32,7 @@ test('default editor layout matches the established three-column workspace', () 
   } as never);
   assert.deepEqual(panels.map((panel) => panel.id), [
     'sceneTree', 'viewport', 'build', 'levelSettings', 'diagnostics', 'groups',
-    'properties', 'hudBank', 'fxTextures', 'sounds', 'assetPreview', 'references', 'assetExplorer', 'customAssets',
+    'properties', 'hudBank', 'fxTextures', 'sounds', 'assetPreview', 'references', 'assetExplorer', 'customAssets', 'occlusion',
   ]);
   assert.deepEqual(panels.find((panel) => panel.id === 'viewport'), {
     id: 'viewport', component: 'viewport', title: 'Viewport', initialWidth: 2194,
@@ -58,6 +58,8 @@ test('default editor layout matches the established three-column workspace', () 
     { referencePanel: 'diagnostics', direction: 'within' });
   assert.deepEqual(panels.find((panel) => panel.id === 'customAssets')?.position,
     { referencePanel: 'assetExplorer', direction: 'within' });
+  assert.deepEqual(panels.find((panel) => panel.id === 'occlusion')?.position,
+    { referencePanel: 'build', direction: 'within' });
 });
 
 test('reopened Asset Explorer rejoins the Log group', () => {

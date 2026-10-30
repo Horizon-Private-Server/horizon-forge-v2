@@ -14,7 +14,7 @@ them. Unless marked complete, every task is `not-started`.
 | M15 — Sound banks | 🚧 In progress | M15-006 |
 | M16 — Cross-map import | 🚧 In progress | M16-009 |
 | M17 — Moby simulations | 🚧 In progress | M17-003 visual validation |
-| M18 — Occlusion rebuild | ⏳ Not started | M18-001 through M18-010 |
+| M18 — Occlusion rebuild | 🚧 Existing-grid GPU builder + viewport inspection | M18-001 through M18-010 |
 | M19 — P3 qualification | ⏳ Not started | M19-001 through M19-003 |
 
 ## M14 — Custom TIE asset pipeline
@@ -1076,6 +1076,12 @@ Inventory the existing SDK grid/mapping readers/writers and representative UYA m
 Measure Forge v1's volume/node workflow and the current Forge scene on the same local
 reference hardware before selecting an algorithm or production budget.
 
+Current evidence: existing-grid reconstruction has been integrated for UYA primary
+terrain with resolved native group mappings. The [qualification record](../../qualification/M18-occlusion.json)
+contains the current profile, native-mask comparisons, performance evidence and open
+limitations. Exploratory reports are archived locally; this task's broader native
+contract and hardware requirements remain the acceptance criteria.
+
 Acceptance:
 
 - A checked-in contract defines octant/grid coordinates, indexes, masks, TIE/tfrag/moby
@@ -1083,6 +1089,12 @@ Acceptance:
   and exact source/native writer ownership.
 - Synthetic fixtures prove source no-edit byte/semantic identity and changed mapping
   semantic identity; unsupported families/unknown fields are enumerated.
+- Resolve negative mapping sentinels, repeated tfrag second words, primary/chunk/LOD
+  links, shared bits across families, and auxiliary occlusion section ownership with
+  UYA evidence before using decoded fields as unique entity IDs or free capacity.
+- A vanilla reconstruction procedure fixes source cells and grouping, defines
+  per-family/member missing/extra metrics and whole-map holdouts, and separates
+  source similarity from independent visible-object correctness.
 - The benchmark procedure records map, settings, CPU/GPU/driver, time, peak CPU/GPU
   memory, readback/work counts, and output cardinality, including level 45 multiplayer.
 - A production performance budget and minimum improvement over Forge v1 are adopted
@@ -1120,10 +1132,17 @@ huge bounds, platform/thread determinism, settings migration, and fingerprint te
 ### M18-003 — Implement the conservative CPU reference solver
 
 Requirements: FR-OCC-003, FR-OCC-004, NFR-P3-001, NFR-P3-003
-Depends on: M18-002
+Depends on: M18-001; M18-002 for automatic coverage integration
 
 Build a bounded SDK/reference implementation for small fixtures that classifies
 occluders and computes conservative tie/tfrag/moby visibility for each sample/view.
+First exercise the source-grid reconstruction procedure from M18-001, preserving
+native group assignments so visibility and grouping errors remain distinguishable.
+
+The SDK supplies a bounded CPU ray oracle used to calibrate the production raster
+worker. Alpha, source depth ownership, nearby backface exits, ocean barriers and
+nonblocking moby bounds have retained regressions. This does not prove continuous
+cell coverage; the broader conservative reference requirements remain open.
 
 Acceptance:
 
@@ -1133,6 +1152,9 @@ Acceptance:
 - Frustum/FOV/orientation, bounds/geometry intersection, backface/double-sided state,
   feathering, numeric tolerances, and uncertainty-visible behavior are specified and
   tested.
+- Finite camera samples and finite raster resolution do not count as proof of
+  invisibility; thin/subpixel geometry, interior viewpoints, and moving moby bounds
+  trigger verified refinement or a conservative visibility fallback.
 - Results are deterministic across Linux/Windows and expose per-object reasons useful
   for later GPU diffs; work/memory/diagnostics are bounded and cancellable.
 - Synthetic ground truth contains thin blockers, holes, boundary objects, transparent
@@ -1148,6 +1170,17 @@ Depends on: M18-001, M18-003
 
 Prototype the smallest viable raster/depth-ID, ray/cone, or hybrid GPU approaches using
 Forge's packaged renderer constraints, then write an architecture decision from data.
+Production generation requires a qualified GPU path; the CPU reference remains a
+bounded verification/diagnostic path. Include persistent-scene batching, shared
+sample reuse, and visibility reduction/readback in the backend comparison.
+
+Selected implementation: a persistent WebGPU raster worker in a separate Electron
+process, with spatial batch culling, shared camera positions, bounded submissions and
+readback. Ray and dense-sampling prototypes are archived rather than shipped. The
+[current qualification record](../../qualification/M18-occlusion.json) preserves the
+measured results and limits. Existing-grid native publication, cancellation and
+CPU/GPU calibration are covered; cross-vendor, Windows and weaker-GPU qualification
+remain open.
 
 Acceptance:
 
@@ -1167,7 +1200,7 @@ test, architecture decision record, and dependency/license review.
 ### M18-005 — Implement production generation, progress, cancellation, and cache
 
 Requirements: FR-OCC-004, NFR-P3-001, NFR-P3-002
-Depends on: M18-004
+Depends on: M18-002, M18-004
 
 Implement the selected accelerated backend behind the frozen solver contract with
 bounded work units, conservative canonicalization, and fingerprinted cache/invalidation.
@@ -1177,7 +1210,9 @@ Acceptance:
 - Generation stays off renderer/Electron loops, reports candidate/visibility/verify/
   compose phases, and cancels at safe checkpoints without replacing good results.
 - Work chunks bound GPU time, CPU/GPU memory, readback, and diagnostic volume to avoid
-  driver watchdogs and the Forge v1 per-octant scene-rebuild pattern.
+  driver watchdogs, repeated scene/resource construction, and synchronous per-sample
+  readback. Compare against measured Forge v1 behavior; it already uses GPU compute
+  and sample caching.
 - GPU results are canonicalized to stable native sets and checked against reference
   fixtures; uncertainty/mismatch retains visibility and reports the reason.
 - Cache keys include all geometry/material/settings/backend-contract inputs; local edits
@@ -1193,6 +1228,14 @@ Depends on: M18-005
 
 Add an occlusion workspace plus transient scene probe for selecting octants/samples,
 placing/rotating a POV pin, adjusting supported FOV, and visualizing native visibility.
+
+The Occlusion panel now provides sample qualification previews, octant IDs, pull-in
+and pixel-edge settings, live viewport culling and a frozen-octant inspection mode.
+Visibility is transient and respects manual Hidden state, selection and picking.
+Octant changes update affected rendering groups without synchronizing unrelated
+collision or rerendering the whole editor. Source/generated heatmaps and exact-view
+comparisons currently remain local diagnostics; integrated difference/POV tooling
+and the full accessibility/performance matrix below remain open.
 
 Acceptance:
 

@@ -14,16 +14,13 @@ import { RenderAssetProtocol } from './RenderAssetProtocol.js';
 import { SettingsStore } from './Settings.js';
 import { UpdateService } from './UpdateService.js';
 import { HostClient } from './bridge/HostClient.js';
+import { hostLaunch } from './HostLaunch.js';
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const applicationPath = path.join(currentDirectory, '../../dist/index.html');
 const applicationUrl = pathToFileURL(applicationPath).href;
-const developmentHostPath = path.join(app.getAppPath(), 'src/Forge.Host/bin/Release/net10.0/Forge.Host.dll');
-const packagedHostName = process.platform === 'win32' ? 'Forge.Host.exe' : 'Forge.Host';
-const hostPath = app.isPackaged
-  ? path.join(process.resourcesPath, 'host', packagedHostName)
-  : process.env.FORGE_HOST_PATH ?? developmentHostPath;
-const host = app.isPackaged ? new HostClient(hostPath, []) : new HostClient('dotnet', [hostPath]);
+const launch = hostLaunch();
+const host = new HostClient(launch.command, launch.args);
 let mainWindow: BrowserWindow | undefined;
 let quitting = false;
 const primaryInstance = app.requestSingleInstanceLock();

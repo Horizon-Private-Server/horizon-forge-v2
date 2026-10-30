@@ -117,6 +117,9 @@ const forgeApi = Object.freeze({
   buildAndPatchProject: (includedLayers: BuildLayerId[]) =>
     ipcRenderer.invoke('forge:editor-build-patch', includedLayers),
   cancelBuildAndPatch: () => ipcRenderer.invoke('forge:editor-build-cancel'),
+  rebuildOcclusion: (samplePullIn?: number, pixelEdgeAllowance?: boolean) => ipcRenderer.invoke('forge:editor-rebuild-occlusion', samplePullIn, pixelEdgeAllowance),
+  previewOcclusionSamples: (samplePullIn?: number) => ipcRenderer.invoke('forge:editor-preview-occlusion-samples', samplePullIn),
+  getOcclusionVisibility: () => ipcRenderer.invoke('forge:editor-occlusion-visibility'),
   runWindowAction: (action: ForgeWindowAction) => ipcRenderer.send('forge:window-action', action),
   setEditorTextInputActive: (active: boolean) => ipcRenderer.send('forge:editor-text-input', active),
   readEditorEvents: (afterSequence: number, limit = 100) =>

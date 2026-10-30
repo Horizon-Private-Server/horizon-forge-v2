@@ -13,6 +13,7 @@ export const EDITOR_PANELS = {
   levelSettings: { component: 'levelSettings', title: 'Level Settings' },
   diagnostics: { component: 'diagnostics', title: 'Log' },
   build: { component: 'build', title: 'Build' },
+  occlusion: { component: 'occlusion', title: 'Occlusion' },
   assetExplorer: { component: 'assetExplorer', title: 'Asset Explorer' },
   customAssets: { component: 'customAssets', title: 'Custom Assets' },
   assetPreview: { component: 'assetPreview', title: 'Asset Preview' },
@@ -104,6 +105,8 @@ export function createDefaultEditorLayout(api: DockviewApi): void {
     id: 'customAssets', ...EDITOR_PANELS.customAssets,
     position: { referencePanel: 'assetExplorer', direction: 'within' }, inactive: true,
   });
+  api.addPanel({ id: 'occlusion', ...EDITOR_PANELS.occlusion,
+    position: { referencePanel: 'build', direction: 'within' }, inactive: true });
 }
 
 export function showEditorPanel(api: DockviewApi, id: EditorPanelId): void {
@@ -113,6 +116,10 @@ export function showEditorPanel(api: DockviewApi, id: EditorPanelId): void {
     return;
   }
   const definition = EDITOR_PANELS[id];
+  if (id === 'occlusion' && api.getPanel('build')) {
+    api.addPanel({ id, ...definition, position: { referencePanel: 'build', direction: 'within' } });
+    return;
+  }
   const mainPanel = id === 'hudBank' || id === 'fxTextures' || id === 'sounds' || id === 'imports'
     ? api.getPanel('viewport') : undefined;
   if (mainPanel) {
@@ -175,6 +182,7 @@ export function panelForLayoutAction(action: Exclude<EditorLayoutAction, 'resetL
     showLevelSettings: 'levelSettings',
     showDiagnostics: 'diagnostics',
     showBuild: 'build',
+    showOcclusion: 'occlusion',
     showAssetExplorer: 'assetExplorer',
     showCustomAssets: 'customAssets',
     showAssetPreview: 'assetPreview',

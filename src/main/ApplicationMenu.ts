@@ -95,6 +95,7 @@ export function installApplicationMenu(runAction: (action: ForgeAction) => void)
             { label: 'Level Settings', click: () => runAction('showLevelSettings') },
             { label: 'Log', click: () => runAction('showDiagnostics') },
             { label: 'Build', click: () => runAction('showBuild') },
+            { label: 'Occlusion', click: () => runAction('showOcclusion') },
             { label: 'Asset Explorer', click: () => runAction('showAssetExplorer') },
             { label: 'Custom Assets', click: () => runAction('showCustomAssets') },
             { label: 'Asset Preview', click: () => runAction('showAssetPreview') },

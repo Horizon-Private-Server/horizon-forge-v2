@@ -4,6 +4,7 @@ import type {
 } from './EditorRuntime.js';
 import type { AssetExplorerPage, AssetExplorerQuery, AssetModelKind, AssetPreviewKind, AssetPreviewSource, CustomModelPreviewView } from './AssetExplorer.js';
 import type { ForgeNotification } from './Notifications.js';
+import type { OcclusionBakeSummary, OcclusionSamplePreview, OcclusionVisibilityData } from './Occlusion.js';
 import type { UpdateCheckResult, UpdateLifecycleAction, UpdateLifecycleSnapshot } from './Updates.js';
 import type { SoundPreviewSource, SoundWorkspace } from './SoundWorkspace.js';
 import type {
@@ -311,7 +312,7 @@ export interface EditorTerrainSource {
 export type ForgeDialog = 'setup' | 'settings';
 
 export type EditorLayoutAction = 'resetLayout' | 'showViewport' | 'showSceneTree' | 'showGroups'
-  | 'showProperties' | 'showReferences' | 'showLevelSettings' | 'showDiagnostics' | 'showBuild'
+  | 'showProperties' | 'showReferences' | 'showLevelSettings' | 'showOcclusion' | 'showDiagnostics' | 'showBuild'
   | 'showAssetExplorer' | 'showCustomAssets' | 'showAssetPreview' | 'showHudBank' | 'showFxTextures'
   | 'showSounds' | 'showImports';
 
@@ -410,6 +411,9 @@ export interface ForgeApi {
   getBuildPlan(): Promise<BuildPlan>;
   buildAndPatchProject(includedLayers: BuildLayerId[]): Promise<BuildPatchResult>;
   cancelBuildAndPatch(): Promise<void>;
+  rebuildOcclusion(samplePullIn?: number, pixelEdgeAllowance?: boolean): Promise<OcclusionBakeSummary>;
+  previewOcclusionSamples(samplePullIn?: number): Promise<OcclusionSamplePreview>;
+  getOcclusionVisibility(): Promise<OcclusionVisibilityData>;
   runWindowAction(action: ForgeWindowAction): void;
   setEditorTextInputActive(active: boolean): void;
   readEditorEvents(afterSequence: number, limit?: number): Promise<EditorEvent[]>;

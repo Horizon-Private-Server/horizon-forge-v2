@@ -121,7 +121,7 @@ export function useForgeActions(
 
 function isEditorLayoutAction(action: ForgeAction): action is EditorLayoutAction {
   return ['resetLayout', 'showViewport', 'showSceneTree', 'showGroups', 'showProperties', 'showLevelSettings',
-    'showReferences', 'showDiagnostics', 'showBuild', 'showAssetExplorer', 'showCustomAssets', 'showAssetPreview', 'showHudBank',
+    'showReferences', 'showDiagnostics', 'showBuild', 'showOcclusion', 'showAssetExplorer', 'showCustomAssets', 'showAssetPreview', 'showHudBank',
     'showFxTextures', 'showSounds', 'showImports'].includes(action);
 }
 

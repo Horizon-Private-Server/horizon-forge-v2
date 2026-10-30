@@ -51,6 +51,8 @@ internal static class Program
             MobyDexSchemaTests.Run();
             await MobyDexProjectTests.RunAsync();
             await BakeLayerTests.RunAsync();
+            await OcclusionBakeTests.RunAsync();
+            await UyaOcclusionBakeTests.RunAsync();
             PaletteBakeReportTests.Run();
             await EditorRuntimeTests.RunAsync();
             await EditorSelectionTests.RunAsync();

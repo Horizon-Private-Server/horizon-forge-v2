@@ -150,6 +150,12 @@ export class SceneProjection {
   private readonly simulationPickable = new Map<string, number>();
   private readonly previewHidden = new Set<string>();
   private readonly simulationHidden = new Set<string>();
+  private occlusionHidden: ReadonlySet<string> = new Set();
+  private instanceEntities = new Map<string, EditorEntity[]>();
+  private selection: ReadonlySet<string> = new Set();
+  private visibleLayers?: ReadonlySet<string>;
+  private visibleCollisionKinds?: ReadonlySet<'solid' | 'playerBarrier'>;
+  private showMarkers = true;
   private readonly sourceRotation = new THREE.Quaternion();
   private readonly projectedRotation = new THREE.Quaternion();
   private readonly position = new THREE.Vector3();
@@ -201,6 +207,46 @@ export class SceneProjection {
 
   setTfragsVisible(visible: boolean): void {
     this.tfragsVisible = visible;
+  }
+
+  setOcclusionHiddenEntities(ids: ReadonlySet<string>): void {
+    const changed = new Set<string>();
+    for (const id of this.occlusionHidden) if (!ids.has(id)) changed.add(id);
+    for (const id of ids) if (!this.occlusionHidden.has(id)) changed.add(id);
+    // The viewport reuses its set when it enters the next octant.
+    this.occlusionHidden = new Set(ids);
+    const instanceGroups = new Set<string>();
+    let geometryChanged = false, selectionChanged = false;
+    for (const id of changed) {
+      const entity = this.entitiesById.get(id);
+      if (!entity) continue;
+      const key = assetTemplateKey(entity);
+      const visible = this.isVisible(entity, Boolean(key && this.templates.has(key)),
+        this.visibleLayers, this.showMarkers, this.visibleCollisionKinds);
+      if (visible && !entity.state.locked) this.pickable.add(id);
+      else this.pickable.delete(id);
+      const object = this.objects.get(id);
+      if (object && object.visible !== visible) {
+        object.visible = visible;
+        geometryChanged ||= Boolean(entity.geometry);
+      }
+      const batch = this.uniqueAssetBatch;
+      const state = batch?.states.get(id);
+      if (state && state.visible !== visible) {
+        for (const entry of batch!.entries.get(id) ?? []) entry.mesh.setVisibleAt(entry.instanceId, visible);
+        state.visible = visible;
+      }
+      if (key && this.instanceEntities.has(key)) instanceGroups.add(key);
+      selectionChanged ||= this.selection.has(id);
+    }
+    for (const key of instanceGroups) this.updateInstances(this.instances.get(key)!,
+      this.instanceEntities.get(key)!, this.selection, this.visibleLayers, this.visibleCollisionKinds);
+    if (geometryChanged) {
+      this.geometryBatch.sync(this.objects.values());
+      if (this.geometryBatch.root.children.length) this.root.add(this.geometryBatch.root);
+    }
+    if (selectionChanged) this.updateSelectionOutlines([...this.entitiesById.values()],
+      this.selection, this.visibleLayers, this.visibleCollisionKinds);
   }
 
   setViewportSize(width: number, height: number): void {
@@ -301,6 +347,10 @@ export class SceneProjection {
     const renderedEntities = entities.filter((entity) => entity.geometry?.kind !== 'area');
     if (this.hoveredEntityId && !this.entitiesById.has(this.hoveredEntityId)) this.hoveredEntityId = undefined;
     const selected = new Set(selection);
+    this.selection = selected;
+    this.visibleLayers = visibleLayers;
+    this.visibleCollisionKinds = visibleCollisionKinds;
+    this.showMarkers = showMarkers;
     const selectedPoints = new Map<string, number[]>();
     selection.forEach((value) => {
       const point = parseSplinePointId(value);
@@ -397,6 +447,7 @@ export class SceneProjection {
         this.uniqueAssetBatch, uniqueAssetEntities, selected, visibleLayers, visibleCollisionKinds,
       );
     this.updateSelectionOutlines(renderedEntities, selected, visibleLayers, visibleCollisionKinds);
+    this.instanceEntities = staticGroups;
     this.geometryBatch.sync(this.objects.values());
     if (this.geometryBatch.root.children.length) this.root.add(this.geometryBatch.root);
     return { created, updated, removed };
@@ -599,6 +650,7 @@ export class SceneProjection {
   }
 
   private isEntityPickable(entityId: string): boolean {
+    if (this.occlusionHidden.has(entityId)) return false;
     if (this.pickable.has(entityId)) return true;
     const entity = this.entitiesById.get(entityId);
     return (this.simulationPickable.get(entityId) ?? 0) > 0
@@ -1014,6 +1066,7 @@ export class SceneProjection {
     visibleCollisionKinds?: ReadonlySet<'solid' | 'playerBarrier'>,
   ): boolean {
     return !entity.state.hidden
+      && !this.occlusionHidden.has(entity.id)
       && !this.previewHidden.has(entity.id)
       && !this.simulationHidden.has(entity.id)
       && !entity.state.disabled
@@ -1078,6 +1131,7 @@ export class SceneProjection {
       disposeInstancedAsset(projection);
     });
     this.instances.clear();
+    this.instanceEntities.clear();
     if (this.uniqueAssetBatch) {
       this.uniqueAssetBatch.root.removeFromParent();
       disposeUniqueAssetBatch(this.uniqueAssetBatch);

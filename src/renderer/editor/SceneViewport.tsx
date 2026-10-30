@@ -13,6 +13,7 @@ import type {
   ProjectVector3, ProjectVector4,
 } from '../../types/EditorRuntime.js';
 import type { MobySimulationProjectSnapshot, MobySimulationStats } from '../../types/MobySimulation.js';
+import type { OcclusionSamplePreview, OcclusionVisibilityData, OcclusionViewportState } from '../../types/Occlusion.js';
 import type {
   AssetModelPlacementDragData, AssetPlacementDragData, AssetTfragPlacementDragData,
 } from '../../types/AssetExplorer.js';
@@ -65,6 +66,9 @@ import {
   interpolatePointerSegment, shouldOrbitWhileCollisionPainting,
 } from './CollisionPainting.ts';
 import { ViewportToolbar } from './ViewportToolbar.tsx';
+import { OcclusionSampleOverlay } from './OcclusionSampleOverlay.ts';
+import { OcclusionOctantLabels } from './OcclusionOctantLabels.ts';
+import { ViewportOcclusion } from './ViewportOcclusion.ts';
 import { MobySimulationController } from '../simulation/MobySimulationController.ts';
 import { createMobySimulationRegistry } from '../simulation/MobySimulationFactories.ts';
 import {
@@ -97,6 +101,13 @@ interface SceneViewportProps {
   disabled: boolean;
   showStats: boolean;
   showOcclusionOctants: boolean;
+  showOcclusionOctantIds: boolean;
+  occlusionSamples?: OcclusionSamplePreview;
+  occlusionVisibility?: OcclusionVisibilityData;
+  occlusionEnabled: boolean;
+  occlusionFrozen: boolean;
+  frozenOcclusionOctant?: OcclusionViewportState['octant'];
+  onOcclusionStateChange(value: OcclusionViewportState): void;
   showTerrain: boolean;
   showSolidCollision: boolean;
   showPlayerBarriers: boolean;
@@ -145,6 +156,13 @@ export function SceneViewport({
   disabled,
   showStats,
   showOcclusionOctants,
+  showOcclusionOctantIds,
+  occlusionSamples,
+  occlusionVisibility,
+  occlusionEnabled,
+  occlusionFrozen,
+  frozenOcclusionOctant,
+  onOcclusionStateChange,
   showTerrain,
   showSolidCollision,
   showPlayerBarriers,
@@ -220,6 +238,11 @@ export function SceneViewport({
   levelPositionCommitted.current = onLevelPositionCommit;
   splinePointsCommitted.current = onSplinePointsCommit;
   assetDropped.current = onAssetDrop;
+  const [viewportOcclusion] = useState(() => new ViewportOcclusion());
+  const occlusionOptions = useRef({ enabled: occlusionEnabled, frozen: occlusionFrozen, changed: onOcclusionStateChange });
+  occlusionOptions.current = { enabled: occlusionEnabled, frozen: occlusionFrozen, changed: onOcclusionStateChange };
+  useEffect(() => { viewportOcclusion.reset(); }, [projectId]);
+  useEffect(() => { viewportOcclusion.setData(occlusionVisibility); }, [projectId, occlusionVisibility]);
   const viewport = useRef<{
     projection: SceneProjection;
     scene: THREE.Scene;
@@ -232,6 +255,7 @@ export function SceneViewport({
     content: THREE.Group;
     terrain: THREE.Group;
     occlusion: THREE.Group;
+    octantLabels: OcclusionOctantLabels;
     sky: THREE.Group;
     skyEye: THREE.Vector3;
     updateSky(deltaSeconds: number): void;
@@ -284,6 +308,8 @@ export function SceneViewport({
     occlusion.name = 'Occlusion octants';
     occlusion.matrixAutoUpdate = false;
     occlusion.visible = showOcclusionOctants;
+    const octantLabels = new OcclusionOctantLabels(element);
+    octantLabels.visible = showOcclusionOctantIds;
     const sky = new THREE.Group();
     sky.name = 'Sky';
     const currentProjection = new SceneProjection();
@@ -491,6 +517,7 @@ export function SceneViewport({
         previewRequests.delete(requestToken);
       }
     };
+    const simulationOcclusionObjects = new Map<THREE.Object3D, string>();
     const simulationController = new MobySimulationController(createMobySimulationRegistry(), {
       root: simulationRoot,
       camera,
@@ -515,10 +542,12 @@ export function SceneViewport({
         scheduleSimulationProxySync();
       },
       bindSelection: (object, entityId) => {
+        simulationOcclusionObjects.set(object, entityId);
         const previous = object.userData.forgeEntityId;
         object.userData.forgeEntityId = entityId;
         currentProjection.setSimulationPickableEntity(entityId, true);
         return () => {
+          simulationOcclusionObjects.delete(object);
           currentProjection.setSimulationPickableEntity(entityId, false);
           if (previous === undefined) delete object.userData.forgeEntityId;
           else object.userData.forgeEntityId = previous;
@@ -538,6 +567,7 @@ export function SceneViewport({
       content,
       terrain,
       occlusion,
+      octantLabels,
       sky,
       skyEye: new THREE.Vector3(),
       updateSky: (deltaSeconds) => {
@@ -889,7 +919,15 @@ export function SceneViewport({
       sky.position.copy(camera.position).sub(viewport.current?.skyEye ?? ZERO_VECTOR);
       controls.update();
       transformTool.update();
+      viewportOcclusion.restoreSimulation();
       simulationController.advance(delta);
+      const visibility = occlusionOptions.current;
+      if (viewportOcclusion.update(camera.position, visibility.enabled, visibility.frozen)) {
+        currentProjection.setOcclusionHiddenEntities(viewportOcclusion.hidden);
+        visibility.changed(viewportOcclusion.state);
+        picking.clearHover();
+      }
+      viewportOcclusion.applySimulation(simulationOcclusionObjects);
       currentProjection.updateBillboards(camera, element.clientHeight);
       levelSettingsOverlay.updateForCamera(camera, element.clientHeight);
       if (picking.hasPendingHover) {
@@ -899,6 +937,7 @@ export function SceneViewport({
       renderer.info.reset();
       outlinePass.selectedObjects = currentProjection.getSelectionOutlineObjects();
       composer.render(delta);
+      octantLabels.update(camera, element.clientWidth, element.clientHeight);
       const now = performance.now();
       if (now - simulationStatsStarted >= 500) {
         setMobySimulationStats(simulationController.getStats());
@@ -924,6 +963,7 @@ export function SceneViewport({
     return () => {
       picking.clearHover();
       observer.disconnect();
+      octantLabels.dispose();
       if (dropFrame.current !== undefined) cancelAnimationFrame(dropFrame.current);
       dropFrame.current = undefined;
       pendingDrop.current = undefined;
@@ -945,6 +985,7 @@ export function SceneViewport({
       renderer.domElement.removeEventListener('focus', activateCameraInput);
       renderer.domElement.removeEventListener('blur', deactivateCameraInput);
       renderer.setAnimationLoop(null);
+      viewportOcclusion.restoreSimulation();
       transformTool.controls.removeEventListener('dragging-changed', toggleCameraDuringTransform);
       transformTool.dispose();
       dropGhost.geometry.dispose();
@@ -1361,6 +1402,29 @@ export function SceneViewport({
     });
   }, [sceneTreeColors]);
   useEffect(() => { if (viewport.current) viewport.current.occlusion.visible = showOcclusionOctants; }, [showOcclusionOctants]);
+  useEffect(() => {
+    const current = viewport.current;
+    if (!current || !frozenOcclusionOctant || showOcclusionOctants) return;
+    const overlay = createOcclusionOverlay([{ ...frozenOcclusionOctant, maskIndex: 0 }], sceneTreeColors.occlusionOctant)!;
+    overlay.name = 'Frozen occlusion octant';
+    current.content.add(overlay);
+    return () => { overlay.removeFromParent(); disposeObject(overlay); };
+  }, [frozenOcclusionOctant, showOcclusionOctants, sceneTreeColors.occlusionOctant]);
+  useEffect(() => {
+    if (!viewport.current) return;
+    viewport.current.octantLabels.visible = showOcclusionOctantIds;
+    viewport.current.octantLabels.frozenOctantId = frozenOcclusionOctant?.id;
+  }, [showOcclusionOctantIds, frozenOcclusionOctant?.id]);
+  useEffect(() => {
+    viewport.current?.octantLabels.setOctants(terrainSource?.occlusionOctants ?? []);
+    return () => viewport.current?.octantLabels.setOctants([]);
+  }, [terrainSource]);
+  useEffect(() => {
+    if (!viewport.current || !occlusionSamples) return;
+    const overlay = new OcclusionSampleOverlay(occlusionSamples);
+    viewport.current.content.add(overlay);
+    return () => overlay.dispose();
+  }, [occlusionSamples]);
   useEffect(() => {
     const current = viewport.current;
     if (!current) return;

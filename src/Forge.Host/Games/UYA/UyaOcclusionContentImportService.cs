@@ -1,3 +1,4 @@
+using RatchetPs2.Games.UYA.Occlusion;
 using Forge.Host.Domain;
 using RatchetPs2.Games.UYA.Gameplay;
 using RatchetPs2.Games.UYA.Level;

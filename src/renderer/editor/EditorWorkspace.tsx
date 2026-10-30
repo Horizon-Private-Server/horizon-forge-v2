@@ -10,6 +10,7 @@ import type {
 } from '../../types/EditorRuntime.js';
 import type { SceneTreeColors } from '../../types/SceneTree.js';
 import type { CollisionVisualization } from '../../types/CollisionVisualization.js';
+import type { OcclusionSamplePreview, OcclusionVisibilityData } from '../../types/Occlusion.js';
 import type {
   BuildPatchProgress,
   BuildPatchResult,
@@ -27,6 +28,9 @@ import { findKeybindingCommand, forgeActionForKeybinding } from '../../utils/Key
 import { parseSplinePointId, removeSplinePoints, splinePointId } from '../../utils/SplinePoints.ts';
 import { EditorContext, type InstancedCollisionOverlay } from './EditorContext.ts';
 import { BuildPanel } from './BuildPanel.tsx';
+import { OcclusionPanel } from './OcclusionPanel.tsx';
+import { OcclusionViewportProvider } from './OcclusionViewportContext.tsx';
+import { occlusionSampleSceneKey } from './OcclusionSampleOverlay.ts';
 import { AssetExplorerPanel } from './AssetExplorerPanel.tsx';
 import { AssetPreviewPanel } from './AssetPreviewPanel.tsx';
 import { AssetThumbnailRuntime } from './AssetThumbnailRuntime.ts';
@@ -79,6 +83,7 @@ const components = {
   levelSettings: LevelSettingsPanel,
   diagnostics: LogPanel,
   build: BuildPanel,
+  occlusion: OcclusionPanel,
   assetExplorer: AssetExplorerPanel,
   customAssets: CustomAssetsPanel,
   assetPreview: AssetPreviewPanel,
@@ -117,6 +122,22 @@ export function EditorWorkspace({
   const [skyCompositionSelected, setSkyCompositionSelected] = useState(false);
   const splinePointClipboard = useRef<ProjectVector4[]>([]);
   const [showOcclusionOctants, setShowOcclusionOctants] = useState(false);
+  const [showOcclusionOctantIds, setShowOcclusionOctantIds] = useState(false);
+  const [samplePreview, setSamplePreview] = useState<{ data: OcclusionSamplePreview; sceneKey: string }>();
+  const [showOcclusionSamples, setShowOcclusionSamples] = useState(false);
+  const [occlusionSamplePullIn, setOcclusionSamplePullIn] = useState(2);
+  const [occlusionPixelEdgeAllowance, setOcclusionPixelEdgeAllowance] = useState(false);
+  const [occlusionEnabled, setOcclusionEnabled] = useState(true);
+  const [occlusionFrozen, setOcclusionFrozen] = useState(false);
+  const [occlusionData, setOcclusionData] = useState<{ projectId: string; value: OcclusionVisibilityData }>();
+  const [occlusionVisibilityLoading, setOcclusionVisibilityLoading] = useState(false);
+  const [occlusionVisibilityError, setOcclusionVisibilityError] = useState<string>();
+  const [occlusionBakeRevision, setOcclusionBakeRevision] = useState(0);
+  const occlusionVisibility = occlusionEnabled && occlusionData?.projectId === project.projectId ? occlusionData.value : undefined;
+  const sampleSceneKey = useMemo(() => occlusionSampleSceneKey(project, renderRevision, occlusionSamplePullIn),
+    [project.projectId, project.entities, project.target, project.customModels, renderRevision, occlusionSamplePullIn]);
+  const occlusionSamplesStale = Boolean(samplePreview && samplePreview.sceneKey !== sampleSceneKey);
+  const occlusionSamples = occlusionSamplesStale ? undefined : samplePreview?.data;
   const [showTerrain, setShowTerrain] = useState(true);
   const [showSolidCollision, setShowSolidCollision] = useState(true);
   const [showPlayerBarriers, setShowPlayerBarriers] = useState(true);
@@ -155,6 +176,11 @@ export function EditorWorkspace({
     if (terrainProjectId.current !== project.projectId) {
       terrainProjectId.current = project.projectId;
       setTerrain(undefined);
+      setSamplePreview(undefined);
+      setShowOcclusionSamples(false);
+      setOcclusionEnabled(true);
+      setOcclusionFrozen(false);
+      setOcclusionData(undefined);
       setCameraFocus(undefined);
       setAssetPreview(undefined);
       setInstancedCollisionOverlay(undefined);
@@ -193,6 +219,20 @@ export function EditorWorkspace({
   }, [customTfragRevision, project.projectId, renderRevision]);
 
   useEffect(() => {
+    if (!occlusionEnabled) { setOcclusionFrozen(false); setOcclusionVisibilityLoading(false); setOcclusionVisibilityError(undefined); return; }
+    let disposed = false;
+    setOcclusionVisibilityLoading(true);
+    setOcclusionVisibilityError(undefined);
+    setOcclusionData(undefined);
+    void window.forge.getOcclusionVisibility().then(value => {
+      if (!disposed) setOcclusionData({ projectId: project.projectId, value });
+    }).catch(cause => {
+      if (!disposed) { setOcclusionVisibilityError(errorMessage(cause)); reportError(errorMessage(cause)); }
+    }).finally(() => { if (!disposed) setOcclusionVisibilityLoading(false); });
+    return () => { disposed = true; };
+  }, [occlusionEnabled, project.projectId, occlusionBakeRevision]);
+
+  useEffect(() => {
     if (!api) return;
     let disposed = false;
     let subscription: { dispose(): void } | undefined;
@@ -212,6 +252,7 @@ export function EditorWorkspace({
         if (!api.getPanel('groups')) showEditorPanel(api, 'groups');
         if (!api.getPanel('levelSettings')) showEditorPanel(api, 'levelSettings');
         if (!api.getPanel('build')) showEditorPanel(api, 'build');
+        if (!api.getPanel('occlusion')) { showEditorPanel(api, 'occlusion'); migratedLayout = true; }
         if (!api.getPanel('customAssets')) {
           showEditorPanel(api, 'customAssets');
           migratedLayout = true;
@@ -294,6 +335,55 @@ export function EditorWorkspace({
     setAssetPreview(family);
     if (family && activate && api) showEditorPanel(api, 'assetPreview');
   }, [api]);
+
+  const rebuildOcclusion = useCallback(async () => {
+    if (buildRunning.current) return;
+    buildRunning.current = true;
+    setBusy(true);
+    setBuildResult(undefined);
+    setBuildProgress({ phase: 'Occlusion', completed: 0, total: 1, message: 'Starting occlusion rebuild…' });
+    try {
+      const result = await window.forge.rebuildOcclusion(occlusionSamplePullIn, occlusionPixelEdgeAllowance);
+      setOcclusionBakeRevision(value => value + 1);
+      const message = `Rebuilt ${result.octants.toLocaleString()} octants from ${result.origins.toLocaleString()} shared camera positions in ${(result.wallMs / 1000).toFixed(2)}s GPU worker time.`;
+      setBuildProgress({ phase: 'Complete', completed: 1, total: 1, message });
+      forgeLog.write('Occlusion', 'success', message);
+      onProjectChange(await window.forge.getEditorSnapshot());
+    } catch (cause) {
+      reportError(errorMessage(cause));
+    } finally {
+      buildRunning.current = false;
+      setBusy(false);
+    }
+  }, [onProjectChange, occlusionSamplePullIn, occlusionPixelEdgeAllowance]);
+
+  const previewOcclusionSamples = useCallback(async () => {
+    if (buildRunning.current) return;
+    buildRunning.current = true;
+    setBusy(true);
+    setBuildProgress({ phase: 'Occlusion samples', completed: 0, total: 1, message: 'Qualifying occlusion samples…' });
+    const signature = occlusionSampleSceneKey(projectRef.current, renderRevision, occlusionSamplePullIn);
+    try {
+      const data = await window.forge.previewOcclusionSamples(occlusionSamplePullIn);
+      const next = await window.forge.getEditorSnapshot();
+      if (occlusionSampleSceneKey(next, renderRevision, occlusionSamplePullIn) !== signature
+        || occlusionSampleSceneKey(projectRef.current, renderRevision, occlusionSamplePullIn) !== signature)
+        throw new Error('The scene changed while qualifying samples. Qualify samples again.');
+      onProjectChange(next);
+      setSamplePreview({ data, sceneKey: signature });
+      setShowOcclusionOctants(true);
+      setShowOcclusionSamples(true);
+      const message = `Qualified ${data.origins.length.toLocaleString()} shared sample positions in ${data.cells.length.toLocaleString()} octants.`;
+      setBuildProgress({ phase: 'Complete', completed: 1, total: 1, message });
+      forgeLog.write('Occlusion samples', 'success', message);
+    } catch (cause) {
+      reportError(errorMessage(cause));
+      setBuildProgress(undefined);
+    } finally {
+      buildRunning.current = false;
+      setBusy(false);
+    }
+  }, [onProjectChange, renderRevision, occlusionSamplePullIn]);
 
   const execute = useCallback(async (command: EditorCommand) => {
     try {
@@ -550,8 +640,21 @@ export function EditorWorkspace({
     skyCompositionSelected,
     setSkyCompositionSelected,
     showViewportStats,
+    occlusionEnabled,
+    setOcclusionEnabled,
+    occlusionFrozen,
+    setOcclusionFrozen,
+    occlusionVisibility,
+    occlusionVisibilityLoading,
+    occlusionVisibilityError,
     showOcclusionOctants,
     setShowOcclusionOctants,
+    showOcclusionOctantIds,
+    setShowOcclusionOctantIds,
+    occlusionSamples,
+    occlusionSamplesStale,
+    showOcclusionSamples,
+    setShowOcclusionSamples,
     showTerrain,
     setShowTerrain,
     showSolidCollision,
@@ -579,6 +682,12 @@ export function EditorWorkspace({
     buildProgress,
     buildResult,
     build: buildAndPatch,
+    rebuildOcclusion,
+    previewOcclusionSamples,
+    occlusionSamplePullIn,
+    setOcclusionSamplePullIn,
+    occlusionPixelEdgeAllowance,
+    setOcclusionPixelEdgeAllowance,
     cancelBuild: () => window.forge.cancelBuildAndPatch().catch((cause) => reportError(errorMessage(cause))),
     execute,
     previewInstancedCollision,
@@ -601,11 +710,12 @@ export function EditorWorkspace({
       catch (cause) { reportError(errorMessage(cause)); }
       finally { setBusy(false); }
     },
-  }), [activeImportBatchId, applyGroupTemplatePreview, applyInstancedCollisionPreview, assetPreview, assetThumbnails, buildAndPatch, buildProgress, buildResult, busy, cameraFocus,
+  }), [activeImportBatchId, applyGroupTemplatePreview, applyInstancedCollisionPreview, assetPreview, assetThumbnails, buildAndPatch, rebuildOcclusion, previewOcclusionSamples, occlusionSamples, occlusionSamplesStale, occlusionSamplePullIn, occlusionPixelEdgeAllowance, showOcclusionSamples, buildProgress, buildResult, busy, cameraFocus,
     cancelGroupTemplatePreview,
     cancelInstancedCollisionPreview, execute,
     filterSceneToImportBatch, hostStatus, inspectAsset, inspectReferencedAsset, navigateToEntity, openImportBatch, removeImportBatch, showReferences, keybindings,
-    collisionVisualization, project, sceneFilter, sceneLoad, sceneTreeColors, showDeathHeight, showOcclusionOctants, showPlayerBarriers, showSolidCollision,
+    collisionVisualization, project, sceneFilter, sceneLoad, sceneTreeColors, showDeathHeight, showOcclusionOctants, showOcclusionOctantIds, showPlayerBarriers, showSolidCollision,
+    occlusionEnabled, occlusionFrozen, occlusionVisibility, occlusionVisibilityLoading, occlusionVisibilityError,
     mobySimulationEnabled, mobySimulationPaused,
     selectionColor, showTerrain,
     showViewportStats, skyCompositionSelected,
@@ -614,23 +724,25 @@ export function EditorWorkspace({
     renderedInstancedCollisionEntityIds, setInstancedCollisionRendered]);
 
   return <EditorContext.Provider value={context}>
-    <div className="editor-workspace">
-      <DockviewReact
-        components={components}
-        keyboardNavigation
-        onReady={onReady}
-        theme={themeAbyss}
-        watermarkComponent={EditorWatermark}
-      />
-      <EditorStatusBar
-        hostStatus={hostStatus}
-        busy={busy}
-        buildProgress={buildProgress}
-        buildResult={buildResult}
-        onCancel={() => void window.forge.cancelBuildAndPatch().catch((cause) => reportError(errorMessage(cause)))}
-        onShowLog={() => { if (api) showEditorPanel(api, 'diagnostics'); }}
-      />
-    </div>
+    <OcclusionViewportProvider projectId={project.projectId}>
+      <div className="editor-workspace">
+        <DockviewReact
+          components={components}
+          keyboardNavigation
+          onReady={onReady}
+          theme={themeAbyss}
+          watermarkComponent={EditorWatermark}
+        />
+        <EditorStatusBar
+          hostStatus={hostStatus}
+          busy={busy}
+          buildProgress={buildProgress}
+          buildResult={buildResult}
+          onCancel={() => void window.forge.cancelBuildAndPatch().catch((cause) => reportError(errorMessage(cause)))}
+          onShowLog={() => { if (api) showEditorPanel(api, 'diagnostics'); }}
+        />
+      </div>
+    </OcclusionViewportProvider>
   </EditorContext.Provider>;
 }
 

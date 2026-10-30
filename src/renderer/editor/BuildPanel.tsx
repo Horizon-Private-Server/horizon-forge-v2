@@ -11,7 +11,7 @@ import { EditorPanel } from './EditorPrimitives.tsx';
 import { useLoggedMessage } from '../log/UseLog.ts';
 
 export function BuildPanel() {
-  const { project, busy, hostAvailable, buildProgress, buildResult, build, cancelBuild } = useEditor();
+  const { project, busy, hostAvailable, buildProgress, buildResult, build, cancelBuild, occlusionVisibilityLoading } = useEditor();
   const [plan, setPlan] = useState<BuildPlan>();
   const [planError, setPlanError] = useLoggedMessage('Build plan');
   const [selected, setSelected] = useState(() => new Set<BuildLayerId>(BUILD_LAYERS));
@@ -77,10 +77,11 @@ export function BuildPanel() {
           size="xs"
         />
       </div>}
+      {buildProgress?.phase === 'Complete' && !busy && <Text size="xs" role="status">{buildProgress.message}</Text>}
       <Box mt="auto">
         {busy
           ? <Button fullWidth variant="default" onClick={() => void cancelBuild()}>Cancel</Button>
-          : <Button fullWidth disabled={!hostAvailable || !plan}
+          : <Button fullWidth disabled={!hostAvailable || !plan || occlusionVisibilityLoading}
             onClick={() => void build([...includedLayers])}>Build</Button>}
       </Box>
     </Stack>

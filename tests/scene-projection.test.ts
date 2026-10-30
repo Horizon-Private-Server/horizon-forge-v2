@@ -6,6 +6,9 @@ import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 
 import { SceneProjection } from '../src/renderer/editor/SceneProjection.ts';
+import { OcclusionSampleOverlay, occlusionSampleSceneKey } from '../src/renderer/editor/OcclusionSampleOverlay.ts';
+import { OcclusionOctantLabels } from '../src/renderer/editor/OcclusionOctantLabels.ts';
+import type { OcclusionSamplePreview } from '../src/types/Occlusion.js';
 import { SceneGeometryBatch } from '../src/renderer/editor/SceneGeometryBatch.ts';
 import { addTfragTemplates, tfragSourceIndex } from '../src/renderer/editor/TfragTemplates.ts';
 import { SceneBillboardResources } from '../src/renderer/editor/SceneBillboardGizmo.ts';
@@ -21,7 +24,7 @@ import {
   buildGroundPlacement, createGroundSurfaceRaycast,
 } from '../src/renderer/editor/ScenePlacement.ts';
 import { resolvePointerSnapTarget, VertexSnapIndex } from '../src/renderer/editor/SceneSnapping.ts';
-import type { EditorEntity } from '../src/types/EditorRuntime.js';
+import type { EditorEntity, EditorSnapshot } from '../src/types/EditorRuntime.js';
 import { DEFAULT_SCENE_TREE_COLORS } from '../src/utils/SceneTreeColors.ts';
 import { DEFAULT_UYA_COLLISION_VISUALIZATION } from '../src/utils/UyaCollisionVisualization.ts';
 import {
@@ -2210,3 +2213,177 @@ test('camera spawn prefers Ratchet, then Clank, then the fallback moby', () => {
   assert.ok(Math.abs(camera.quaternion.dot(expectedRotation)) > 0.99999);
   assert.equal(positionCameraAtPreferredMoby(camera, controls, [entity('none')]), false);
 });
+
+test('qualified sample overlay maps native axes, shares corner dots and draws relocation paths', () => {
+  const preview: OcclusionSamplePreview = { profile: 'test', origins: [], cells: [] };
+  const ids = new Map<string, number>();
+  const sample = (point: [number, number, number]) => {
+    const key = point.join(',');
+    if (!ids.has(key)) { ids.set(key, preview.origins.length); preview.origins.push(point); }
+    return ids.get(key)!;
+  };
+  for (const x of [1, 2]) {
+    const samples = [sample([x * 4 + 2, 10, 14])];
+    for (let i = 0; i < 8; i++) samples.push(sample(x === 1 && i === 0 ? [4.5, 8.5, 12.5]
+      : [x * 4 + (i & 1) * 4, 8 + ((i >> 1) & 1) * 4, 12 + ((i >> 2) & 1) * 4]));
+    for (let i = 0; i < 4; i++) samples.push(sample([x * 4 + (i & 1) * 4, 8 + ((i >> 1) & 1) * 4, 14]));
+    preview.cells.push({ x, y: 2, z: 3, samples });
+  }
+  const source = structuredClone(preview), overlay = new OcclusionSampleOverlay(preview);
+  const centers = overlay.getObjectByName('Sample centers') as THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial>;
+  const corners = overlay.getObjectByName('Unchanged corner samples') as typeof centers;
+  const moved = overlay.getObjectByName('Relocated corner samples') as typeof centers;
+  const midpoints = overlay.getObjectByName('Vertical-edge midpoint samples') as typeof centers;
+  const paths = overlay.getObjectByName('Sample relocation paths') as THREE.LineSegments;
+  assert.deepEqual(Array.from(centers.geometry.attributes.position.array), [6, 14, -10, 10, 14, -10]);
+  assert.equal(corners.geometry.attributes.position.count, 11);
+  assert.deepEqual(Array.from(moved.geometry.attributes.position.array), [4.5, 12.5, -8.5]);
+  assert.deepEqual(Array.from(paths.geometry.attributes.position.array), [4, 12, -8, 4.5, 12.5, -8.5]);
+  assert.equal(midpoints.geometry.attributes.position.count, 6);
+  assert.deepEqual(Array.from(midpoints.geometry.attributes.position.array).slice(0,3), [4,14,-8]);
+  assert.equal(centers.material.map, null);
+  assert.equal(centers.material.depthTest, false);
+  assert.equal(textureAlpha(corners.material.map!.image as Parameters<typeof textureAlpha>[0], 0.6, 0.6), 255);
+  assert.equal(textureAlpha(moved.material.map!.image as Parameters<typeof textureAlpha>[0], 0.6, 0.6), 0);
+  assert.equal(textureAlpha(midpoints.material.map!.image as Parameters<typeof textureAlpha>[0], 0, 0), 0);
+  assert.equal(textureAlpha(midpoints.material.map!.image as Parameters<typeof textureAlpha>[0], 0.8, 0), 255);
+  assert.deepEqual(preview, source);
+  let geometries = 0, materials = 0, textures = 0;
+  overlay.traverse(object => {
+    if (!(object instanceof THREE.Points || object instanceof THREE.LineSegments)) return;
+    object.geometry.addEventListener('dispose', () => geometries++);
+    const material = object.material as THREE.PointsMaterial;
+    material.addEventListener('dispose', () => materials++);
+    material.map?.addEventListener('dispose', () => textures++);
+  });
+  const parent = new THREE.Group(); parent.add(overlay);
+  overlay.dispose();
+  assert.deepEqual([geometries, materials, textures], [5, 5, 3]);
+  assert.equal(parent.children.length, 0);
+});
+
+test('inward repair preview distinguishes affected samples and outlines only the affected octant', () => {
+  const origins: OcclusionSamplePreview['origins'] = [[2,2,2]];
+  for (let i=0;i<8;i++) origins.push(i===0 ? [.5,.5,1] : [(i&1)*4,((i>>1)&1)*4,((i>>2)&1)*4]);
+  const overlay=new OcclusionSampleOverlay({profile:'test',origins,cells:[{x:0,y:0,z:0,samples:origins.map((_,i)=>i),inwardCorners:1}]});
+  const points=overlay.getObjectByName('Inward-qualified corner samples') as THREE.Points<THREE.BufferGeometry,THREE.PointsMaterial>;
+  const boxes=overlay.getObjectByName('Inward-qualified octants') as THREE.LineSegments;
+  const paths=overlay.getObjectByName('Inward-qualified relocation paths') as THREE.LineSegments;
+  assert.deepEqual(Array.from(points.geometry.attributes.position.array),[.5,1,-.5]);
+  assert.equal(boxes.geometry.attributes.position.count,24);
+  assert.deepEqual(Array.from(paths.geometry.attributes.position.array),[0,0,-0,.5,1,-.5]);
+  assert.equal(overlay.getObjectByName('Relocated corner samples'),undefined);
+  assert.equal(textureAlpha(points.material.map!.image as Parameters<typeof textureAlpha>[0],0,0),255);
+  assert.equal(textureAlpha(points.material.map!.image as Parameters<typeof textureAlpha>[0],.4,.4),0);
+  assert.equal(points.material.depthTest,false);
+  overlay.dispose();assert.equal(overlay.children.length,0);
+});
+
+test('sample preview becomes stale after scene changes while selection and editor visibility remain usable', () => {
+  const project: Pick<EditorSnapshot, 'projectId' | 'entities' | 'target' | 'customModels'> = {
+    projectId: 'test', entities: [entity('wall')], customModels: [],
+    target: { game: 'UYA', region: 'NTSC-U', revision: '1.00', bakeProfile: 'test',
+      paletteOptimization: { mappingVersion: 'paletteOptimization.v1', strength: 0 } },
+  };
+  const initial = occlusionSampleSceneKey(project, 0);
+  project.entities[0].name = 'Renamed wall';
+  project.entities[0].state.hidden = true;
+  project.entities[0].state.dirty = true;
+  assert.equal(occlusionSampleSceneKey(project, 0), initial);
+  project.entities[0].transform.position.x++;
+  assert.notEqual(occlusionSampleSceneKey(project, 0), initial);
+  project.entities[0].transform.position.x--;
+  project.entities[0].state.disabled = true;
+  assert.notEqual(occlusionSampleSceneKey(project, 0), initial);
+  project.entities[0].state.disabled = false;
+  assert.notEqual(occlusionSampleSceneKey(project, 1), initial);
+  assert.notEqual(occlusionSampleSceneKey(project, 0, 1), initial);
+  assert.equal(occlusionSampleSceneKey(project, 0, 0), initial);
+});
+
+test('octant IDs use native order, project below the center dot and update when the source changes', () => {
+  const parent = fakeLabelParent();
+  const labels = new OcclusionOctantLabels(parent as unknown as HTMLElement);
+  const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
+  camera.position.set(6, 14, 0); camera.lookAt(6, 14, -10);
+  labels.setOctants([{ x: 1, y: 2, z: 3, maskIndex: 90 }]);
+  labels.update(camera, 800, 800);
+  assert.equal(labels.element.hidden, true);
+  labels.visible = true;
+  labels.update(camera, 800, 800);
+  const root = parent.children[0];
+  assert.equal(root.hidden, false);
+  assert.equal(root.children.length, 1);
+  assert.equal(root.children[0].textContent, '#0 (1, 2, 3)');
+  assert.equal(root.children[0].style.transform, 'translate(400.0px, 408.0px) translateX(-50%)');
+  labels.setOctants([{ x: 1, y: 2, z: 2, maskIndex: 90 }]);
+  labels.update(camera, 800, 800);
+  assert.equal(root.children[0].textContent, '#0 (1, 2, 2)');
+  labels.setOctants([]); labels.update(camera, 800, 800);
+  assert.equal(root.hidden, true);
+  labels.dispose();
+  assert.equal(parent.children.length, 0);
+});
+
+test('octant labels cull behind-camera and distant cells, and keep the DOM pool bounded', () => {
+  const parent = fakeLabelParent(), labels = new OcclusionOctantLabels(parent as unknown as HTMLElement);
+  const camera = new THREE.PerspectiveCamera(120, 1, 0.1, 100);
+  camera.position.set(2, 2, 8); camera.lookAt(2, 2, -2);
+  labels.visible = true;
+  labels.setOctants([{ x: 0, y: 0, z: 0, maskIndex: 7 }, { x: 0, y: -4, z: 0, maskIndex: 7 },
+    { x: 0, y: 100, z: 0, maskIndex: 7 }]);
+  labels.update(camera, 800, 800);
+  const root = parent.children[0];
+  assert.equal(root.children.length, 1);
+  assert.equal(root.children[0].textContent, '#0 (0, 0, 0)');
+  camera.position.set(2, 2, -2); camera.lookAt(2, 2, -6);
+  labels.update(camera, 800, 800);
+  assert.equal(root.children[0].hidden, true, 'A center exactly at the eye must not produce NaN screen coordinates');
+  camera.position.set(2, 2, 8); camera.lookAt(2, 2, -2);
+  const octants = [];
+  for (let x = -3; x <= 3; x++) for (let y = -2; y <= 3; y++) for (let z = -3; z <= 3; z++)
+    octants.push({ x, y, z, maskIndex: 7 });
+  labels.setOctants(octants); labels.update(camera, 800, 800);
+  assert.equal(root.children.length, 64);
+  labels.setOctants([{ x: 0, y: 0, z: 0, maskIndex: 7 }]); labels.update(camera, 800, 800);
+  assert.equal(root.children.filter(c => !c.hidden).length, 1, 'Unused labels must be hidden and reused');
+  labels.visible = false; labels.update(camera, 800, 800);
+  assert.equal(root.hidden, true);
+  labels.dispose();
+});
+
+test('the frozen octant ID stays labeled beyond the nearby range and obeys the independent ID toggle', () => {
+  const parent = fakeLabelParent(), labels = new OcclusionOctantLabels(parent as unknown as HTMLElement);
+  const camera = new THREE.PerspectiveCamera(120, 1, 0.1, 1000);
+  camera.position.set(2, 2, 8); camera.lookAt(2, 2, -2);
+  labels.setOctants([{ x: 0, y: 0, z: 0, maskIndex: 7 }, { x: 0, y: 25, z: 0, maskIndex: 7 }]);
+  labels.visible = true;
+  labels.frozenOctantId = 1;
+  labels.update(camera, 800, 800);
+  const root = parent.children[0];
+  assert.equal(root.children[0].textContent, '#1 (0, 25, 0)');
+  assert.equal(root.children.filter(c => !c.hidden).length, 2);
+  labels.visible = false; labels.update(camera, 800, 800);
+  assert.equal(root.hidden, true);
+  labels.visible = true; labels.frozenOctantId = undefined;
+  labels.update(camera, 800, 800);
+  assert.equal(root.hidden, false);
+  assert.equal(root.children[0].textContent, '#0 (0, 0, 0)');
+  assert.equal(root.children.filter(c => !c.hidden).length, 1);
+  labels.dispose();
+});
+
+function fakeLabelParent() {
+  interface ElementStub {
+    children: ElementStub[]; parent?: ElementStub; ownerDocument: { createElement(): ElementStub };
+    hidden: boolean; className: string; textContent: string; dataset: Record<string, string>; style: Record<string, string>;
+    setAttribute(): void; append(child: ElementStub): void; remove(): void;
+  }
+  const document = { createElement(): ElementStub {
+    return { children: [], ownerDocument: document, hidden: false, className: '', textContent: '', dataset: {}, style: {},
+      setAttribute() {}, append(child) { this.children.push(child); child.parent = this; },
+      remove() { if (this.parent) this.parent.children = this.parent.children.filter(c => c !== this); },
+    };
+  } };
+  return document.createElement();
+}

@@ -22,7 +22,8 @@ public static class UyaLevelPackService
         IReadOnlySet<string>? acknowledgedWarnings = null,
         IReadOnlySet<BakeLayerId>? deferredLayers = null,
         IProgress<LevelArchiveProgress>? progress = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool applyGeneratedOcclusion = true)
     {
         ArgumentNullException.ThrowIfNull(catalog);
         if (sourceLevelWad.IsEmpty) throw new ArgumentException("Source level WAD cannot be empty.", nameof(sourceLevelWad));
@@ -90,12 +91,15 @@ public static class UyaLevelPackService
                 staging,
                 sourcePackage,
                 cancellationToken);
+            var generated = applyGeneratedOcclusion
+                ? await UyaOcclusionBakeService.ApplyAsync(projectRoot, archive.OutputBytes, cancellationToken)
+                : null;
             return new(
                 true,
-                archive.OutputBytes,
-                archive.CompressedSha256,
-                archive.ChangedRegions,
-                archive.Compressions,
+                generated?.OutputBytes ?? archive.OutputBytes,
+                generated?.CompressedSha256 ?? archive.CompressedSha256,
+                generated is null ? archive.ChangedRegions : archive.ChangedRegions.Concat(generated.ChangedRegions).ToArray(),
+                generated is null ? archive.Compressions : archive.Compressions.Concat(generated.Compressions).ToArray(),
                 diagnostics);
         }
         catch (OperationCanceledException)

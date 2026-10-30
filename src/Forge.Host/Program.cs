@@ -12,6 +12,9 @@ var hostVersion = assembly
     .InformationalVersion ?? "unknown";
 var sdkAssembly = typeof(FrontendMapPackageBuilder).Assembly.GetName().Name;
 
+if (args.Length > 0 && args[0].StartsWith("--occlusion-", StringComparison.Ordinal))
+    return await Forge.Host.Bridge.OcclusionWorkerCommand.RunAsync(args, hostVersion, revision);
+
 Console.Error.WriteLine($"Horizon Forge host is ready with {sdkAssembly} at {revision}.");
 
 return await BridgeHost.RunAsync(

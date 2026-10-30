@@ -344,9 +344,11 @@ and numeric tolerances retain boundary objects; uncertainty resolves visible.
 #### FR-OCC-004: Reference and accelerated generation backends
 
 A bounded CPU reference solver defines correctness on synthetic and small real
-fixtures. A separately qualified GPU backend may use raster/depth, ray/cone, or a
-measured hybrid, but must produce results within the conservative equivalence contract
-across supported vendors. Jobs run off the renderer/main loops, report phase/progress,
+fixtures. Production generation uses a separately qualified GPU backend, with the CPU
+reference retained for bounded verification and disclosed diagnostics. The GPU backend
+may use raster/depth, ray/cone, or a measured hybrid, but must produce results within
+the conservative equivalence contract across supported vendors. Jobs run off the
+renderer/main loops, report phase/progress,
 support safe cancellation, bound GPU/CPU memory and readback, avoid driver watchdog
 work units, and cache/incrementally recompute by fingerprint where valid.
 
@@ -391,7 +393,8 @@ GLB conversion, donor inventory, import closure, sound decoding/composition, sim
 resource creation, and occlusion generation stay off Electron/React interactive loops.
 Long jobs expose progress and safe cancellation. M18-001 records Forge v1 and current
 baseline time/memory before setting the production budget; M18 must materially beat
-that baseline and prevent unbounded per-octant scene rebuild/readback.
+that baseline and prevent repeated scene construction and unbounded or synchronous
+per-sample readback.
 
 #### NFR-P3-003: Untrusted input and provenance
 
@@ -472,6 +475,20 @@ responds to committed edits without reload, resets deterministically, disposes c
 and records expected parity/differences against map-o-matic and PCSX2.
 
 ### M18 — Occlusion generation and analysis
+
+The integrated builder rebuilds existing UYA octants and native groups with an
+isolated WebGPU raster worker. Shared center/corner samples, local wall qualification,
+LOD0 alpha-aware blockers, nonblocking moby bounds and ocean barriers define the
+current profile. Every sample contributes to its cell; neighbor feathering and center
+parallax dilation are disabled. The Occlusion panel exposes rebuilding, qualification
+previews, sample pull-in and pixel-edge controls, viewport visibility and octant freeze.
+
+The [current qualification record](../qualification/M18-occlusion.json) consolidates
+saved Hoven/Outpost comparisons, defaults, resource limits and regression coverage.
+Historical experiments are archived locally under ignored artifacts. Existing native
+mapping/primary-terrain integration is working; continuous camera coverage, automatic
+new coverage/custom groups, streamed chunks and broader hardware qualification remain
+open. Source-mask agreement alone does not establish visible-pixel correctness.
 
 Deliver frozen native contracts, automatic/cuboid-controlled sampling, conservative
 CPU and accelerated visibility generation, caching/cancellation, source/generated diff,

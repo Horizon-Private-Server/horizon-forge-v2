@@ -1,0 +1,462 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-29",
+  "status": "integrated; broader qualification remains open",
+  "profile": "raster1024-lod0-uniform-samples-no-feather-v21",
+  "scope": "Rebuild existing native UYA octants and group mappings using the current packed scene; shared host planning, mask combination and GPU worker.",
+  "algorithm": {
+    "cameraPositions": "Native 4-unit cell center plus eight qualified corners; intersected cells may add four vertical-edge midpoints. Identical positions are shared across cells.",
+    "qualification": "SDK opaque, alpha-aware face checks relocate buried corners locally; inward checks preserve the local side of a wall, guard against crossing another face, and bound extra pull-in toward the center. Reflected TIE/shrub faces preserve authored winding and matching UVs before qualification.",
+    "views": "Six 90-degree cube faces at 1024x1024 per position; LOD0 tie/shrub/tfrag geometry.",
+    "blocking": "Double-sided opaque faces, bilinear texture alpha >=127. Nearby backfaces within 1.5 units allow exit from a clipped wall. Siege variants remain targets but do not block.",
+    "mobys": "Nonblocking sphere targets.",
+    "ocean": "PVar ocean heights are two-sided hard visibility barriers, independent of pixel edge allowance.",
+    "maskAssembly": "Union every geometry and moby sample result plus source fallback bits, then compact similar masks conservatively within the source grid allocation. Preserve each cell reserved bit; no neighbor sample feathering or center parallax dilation.",
+    "execution": "Separate hardware WebGPU process, persistent scene resources, stable source ordering, spatial batch culling and bounded submissions/readback.",
+    "validation": "CPU calibration checks, scene hashes, exact raw sample-union validation, compaction subset/reserved-bit checks, native budget and decode/readback before atomic cache replacement. Cancellation preserves the previous cache."
+  },
+  "defaults": {
+    "samplePullIn": 2,
+    "pixelEdgeAllowance": false,
+    "pixelEdgeAllowancePixels": 2,
+    "viewportOcclusion": true,
+    "freezeOctant": false
+  },
+  "limits": {
+    "octants": 100000,
+    "origins": 250000,
+    "triangles": 1000000,
+    "positionsPerGpuBatch": 256,
+    "positionsPerSubmission": 8
+  },
+  "references": [
+    {
+      "project": "hoven",
+      "profile": "raster1024-lod0-uniform-samples-no-feather-v20",
+      "samplePullIn": 2,
+      "pixelEdgeAllowance": false,
+      "inputHash": "61cf489a7091fa31ac97af19ef168153bd815d5ab6d432d363260e5259f81129",
+      "nativeGridHash": "a785910692deebafc2edde99a2f895b7653da0255be978a57712ece8dd9ffff1",
+      "vanillaGridHash": "a593665f7a513c0689d29cae7012a7bc8c25736eeeea471424be7074baa26c55",
+      "summary": {
+        "cells": 12125,
+        "shared": 4324381,
+        "missing": 128278,
+        "extra": 328047,
+        "native": 4452659,
+        "baked": 4652428,
+        "nativeRecovery": 0.9711906975135531,
+        "extraFractionOfBaked": 0.07051092461828533
+      },
+      "timing": {
+        "workerMs": 86116.3999999999,
+        "gpuMs": 61581.14796799981,
+        "octantsPerWorkerSecond": 140.79780390262496
+      },
+      "level": 41
+    },
+    {
+      "project": "outpost",
+      "profile": "raster1024-lod0-uniform-samples-no-feather-v20",
+      "samplePullIn": 2,
+      "pixelEdgeAllowance": false,
+      "inputHash": "5718bff6481e05a45f3f239d0fa3ff8b0547db133f1e08ae656841adae56135e",
+      "nativeGridHash": "bedcbb3630b0b19c8dec3fe7df9d48d9853d389149e5daafad58bf76cf8621c8",
+      "vanillaGridHash": "6b5fc09a037400144be3511786d30b07ac74f4cf341189762d3a7c35477f76e0",
+      "summary": {
+        "cells": 34658,
+        "shared": 13256227,
+        "missing": 476049,
+        "extra": 477659,
+        "native": 13732276,
+        "baked": 13733886,
+        "nativeRecovery": 0.9653335688854492,
+        "extraFractionOfBaked": 0.03477959552016086
+      },
+      "timing": {
+        "workerMs": 294818.6999999997,
+        "gpuPassMs": 215346.77590400015,
+        "outsideTimedPassesMs": 79471.92409599957,
+        "passElapsedFraction": 0.7304379807115368,
+        "octantsPerWorkerSecond": 117.55699350142999,
+        "origins": 108255,
+        "cubeFaceViews": 649530,
+        "triangles": 415394,
+        "spheres": 11
+      },
+      "level": 42
+    }
+  ],
+  "viewportPerformance": {
+    "source": "Saved Outpost masks and 6,331 entity metadata; 143-cell route, 568 measured transitions after warmup",
+    "before": {
+      "medianMs": 3.606051000000207,
+      "p95Ms": 4.396553999999924,
+      "maxMs": 19.065573000000086
+    },
+    "after": {
+      "medianMs": 0.10349899999999934,
+      "p95Ms": 0.16594800000001442,
+      "maxMs": 0.5981050000000323
+    },
+    "reactIsolationCheck": {
+      "octantChanges": 100,
+      "unrelatedPanelRendersDuringChanges": 0,
+      "labelRenders": 102,
+      "projectReset": true
+    },
+    "ownerConfirmedSmoothTransitions": true,
+    "limitations": "CPU benchmark uses real saved masks and entity metadata with placeholder meshes; GPU render-frame time was not measured."
+  },
+  "regressionCoverage": [
+    "All contributing samples are unioned, including a group visible from one shared corner.",
+    "Local wall qualification fixtures for Hoven octants #6267 and #6404.",
+    "Alpha, backfaces, ocean boundaries, nonblocking spheres and source depth ownership.",
+    "Large-map budgets, malformed input, stale cache, changed project, cancellation and atomic native publication.",
+    "Viewport native axes, freeze/reset, manual visibility, selection, picking and incremental normal/mirrored/terrain updates."
+  ],
+  "remainingWork": [
+    "Finite samples are not a proof of continuous visibility; vanilla masks are a similarity reference, not pixel ground truth.",
+    "Existing fully resolved native mappings and primary terrain are required; custom groups/new octants, streamed terrain and other game adapters remain unsupported.",
+    "Cross-vendor, weaker-GPU, Windows and broader emulator/real-hardware route qualification remain open.",
+    "Counts are octant/group memberships; group aliases may include objects not visible individually."
+  ],
+  "cleanup": {
+    "archivedReports": 141,
+    "archivedBytes": 18603219,
+    "localArchive": "artifacts/occlusion-probes/commit-cleanup/reports",
+    "manifest": "artifacts/occlusion-probes/commit-cleanup/report-manifest.json",
+    "note": "Exploratory harnesses, intermediate reports and large probe outputs remain local ignored artifacts; automated tests use production code and self-contained fixtures.",
+    "codeChanges": [
+      "Separate GPU resource setup, per-view encoding and batch execution into named local functions.",
+      "Use the shader bind groups directly instead of patching shader source at runtime; remove the unused collect override, pixel argument and second indirect draw record.",
+      "Share camera layout constants and the batch limit between their consumers.",
+      "Compile independent raster pipelines concurrently, skip empty moby passes, and copy only active timestamp rows.",
+      "Destroy timestamp queries on initialization failure as well as normal completion.",
+      "Separate worker result publication from startup/IPC setup and check resource size after reading.",
+      "Clarify scene validation phases and sample-union indexing without changing the union rules.",
+      "Format GPU code, shaders, host occlusion code and retained tests; replace repetitive obsolete-profile assertions with representative incompatible-profile checks."
+    ],
+    "verification": {
+      "typecheck": "passed",
+      "npmTest": "passed",
+      "gitDiffCheck": "passed",
+      "hardware": "NVIDIA RTX 5090 through the production Electron WebGPU worker",
+      "gpuParity": {
+        "hoven": {
+          "origins": 1611,
+          "octants": 242,
+          "sampleMasksExact": true,
+          "cellMasksExact": true,
+          "beforeGpuMs": 2045.4190400000036,
+          "afterGpuMs": 2205.1409600000034,
+          "beforeWallMs": 3727.1999999997206,
+          "afterWallMs": 3874.5
+        },
+        "no-spheres-": {
+          "origins": 38,
+          "octants": 4,
+          "sampleMasksExact": true,
+          "cellMasksExact": true,
+          "beforeGpuMs": 33.418176,
+          "afterGpuMs": 25.682463999999992,
+          "beforeWallMs": 695.5999999996275,
+          "afterWallMs": 681.2000000001863
+        }
+      },
+      "pixelEdgeAllowanceEnabled": {
+        "origins": 13,
+        "octants": 1,
+        "sampleMasksExact": true,
+        "cellMasksExact": true
+      },
+      "cancellation": {
+        "exitCode": 130,
+        "previousResultPreserved": true,
+        "temporaryResultRemoved": true,
+        "cancelLatencyMs": 83.39024499991865
+      },
+      "limits": "Bounded saved-scene GPU checks; no full-level bake, source project changes or ISO writes.",
+      "repeatedTimings": {
+        "before": {
+          "runs": 3,
+          "medianGpuMs": 2243.7977280000055,
+          "medianWallMs": 3891.600000000093
+        },
+        "after": {
+          "runs": 3,
+          "medianGpuMs": 2261.4060160000045,
+          "medianWallMs": 3960.899999999907
+        },
+        "interpretation": "Alternating-order short runs show no material general speed change; empty-moby scenes avoid an unnecessary compute pass. These are active-desktop timings, not full-bake performance qualification."
+      }
+    }
+  },
+  "ownershipRefactor": {
+    "namespaces": {
+      "RatchetPs2.Core.Occlusion": "Host-independent geometry contracts, shared sample planning and corner qualification.",
+      "RatchetPs2.Games.UYA.Occlusion": "Native extraction, mappings, alpha/ocean/Siege policies, calibrated CPU reference, spatial ordering, grids and archive composition.",
+      "RatchetPs2.Sdk": "Game-neutral OcclusionSceneBuilder and OcclusionComposer entry points dispatched by GameId.",
+      "Forge.Host.Domain.Occlusion": "GPU worker protocol, result validation, cache, limits and desktop data contracts.",
+      "Forge.Host.Games.UYA": "Project preparation, SDK orchestration, entity links and publication.",
+      "Forge Electron/WebGPU/renderer": "GPU execution/lifecycle and editor presentation remain in Forge."
+    },
+    "changes": [
+      "Removed the production dependency on the diagnostic probe builder and unused BVH nodes.",
+      "Preserved spatial triangle sorting for calibrated raster batches and depth ownership.",
+      "Avoided production diagnostic LOD metadata and repeated level analysis.",
+      "Moved native composition/readback and Siege classification to the SDK.",
+      "Renamed the host service to OcclusionWorkerProtocol and transfer records to OcclusionGpu*.",
+      "Moved shared algorithm, ocean and Hoven qualification regressions plus fixtures into SDK tests."
+    ],
+    "verification": {
+      "forgeTypecheck": "passed",
+      "forgeFullTests": "passed",
+      "sdkBuild": "passed",
+      "sdkTargetedCommands": [
+        "--occlusion-samples",
+        "--occlusion-scene",
+        "--uya-occlusion",
+        "--uya-occlusion-full-grid",
+        "--uya-occlusion-probe",
+        "--uya-occlusion-experiments",
+        "--uya-occlusion-slice",
+        "--uya-occlusion-coverage",
+        "--uya-occlusion-tie-targets"
+      ],
+      "fullLevelExport": {
+        "octants": 12125,
+        "origins": 47705,
+        "filesExact": [
+          {
+            "file": "scene.json",
+            "bytes": 2483074,
+            "sha256": "00575de3acf5e28dc4599f7d0ffe8d132cdb98cd2b655c6ddb0fbc21b13ac146"
+          },
+          {
+            "file": "triangles.bin",
+            "bytes": 12379520,
+            "sha256": "9fa56687c0e5ea7e08582b537c7f44e1f83653073e77fb3c4ac4ac317e6bcdab"
+          },
+          {
+            "file": "textures.bin",
+            "bytes": 3040,
+            "sha256": "285057d945ec5e379bb4509e5b238ee6da9bf498497d77cddcc233876b310d50"
+          },
+          {
+            "file": "alpha.bin",
+            "bytes": 3085312,
+            "sha256": "2e5ae947574f8f78fc06ab0a3ecfdc067632a1eb77de3222f41f4dd258e16980"
+          },
+          {
+            "file": "original-grid.bin",
+            "bytes": 1517184,
+            "sha256": "52fc7e4e8464d3b029f57d92173ed20548e27b1d96b5486712d555d97d73053a"
+          }
+        ]
+      },
+      "gpuMasks": {
+        "origins": 2482,
+        "octants": 242,
+        "sampleMasksExact": true,
+        "cellMasksExact": true
+      },
+      "nativeComposition": {
+        "nativeReadbackExact": true,
+        "originalWadUnchanged": true,
+        "cancellation": true,
+        "octants": 12125
+      },
+      "sdkDefaultSuite": "Fails the archive replacement/compression assertion in ValidateUyaLevelArchiveBuilder. The same failure was reproduced using saved pre-refactor SDK binaries; targeted occlusion commands pass.",
+      "diffChecks": "passed in both repositories"
+    },
+    "compatibility": "Profile, settings, GPU file schema and generated visibility behavior are unchanged. Rebuild Forge and the SDK together after these C# namespace changes.",
+    "limits": "No full-level GPU rebake or new in-game route test; scene export covers all level41 octants, GPU equivalence uses a matched 242-cell slice, and native roundtrip covers the full grid."
+  },
+  "diagnosticsRetirement": {
+    "removed": "Unused SDK diagnostics namespace, experimental BVHs, probes, policy/coverage sweeps, replay harnesses and CLI routes.",
+    "retained": "Production CPU calibration, native read-only corpus analysis, alpha/UV and depth ownership tests, sample qualification, Hoven wall and ocean fixtures, native mask writer tests, editor sample overlays and frozen-octant inspection.",
+    "archive": "artifacts/occlusion-probes/retired-diagnostics",
+    "netLinesRemoved": 2266,
+    "productionBakeCode": "Unchanged outside removal of the unused Diagnostics namespace.",
+    "verification": {
+      "sdkBuild": "passed without warnings",
+      "sdkOcclusionSuite": "passed",
+      "forgeTypecheck": "passed",
+      "forgeFullTests": "passed (loopback fixtures require network access outside the sandbox)",
+      "diffChecks": "passed in both repositories",
+      "limits": "No full-level GPU rebake; production bake code is unchanged."
+    }
+  },
+  "maskCompaction": {
+    "policy": "Merge exact masks first, then face-adjacent masks by the total added group bits over their affected octants. Intern duplicate unions immediately; use bounded deterministic candidates for disconnected islands when needed. Stop as soon as the source grid allocation is met.",
+    "ownership": "RatchetPs2.Games.UYA.Occlusion through neutral SDK RebuildGrid and CompactGrid entry points; Host coordinates cache publication and viewport loading.",
+    "cacheCompatibility": "Compaction is automatic for compatible cached rasters during packing and viewport export. The v21 mirrored-winding correction changes sampling; v20 and v19 masks remain previewable but require a fresh v21 GPU bake before building.",
+    "guarantees": [
+      "Every generated visibility bit is retained.",
+      "Octant coordinates and reserved visibility flags are unchanged.",
+      "Written grid fits the source grid byte allocation.",
+      "Inputs are immutable; cancellation or failure preserves the previous cache."
+    ],
+    "limits": {
+      "octants": 100000,
+      "queuedEdgesBeforeRebuild": 1000000,
+      "candidateWork": 20000000
+    },
+    "evaluation": {
+      "originalVanillaSharingOutpostAddedFraction": 0.061626185043330055,
+      "selectedFaceNeighborsOutpostAddedFraction": 0.030397150522437712,
+      "twentySixNeighborsOutpostAddedFraction": 0.02995852739712562,
+      "decision": "Six face neighbors give nearly the same quality with less work and memory; sorted global and diagonal searches were not integrated."
+    },
+    "savedBakes": [
+      {
+        "project": "outpost",
+        "octants": 34658,
+        "milliseconds": 369.806,
+        "originalBytes": 1537728,
+        "rawBytes": 4438080,
+        "compactedBytes": 1537728,
+        "rawMasks": 33810,
+        "compactedMasks": 11151,
+        "lost": 0,
+        "added": 417471,
+        "addedFraction": 0.030397150522437712,
+        "averageAdded": 12.045444053321022,
+        "maxAdded": 55,
+        "p99Added": 34,
+        "missing": 303692,
+        "extra": 722773,
+        "nativeReadback": true,
+        "pythonParity": true,
+        "reservedBitsPreserved": true,
+        "idempotent": true
+      },
+      {
+        "project": "hoven",
+        "octants": 12125,
+        "milliseconds": 39.1035,
+        "originalBytes": 657664,
+        "rawBytes": 1469184,
+        "compactedBytes": 657664,
+        "rawMasks": 11204,
+        "compactedMasks": 4864,
+        "lost": 0,
+        "added": 136510,
+        "addedFraction": 0.02934166847934025,
+        "averageAdded": 11.258556701030928,
+        "maxAdded": 44,
+        "p99Added": 34,
+        "missing": 75890,
+        "extra": 412169,
+        "nativeReadback": true,
+        "pythonParity": true,
+        "reservedBitsPreserved": true,
+        "idempotent": true
+      }
+    ],
+    "outpostPacked": {
+      "wadBytes": 17768448,
+      "sourceAllocationBytes": 18348032,
+      "fitsIsoAllocation": true,
+      "loadedAssetsBytes": 20062464,
+      "baselineLoadedAssetsBytes": 20062464,
+      "archiveReadback": true,
+      "assetsOutsideGridUnchanged": true,
+      "profile": "raster1024-lod0-uniform-samples-no-feather-v20"
+    },
+    "verification": {
+      "sdkOcclusionSuite": "passed",
+      "forgeFullTests": "passed",
+      "pythonParity": "exact cell masks for both full saved grids",
+      "nativeArchiveReadback": "passed; all asset bytes outside occlusion unchanged",
+      "diffChecks": "passed in both repositories"
+    },
+    "referenceComparisonStage": "The references section above records pre-compaction raster results. Compacted comparisons are in savedBakes here.",
+    "limitations": "Costs count group memberships, not individual objects, triangle cost or measured FPS. No new GPU bake or emulator trap reproduction was performed; the runtime change needs an in-game check."
+  },
+  "mirroredRampFix": {
+    "profile": "raster1024-lod0-uniform-samples-no-feather-v21",
+    "octantId": 10375,
+    "coordinates": [
+      101,
+      53,
+      26
+    ],
+    "target": {
+      "source": "tie:instance:67",
+      "classId": "0x1956",
+      "group": 340
+    },
+    "rootCause": "Reflected instance positions reversed triangle winding without updating the bake front/back convention. The qualifier treated the mirrored ramps as an interior air pocket and moved clear upper corners below the floor.",
+    "fix": "Reverse reflected TIE/shrub B/C positions and their matching UVs during scene extraction. Generic qualifier and pull-in amount remain unchanged.",
+    "rawGroupBefore": false,
+    "rawGroupAfter": true,
+    "visibleSamples": [
+      {
+        "slot": 5,
+        "origin": [
+          404,
+          212,
+          108
+        ]
+      },
+      {
+        "slot": 6,
+        "origin": [
+          408,
+          212,
+          108
+        ]
+      },
+      {
+        "slot": 7,
+        "origin": [
+          404,
+          216,
+          108
+        ]
+      },
+      {
+        "slot": 8,
+        "origin": [
+          408,
+          216,
+          108
+        ]
+      }
+    ],
+    "gpu": {
+      "cells": 100,
+      "origins": 531,
+      "workerMs": 2269.7000000001863,
+      "gpuMs": 1111.3491839999976,
+      "pixelEdgeAllowance": false,
+      "cpuChecksPassed": true
+    },
+    "sliceBefore": {
+      "missing": 4815,
+      "extra": 1653
+    },
+    "sliceAfter": {
+      "missing": 2180,
+      "extra": 2338
+    },
+    "tests": {
+      "pullInSettings": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "windingAndUvAlpha": "passed",
+      "hovenCorner6267": "passed",
+      "hovenCorner6404": "passed",
+      "sdkOcclusionSuite": "passed",
+      "forgeFullSuite": "passed"
+    },
+    "limits": "Bounded saved-scene GPU test; no full-level bake, in-game route test, project writes or ISO changes."
+  }
+}

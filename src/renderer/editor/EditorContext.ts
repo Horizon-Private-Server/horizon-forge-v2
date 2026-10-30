@@ -11,6 +11,7 @@ import type {
 import type { AssetExplorerFamily } from '../../types/AssetExplorer.js';
 import type { SceneTreeColors } from '../../types/SceneTree.js';
 import type { CollisionVisualization } from '../../types/CollisionVisualization.js';
+import type { OcclusionSamplePreview, OcclusionVisibilityData } from '../../types/Occlusion.js';
 import type {
   BuildLayerId,
   BuildPatchProgress,
@@ -38,8 +39,25 @@ export interface EditorContextValue {
   skyCompositionSelected: boolean;
   setSkyCompositionSelected(value: boolean): void;
   showViewportStats: boolean;
+  occlusionEnabled: boolean;
+  setOcclusionEnabled(value: boolean): void;
+  occlusionFrozen: boolean;
+  setOcclusionFrozen(value: boolean): void;
+  occlusionVisibility?: OcclusionVisibilityData;
+  occlusionVisibilityLoading: boolean;
+  occlusionVisibilityError?: string;
   showOcclusionOctants: boolean;
   setShowOcclusionOctants(value: boolean): void;
+  showOcclusionOctantIds: boolean;
+  setShowOcclusionOctantIds(value: boolean): void;
+  occlusionSamples?: OcclusionSamplePreview;
+  occlusionSamplesStale: boolean;
+  occlusionSamplePullIn: number;
+  setOcclusionSamplePullIn(value: number): void;
+  occlusionPixelEdgeAllowance: boolean;
+  setOcclusionPixelEdgeAllowance(value: boolean): void;
+  showOcclusionSamples: boolean;
+  setShowOcclusionSamples(value: boolean): void;
   showTerrain: boolean;
   setShowTerrain(value: boolean): void;
   showSolidCollision: boolean;
@@ -67,6 +85,8 @@ export interface EditorContextValue {
   buildProgress?: BuildPatchProgress;
   buildResult?: BuildPatchResult;
   build(includedLayers: BuildLayerId[]): Promise<void>;
+  rebuildOcclusion(): Promise<void>;
+  previewOcclusionSamples(): Promise<void>;
   cancelBuild(): Promise<void>;
   execute(command: EditorCommand): Promise<boolean>;
   inspectInstancedCollisionSource(entityId: string): Promise<EditorInstancedCollisionSourceInfo>;

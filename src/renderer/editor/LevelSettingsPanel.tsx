@@ -22,7 +22,7 @@ type SceneReferenceKey = 'shipPath' | 'shipCameraCuboidStart' | 'shipCameraCuboi
 
 export function LevelSettingsPanel() {
   const {
-    project, terrain, execute, busy, showOcclusionOctants, setShowOcclusionOctants,
+    project, terrain, execute, busy,
     showDeathHeight, setShowDeathHeight, navigateToEntity,
   } = useEditor();
   const editable = project.levelSettings;
@@ -70,11 +70,6 @@ export function LevelSettingsPanel() {
   return <EditorPanel label="Level settings">
     <Stack>
       {paletteControl}
-      <Checkbox
-        checked={showOcclusionOctants}
-        label={`Show occlusion octants (${(terrain?.occlusionOctants.length ?? 0).toLocaleString()})`}
-        onChange={(event) => setShowOcclusionOctants(event.currentTarget.checked)}
-      />
       <Fieldset legend="Appearance">
         <Stack gap="xs">
           {!editable && <Text size="xs" c="yellow">Migrate this project to edit imported level settings.</Text>}

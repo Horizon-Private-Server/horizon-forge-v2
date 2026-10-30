@@ -56,6 +56,7 @@ export function ForgeMenuBar({ keybindings, project, onAction }: ForgeMenuBarPro
           <Item onClick={() => onAction('showLevelSettings')}>Level Settings</Item>
           <Item onClick={() => onAction('showDiagnostics')}>Log</Item>
           <Item onClick={() => onAction('showBuild')}>Build</Item>
+          <Item onClick={() => onAction('showOcclusion')}>Occlusion</Item>
           <Item onClick={() => onAction('showAssetExplorer')}>Asset Explorer</Item>
           <Item onClick={() => onAction('showCustomAssets')}>Custom Assets</Item>
           <Item onClick={() => onAction('showAssetPreview')}>Asset Preview</Item>

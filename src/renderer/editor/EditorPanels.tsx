@@ -22,6 +22,7 @@ import {
 import { parseSplinePointId, splinePointId } from '../../utils/SplinePoints.ts';
 import { EntityProperties, MultiEntityProperties } from './EntityProperties.tsx';
 import { useEditor } from './EditorContext.ts';
+import { useOcclusionViewport } from './OcclusionViewportContext.tsx';
 import {
   EditorEmptyState,
   EditorFilter,
@@ -35,12 +36,14 @@ import { SkyCompositionProperties } from './SkyCompositionProperties.tsx';
 export function ViewportPanel() {
   const {
     project, keybindings, selectionColor, sceneTreeColors, collisionVisualization, terrain, cameraFocus, setCameraFocus, setSceneLoad,
-    execute, busy, showViewportStats, showOcclusionOctants, splinePointSelection, setSplinePointSelection,
+    execute, busy, showViewportStats, showOcclusionOctants, showOcclusionOctantIds, occlusionSamples, showOcclusionSamples, splinePointSelection, setSplinePointSelection,
+    occlusionEnabled, occlusionFrozen, occlusionVisibility,
     setSkyCompositionSelected, showSolidCollision, setShowSolidCollision,
     showPlayerBarriers, setShowPlayerBarriers, showDeathHeight, setShowDeathHeight, showTerrain,
     instancedCollisionOverlay, mobySimulationEnabled, setMobySimulationEnabled,
     mobySimulationPaused, setMobySimulationPaused,
   } = useEditor();
+  const { state: occlusionViewportState, setState: setOcclusionViewportState } = useOcclusionViewport();
   const appearance = project.levelSettings && {
     backgroundColor: project.levelSettings.backgroundColor,
     fogColor: project.levelSettings.fogColor,
@@ -77,6 +80,13 @@ export function ViewportPanel() {
     missingSelectionMembers={splinePointSelection.length ? 0 : missingSelectionMembers}
     showStats={showViewportStats}
     showOcclusionOctants={showOcclusionOctants}
+    showOcclusionOctantIds={showOcclusionOctantIds}
+    occlusionSamples={showOcclusionSamples ? occlusionSamples : undefined}
+    occlusionEnabled={occlusionEnabled}
+    occlusionFrozen={occlusionFrozen}
+    frozenOcclusionOctant={occlusionEnabled && occlusionFrozen ? occlusionViewportState.octant : undefined}
+    occlusionVisibility={occlusionVisibility}
+    onOcclusionStateChange={setOcclusionViewportState}
     showTerrain={showTerrain}
     showSolidCollision={showSolidCollision}
     showPlayerBarriers={showPlayerBarriers}
