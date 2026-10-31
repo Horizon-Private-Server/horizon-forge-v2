@@ -43,7 +43,8 @@ internal sealed class ActivationRunner
         {
             await PackageVerifier.VerifyAsync(targetRoot, handoff.ExpectedPackageManifestSha256,
                 handoff.ExpectedVersion);
-            await PackageVerifier.VerifyAsync(rollbackRoot, handoff.ExpectedTargetPackageManifestSha256);
+            await PackageVerifier.VerifyAsync(rollbackRoot, handoff.ExpectedTargetPackageManifestSha256,
+                allowExtraFiles: true);
         }
         else
         {
@@ -75,13 +76,15 @@ internal sealed class ActivationRunner
     {
         if (targetFingerprint is null && Directory.Exists(rollbackRoot))
         {
-            await PackageVerifier.VerifyAsync(rollbackRoot, handoff.ExpectedTargetPackageManifestSha256);
+            await PackageVerifier.VerifyAsync(rollbackRoot, handoff.ExpectedTargetPackageManifestSha256,
+                allowExtraFiles: true);
         }
         else
         {
             if (!FixedEquals(targetFingerprint, handoff.ExpectedTargetPackageManifestSha256))
                 throw new InvalidDataException("Active installation changed after staging.");
-            await PackageVerifier.VerifyAsync(targetRoot, handoff.ExpectedTargetPackageManifestSha256);
+            await PackageVerifier.VerifyAsync(targetRoot, handoff.ExpectedTargetPackageManifestSha256,
+                allowExtraFiles: true);
         }
         await PackageVerifier.VerifyAsync(stageRoot, handoff.ExpectedPackageManifestSha256,
             handoff.ExpectedVersion);
@@ -102,7 +105,8 @@ internal sealed class ActivationRunner
             if (Directory.Exists(rollbackRoot))
             {
                 PackageVerifier.AssertSafeRemovalRoot(rollbackRoot);
-                await PackageVerifier.VerifyAsync(rollbackRoot, PackageVerifier.ManifestFingerprint(rollbackRoot));
+                await PackageVerifier.VerifyAsync(rollbackRoot, PackageVerifier.ManifestFingerprint(rollbackRoot),
+                    allowExtraFiles: true);
                 Directory.Delete(rollbackRoot, true);
             }
             Directory.Move(targetRoot, rollbackRoot);
@@ -128,7 +132,8 @@ internal sealed class ActivationRunner
         try
         {
             if (!Directory.Exists(rollbackRoot)) throw new DirectoryNotFoundException("Rollback installation is missing.");
-            await PackageVerifier.VerifyAsync(rollbackRoot, handoff.ExpectedTargetPackageManifestSha256);
+            await PackageVerifier.VerifyAsync(rollbackRoot, handoff.ExpectedTargetPackageManifestSha256,
+                allowExtraFiles: true);
             await PackageVerifier.VerifyAsync(targetRoot, handoff.ExpectedPackageManifestSha256,
                 handoff.ExpectedVersion);
             if (Directory.Exists(candidateRoot))
@@ -139,7 +144,8 @@ internal sealed class ActivationRunner
             if (Directory.Exists(targetRoot)) Directory.Move(targetRoot, candidateRoot);
             Directory.Move(rollbackRoot, targetRoot);
             if (Directory.Exists(candidateRoot)) Directory.Delete(candidateRoot, true);
-            await PackageVerifier.VerifyAsync(targetRoot, handoff.ExpectedTargetPackageManifestSha256);
+            await PackageVerifier.VerifyAsync(targetRoot, handoff.ExpectedTargetPackageManifestSha256,
+                allowExtraFiles: true);
             StartPackage(targetRoot, []).Dispose();
             await WriteStateAsync("rolled-back", "The previous Forge version was restored and launched.");
         }

@@ -11,6 +11,7 @@ import test from 'node:test';
 
 import { inspectUpdateArchive, validateArchiveLayout } from '../dist-electron/main/UpdateArchiveInspector.js';
 import { UpdatePackageStager } from '../dist-electron/main/UpdatePackageStager.js';
+import { fingerprintInstalledPackage } from '../dist-electron/main/UpdatePackageValidation.js';
 import { validateSignedReleaseEnvelope } from '../dist-electron/utils/UpdateValidation.js';
 
 const run = promisify(execFile);
@@ -68,6 +69,52 @@ test('Linux and Windows packages stage completely and restart rejects a changed 
   });
   const windowsState = await windowsStager.stage(windows.download);
   assert.equal(windowsState.state, 'ready', windowsState.message);
+});
+
+test('Windows overlay leftovers allow staging without accepting missing, changed, or linked files', async (context) => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'forge-stage-overlay-'));
+  context.after(() => rm(directory, { recursive: true }));
+  const fixture = await createFixture(directory, 'windows');
+  const targetRoot = path.join(directory, 'installed');
+  await cp(fixture.packageRoot, targetRoot, { recursive: true });
+  const assets = 'resources/app/dist/assets';
+  await mkdir(path.join(targetRoot, assets), { recursive: true });
+  // Extras on both sides of a manifested file catch positional hash comparisons.
+  await writeFile(path.join(targetRoot, 'before.txt'), 'leftover');
+  await writeFile(path.join(targetRoot, assets, 'index-old.js'), 'old script');
+  await writeFile(path.join(targetRoot, assets, 'index-old.css'), 'old styles');
+  const fingerprint = await fingerprintInstalledPackage(fixture.packageRoot, 'windows');
+  assert.equal(await fingerprintInstalledPackage(targetRoot, 'windows'), fingerprint);
+  const options = {
+    root: path.join(directory, 'staging'),
+    targetRoot,
+    platform: 'windows',
+    extract: async (_archive, destination) => {
+      await cp(fixture.packageRoot, path.join(destination, fixture.rootName), { recursive: true });
+    },
+  };
+  const stager = new UpdatePackageStager(options);
+  const state = await stager.stage(fixture.download);
+  assert.equal(state.state, 'ready', state.message);
+  assert.equal((await new UpdatePackageStager(options).recover(fixture.download)).state, 'ready');
+  const stage = await stager.getReadyStage(fixture.download);
+  assert.equal(stage.targetPackageManifestSha256, fingerprint);
+  const stagedExtra = path.join(stage.root, 'before.txt');
+  await writeFile(stagedExtra, 'leftover');
+  await assert.rejects(stager.getReadyStage(fixture.download), /extra 1: before\.txt/);
+  await rm(stagedExtra);
+
+  const executable = path.join(targetRoot, 'horizon-forge.exe');
+  await writeFile(executable, 'bad'); // Same size as the original, so this requires hashing.
+  await assert.rejects(stager.getReadyStage(fixture.download), /file does not match its manifest/);
+  await rm(executable);
+  await assert.rejects(fingerprintInstalledPackage(targetRoot, 'windows'), /missing 1: horizon-forge\.exe/);
+  await cp(path.join(fixture.packageRoot, 'horizon-forge.exe'), executable);
+  const linkedDirectory = path.join(targetRoot, 'linked');
+  await symlink(fixture.packageRoot, linkedDirectory, process.platform === 'win32' ? 'junction' : 'dir');
+  await assert.rejects(fingerprintInstalledPackage(targetRoot, 'windows'), /symbolic link/);
+  await rm(linkedDirectory);
+  assert.equal(await fingerprintInstalledPackage(targetRoot, 'windows'), fingerprint);
 });
 
 test('archive preflight rejects unsafe paths, collisions, links, and cancellation cleans partial stages', async (context) => {

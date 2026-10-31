@@ -4,13 +4,45 @@ using Forge.Updater;
 
 internal static class UpdaterActivationTests
 {
+    private const string LeftoverPath = "resources/app/dist/assets/index-old.js";
+
     public static async Task RunAsync()
     {
+        await VerifyInstalledPackageValidationAsync();
         if (!OperatingSystem.IsLinux()) return;
         await VerifySuccessfulActivationAsync();
         await VerifySymlinkAliasActivationAsync();
         await VerifyInterruptedRenameRecoveryAsync();
         await VerifyFailedStartupRollsBackAsync();
+    }
+
+    private static async Task VerifyInstalledPackageValidationAsync()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"forge-updater-validation-{Guid.NewGuid():N}");
+        try
+        {
+            var hash = await WritePackageAsync(root, "2.0.0", "original");
+            await WriteLeftoverAsync(root);
+            await PackageVerifier.VerifyAsync(root, hash, allowExtraFiles: true);
+            await RejectAsync(() => PackageVerifier.VerifyAsync(root, hash), "strict package with extras");
+            var executable = Path.Combine(root, "horizon-forge");
+            await File.WriteAllTextAsync(executable, "modified");
+            await RejectAsync(() => PackageVerifier.VerifyAsync(root, hash, allowExtraFiles: true),
+                "modified manifested file with extras");
+            File.Delete(executable);
+            await RejectAsync(() => PackageVerifier.VerifyAsync(root, hash, allowExtraFiles: true),
+                "missing manifested file with extras");
+            if (OperatingSystem.IsLinux())
+            {
+                File.CreateSymbolicLink(executable, Path.Combine(root, LeftoverPath));
+                await RejectAsync(() => PackageVerifier.VerifyAsync(root, hash, allowExtraFiles: true),
+                    "linked file with extras");
+            }
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
     }
 
     private static async Task VerifySuccessfulActivationAsync()
@@ -22,10 +54,18 @@ internal static class UpdaterActivationTests
             "success");
         try
         {
+            await WritePackageAsync(fixture.RollbackRoot, "1.9.0", "#!/bin/sh\nexit 0\n");
+            await WriteLeftoverAsync(fixture.RollbackRoot);
             await fixture.Runner.RunAsync(int.MaxValue);
             Equal("2.1.0", ReadVersion(fixture.TargetRoot), "activated version");
             Equal("2.0.0", ReadVersion(fixture.RollbackRoot), "retained rollback version");
             Equal("healthy", ReadCheckpoint(fixture.ActivationRoot), "healthy activation checkpoint");
+            if (File.Exists(Path.Combine(fixture.TargetRoot, LeftoverPath)))
+                throw new InvalidOperationException("Old assets entered the updated installation.");
+            Equal("old asset", await File.ReadAllTextAsync(Path.Combine(fixture.RollbackRoot, LeftoverPath)),
+                "retained rollback asset");
+            await fixture.Runner.RunAsync(int.MaxValue);
+            Equal("healthy", ReadCheckpoint(fixture.ActivationRoot), "resumed activation checkpoint");
         }
         finally
         {
@@ -42,6 +82,8 @@ internal static class UpdaterActivationTests
             await fixture.Runner.RunAsync(int.MaxValue);
             Equal("2.0.0", ReadVersion(fixture.TargetRoot), "restored version");
             Equal("rolled-back", ReadCheckpoint(fixture.ActivationRoot), "rollback checkpoint");
+            Equal("old asset", await File.ReadAllTextAsync(Path.Combine(fixture.TargetRoot, LeftoverPath)),
+                "restored rollback asset");
             if (Directory.Exists(fixture.RollbackRoot))
                 throw new InvalidOperationException("Consumed rollback directory still exists.");
         }
@@ -102,6 +144,7 @@ internal static class UpdaterActivationTests
         var activation = Path.Combine(root, "updates", "activation", nonce);
         Directory.CreateDirectory(root);
         var oldHash = await WritePackageAsync(target, "2.0.0", "#!/bin/sh\nexit 0\n");
+        await WriteLeftoverAsync(target);
         var newHash = await WritePackageAsync(stage, "2.1.0", newExecutable);
         Directory.CreateDirectory(activation);
         string? aliasRoot = null;
@@ -115,6 +158,20 @@ internal static class UpdaterActivationTests
             "horizon-forge", "linux", 10);
         var rollback = Path.Combine(root, ".forge.forge-rollback");
         return new Fixture(root, target, rollback, activation, aliasRoot, new ActivationRunner(handoff, activation));
+    }
+
+    private static async Task WriteLeftoverAsync(string root)
+    {
+        var path = Path.Combine(root, LeftoverPath);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        await File.WriteAllTextAsync(path, "old asset");
+    }
+
+    private static async Task RejectAsync(Func<Task> action, string context)
+    {
+        try { await action(); }
+        catch (InvalidDataException) { return; }
+        throw new InvalidOperationException($"Accepted {context}.");
     }
 
     private static async Task<string> WritePackageAsync(string root, string version, string executableContents)

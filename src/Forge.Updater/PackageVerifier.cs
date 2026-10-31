@@ -13,7 +13,8 @@ internal static partial class PackageVerifier
         string root,
         string expectedManifestSha256,
         string? expectedVersion = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool allowExtraFiles = false)
     {
         root = Path.GetFullPath(root);
         AssertDirectDirectory(root, "Package root");
@@ -32,6 +33,12 @@ internal static partial class PackageVerifier
 
         var actual = EnumerateFiles(root);
         var expected = manifest.Files.OrderBy(file => file.Path, StringComparer.Ordinal).ToArray();
+        // Old overlay installs may contain leftovers; stages and candidates must still match exactly.
+        if (allowExtraFiles)
+        {
+            var paths = expected.Select(file => file.Path).ToHashSet(StringComparer.Ordinal);
+            actual.RemoveAll(file => !paths.Contains(file.RelativePath));
+        }
         if (actual.Count != manifest.FileCount || actual.Count != expected.Length)
             throw new InvalidDataException("Package contains extra or missing files.");
         long expandedSize = 0;

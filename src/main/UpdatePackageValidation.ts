@@ -52,7 +52,7 @@ export async function fingerprintInstalledPackage(
   const bytes = await readFile(manifestPath);
   const manifest = parsePackageManifest(bytes, 'Active installation package');
   if (manifest.platform !== platform) throw new Error('Active installation platform identity is invalid.');
-  await validatePackageFiles(root, manifest, 'Active installation', signal);
+  await validatePackageFiles(root, manifest, 'Active installation', signal, undefined, true);
   return createHash('sha256').update(bytes).digest('hex');
 }
 
@@ -78,6 +78,7 @@ async function validatePackageFiles(
   label: string,
   signal?: AbortSignal,
   progress?: (completed: number) => void,
+  allowExtraFiles = false,
 ): Promise<void> {
   const files = await collectRegularFiles(root, signal);
   const actualPaths = files.map((file) => file.relativePath);
@@ -86,16 +87,18 @@ async function validatePackageFiles(
   const expectedSet = new Set(expectedPaths);
   const missing = expectedPaths.filter((filePath) => !actualSet.has(filePath));
   const extra = actualPaths.filter((filePath) => !expectedSet.has(filePath));
-  if (missing.length > 0 || extra.length > 0) {
+  if (missing.length > 0 || (!allowExtraFiles && extra.length > 0)) {
     throw new Error(`${label} file set does not match its manifest (${[
       describePathMismatch('missing', missing),
       describePathMismatch('extra', extra),
     ].filter(Boolean).join('; ')}).`);
   }
+  // Overlay ZIP installs can leave old files; only manifested files enter the new installation.
+  const packageFiles = files.filter((file) => expectedSet.has(file.relativePath));
   const executablePaths: string[] = [];
-  for (let index = 0; index < files.length; index += 1) {
+  for (let index = 0; index < packageFiles.length; index += 1) {
     throwIfAborted(signal);
-    const actual = files[index];
+    const actual = packageFiles[index];
     const expected = manifest.files[index];
     if (actual.size !== expected.size || await hashFile(actual.absolutePath, signal) !== expected.sha256) {
       throw new Error(`${label} file does not match its manifest: ${actual.relativePath}`);

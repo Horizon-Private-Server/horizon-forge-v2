@@ -117,6 +117,12 @@ only inside a newly created nonce directory. Forge then walks the output without
 following links and validates the exact raw package manifest, file set, sizes, hashes,
 and executable permissions before atomically recording a complete stage.
 
+Active and rollback installations may contain extra regular files left by extracting
+a portable ZIP over an older release. Every manifested file must still be present
+with its expected size, hash, and executable permissions, and links and special files
+remain invalid. Extra files stay in the rollback directory; they are never copied
+into the new installation. Stages and candidates always require an exact file set.
+
 Install and restart writes a nonce-bound handoff record and starts a minimal external
 helper outside the active application root. The helper:
 
