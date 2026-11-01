@@ -12,6 +12,8 @@ internal static class EditorBridgeHandlers
         BridgeOpcode.OpenEditorProject => await OpenAsync(frame.Payload, runtime, cancellationToken),
         BridgeOpcode.CloseEditorProject => await CloseAsync(frame.Payload, runtime, cancellationToken),
         BridgeOpcode.QueryEditor => await QueryAsync(frame.Payload, runtime, cancellationToken),
+        BridgeOpcode.QueryOcclusionCoverage => await QueryCoverageAsync(frame.Payload, runtime, cancellationToken),
+        BridgeOpcode.UpdateOcclusionCoverage => await UpdateCoverageAsync(frame.Payload, runtime, cancellationToken),
         BridgeOpcode.ExecuteEditorCommand => await ExecuteAsync(frame.Payload, runtime, cancellationToken),
         BridgeOpcode.SaveEditorProject => await SaveAsync(frame.Payload, runtime, cancellationToken),
         BridgeOpcode.ReadEditorEvents => await ReadEventsAsync(frame.Payload, runtime, cancellationToken),
@@ -105,6 +107,19 @@ internal static class EditorBridgeHandlers
         EditorRuntime runtime,
         CancellationToken cancellationToken) => EditorPayloadCodec.EncodeCommandResult(
             await runtime.ExecuteResultAsync(EditorPayloadCodec.DecodeCommand(payload), cancellationToken));
+
+    private static async Task<byte[]> QueryCoverageAsync(byte[] payload, EditorRuntime runtime, CancellationToken token)
+    {
+        RequireEmpty(payload);
+        return OcclusionCoveragePayloadCodec.EncodeSnapshot(await runtime.QueryOcclusionCoverageAsync(token));
+    }
+
+    private static async Task<byte[]> UpdateCoverageAsync(byte[] payload, EditorRuntime runtime, CancellationToken token)
+    {
+        var request = OcclusionCoveragePayloadCodec.DecodeUpdate(payload);
+        return OcclusionCoveragePayloadCodec.EncodeUpdateResult(
+            await runtime.UpdateOcclusionCoverageAsync(request.Fingerprint, request.State, token));
+    }
 
     private static async Task<byte[]> SaveAsync(
         byte[] payload,

@@ -95,6 +95,7 @@ M8 FX + M9 PVars/references + M7 scene services
 
 M2 scene inventory + SDK occlusion readers/writers + M16 provenance
   └─ M18 Occlusion generation and analysis
+       └─ M18A Occlusion coverage authoring
 
 M14 + M15 + M16 + M17 + M18 + M13-007
   └─ M19 P3 qualification
@@ -322,16 +323,19 @@ visible behavior, and writer identity. Source and generated occlusion are distin
 project states with explicit provenance. Unknown mapping families remain preserved and
 cannot be silently regenerated.
 
-#### FR-OCC-002: Automatic coverage with bounded overrides
+#### FR-OCC-002: Deterministic coverage with bounded authoring
 
 Forge derives candidate camera octants/samples automatically from navigable collision,
 level bounds, and verified native constraints. Optional tagged cuboids may include,
 exclude, or increase/decrease sampling density for interiors, airborne routes, scripted
 cameras, or unsupported navigation. Inputs and settings are versioned project data and
-produce a deterministic generation fingerprint. A representative coverage audit must
-decide whether this is sufficient. Manual occlusion volumes and a node graph are a
-documented fallback only if automatic coverage plus cuboid overrides cannot represent
-proven camera routes; Forge does not build both authoring systems speculatively.
+produce a deterministic generation fingerprint. Automatic collision-derived coverage
+remains M18-002 work. The [M18A coverage-authoring milestone](milestones/M18A-occlusion-coverage.md)
+adopts explicit manual coverage as a supported custom-map workflow: reversible Primary
+contribution, include/exclude boxes and cylinders, and bounded spatial marker graphs.
+It can replace source coverage entirely and does not require automatic navigation
+coverage first. Marker filtering shapes candidate coverage; the established solver
+still computes visibility. A representative camera-route audit remains required.
 
 #### FR-OCC-003: Conservative visibility semantics
 
@@ -492,8 +496,9 @@ open. Source-mask agreement alone does not establish visible-pixel correctness.
 
 Deliver frozen native contracts, automatic/cuboid-controlled sampling, conservative
 CPU and accelerated visibility generation, caching/cancellation, source/generated diff,
-POV probing, cost heatmaps, native writing, and build integration. Add manual
-volume/node coverage authoring only if the M18 coverage audit activates that fallback.
+POV probing, cost heatmaps, native writing, and build integration. Manual volume and
+spatial marker coverage authoring is adopted in M18A, independently of the M18
+automatic-coverage audit.
 
 Exit: representative maps plus level 45 multiplayer rebuild within the frozen resource
 budget, native output re-reads and runs in PCSX2/real hardware, no known visible object

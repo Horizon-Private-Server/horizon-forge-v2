@@ -43,7 +43,7 @@ public static class UyaBakeService
                     BakePhase.Staging, layer.Layer, index + 1, pending.Length, $"Baked {layer.Layer}."));
             }
 
-            var inventory = await UyaTextureInventoryService.BuildAsync(projectRoot, catalog, cancellationToken);
+            var inventory = await UyaTextureInventoryService.BuildAsync(preparation.Workspace, catalog, cancellationToken);
             var paletteReport = await Task.Run(
                 () => PaletteBakeReportService.Create(inventory, cancellationToken), cancellationToken);
             if (staging.Manifest.PaletteReport is null
@@ -53,9 +53,12 @@ public static class UyaBakeService
             await ReportAsync(progress, new(
                 BakePhase.Validate, null, pending.Length, pending.Length, "Validating staged bake."));
             var finalStore = await BakeStagingStore.OpenAsync(projectRoot, cancellationToken);
-            var finalValidation = (await UyaBakeValidationService.PrepareAsync(
+            var finalPreparation = await UyaBakeValidationService.PrepareAsync(
                 projectRoot, catalog, context, acknowledgedWarnings,
-                false, includedLayers, cancellationToken)).Validation;
+                false, includedLayers, cancellationToken);
+            var finalValidation = finalPreparation.Validation;
+            if (finalPreparation.ProjectFingerprint != preparation.ProjectFingerprint)
+                throw new InvalidDataException("Project content changed during bake. Retry with the current project.");
             if (!finalValidation.CanBake
                 || finalValidation.Plan.Layers.Any(value => value.State != BakeLayerState.Clean
                     && (includedLayers?.Contains(value.Layer) ?? true))
@@ -94,15 +97,15 @@ public static class UyaBakeService
         BakeLayerId.World or BakeLayerId.Sky or BakeLayerId.Tfrags
             or BakeLayerId.Collision or BakeLayerId.Lighting =>
             UyaBaseLayerStore.StageAsync(
-                projectRoot, catalog, staging, plan,
-                plan.Layer == BakeLayerId.Tfrags ? preparation : null,
+                preparation.Workspace, catalog, staging, plan,
+                preparation,
                 cancellationToken),
         BakeLayerId.Ties or BakeLayerId.Shrubs or BakeLayerId.Mobys =>
-            UyaStaticLayerStore.StageAsync(projectRoot, catalog, staging, plan, cancellationToken),
-        BakeLayerId.Gameplay => UyaGameplayLayerStore.StageAsync(projectRoot, staging, plan, cancellationToken),
+            UyaStaticLayerStore.StageAsync(preparation.Workspace, catalog, staging, plan, cancellationToken),
+        BakeLayerId.Gameplay => UyaGameplayLayerStore.StageAsync(preparation.Workspace, staging, plan, cancellationToken),
         BakeLayerId.Opaque => OpaqueContentStore.StageAsync(projectRoot, staging, plan, cancellationToken),
-        BakeLayerId.Hud => UyaHudBakeService.StageAsync(projectRoot, staging, plan, cancellationToken),
-        BakeLayerId.Fx => UyaFxBakeService.StageAsync(projectRoot, staging, plan, cancellationToken),
+        BakeLayerId.Hud => UyaHudBakeService.StageAsync(preparation.Workspace, staging, plan, cancellationToken),
+        BakeLayerId.Fx => UyaFxBakeService.StageAsync(preparation.Workspace, staging, plan, cancellationToken),
         _ => throw new ArgumentOutOfRangeException(nameof(plan)),
     };
 

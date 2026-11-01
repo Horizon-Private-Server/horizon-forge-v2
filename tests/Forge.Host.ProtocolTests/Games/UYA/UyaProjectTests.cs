@@ -867,7 +867,7 @@ internal static class UyaProjectTests
         WriteInt32(bytes, offset + 4, length);
     }
 
-    private static byte[] CanonicalAsset(AssetKind kind, byte modelByte)
+    internal static byte[] CanonicalAsset(AssetKind kind, byte modelByte)
     {
         var definitionLength = kind == AssetKind.Shrub ? 0x30 : 0x20;
         var bytes = new byte[19 + definitionLength];

@@ -35,7 +35,7 @@ import { SkyCompositionProperties } from './SkyCompositionProperties.tsx';
 
 export function ViewportPanel() {
   const {
-    project, keybindings, selectionColor, sceneTreeColors, collisionVisualization, terrain, cameraFocus, setCameraFocus, setSceneLoad,
+    project, coverage, keybindings, selectionColor, sceneTreeColors, collisionVisualization, terrain, cameraFocus, setCameraFocus, setSceneLoad,
     execute, busy, showViewportStats, showOcclusionOctants, showOcclusionOctantIds, occlusionSamples, showOcclusionSamples, splinePointSelection, setSplinePointSelection,
     occlusionEnabled, occlusionFrozen, occlusionVisibility,
     setSkyCompositionSelected, showSolidCollision, setShowSolidCollision,
@@ -64,6 +64,7 @@ export function ViewportPanel() {
     project.references,
   ), [project.entities, project.groups, project.mapGroups, project.references, project.selection]);
   return <SceneViewport
+    coverage={coverage}
     disabled={busy}
     entities={project.entities}
     projectId={project.projectId}
@@ -81,7 +82,8 @@ export function ViewportPanel() {
     showStats={showViewportStats}
     showOcclusionOctants={showOcclusionOctants}
     showOcclusionOctantIds={showOcclusionOctantIds}
-    occlusionSamples={showOcclusionSamples ? occlusionSamples : undefined}
+    occlusionSamples={occlusionSamples}
+    showOcclusionSamples={showOcclusionSamples}
     occlusionEnabled={occlusionEnabled}
     occlusionFrozen={occlusionFrozen}
     frozenOcclusionOctant={occlusionEnabled && occlusionFrozen ? occlusionViewportState.octant : undefined}

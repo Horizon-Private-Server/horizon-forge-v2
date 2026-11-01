@@ -8,6 +8,7 @@ import {
   isEditorCommand, isGroupTemplateRequest, isUuid,
 } from '../utils/EditorCommandValidation.js';
 import { applyEditorCommandResult } from '../utils/EditorCommandResult.js';
+import { isOcclusionCoverageFingerprint, isOcclusionCoverageState } from '../utils/OcclusionCoverage.js';
 import { fileExists } from '../utils/FileSystem.js';
 import { formatUyaLevelLabel } from '../utils/UyaLevels.js';
 import { setEditorMenuState, setEditorTextInputActive } from './ApplicationMenu.js';
@@ -21,6 +22,7 @@ interface EditorIpcHandlersOptions {
   getSettingValues(): Promise<Record<string, string | number | boolean>>;
   resolveProjectPath(value: unknown): Promise<string>;
   cancelAssetExplorer(): Promise<void>;
+  cancelBuild(): Promise<void>;
 }
 
 export function registerEditorIpcHandlers(
@@ -29,6 +31,9 @@ export function registerEditorIpcHandlers(
   const {
     host, settings, assertSender, getSettingValues, resolveProjectPath, cancelAssetExplorer,
   } = options;
+  let activeCoverageRequestId: number | undefined;
+  let coveragePreviewStarting = false;
+  let coveragePreviewGeneration = 0;
   let activePreviewRequestId: number | undefined;
   let activeGroupTemplateRequestId: number | undefined;
   let activeSoundPreviewRequestId: number | undefined;
@@ -48,6 +53,7 @@ export function registerEditorIpcHandlers(
   });
   ipcMain.handle('forge:editor-open', async (event, projectPath: unknown) => {
     assertSender(event.sender.id);
+    await options.cancelBuild();
     const values = await getSettingValues();
     return updateSnapshot(await (await host.openEditorProject(
       await resolveProjectPath(projectPath),
@@ -57,6 +63,9 @@ export function registerEditorIpcHandlers(
   });
   ipcMain.handle('forge:editor-close', async (event) => {
     assertSender(event.sender.id);
+    await options.cancelBuild();
+    coveragePreviewGeneration++;
+    if (activeCoverageRequestId !== undefined) await host.cancel(activeCoverageRequestId);
     await cancelAssetExplorer();
     if (activePreviewRequestId !== undefined) await host.cancel(activePreviewRequestId);
     if (activeGroupTemplateRequestId !== undefined) await host.cancel(activeGroupTemplateRequestId);
@@ -69,6 +78,56 @@ export function registerEditorIpcHandlers(
   ipcMain.handle('forge:editor-query', async (event) => {
     assertSender(event.sender.id);
     return updateSnapshot(await (await host.getEditorSnapshot()).result);
+  });
+  ipcMain.handle('forge:occlusion-coverage-preview', async (event, fingerprint: unknown) => {
+    assertSender(event.sender.id);
+    if (!activeSnapshot?.capabilities.includes('editor.occlusion-coverage.preview'))
+      throw new TypeError('Occlusion coverage preview is unavailable in this build.');
+    if (!isOcclusionCoverageFingerprint(fingerprint)) throw new TypeError('Coverage preview fingerprint is invalid.');
+    if (coveragePreviewStarting) throw new Error('A coverage preview is already running.');
+    const project = activeSnapshot, generation = ++coveragePreviewGeneration;
+    coveragePreviewStarting = true;
+    try {
+      const values = await getSettingValues();
+      if (generation !== coveragePreviewGeneration || activeSnapshot?.projectPath !== project.projectPath
+        || activeSnapshot.projectId !== project.projectId) throw new Error('Coverage preview was cancelled or the project changed.');
+      const request = await host.previewOcclusionCoverage(fingerprint, String(values['sources.uya.iso'] ?? ''), progress => {
+        if (generation === coveragePreviewGeneration && !event.sender.isDestroyed()) event.sender.send('forge:occlusion-coverage-progress', progress);
+      });
+      activeCoverageRequestId = request.requestId;
+      if (generation !== coveragePreviewGeneration) await host.cancel(request.requestId);
+      const result = await request.result;
+      if (generation !== coveragePreviewGeneration || activeSnapshot?.projectPath !== project.projectPath
+        || activeSnapshot.projectId !== project.projectId) throw new Error('Coverage preview was cancelled or the project changed.');
+      return result;
+    } finally { activeCoverageRequestId = undefined; coveragePreviewStarting = false; }
+  });
+  ipcMain.handle('forge:occlusion-coverage-preview-cancel', async event => {
+    assertSender(event.sender.id); coveragePreviewGeneration++;
+    if (activeCoverageRequestId !== undefined) await host.cancel(activeCoverageRequestId);
+  });
+  ipcMain.handle('forge:occlusion-coverage-query', async (event) => {
+    assertSender(event.sender.id);
+    if (!activeSnapshot?.capabilities.includes('editor.occlusion-coverage.query'))
+      throw new TypeError('Occlusion coverage queries are unavailable.');
+    const project = activeSnapshot;
+    const result = await (await host.queryOcclusionCoverage()).result;
+    if (activeSnapshot?.projectPath !== project.projectPath || activeSnapshot.projectId !== project.projectId)
+      throw new Error('The active project changed while reading occlusion coverage.');
+    return result;
+  });
+  ipcMain.handle('forge:occlusion-coverage-update', async (event, fingerprint: unknown, state: unknown) => {
+    assertSender(event.sender.id);
+    if (!activeSnapshot?.capabilities.includes('editor.occlusion-coverage.update'))
+      throw new TypeError('Occlusion coverage editing is unavailable.');
+    if (!isOcclusionCoverageFingerprint(fingerprint) || !isOcclusionCoverageState(state))
+      throw new TypeError('Occlusion coverage update is invalid.');
+    const project = activeSnapshot;
+    const result = await (await host.updateOcclusionCoverage(fingerprint, state)).result;
+    if (activeSnapshot?.projectPath !== project.projectPath || activeSnapshot.projectId !== project.projectId)
+      throw new Error('The active project changed while editing occlusion coverage.');
+    updateSnapshot(result.project);
+    return result;
   });
   ipcMain.handle('forge:content-import-options', async (event) => {
     assertSender(event.sender.id);

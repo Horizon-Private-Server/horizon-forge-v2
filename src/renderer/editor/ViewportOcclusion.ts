@@ -13,7 +13,8 @@ export class ViewportOcclusion {
   private dirty = true;
   private simulationOverrides = new Map<THREE.Object3D, boolean>();
 
-  setData(data?: OcclusionVisibilityData): void {
+  setData(data?: OcclusionVisibilityData, primaryEnabled = true): void {
+    if (!primaryEnabled && !data?.coverageRecipeFingerprint) data = undefined;
     this.data = data;
     this.octants = new Map(data?.octants.map((c, id) => [[c.x, c.y, c.z].join(','), { ...c, id }]));
     this.dirty = true;

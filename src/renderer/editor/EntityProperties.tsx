@@ -3,12 +3,13 @@ import type { ReactNode } from 'react';
 import { useLayoutEffect, useMemo, useState } from 'react';
 
 import type {
-  EditorEntity, EditorReference, EditorSnapshot, ProjectQuaternion, ProjectTransform, ProjectVector3,
+  EditorEntity, EditorReference, EditorSnapshot, ProjectTransform, ProjectVector3,
 } from '../../types/EditorRuntime.js';
 import { formatCollisionType } from '../../utils/CollisionFormat.ts';
 import { contentOriginLabel } from '../../utils/ContentOrigin.ts';
 import { editorEntityDisplayName } from '../../utils/EntityDisplay.ts';
 import { flattenPVarFields } from '../../utils/PVarHex.ts';
+import { QuaternionInputs, VectorInputs } from './TransformInputs.tsx';
 import { useEditor } from './EditorContext.ts';
 import { EditorProperty, EditorPropertyGrid } from './EditorPrimitives.tsx';
 import { EntityStateControls, EntityTextEditor } from './EntityPropertyControls.tsx';
@@ -331,31 +332,6 @@ function isPositiveUniformScale(scale: ProjectVector3): boolean {
   const tolerance = 0.00001 * Math.max(1, Math.abs(scale.x), Math.abs(scale.y), Math.abs(scale.z));
   return scale.x > 0 && scale.y > 0 && scale.z > 0
     && Math.abs(scale.x - scale.y) <= tolerance && Math.abs(scale.x - scale.z) <= tolerance;
-}
-
-function VectorInputs({ label, value, disabled, onChange }: {
-  label: string;
-  value: ProjectVector3;
-  disabled: boolean;
-  onChange(value: ProjectVector3): void;
-}) {
-  return <Group grow wrap="nowrap">
-    {(['x', 'y', 'z'] as const).map((axis) => <NumberInput key={axis} label={`${label} ${axis.toUpperCase()}`}
-      value={value[axis]} disabled={disabled}
-      onChange={(next) => onChange({ ...value, [axis]: typeof next === 'number' ? next : Number.NaN })} />)}
-  </Group>;
-}
-
-function QuaternionInputs({ value, disabled, onChange }: {
-  value: ProjectQuaternion;
-  disabled: boolean;
-  onChange(value: ProjectQuaternion): void;
-}) {
-  return <Group grow wrap="nowrap">
-    {(['x', 'y', 'z', 'w'] as const).map((axis) => <NumberInput key={axis} label={`Rotation ${axis.toUpperCase()}`}
-      value={value[axis]} disabled={disabled}
-      onChange={(next) => onChange({ ...value, [axis]: typeof next === 'number' ? next : Number.NaN })} />)}
-  </Group>;
 }
 
 function cloneTransform(value: ProjectTransform): ProjectTransform {

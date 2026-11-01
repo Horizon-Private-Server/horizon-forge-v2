@@ -1,0 +1,80 @@
+{
+  "preview": {
+    "projectFingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "recipeFingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "algorithmVersion": 3,
+    "cellSize": 4,
+    "primaryFingerprint": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "coordinateFingerprint": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "primaryCells": 1,
+    "candidateTests": 5,
+    "sources": [
+      {
+        "id": "00000000-0000-4000-8000-000000000001",
+        "cells": 2
+      }
+    ],
+    "cells": [
+      {
+        "x": 2,
+        "y": 2,
+        "z": 2
+      },
+      {
+        "x": 4,
+        "y": 2,
+        "z": 2
+      }
+    ],
+    "graphPreview": {
+      "sceneFingerprint": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "rays": 9,
+      "queryTests": 22,
+      "sources": [
+        {
+          "id": "00000000-0000-4000-8000-000000000001",
+          "accepted": [
+            {
+              "x": 2,
+              "y": 2,
+              "z": 2
+            },
+            {
+              "x": 4,
+              "y": 2,
+              "z": 2
+            }
+          ],
+          "rejected": [
+            {
+              "x": 3,
+              "y": 2,
+              "z": 2
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "requestHex": "400000006161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616100000000",
+  "resultHex": "400000006161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616140000000626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262620300000000008040400000006363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636340000000646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464640100000005000000010000002400000030303030303030302d303030302d343030302d383030302d30303030303030303030303102000000020000000200000002000000020000000400000002000000020000000100000040000000656565656565656565656565656565656565656565656565656565656565656565656565656565656565656565656565656565656565656565656565656565650900000016000000010000002400000030303030303030302d303030302d343030302d383030302d3030303030303030303030310200000002000000020000000200000004000000020000000200000001000000030000000200000002000000",
+  "offsets": {
+    "algorithmVersion": 136,
+    "cellSize": 140,
+    "primaryCells": 280,
+    "candidateTests": 284,
+    "sourceCount": 288,
+    "cellCount": 336,
+    "firstCell": 340,
+    "extensionVersion": 364,
+    "sceneFingerprint": 368,
+    "rays": 436,
+    "queryTests": 440,
+    "graphCount": 444,
+    "graphId": 448,
+    "acceptedCount": 488,
+    "acceptedCells": 492,
+    "rejectedCount": 516,
+    "rejectedCells": 520
+  }
+}

@@ -448,7 +448,7 @@ internal static class UyaCustomTieProjectTests
         IReadOnlyList<EntityId>? entityIds = null) =>
         new(Guid.NewGuid().ToString("D"), kind, entityIds ?? [], CustomModelEdit: edit);
 
-    private static ProjectCustomModelImportRequest Request(float xOffset, bool forceBackfaceCulling = false)
+    internal static ProjectCustomModelImportRequest Request(float xOffset, bool forceBackfaceCulling = false)
     {
         var geometry = new byte[42];
         var positions = new[] { xOffset, 0f, 0f, xOffset + 1f, 0f, 0f, xOffset, 1f, 0f };

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-import type { ProjectTransform } from '../types/EditorRuntime.js';
+import type { ProjectTransform, ProjectVector3 } from '../types/EditorRuntime.js';
 
 const PS2_TO_SCENE = new THREE.Matrix4().makeRotationX(-Math.PI / 2);
 const SCENE_TO_PS2 = PS2_TO_SCENE.clone().invert();
@@ -8,6 +8,12 @@ const position = new THREE.Vector3();
 const rotation = new THREE.Quaternion();
 const scale = new THREE.Vector3();
 const source = new THREE.Matrix4();
+
+export function projectPositionToLocal(transform: ProjectTransform, point: ProjectVector3): ProjectVector3 {
+  const local = new THREE.Vector3(point.x, point.z, -point.y)
+    .applyMatrix4(projectTransformToSceneMatrix(transform).invert());
+  return { x: local.x, y: -local.z, z: local.y };
+}
 
 export function projectTransformToSceneMatrix(value: ProjectTransform, target = new THREE.Matrix4()): THREE.Matrix4 {
   source.compose(

@@ -3,18 +3,20 @@ import type { ReactNode } from 'react';
 
 import type { KeybindingCommandId, KeybindingMap } from '../../types/Keybindings.js';
 import type { EditorSnapshot, ForgeAction, ForgeWindowAction } from '../../types/ForgeApi.js';
+import type { EditorSelectionActions } from '../../types/EditorSelectionActions.js';
 import { formatKeybinding } from '../../utils/Keybindings.ts';
 
 interface ForgeMenuBarProps {
   keybindings: KeybindingMap;
   project?: EditorSnapshot;
+  selectionActions?: EditorSelectionActions;
   onAction: (action: ForgeAction) => void;
 }
 
-export function ForgeMenuBar({ keybindings, project, onAction }: ForgeMenuBarProps) {
+export function ForgeMenuBar({ keybindings, project, selectionActions, onAction }: ForgeMenuBarProps) {
   const selectedIds = new Set(project?.selection ?? []);
   const selected = project?.entities.filter((entity) => selectedIds.has(entity.id)) ?? [];
-  const mutableSelection = selected.length > 0 && selected.every((entity) => !entity.state.locked);
+  const mutableSelection = selectionActions?.canMutate ?? (selected.length > 0 && selected.every((entity) => !entity.state.locked));
   const windowAction = (action: ForgeWindowAction) => window.forge.runWindowAction(action);
   const shortcut = (id: KeybindingCommandId) => formatKeybinding(keybindings[id]);
 
@@ -38,9 +40,9 @@ export function ForgeMenuBar({ keybindings, project, onAction }: ForgeMenuBarPro
       <Item shortcut={shortcut('edit.delete')} disabled={!mutableSelection}
         onClick={() => onAction('deleteEntities')}>Delete</Item>
       <Menu.Divider />
-      <Item shortcut={shortcut('edit.copy')} disabled={selected.length === 0}
+      <Item shortcut={shortcut('edit.copy')} disabled={!(selectionActions?.canCopy ?? selected.length > 0)}
         onClick={() => onAction('copyEntities')}>Copy</Item>
-      <Item shortcut={shortcut('edit.paste')} disabled={!project?.canPaste}
+      <Item shortcut={shortcut('edit.paste')} disabled={!(selectionActions?.canPaste ?? project?.canPaste)}
         onClick={() => onAction('pasteEntities')}>Paste</Item>
     </TopMenu>
 

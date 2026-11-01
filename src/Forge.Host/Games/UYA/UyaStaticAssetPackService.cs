@@ -60,7 +60,7 @@ internal static class UyaStaticAssetPackService
                     || entry.CanonicalFormatVersion != UyaAssetImportService.CanonicalFormatVersion))
                     throw new InvalidDataException(
                         $"{layer} definition {definition.ClassId:X4} has no current canonical asset.");
-                var fromSourceLevel = !attached && entry?.Sources.Any(value =>
+                var fromSourceLevel = !attached && definition.EffectiveAsset == definition.Asset && entry?.Sources.Any(value =>
                     value.Game == baseLevel.Game
                     && value.Region == baseLevel.Region
                     && value.Revision == baseLevel.Revision

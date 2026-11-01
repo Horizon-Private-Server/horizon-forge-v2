@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -352,4 +353,99 @@ test('editor snapshots carry directional-light colors and directions across the 
   const snapshot = await (await client.openEditorProject(root, path.join(root, 'catalog'), 0)).result;
   assert.deepEqual(snapshot.entities[0].directionalLight, directionalLight);
   assert.equal(snapshot.entities[0].provenance.sourceIndex, 0);
+});
+
+test('coverage bridge edits are atomic, reject stale state, join history and survive save/reopen', async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'forge-host-coverage-'));
+  const client = new HostClient('dotnet', [hostDll], 25);
+  context.after(async () => { await client.stop(); await rm(root, { recursive: true, force: true }); });
+  const fixture = JSON.parse(await readFile(path.join(projectRoot, 'tests/fixtures/occlusion-coverage-v1.json'), 'utf8'));
+  await mkdir(path.join(root, 'content'));
+  await writeFile(path.join(root, 'forge-project.json'), JSON.stringify({
+    schemaVersion: 26, documentType: 'forge-project', projectId: randomUUID(), name: 'Coverage bridge project',
+    target: { game: 'UYA', region: 'NTSC-U', revision: '1.00', bakeProfile: 'uya-ntsc-u' },
+    baseLevel: { game: 'UYA', region: 'NTSC-U', revision: '1.00', level: 3, sourceFingerprint: 'a'.repeat(32) },
+    content: 'content/project.json.gz',
+  }));
+  await writeFile(path.join(root, 'content/project.json.gz'), gzipSync(JSON.stringify({
+    schemaVersion: 26, documentType: 'forge-project-content', entities: [], assets: [], instancedCollisionBindings: [],
+  })));
+  await client.start();
+  const opened = await (await client.openEditorProject(root, path.join(root, 'catalog'), 0)).result;
+  assert.ok(opened.capabilities.includes('editor.occlusion-coverage.query'));
+  assert.ok(opened.capabilities.includes('editor.occlusion-coverage.update'));
+  const initial = await (await client.queryOcclusionCoverage()).result;
+  assert.deepEqual(initial.state, { schemaVersion: 1, primaryEnabled: true, sources: [] });
+  const result = await (await client.updateOcclusionCoverage(initial.projectFingerprint, fixture.state)).result;
+  assert.deepEqual(result.coverage.state, fixture.state);
+  assert.equal(result.project.isDirty, true);
+  assert.equal(result.project.canUndo, true);
+  assert.deepEqual(result.project.entities, []);
+  assert.deepEqual(await (await client.queryOcclusionCoverage()).result, result.coverage);
+  await assert.rejects((await client.updateOcclusionCoverage(initial.projectFingerprint, initial.state)).result,
+    error => error instanceof HostOperationError && error.code === BridgeErrorCode.Conflict);
+  assert.deepEqual(await (await client.queryOcclusionCoverage()).result, result.coverage);
+  await (await client.executeEditorCommand({ id: randomUUID(), kind: 'undo', entityIds: [] })).result;
+  assert.deepEqual(await (await client.queryOcclusionCoverage()).result, initial);
+  await (await client.executeEditorCommand({ id: randomUUID(), kind: 'redo', entityIds: [] })).result;
+  assert.deepEqual(await (await client.queryOcclusionCoverage()).result, result.coverage);
+  await (await client.saveEditorProject()).result;
+  await (await client.closeEditorProject()).result;
+  const reopened = await (await client.openEditorProject(root, path.join(root, 'catalog'), 0)).result;
+  assert.equal(reopened.isDirty, false);
+  const persisted = await (await client.queryOcclusionCoverage()).result;
+  assert.deepEqual(persisted, result.coverage);
+  const restored = await (await client.updateOcclusionCoverage(persisted.projectFingerprint, {
+    ...persisted.state, primaryEnabled: true,
+    sources: persisted.state.sources.map(source => ({ ...source, enabled: false })),
+  })).result;
+  assert.equal(restored.coverage.recipeFingerprint, initial.recipeFingerprint);
+  assert.equal(restored.coverage.state.sources.length, 3);
+  const previewSupported = opened.capabilities.includes('editor.occlusion-coverage.preview');
+  const configuredPreview = execFileSync('dotnet', ['msbuild', path.join(projectRoot, 'src/Forge.Host/Forge.Host.csproj'),
+    '-getProperty:ForgeEnableOcclusionCoveragePreview'], { encoding: 'utf8', cwd: projectRoot }).trim();
+  assert.equal(previewSupported, configuredPreview === 'true');
+  const configuredGeneration = execFileSync('dotnet', ['msbuild', path.join(projectRoot, 'src/Forge.Host/Forge.Host.csproj'),
+    '-getProperty:ForgeEnableOcclusionCoverageGeneration'], { encoding: 'utf8', cwd: projectRoot }).trim();
+  assert.equal(opened.capabilities.includes('editor.occlusion-coverage.build'), configuredGeneration === 'true');
+  if (previewSupported) {
+    const box = { ...fixture.state.sources[0], enabled: true, boxSize: { x: 1, y: 1, z: 1 },
+      transform: { position: { x: 10, y: 10, z: 10 }, rotation: { x: 0, y: 0, z: 0, w: 1 }, scale: { x: 1, y: 1, z: 1 } } };
+    const authored = await (await client.updateOcclusionCoverage(restored.coverage.projectFingerprint,
+      { schemaVersion: 1, primaryEnabled: false, sources: [box] })).result;
+    const progress = [];
+    const preview = await (await client.previewOcclusionCoverage(authored.coverage.projectFingerprint, '', value => progress.push(value))).result;
+    assert.deepEqual(preview.cells, [{ x: 2, y: 2, z: 2 }]);
+    assert.deepEqual(preview.sources, [{ id: box.id, cells: 1 }]);
+    assert.equal(preview.algorithmVersion, 2);
+    assert.equal(preview.projectFingerprint, authored.coverage.projectFingerprint);
+    assert.equal(preview.recipeFingerprint, authored.coverage.recipeFingerprint);
+    assert.equal(preview.primaryCells, 0);
+    assert.equal(preview.candidateTests, 1);
+    assert.equal(progress.at(-1).completed, progress.at(-1).total);
+    assert.deepEqual(await (await client.queryOcclusionCoverage()).result, authored.coverage);
+    const moved = await (await client.updateOcclusionCoverage(authored.coverage.projectFingerprint, {
+      ...authored.coverage.state, sources: [{ ...box, transform: { ...box.transform, position: { x: 14, y: 10, z: 10 } } }],
+    })).result;
+    const movedPreview = await (await client.previewOcclusionCoverage(moved.coverage.projectFingerprint, '')).result;
+    assert.deepEqual(movedPreview.cells, [{ x: 3, y: 2, z: 2 }]);
+    const { boxSize, ...cylinder } = moved.coverage.state.sources[0];
+    cylinder.cylinder = { radius: 1, height: 8 };
+    const resized = await (await client.updateOcclusionCoverage(moved.coverage.projectFingerprint, {
+      ...moved.coverage.state, sources: [cylinder],
+    })).result;
+    const cylinderPreview = await (await client.previewOcclusionCoverage(resized.coverage.projectFingerprint, '')).result;
+    assert.deepEqual(cylinderPreview.cells, [{ x: 3, y: 2, z: 1 }, { x: 3, y: 2, z: 2 }, { x: 3, y: 2, z: 3 }]);
+    assert.deepEqual(cylinderPreview.sources, [{ id: cylinder.id, cells: 3 }]);
+    const cleared = await (await client.updateOcclusionCoverage(resized.coverage.projectFingerprint, {
+      ...resized.coverage.state, sources: [],
+    })).result;
+    assert.deepEqual((await (await client.previewOcclusionCoverage(cleared.coverage.projectFingerprint, '')).result).cells, []);
+    assert.deepEqual(await (await client.queryOcclusionCoverage()).result, cleared.coverage);
+    await assert.rejects((await client.previewOcclusionCoverage(initial.projectFingerprint, '')).result,
+      error => error instanceof HostOperationError && error.code === BridgeErrorCode.Conflict);
+  } else {
+    await assert.rejects((await client.previewOcclusionCoverage(restored.coverage.projectFingerprint, '')).result,
+      error => error instanceof HostOperationError && error.code === BridgeErrorCode.Conflict);
+  }
 });

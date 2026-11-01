@@ -4,9 +4,9 @@ import type { EditorSnapshot } from '../../types/EditorRuntime.js';
 import type { OcclusionSamplePreview } from '../../types/Occlusion.js';
 
 export function occlusionSampleSceneKey(
-  project: Pick<EditorSnapshot, 'projectId' | 'entities' | 'target' | 'customModels'>, renderRevision: number, samplePullIn = 0,
+  project: Pick<EditorSnapshot, 'projectId' | 'entities' | 'target' | 'customModels'>, renderRevision: number, samplePullIn = 0, coverageRecipe = '',
 ): string {
-  return JSON.stringify([project.projectId, renderRevision, samplePullIn, project.target, project.customModels,
+  return JSON.stringify([project.projectId, renderRevision, samplePullIn, coverageRecipe, project.target, project.customModels,
     project.entities.filter(e => e.asset && !e.collision && !e.skyShell)
       .map(e => [e.id, e.asset, e.transform, e.tfrag, e.sourceClassId, e.state.disabled, e.mobyProperties])]);
 }

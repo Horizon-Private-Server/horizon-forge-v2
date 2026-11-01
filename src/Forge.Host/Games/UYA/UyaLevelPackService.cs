@@ -27,8 +27,9 @@ public static class UyaLevelPackService
     {
         ArgumentNullException.ThrowIfNull(catalog);
         if (sourceLevelWad.IsEmpty) throw new ArgumentException("Source level WAD cannot be empty.", nameof(sourceLevelWad));
-        var validation = await UyaBakeValidationService.PreflightAsync(
-            projectRoot, catalog, context, acknowledgedWarnings, cancellationToken: cancellationToken);
+        var preparation = await UyaBakeValidationService.PrepareAsync(
+            projectRoot, catalog, context, acknowledgedWarnings, false, cancellationToken);
+        var validation = preparation.Validation;
         var diagnostics = validation.Diagnostics.ToList();
         var staging = await BakeStagingStore.OpenAsync(projectRoot, cancellationToken);
         var stagedLayers = staging.Manifest.Layers.Select(value => value.Layer).ToHashSet();
@@ -45,14 +46,14 @@ public static class UyaLevelPackService
         try
         {
             var sourcePackage = UyaLevelWadUnpacker.Unpack(sourceLevelWad.ToArray());
-            var workspace = await ForgeProjectWorkspace.OpenAsync(projectRoot, cancellationToken);
+            var workspace = preparation.Workspace;
             var allowStalePaletteReport = deferredLayers?.Any(UyaStaticLayerSchema.Layers.Contains) == true
                 || File.Exists(Path.Combine(
                     SnapshotRoot(staging, BakeLayerId.Ties), "visibility-bit.bin"));
             if (!allowStalePaletteReport)
             {
                 var expectedPaletteReport = PaletteBakeReportService.Create(
-                    await UyaTextureInventoryService.BuildAsync(projectRoot, catalog, cancellationToken),
+                    await UyaTextureInventoryService.BuildAsync(workspace, catalog, cancellationToken),
                     cancellationToken);
                 if (staging.Manifest.PaletteReport is null
                     || !PaletteBakeReportService.Equivalent(staging.Manifest.PaletteReport, expectedPaletteReport))

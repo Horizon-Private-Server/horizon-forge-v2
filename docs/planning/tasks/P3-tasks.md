@@ -15,6 +15,7 @@ them. Unless marked complete, every task is `not-started`.
 | M16 — Cross-map import | 🚧 In progress | M16-009 |
 | M17 — Moby simulations | 🚧 In progress | M17-003 visual validation |
 | M18 — Occlusion rebuild | 🚧 Existing-grid GPU builder + viewport inspection | M18-001 through M18-010 |
+| M18A — Occlusion coverage authoring | 🚧 Native contract + project-state foundation | [M18A-001 through M18A-008](M18A-tasks.md) |
 | M19 — P3 qualification | ⏳ Not started | M19-001 through M19-003 |
 
 ## M14 — Custom TIE asset pipeline
@@ -1118,9 +1119,9 @@ Acceptance:
   feathering/tolerances, target families, and override cuboid roles with bounded ranges.
 - Automatic coverage handles exterior/interior/airborne/scripted gaps conservatively;
   override cuboids have visible provenance and deterministic precedence.
-- A representative coverage audit records missed valid camera routes. It either closes
-  the fallback as unnecessary or activates M18-009 with concrete failing fixtures and
-  a frozen minimal manual-volume/node-graph contract.
+- A representative coverage audit records missed valid camera routes and the explicit
+  authored overrides that cover them. Manual volume/marker authoring is owned by
+  M18A and no longer depends on this audit to be activated.
 - Identical authoritative inputs produce the same ordered candidate set/fingerprint
   independent of thread count/platform.
 - Empty/unbounded/malformed collision and excessive candidate counts fail or require an
@@ -1295,29 +1296,29 @@ Acceptance:
 Verification: source no-edit, generated compose, list reorder, custom/imported entity,
 capacity/alignment, determinism, semantic re-read, cancellation, and fingerprint tests.
 
-### M18-009 — Add fallback manual coverage authoring if the audit requires it
+### M18-009 — Deliver manual coverage authoring through M18A
 
 Requirements: FR-OCC-002, NFR-P3-001, NFR-P3-006
-Depends on: M18-002
+Depends on: M18A-008
 
-This task is conditional. Implement the minimal Forge v1-style volume/node coverage
-authoring contract only when M18-002 records camera routes that automatic collision
-coverage plus cuboid overrides cannot represent safely. Otherwise close it with the
-audit evidence and no code.
+Manual coverage authoring is an adopted custom-map workflow, owned by the
+[M18A milestone](../milestones/M18A-occlusion-coverage.md) and its
+[task register](M18A-tasks.md). M18A supersedes the former conditional fallback and
+does not depend on M18-002 automatic navigation coverage. This parent task closes
+when M18A's exit gate is satisfied; it is not a second implementation register.
 
-Acceptance when activated:
+Acceptance:
 
-- Users place/edit bounded coverage volumes and connect a validated acyclic or otherwise
-  explicitly supported node graph that augments sample coverage, not visibility truth.
-- The graph has stable IDs, undo/redo/save/recovery, clear invalid/missing/cycle
-  diagnostics, keyboard-accessible editing, and deterministic generation fingerprints.
-- Automatic coverage remains the default; manual data is opt-in, visible, and reports
-  exactly which samples/routes it adds.
-- Import, validation, and generation are bounded; no Unity/Forge v1 runtime dependency
-  or opaque graph execution is introduced.
+- Primary can be disabled reversibly and replaced by boxes, cylinders, and bounded
+  spatial marker graphs in the established Occlusion dock.
+- Authoring has stable IDs, history/save/recovery, accessible gizmos/numeric controls,
+  deterministic fingerprints, bounded generation, and clear invalid/stale diagnostics.
+- Generated coordinates feed the existing visibility builder and validated native
+  publication without silently falling back to source coverage.
+- M18A qualification records native limits, reserved-bit and outside-coverage behavior,
+  cancellation preservation, and representative camera-route evidence.
 
-Verification when activated: graph command/validation tests, failing-route fixtures,
-automatic-versus-augmented diff, determinism, accessibility, and malformed graph tests.
+Verification: M18A-001 through M18A-008 acceptance and the linked qualification record.
 
 ### M18-010 — Qualify occlusion correctness and performance
 

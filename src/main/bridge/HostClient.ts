@@ -43,6 +43,10 @@ import type {
   ContentImportRemovalPlan,
 } from '../../types/ContentImport.js';
 import type { SoundPreviewSource, SoundWorkspace } from '../../types/SoundWorkspace.js';
+import type { OcclusionCoveragePreview, OcclusionCoverageSnapshot, OcclusionCoverageState, OcclusionCoverageUpdateResult } from '../../types/OcclusionCoverage.js';
+import { decodeOcclusionCoveragePreview, encodeOcclusionCoveragePreviewRequest } from './OcclusionCoveragePreviewPayloadCodec.js';
+import { decodeOcclusionCoverageSnapshot, encodeOcclusionCoverageUpdate } from './OcclusionCoveragePayloadCodec.js';
+import { PayloadReader } from './PayloadIO.js';
 import { decodeAssetExplorerPage, encodeAssetExplorerRequest } from './AssetExplorerPayloadCodec.js';
 import {
   decodeContentImportCapabilityMatrix,
@@ -80,7 +84,7 @@ import {
 } from './EditorPayloadCodec.js';
 import { decodeCatalogMaintenance, encodeCatalogCollectionRequest, encodeCatalogMaintenanceRequest,
   encodeProjectAssetRepairRequest } from './MaintenancePayloadCodec.js';
-import { BridgeFrameDecoder, decodeErrorMessage, encodeFrame } from './FrameCodec.js';
+import { BRIDGE_MAX_PAYLOAD_LENGTH, BridgeFrameDecoder, decodeErrorMessage, encodeFrame } from './FrameCodec.js';
 import type { BridgeFrame, HostRequest } from './BridgeProtocol.js';
 import { BridgeErrorCode, BridgeMessageKind, BridgeOpcode, BridgeProtocolError } from './BridgeProtocol.js';
 import {
@@ -477,6 +481,28 @@ export class HostClient {
   async executeEditorCommand(command: EditorCommand): Promise<HostRequest<EditorCommandResult>> {
     const request = await this.#request(BridgeOpcode.ExecuteEditorCommand, encodeEditorCommand(command));
     return { requestId: request.requestId, result: request.result.then(decodeEditorCommandResult) };
+  }
+
+  async previewOcclusionCoverage(fingerprint: string, sourcePath: string, onProgress?: (progress: Progress) => void): Promise<HostRequest<OcclusionCoveragePreview>> {
+    const request = await this.#request(BridgeOpcode.PreviewOcclusionCoverage,
+      encodeOcclusionCoveragePreviewRequest(fingerprint, sourcePath), onProgress);
+    return { requestId: request.requestId, result: request.result.then(decodeOcclusionCoveragePreview) };
+  }
+
+  async queryOcclusionCoverage(): Promise<HostRequest<OcclusionCoverageSnapshot>> {
+    const request = await this.#request(BridgeOpcode.QueryOcclusionCoverage, Buffer.alloc(0));
+    return { requestId: request.requestId, result: request.result.then(decodeOcclusionCoverageSnapshot) };
+  }
+
+  async updateOcclusionCoverage(fingerprint: string, state: OcclusionCoverageState): Promise<HostRequest<OcclusionCoverageUpdateResult>> {
+    const request = await this.#request(BridgeOpcode.UpdateOcclusionCoverage, encodeOcclusionCoverageUpdate(fingerprint, state));
+    return { requestId: request.requestId, result: request.result.then(payload => {
+      const reader = new PayloadReader(payload);
+      const project = decodeEditorSnapshot(reader.readBytes(BRIDGE_MAX_PAYLOAD_LENGTH - 8));
+      const coverage = decodeOcclusionCoverageSnapshot(reader.readBytes(BRIDGE_MAX_PAYLOAD_LENGTH - 8));
+      reader.complete();
+      return { project, coverage };
+    }) };
   }
 
   async previewInstancedCollision(

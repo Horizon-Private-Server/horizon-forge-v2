@@ -44,6 +44,8 @@ const processUrl = `data:text/javascript,${encodeURIComponent(`
       const gpu=args.includes('--forge-occlusion-worker'),commit=args.includes('--occlusion-commit');
       if(gpu&&scenario==='failure'){child.stderr.emit('data',Buffer.from('GPU device lost'));child.emit('close',1);return;}
       const summary={octants:27519,origins:69046,wallMs:1234,gpuMs:1000};
+      if(scenario==='grid-size')summary.nativeGridBytes=4096;
+      if(scenario==='invalid-grid-size')summary.nativeGridBytes=17*1024*1024;
       if(scenario==='invalid')summary.octants='bad';
       const value={completed:1,total:1,message:'Working'};
       if(commit&&scenario!=='missing')value.summary=summary;
@@ -88,6 +90,10 @@ test('occlusion orchestration returns the host summary without loading the full 
   assert.deepEqual(ioMock.removed, ['/tmp/occlusion-test-job']);
   assert.deepEqual(ioMock.removalOptions, [{ recursive: true, force: true, maxRetries: 5, retryDelay: 100 }]);
 });
+test('occlusion completion reports bounded actual native bytes and accepts older summaries', async () => {
+  assert.equal((await run('grid-size')).nativeGridBytes, 4096);
+  await assert.rejects(run('invalid-grid-size'), /invalid completion summary/);
+});
 function visibilityFixture() {
   return {
     schemaVersion: 1, source: 'generated', gridHash: 'a'.repeat(64), masks: Buffer.alloc(128, 1).toString('base64'),
@@ -105,6 +111,18 @@ test('viewport visibility loads masks using a read-only host command without GPU
   assert.equal(processMock.calls.length, 1);
   assert.deepEqual(processMock.calls[0].args.slice(-4), ['--occlusion-visibility', '/project', '/source.iso', '/tmp/occlusion-test-job']);
   assert.deepEqual(ioMock.removed, ['/tmp/occlusion-test-job']);
+});
+test('missing or stale coverage returns an expected needs-build status without failing the worker', async () => {
+  processMock.reset('valid');
+  ioMock.setScene({ schemaVersion: 1, status: 'needs-build' });
+  assert.deepEqual(await loadOcclusionVisibility('/project', '/catalog', '/source.iso', new AbortController().signal, () => {}),
+    { schemaVersion: 1, status: 'needs-build' });
+  assert.equal(processMock.calls.length, 1);
+  for (const value of [null, { schemaVersion: 2, status: 'needs-build' }, { schemaVersion: 1, status: 'invalid' }]) {
+    ioMock.setScene(value);
+    await assert.rejects(readOcclusionVisibility('/job', new AbortController().signal), /Invalid occlusion visibility/);
+  }
+  ioMock.setScene(previewFixture);
 });
 test('viewport visibility validates bounded files, native mask indices, unique coordinates and group bits', async () => {
   const read = () => readOcclusionVisibility('/job', new AbortController().signal);
@@ -127,6 +145,19 @@ test('occlusion orchestration rejects missing or malformed completion summaries'
   await assert.rejects(run('missing'), /did not return a completion summary/);
   await assert.rejects(run('invalid'), /invalid completion summary/);
   assert.deepEqual(ioMock.removed, ['/tmp/occlusion-test-job']);
+});
+test('authored visibility carries a complete pair of bounded recipe and project identities', async () => {
+  const scene = { ...visibilityFixture(), coverageRecipeFingerprint: 'b'.repeat(64), projectFingerprint: 'c'.repeat(64) };
+  ioMock.setScene(scene);
+  const data = await readOcclusionVisibility('/job', new AbortController().signal);
+  assert.equal(data.coverageRecipeFingerprint, scene.coverageRecipeFingerprint);
+  assert.equal(data.projectFingerprint, scene.projectFingerprint);
+  for (const mutate of [s => { delete s.projectFingerprint; }, s => { s.coverageRecipeFingerprint = 'bad'; },
+    s => { s.projectFingerprint = ['c'.repeat(64)]; }, s => { s.source = 'vanilla'; }]) {
+    const invalid = structuredClone(scene); mutate(invalid); ioMock.setScene(invalid);
+    await assert.rejects(readOcclusionVisibility('/job', new AbortController().signal), /coverage identity/);
+  }
+  ioMock.setScene(previewFixture);
 });
 test('GPU failure skips native publication and cleans the disposable job', async () => {
   await assert.rejects(run('failure'), /GPU device lost/);
@@ -155,6 +186,22 @@ test('sample preview only prepares the scene, strips unrelated export data and c
   assert.ok(processMock.calls[0].args.includes('--occlusion-prepare'));
   assert.deepEqual(processMock.calls[0].args.slice(-2), ['2', 'false']);
   assert.deepEqual(ioMock.removed, ['/tmp/occlusion-test-job']);
+});
+test('qualification carries measured preparation data and rejects inconsistent or unbounded summaries', async () => {
+  const preparation = { gridBytes: 320, treeBytes: 64, maskSlots: 2, unsharedMaskBytes: 128,
+    alwaysVisibleGroups: 3, cellLimit: 100_000, sampleLimit: 250_000 };
+  ioMock.setScene({ ...previewFixture, preparation });
+  assert.deepEqual((await readOcclusionSamplePreview('/job', new AbortController().signal)).preparation, preparation);
+  for (const mutate of [p => { p.gridBytes = 17 * 1024 * 1024; }, p => { p.treeBytes = p.gridBytes; },
+    p => { p.maskSlots = 3; }, p => { p.unsharedMaskBytes = 127; }, p => { p.alwaysVisibleGroups = -1; },
+    p => { p.cellLimit = 0; }, p => { p.cellLimit = 100_001; }, p => { p.sampleLimit = 8; },
+    p => { p.sampleLimit = 250_001; }, p => { p.gridBytes = '320'; }, p => { delete p.maskSlots; }]) {
+    const invalid = structuredClone(preparation); mutate(invalid); ioMock.setScene({ ...previewFixture, preparation: invalid });
+    await assert.rejects(readOcclusionSamplePreview('/job', new AbortController().signal), /preparation summary/);
+  }
+  ioMock.setScene({ ...previewFixture, preparation: null });
+  await assert.rejects(readOcclusionSamplePreview('/job', new AbortController().signal), /preparation summary/);
+  ioMock.setScene(previewFixture);
 });
 test('preview and full bake forward the same whole-number pull-in to qualification', async () => {
   for (const action of [previewOcclusionSamples, rebuildOcclusion]) {

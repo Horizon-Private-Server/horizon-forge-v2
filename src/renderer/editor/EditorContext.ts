@@ -12,6 +12,7 @@ import type { AssetExplorerFamily } from '../../types/AssetExplorer.js';
 import type { SceneTreeColors } from '../../types/SceneTree.js';
 import type { CollisionVisualization } from '../../types/CollisionVisualization.js';
 import type { OcclusionSamplePreview, OcclusionVisibilityData } from '../../types/Occlusion.js';
+import type { OcclusionCoverageAuthoring, OcclusionCoverageSnapshot, OcclusionCoverageState } from '../../types/OcclusionCoverage.js';
 import type {
   BuildLayerId,
   BuildPatchProgress,
@@ -23,6 +24,7 @@ import type { AssetThumbnailRuntime } from './AssetThumbnailRuntime.ts';
 
 export interface EditorContextValue {
   project: EditorSnapshot;
+  coverage: OcclusionCoverageAuthoring;
   keybindings: KeybindingMap;
   selectionColor: string;
   sceneTreeColors: SceneTreeColors;
@@ -46,6 +48,8 @@ export interface EditorContextValue {
   occlusionVisibility?: OcclusionVisibilityData;
   occlusionVisibilityLoading: boolean;
   occlusionVisibilityError?: string;
+  occlusionVisibilityWarning?: string;
+  reloadOcclusionVisibility(): void;
   showOcclusionOctants: boolean;
   setShowOcclusionOctants(value: boolean): void;
   showOcclusionOctantIds: boolean;
@@ -87,6 +91,7 @@ export interface EditorContextValue {
   build(includedLayers: BuildLayerId[]): Promise<void>;
   rebuildOcclusion(): Promise<void>;
   previewOcclusionSamples(): Promise<void>;
+  updateOcclusionCoverage(projectFingerprint: string, state: OcclusionCoverageState): Promise<OcclusionCoverageSnapshot>;
   cancelBuild(): Promise<void>;
   execute(command: EditorCommand): Promise<boolean>;
   inspectInstancedCollisionSource(entityId: string): Promise<EditorInstancedCollisionSourceInfo>;

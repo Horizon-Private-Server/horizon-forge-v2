@@ -2299,6 +2299,7 @@ test('sample preview becomes stale after scene changes while selection and edito
   assert.notEqual(occlusionSampleSceneKey(project, 1), initial);
   assert.notEqual(occlusionSampleSceneKey(project, 0, 1), initial);
   assert.equal(occlusionSampleSceneKey(project, 0, 0), initial);
+  assert.notEqual(occlusionSampleSceneKey(project, 0, 0, 'changed-coverage-recipe'), initial);
 });
 
 test('octant IDs use native order, project below the center dot and update when the source changes', () => {

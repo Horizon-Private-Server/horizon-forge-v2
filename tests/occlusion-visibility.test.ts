@@ -110,3 +110,42 @@ test('octant transitions update model/terrain visibility and picking without rev
   assert.equal(collisionReads, 0); assert.equal(batchMatrixWrites, 0);
   projection.dispose(); geometry.dispose(); material.dispose();
 });
+
+test('disabling Primary clears loaded and frozen masks until Primary is restored', () => {
+  const data = fixture(), view = new ViewportOcclusion();
+  const inside = { x: 1, y: 1, z: -1 };
+  view.setData(data); view.update(inside, true, false);
+  view.update(inside, true, true);
+  assert.equal(view.state.octant?.id, 0);
+  assert.deepEqual([...view.hidden], ['a']);
+  view.setData(data, false);
+  view.update(inside, true, true);
+  assert.deepEqual({ ...view.state }, { octant: undefined, hiddenEntities: 0 });
+  assert.equal(view.hidden.size, 0, 'the old grid cannot cull custom scenes, even with freeze or occlusion left on');
+  view.setData(data, false); view.update(inside, true, false);
+  assert.equal(view.hidden.size, 0, 'reloading old mask data cannot re-enable disabled Primary');
+  view.setData(data, true); view.update(inside, true, false);
+  assert.equal(view.state.octant?.id, 0);
+  assert.deepEqual([...view.hidden], ['a']);
+  assert.equal(data.octants.length, 4, 'disabling preserves source octants');
+});
+
+test('authored visibility requires the current recipe and scene and remains active with Primary disabled', async () => {
+  const { isOcclusionVisibilityCurrent } = await import('../src/utils/OcclusionCoverage.ts');
+  const coverage = { projectFingerprint: 'a'.repeat(64), visibilityFingerprint: 'b'.repeat(64), recipeFingerprint: 'c'.repeat(64),
+    state: { schemaVersion: 1 as const, primaryEnabled: false, sources: [] } };
+  const data = fixture();
+  assert.equal(isOcclusionVisibilityCurrent(data, coverage), false);
+  data.coverageRecipeFingerprint = coverage.recipeFingerprint; data.projectFingerprint = coverage.visibilityFingerprint;
+  assert.equal(isOcclusionVisibilityCurrent(data, coverage), true);
+  assert.equal(isOcclusionVisibilityCurrent(data, { ...coverage, recipeFingerprint: 'd'.repeat(64) }), false);
+  assert.equal(isOcclusionVisibilityCurrent(data, { ...coverage, projectFingerprint: 'e'.repeat(64) }), true,
+    'editor visibility edits change the full project fingerprint while preserving the baked scene');
+  assert.equal(isOcclusionVisibilityCurrent(data, { ...coverage, visibilityFingerprint: 'e'.repeat(64) }), false);
+  assert.equal(isOcclusionVisibilityCurrent(data, undefined), false);
+  const view = new ViewportOcclusion(); view.setData(data, false);
+  view.update({ x: 1, y: 1, z: -1 }, true, false);
+  assert.equal(view.state.octant?.id, 0); assert.deepEqual([...view.hidden], ['a']);
+  view.setData(fixture(), false); view.update({ x: 1, y: 1, z: -1 }, true, false);
+  assert.equal(view.hidden.size, 0);
+});

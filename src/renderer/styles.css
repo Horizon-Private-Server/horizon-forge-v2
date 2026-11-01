@@ -1081,6 +1081,10 @@ body {
   min-width: max-content;
 }
 
+.occlusion-coverage-tree .editor-tree {
+  min-width: 0;
+}
+
 .editor-tree-row {
   display: grid;
   grid-template-columns: 1.25em minmax(0, 1fr);
@@ -1106,6 +1110,27 @@ body {
   width: 100%;
   min-width: 0;
   gap: var(--mantine-spacing-xs);
+}
+
+.occlusion-seed-list {
+  max-height: 16rem;
+  overflow: auto;
+  border: 1px solid var(--mantine-color-dark-4);
+  border-radius: var(--mantine-radius-sm);
+  background: var(--mantine-color-dark-7);
+}
+
+.occlusion-seed-list .editor-tree-row {
+  border-radius: 0;
+  border-bottom: 1px solid var(--mantine-color-dark-5);
+}
+
+.occlusion-seed-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .scene-tree-node > .scene-tree-label {

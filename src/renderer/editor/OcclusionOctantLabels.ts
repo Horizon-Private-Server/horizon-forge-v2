@@ -1,7 +1,5 @@
 import * as THREE from 'three';
 
-import type { EditorTerrainSource } from '../../types/ForgeApi.js';
-
 export class OcclusionOctantLabels {
   readonly element: HTMLDivElement;
   visible = false;
@@ -19,7 +17,7 @@ export class OcclusionOctantLabels {
     parent.append(this.element);
   }
 
-  setOctants(octants: EditorTerrainSource['occlusionOctants']): void {
+  setOctants(octants: readonly { x: number; y: number; z: number; maskIndex?: number }[]): void {
     this.octants = octants.map((c, id) => ({ id,
       position: new THREE.Vector3(c.x * 4 + 2, c.z * 4 + 2, -(c.y * 4 + 2)),
       text: `#${id} (${c.x}, ${c.y}, ${c.z})`,

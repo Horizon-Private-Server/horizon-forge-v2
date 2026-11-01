@@ -186,9 +186,19 @@ public static class UyaGameplayLayerStore
         BakeLayerPlan plan,
         CancellationToken cancellationToken = default)
     {
+        var workspace = await ForgeProjectWorkspace.OpenAsync(projectRoot, cancellationToken);
+        return await StageAsync(workspace, staging, plan, cancellationToken);
+    }
+
+    internal static async Task<BakeLayerSnapshot> StageAsync(
+        ForgeProjectWorkspace workspace,
+        BakeStagingStore staging,
+        BakeLayerPlan plan,
+        CancellationToken cancellationToken)
+    {
         if (plan.Layer != BakeLayerId.Gameplay)
             throw new ArgumentException("Gameplay staging requires the gameplay layer plan.", nameof(plan));
-        var prepared = await PrepareAsync(projectRoot, cancellationToken);
+        var prepared = await PrepareAsync(workspace, cancellationToken);
         if (prepared.Blockers.Count > 0) throw new InvalidDataException(string.Join(' ', prepared.Blockers));
         return await staging.CommitAsync(plan, async (output, token) =>
         {
@@ -228,14 +238,6 @@ public static class UyaGameplayLayerStore
                 || (moby.PvarIndex >= 0 && (tables is null || moby.PvarIndex >= tables.Entries.Count)))
                 throw new InvalidDataException($"Gameplay staged moby reference {index} is invalid.");
         }
-    }
-
-    private static async Task<PreparedGameplay> PrepareAsync(
-        string projectRoot,
-        CancellationToken cancellationToken)
-    {
-        var workspace = await ForgeProjectWorkspace.OpenAsync(projectRoot, cancellationToken);
-        return await PrepareAsync(workspace, cancellationToken);
     }
 
     private static async Task<PreparedGameplay> PrepareAsync(

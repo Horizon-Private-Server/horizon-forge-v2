@@ -12,8 +12,17 @@ public static class UyaTextureInventoryService
     {
         ArgumentNullException.ThrowIfNull(catalog);
         var project = await ForgeProjectWorkspace.OpenAsync(projectRoot, cancellationToken);
+        return await BuildAsync(project, catalog, cancellationToken);
+    }
+
+    internal static async Task<TextureInventory> BuildAsync(
+        ForgeProjectWorkspace project,
+        AssetCatalogStore catalog,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(catalog);
         var sourceLevel = $"level{project.Manifest.BaseLevel.Level:00}";
-        var staging = await BakeStagingStore.OpenAsync(projectRoot, cancellationToken);
+        var staging = await BakeStagingStore.OpenAsync(project.RootPath, cancellationToken);
         var inputs = new List<TextureInventoryInput>();
         foreach (var layer in UyaStaticLayerSchema.Layers)
         {

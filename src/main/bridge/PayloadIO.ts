@@ -159,6 +159,8 @@ export class PayloadReader {
     return Array.from({ length: count }, () => this.readUInt32());
   }
 
+  get remainingBytes(): number { return this.#bytes.length - this.#offset; }
+
   complete(): void {
     if (this.#offset !== this.#bytes.length) malformed('Payload has trailing bytes');
   }

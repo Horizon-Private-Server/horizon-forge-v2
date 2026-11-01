@@ -54,6 +54,9 @@ public enum BridgeOpcode : ushort
     ApplyContentImport = 39,
     PlanContentImportRemoval = 40,
     ApplyContentImportRemoval = 41,
+    QueryOcclusionCoverage = 42,
+    UpdateOcclusionCoverage = 43,
+    PreviewOcclusionCoverage = 44,
 }
 
 public enum BridgeErrorCode : ushort

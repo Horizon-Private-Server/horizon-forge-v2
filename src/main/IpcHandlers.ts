@@ -66,12 +66,14 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
       || Number(query.limit) > 128)) throw new TypeError('Asset explorer batch size is invalid');
   }
 
+  const cancelBuild = registerBuildIpcHandlers({ host, settings, getMainWindow, assertSender });
   const getActiveEditorSnapshot = registerEditorIpcHandlers({
     host,
     settings,
     assertSender,
     getSettingValues,
     resolveProjectPath: assertRecentProject,
+    cancelBuild,
     cancelAssetExplorer: async () => {
       if (activeAssetExplorerRequestId !== undefined) await host.cancel(activeAssetExplorerRequestId);
     },
@@ -85,7 +87,6 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
     getMainWindow,
     assertSender,
   });
-  registerBuildIpcHandlers({ host, settings, getMainWindow, assertSender });
   registerWindowIpcHandlers({ getMainWindow, assertSender });
   registerNotificationIpcHandlers(notifications, assertSender);
   registerUpdateIpcHandlers(updates, settings, assertSender);

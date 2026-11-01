@@ -50,6 +50,9 @@ export const BridgeOpcode = {
   ApplyContentImport: 39,
   PlanContentImportRemoval: 40,
   ApplyContentImportRemoval: 41,
+  QueryOcclusionCoverage: 42,
+  UpdateOcclusionCoverage: 43,
+  PreviewOcclusionCoverage: 44,
 } as const;
 
 export const BridgeErrorCode = {

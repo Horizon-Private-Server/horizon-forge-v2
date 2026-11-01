@@ -49,9 +49,18 @@ internal static class UyaFxBakeService
         BakeLayerPlan plan,
         CancellationToken cancellationToken)
     {
+        var workspace = await ForgeProjectWorkspace.OpenAsync(projectRoot, cancellationToken);
+        return await StageAsync(workspace, staging, plan, cancellationToken);
+    }
+
+    internal static async Task<BakeLayerSnapshot> StageAsync(
+        ForgeProjectWorkspace workspace,
+        BakeStagingStore staging,
+        BakeLayerPlan plan,
+        CancellationToken cancellationToken)
+    {
         if (plan.Layer != BakeLayerId.Fx)
             throw new ArgumentException("FX staging requires the FX bake layer.", nameof(plan));
-        var workspace = await ForgeProjectWorkspace.OpenAsync(projectRoot, cancellationToken);
         return await staging.CommitAsync(
             plan,
             async (output, token) => await WriteAsync(output, workspace, token),

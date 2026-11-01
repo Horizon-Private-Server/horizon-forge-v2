@@ -70,6 +70,8 @@ function ForgeApp({ uiSize, onUiSizeChange }: { uiSize: UiSize; onUiSizeChange(v
     isSaving,
     openProject,
     setActiveProject,
+    editorSelectionActions,
+    setEditorSelectionActions,
     closeContentImport,
   } = useForgeActions(setSetupOpened, setSettingsOpened, openSessionLog);
   useKeyboardContext(keybindings, handleForgeAction);
@@ -116,7 +118,7 @@ function ForgeApp({ uiSize, onUiSizeChange }: { uiSize: UiSize; onUiSizeChange(v
 
   return (
     <LogNotificationsContext.Provider value={notificationCenter}><main className="app-shell" data-ui-size={uiSize} style={sceneTreeColorVariables(sceneTreeColors)}>
-      <ForgeMenuBar keybindings={keybindings} project={activeProject} onAction={handleForgeAction} />
+      <ForgeMenuBar keybindings={keybindings} project={activeProject} selectionActions={editorSelectionActions} onAction={handleForgeAction} />
       <header className="app-header">
         <Group className="app-header-content" wrap="nowrap">
           {activeProject && <Group className="project-ribbon" wrap="nowrap">
@@ -176,6 +178,7 @@ function ForgeApp({ uiSize, onUiSizeChange }: { uiSize: UiSize; onUiSizeChange(v
             renderRevision={contentImportRevision}
             showViewportStats={showViewportStats}
             onProjectChange={setActiveProject}
+            onSelectionActionsChange={setEditorSelectionActions}
           />
           : <ProjectHub
             hostStatus={hostStatus}

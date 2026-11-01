@@ -66,6 +66,7 @@ optimization. It can run ahead of unfinished P3 features, including M18; see its
 | P1 | P1 — Custom asset pipeline | [Milestone](milestones/P1-custom-assets.md) | [Tasks](tasks/P1-tasks.md) |
 | P2 | M7-M13 — Advanced authoring | [Plan and requirements](P2-next-phase.md) | [Tasks](tasks/P2-tasks.md) |
 | P3 | M14-M19 — Content expansion and runtime fidelity | [Plan and requirements](P3-content-expansion.md) | [Tasks](tasks/P3-tasks.md) |
+| P3 | M18A — Occlusion coverage authoring | [Milestone and requirements](milestones/M18A-occlusion-coverage.md) | [Tasks](tasks/M18A-tasks.md) |
 | Intermediate | MPERF — Intermediate performance improvements | [Milestone and requirements](milestones/MPERF-intermediate-performance.md) | [Tasks](tasks/MPERF-tasks.md) |
 
 See [P0/MVP scope](P0-MVP.md) for the release boundary.
@@ -92,6 +93,7 @@ them in a milestone-wide task register would split one implementation plan:
 - [Content-import batches v1](../features/content-import-batches-v1.md) — M16-003 onward
 - [Moby simulation lifecycle v1](../features/moby-simulation-lifecycle-v1.md) — M17-001 onward
 - [UYA ocean simulation v1](../features/uya-ocean-simulation-v1.md) — M17-003 onward
+- [Occlusion coverage project contract v1](../features/occlusion-coverage-project-v1.md) — M18A-002
 
 ## Task conventions
 

@@ -16,7 +16,8 @@ public static class OcclusionWorkerProtocol
         IReadOnlyList<OcclusionGpuTriangle> triangles, IReadOnlyList<OcclusionGpuTexture> textures,
         IReadOnlyList<float[]> origins, IReadOnlyList<OcclusionCell> cells,
         IReadOnlyList<OcclusionGpuSphere> spheres, IReadOnlyList<OcclusionGpuCheck> checks, byte[] fallback,
-        CancellationToken token, int samplePullIn = 0, IReadOnlyList<float>? barrierHeights = null, bool pixelEdgeAllowance = false)
+        CancellationToken token, int samplePullIn = 0, IReadOnlyList<float>? barrierHeights = null, bool pixelEdgeAllowance = false,
+        OcclusionPreparation? preparation = null)
     {
         if (samplePullIn is < 0 or > 5) throw new ArgumentOutOfRangeException(nameof(samplePullIn));
         if (!ValidBarriers(barrierHeights) || triangles.Count is < 1 or > 1_000_000 || textures.Count > 4096
@@ -51,7 +52,7 @@ public static class OcclusionWorkerProtocol
             BinaryPrimitives.WriteInt32LittleEndian(descriptors.AsSpan(i * 16 + 8), t.Height);
             t.Alpha.CopyTo(alpha, cursor); cursor += t.Alpha.Length;
         }
-        var scene = new OcclusionScene(1, Profile, inputHash, triangles.Count, Hash(data), Hash(descriptors), Hash(alpha), origins, cells, spheres, checks, Convert.ToHexStringLower(fallback), samplePullIn, barrierHeights, pixelEdgeAllowance);
+        var scene = new OcclusionScene(1, Profile, inputHash, triangles.Count, Hash(data), Hash(descriptors), Hash(alpha), origins, cells, spheres, checks, Convert.ToHexStringLower(fallback), samplePullIn, barrierHeights, pixelEdgeAllowance, preparation);
         await File.WriteAllBytesAsync(Path.Combine(directory, "triangles.bin"), data, token);
         await File.WriteAllBytesAsync(Path.Combine(directory, "textures.bin"), descriptors, token);
         await File.WriteAllBytesAsync(Path.Combine(directory, "alpha.bin"), alpha, token);

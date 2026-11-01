@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 
 import type { EditorCommand, EditorLayoutAction, EditorSnapshot, ForgeAction } from '../../types/ForgeApi.js';
+import type { EditorSelectionActions } from '../../types/EditorSelectionActions.js';
 import { errorMessage } from '../../utils/Errors.ts';
 import { applyEditorCommandResult } from '../../utils/EditorCommandResult.ts';
 
@@ -18,6 +19,7 @@ export function useForgeActions(
   const [hubAction, setHubAction] = useState<{ id: number; action: 'newProject' | 'openProject' }>();
   const [layoutAction, setLayoutAction] = useState<{ id: number; action: EditorLayoutAction }>();
   const [contentImportOpened, setContentImportOpened] = useState(false);
+  const [editorSelectionActions, setEditorSelectionActions] = useState<EditorSelectionActions>();
 
   const handleForgeAction = useCallback((action: ForgeAction) => {
     if (action === 'setup') setSetupOpened(true);
@@ -61,6 +63,7 @@ export function useForgeActions(
     }
     else if (isEditorEntityAction(action)) {
       if (!activeProject) return;
+      if (editorSelectionActions) { editorSelectionActions.handle(action); return; }
       const selectedIds = new Set(activeProject.selection);
       const selected = activeProject.entities.filter((entity) => selectedIds.has(entity.id));
       if ((action === 'deleteEntities' || action === 'duplicateEntities')
@@ -94,7 +97,7 @@ export function useForgeActions(
         setHubAction({ id: Date.now(), action });
       }).catch((error) => reportError(errorMessage(error)));
     }
-  }, [activeProject, isSaving, setSettingsOpened, setSetupOpened, openSessionLog]);
+  }, [activeProject, editorSelectionActions, isSaving, setSettingsOpened, setSetupOpened, openSessionLog]);
 
   const openProject = useCallback((path: string) => {
     void window.forge.openEditorProject(path).then((snapshot) => {
@@ -115,6 +118,8 @@ export function useForgeActions(
     handleForgeAction,
     openProject,
     setActiveProject,
+    editorSelectionActions,
+    setEditorSelectionActions,
     closeContentImport: () => setContentImportOpened(false),
   };
 }

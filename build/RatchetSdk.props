@@ -1,0 +1,16 @@
+<Project>
+  <PropertyGroup>
+    <RatchetSdkRootFile>$(MSBuildThisFileDirectory)../.dependencies/ratchet-sdk-root</RatchetSdkRootFile>
+    <RatchetSdkRoot Condition="'$(RatchetSdkRoot)' == '' and Exists('$(RatchetSdkRootFile)')">$([System.IO.File]::ReadAllText('$(RatchetSdkRootFile)').Trim())</RatchetSdkRoot>
+    <RatchetSdkRevision>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)../ratchet-sdk.version').Trim())</RatchetSdkRevision>
+  </PropertyGroup>
+  <Import Project="$(RatchetSdkRoot)/src/RatchetPs2.Sdk/OcclusionCoveragePreview.props"
+          Condition="Exists('$(RatchetSdkRoot)/src/RatchetPs2.Sdk/OcclusionCoveragePreview.props')" />
+  <PropertyGroup>
+    <ForgeEnableOcclusionCoveragePreview Condition="'$(ForgeEnableOcclusionCoveragePreview)' == '' and '$(RatchetSdkOcclusionCoveragePreviewApiVersion)' == '1'">true</ForgeEnableOcclusionCoveragePreview>
+    <ForgeEnableOcclusionCoveragePreview Condition="'$(ForgeEnableOcclusionCoveragePreview)' == ''">false</ForgeEnableOcclusionCoveragePreview>
+    <ForgeEnableOcclusionCoverageGeneration Condition="'$(ForgeEnableOcclusionCoverageGeneration)' == '' and '$(ForgeEnableOcclusionCoveragePreview)' == 'true' and '$(RatchetSdkOcclusionCoverageGenerationApiVersion)' == '1'">true</ForgeEnableOcclusionCoverageGeneration>
+    <ForgeEnableOcclusionCoverageGeneration Condition="'$(ForgeEnableOcclusionCoverageGeneration)' == ''">false</ForgeEnableOcclusionCoverageGeneration>
+    <ForgeEnableOcclusionCoverageGraphShapes Condition="'$(ForgeEnableOcclusionCoveragePreview)' == 'true' and '$(RatchetSdkOcclusionCoverageGraphShapeApiVersion)' == '1'">true</ForgeEnableOcclusionCoverageGraphShapes>
+  </PropertyGroup>
+</Project>

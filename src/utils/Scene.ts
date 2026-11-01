@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-import type { EditorEntity } from '../types/EditorRuntime.js';
+import type { EditorEntity, ProjectVector3 } from '../types/EditorRuntime.js';
 import type { EditorSceneEnvironment } from '../types/ForgeApi.js';
 import { projectTransformToSceneMatrix } from './Transforms.ts';
 
@@ -18,6 +18,13 @@ const spawnRotation = new THREE.Quaternion();
 const spawnScale = new THREE.Vector3();
 const spawnRotationCorrection = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -Math.PI / 2);
 const preferredMobyClasses = [0x0000, 0x0057, 0x1c31];
+
+export function cameraPlacementPosition(camera: THREE.Camera, distance = 16): ProjectVector3 | undefined {
+  const point = camera.getWorldPosition(new THREE.Vector3())
+    .addScaledVector(camera.getWorldDirection(new THREE.Vector3()), distance);
+  if (![point.x, point.y, point.z, distance].every(Number.isFinite) || distance <= 0) return undefined;
+  return { x: point.x, y: -point.z, z: point.y };
+}
 
 interface Vector3Like {
   x: number;

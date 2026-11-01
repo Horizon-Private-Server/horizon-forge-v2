@@ -7,10 +7,9 @@
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <ShouldUnsetParentConfigurationAndPlatform>false</ShouldUnsetParentConfigurationAndPlatform>
-    <RatchetSdkRootFile>$(MSBuildThisFileDirectory)../../.dependencies/ratchet-sdk-root</RatchetSdkRootFile>
-    <RatchetSdkRoot Condition="'$(RatchetSdkRoot)' == '' and Exists('$(RatchetSdkRootFile)')">$([System.IO.File]::ReadAllText('$(RatchetSdkRootFile)').Trim())</RatchetSdkRoot>
-    <RatchetSdkRevision>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)../../ratchet-sdk.version').Trim())</RatchetSdkRevision>
   </PropertyGroup>
+
+  <Import Project="../../build/RatchetSdk.props" />
 
   <ItemGroup Condition="'$(RatchetSdkRoot)' != ''">
     <ProjectReference Include="$(RatchetSdkRoot)/src/RatchetPs2.Sdk/RatchetPs2.Sdk.csproj" />
@@ -23,6 +22,22 @@
                       LogicalName="Forge.Host.Games.UYA.MobyDex.dataset.json" />
     <EmbeddedResource Include="Games/UYA/GroupTemplates/dataset.json"
                       LogicalName="Forge.Host.Games.UYA.GroupTemplates.dataset.json" />
+  </ItemGroup>
+
+  <PropertyGroup Condition="'$(ForgeEnableOcclusionCoveragePreview)' == 'true'">
+    <DefineConstants>$(DefineConstants);FORGE_OCCLUSION_COVERAGE_PREVIEW</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(ForgeEnableOcclusionCoveragePreview)' != 'true'">
+    <Compile Remove="Games/UYA/UyaOcclusionCoveragePreviewService.cs" />
+  </ItemGroup>
+  <PropertyGroup Condition="'$(ForgeEnableOcclusionCoverageGeneration)' == 'true'">
+    <DefineConstants>$(DefineConstants);FORGE_OCCLUSION_COVERAGE_GENERATION</DefineConstants>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(ForgeEnableOcclusionCoverageGraphShapes)' == 'true'">
+    <DefineConstants>$(DefineConstants);FORGE_OCCLUSION_COVERAGE_GRAPH_SHAPES</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(ForgeEnableOcclusionCoverageGeneration)' != 'true'">
+    <Compile Remove="Games/UYA/UyaOcclusionCoverageGenerationService.cs" />
   </ItemGroup>
 
   <Target Name="ValidateRatchetSdk" BeforeTargets="PrepareForBuild">

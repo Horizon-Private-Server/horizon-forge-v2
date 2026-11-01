@@ -300,6 +300,7 @@ internal static class UyaBakeWorkflowTests
                 + string.Join(" | ", packedSource.Diagnostics.Select(value => value.Cause)));
             Equal("5e7ce280e978c64307607205afb4694101d58999ccacf83a9a14e83de6c9c279",
                 packedSource.OutputSha256, "unchanged staged project golden WAD");
+            await UyaOcclusionCoverageBuildTests.VerifyAsync(project, catalog, context, sourceLevelWad, packedSource.OutputSha256);
             _ = UyaLevelWadInventoryReader.Read(packedSource.OutputBytes!);
             var packedFiles = UyaLevelWadUnpacker.Unpack(packedSource.OutputBytes!).Files;
             Equal(true, ReadClassIds(packedFiles, "moby").SequenceEqual(UyaMobyInstancesReader.Read(packedFiles
@@ -759,6 +760,8 @@ internal static class UyaBakeWorkflowTests
             Equal(true, ManifestBytes(recovered.Manifest)
                 .SequenceEqual(ManifestBytes(repeated.Manifest)),
                 "repeated bake is manifest deterministic");
+
+            await VerifyCapturedBakeAsync(project, catalog, context);
 
             var physicalIso = iso.ToArray();
             UyaIsoSetupTests.AddDiscIdentity(physicalIso);
@@ -1644,6 +1647,37 @@ internal static class UyaBakeWorkflowTests
         await using var compressed = new GZipStream(output, CompressionLevel.Fastest);
         await using var writer = new StreamWriter(compressed);
         await writer.WriteAsync(text.Replace(oldValue, newValue, StringComparison.Ordinal));
+    }
+
+    private static async Task VerifyCapturedBakeAsync(string project, AssetCatalogStore catalog, BakeFingerprintContext context)
+    {
+        var workspace = await ForgeProjectWorkspace.OpenAsync(project);
+        var original = workspace.CaptureState();
+        var before = ManifestBytes((await BakeStagingStore.OpenAsync(project)).Manifest);
+        var changed = false;
+        try
+        {
+            var error = await ThrowsAsync<InvalidDataException>(() => UyaBakeService.BakeAsync(
+                project, catalog, context, rebuildAll: true, progress: async value =>
+                {
+                    if (changed || value.Phase != BakePhase.Staging || value.CompletedLayers == 0) return;
+                    var tie = workspace.Content.Entities.Single(e => e.Layer == "ties");
+                    workspace.UpdateTransform(tie.EntityId, tie.Transform with
+                        { Position = tie.Transform.Position with { X = tie.Transform.Position.X + 1 } });
+                    await workspace.SaveAsync();
+                    changed = true;
+                }));
+            Equal(true, changed && error.Message.Contains("Project content changed during bake", StringComparison.Ordinal),
+                "fresh final validation rejects edits made after the shared bake snapshot was captured");
+            var after = ManifestBytes((await BakeStagingStore.OpenAsync(project)).Manifest);
+            Equal(true, before.SequenceEqual(after),
+                "a stale captured bake preserves the last accepted staging manifest");
+        }
+        finally
+        {
+            workspace.RestoreState(original);
+            await workspace.SaveAsync();
+        }
     }
 
     private static async Task VerifyHudBakeAsync(

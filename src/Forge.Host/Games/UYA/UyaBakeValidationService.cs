@@ -84,6 +84,23 @@ public static class UyaBakeValidationService
             }
         }
         var warnings = new List<BakeDiagnostic>();
+        if (workspace.Content.OcclusionCoverage.RequiresGeneration)
+        {
+            string? coverageFailure = null;
+#if FORGE_OCCLUSION_COVERAGE_GENERATION
+            try { await UyaOcclusionCoverageGenerationService.ReadAcceptedAsync(workspace, cancellationToken); }
+            catch (Exception error) when (error is InvalidDataException or IOException or UnauthorizedAccessException or ArgumentException or OverflowException)
+            { coverageFailure = error.Message; }
+#else
+            coverageFailure = "This SDK build does not support authored coverage generation.";
+#endif
+            if (coverageFailure is not null)
+            warnings.Add(new(
+                "UYA_OCCLUSION_COVERAGE_NOT_GENERATED", BakeDiagnosticSeverity.Error,
+                BakeLayerId.World, null, null,
+                coverageFailure,
+                "Use Build occlusion in the Occlusion dock after editing coverage or the scene, then retry the map build."));
+        }
         var lighting = inputs.Single(value => value.Id == BakeLayerId.Lighting);
         if (lighting.AssetIds.Count == 0)
             warnings.Add(new(
@@ -97,7 +114,8 @@ public static class UyaBakeValidationService
         return new(
             Validate(target, plan, workspace.Content.Entities, warnings, acknowledgedWarnings),
             workspace.CurrentFingerprint,
-            tfragCompositions);
+            tfragCompositions,
+            workspace);
     }
 
     public static BakeValidationResult Validate(
@@ -171,4 +189,5 @@ public static class UyaBakeValidationService
 internal sealed record UyaBakePreparation(
     BakeValidationResult Validation,
     string ProjectFingerprint,
-    IReadOnlyDictionary<string, byte[]>? TfragCompositions);
+    IReadOnlyDictionary<string, byte[]>? TfragCompositions,
+    ForgeProjectWorkspace Workspace);

@@ -117,14 +117,24 @@ public static class UyaStaticLayerStore
         BakeLayerPlan plan,
         CancellationToken cancellationToken = default)
     {
+        var workspace = await ForgeProjectWorkspace.OpenAsync(projectRoot, cancellationToken);
+        return await StageAsync(workspace, catalog, staging, plan, cancellationToken);
+    }
+
+    internal static async Task<BakeLayerSnapshot> StageAsync(
+        ForgeProjectWorkspace workspace,
+        AssetCatalogStore catalog,
+        BakeStagingStore staging,
+        BakeLayerPlan plan,
+        CancellationToken cancellationToken)
+    {
         if (!UyaStaticLayerSchema.Layers.Contains(plan.Layer))
             throw new ArgumentException("Plan is not a UYA instance layer.", nameof(plan));
-        var workspace = await ForgeProjectWorkspace.OpenAsync(projectRoot, cancellationToken);
         var inspection = await InspectAsync(workspace, cancellationToken);
         var prepared = await PrepareAsync(workspace, catalog, inspection, plan.Layer, cancellationToken);
         if (prepared.Blockers.Count > 0) throw new InvalidDataException(string.Join(' ', prepared.Blockers));
         var references = plan.Layer is BakeLayerId.Ties or BakeLayerId.Shrubs or BakeLayerId.Mobys
-            ? await UyaStaticReferenceStore.PrepareAsync(projectRoot, workspace, plan.Layer, cancellationToken)
+            ? await UyaStaticReferenceStore.PrepareAsync(workspace.RootPath, workspace, plan.Layer, cancellationToken)
             : null;
 
         return await staging.CommitAsync(plan, async (output, token) =>

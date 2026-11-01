@@ -54,6 +54,8 @@ internal static partial class ForgeProjectValidation
             || content.CustomModels is null || content.ImportBatches is null || content.Sounds is null)
             throw new InvalidDataException("Project content lists are required.");
         ValidateImportBatches(content.ImportBatches);
+        if (content.OcclusionCoverage is null) throw new InvalidDataException("Project occlusion coverage is required.");
+        Occlusion.OcclusionCoverageRecipe.Validate(content.OcclusionCoverage);
         if (content.Occlusion is not null) ValidateOcclusion(rootPath, content.Occlusion, content.Assets);
         if (content.Hud is not null) ValidateHud(rootPath, content.Hud, content.Assets);
         if (content.Fx is not null) ValidateFx(rootPath, content.Fx, content.Assets);

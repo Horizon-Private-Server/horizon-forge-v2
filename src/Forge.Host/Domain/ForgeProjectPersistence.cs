@@ -259,6 +259,8 @@ internal static class ForgeProjectPersistence
         root["importBatches"] ??= new JsonArray();
         root["sounds"] ??= JsonSerializer.SerializeToNode(
             ProjectSoundState.Empty, JsonOptions);
+        root["occlusionCoverage"] ??= JsonSerializer.SerializeToNode(
+            ProjectOcclusionCoverageState.PrimaryOnly, JsonOptions);
         if (root["tfrags"] is JsonObject tfrags)
             tfrags["customImports"] ??= new JsonArray();
         if (root.Remove("tieCollisionBindings", out var legacyBindings))

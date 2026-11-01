@@ -7,11 +7,28 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 
+  <Import Project="../../build/RatchetSdk.props" />
+
+  <PropertyGroup Condition="'$(ForgeEnableOcclusionCoveragePreview)' == 'true'">
+    <DefineConstants>$(DefineConstants);FORGE_OCCLUSION_COVERAGE_PREVIEW</DefineConstants>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(ForgeEnableOcclusionCoverageGeneration)' == 'true'">
+    <DefineConstants>$(DefineConstants);FORGE_OCCLUSION_COVERAGE_GENERATION</DefineConstants>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(ForgeEnableOcclusionCoverageGraphShapes)' == 'true'">
+    <DefineConstants>$(DefineConstants);FORGE_OCCLUSION_COVERAGE_GRAPH_SHAPES</DefineConstants>
+  </PropertyGroup>
+
   <ItemGroup>
     <ProjectReference Include="../../src/Forge.Host/Forge.Host.csproj" />
     <ProjectReference Include="../../src/Forge.Updater/Forge.Updater.csproj" />
     <None Include="../fixtures/bridge-v5.json" Link="fixtures/bridge-v5.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../fixtures/identity-v0.json" Link="fixtures/identity-v0.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../fixtures/occlusion-coverage-preview-graph-v1.json" Link="fixtures/occlusion-coverage-preview-graph-v1.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../fixtures/occlusion-coverage-preview-v1.json" Link="fixtures/occlusion-coverage-preview-v1.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../fixtures/occlusion-coverage-v1.json" Link="fixtures/occlusion-coverage-v1.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../fixtures/occlusion-coverage-sticky-v1.json" Link="fixtures/occlusion-coverage-sticky-v1.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../fixtures/occlusion-coverage-volume-graphs-v1.json" Link="fixtures/occlusion-coverage-volume-graphs-v1.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../fixtures/project-v0.json" Link="fixtures/project-v0.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../fixtures/mobydex-v1.json" Link="fixtures/mobydex-v1.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../../docs/schemas/mobydex-v1.schema.json" Link="fixtures/mobydex-v1.schema.json" CopyToOutputDirectory="PreserveNewest" />

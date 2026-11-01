@@ -15,6 +15,23 @@ internal static class UyaOcclusionVisibilityService
     {
         var workspace = await ForgeProjectWorkspace.OpenAsync(projectRoot, token);
         if (workspace.Manifest.Target.Game != "UYA") throw new NotSupportedException("Occlusion preview currently supports UYA.");
+        if (workspace.Content.OcclusionCoverage.RequiresGeneration)
+        {
+#if FORGE_OCCLUSION_COVERAGE_GENERATION
+            var generated = await UyaOcclusionCoverageGenerationService.ReadForVisibilityAsync(workspace, token);
+            if (generated is null)
+            {
+                await File.WriteAllBytesAsync(Path.Combine(directory, "visibility.json"),
+                    JsonSerializer.SerializeToUtf8Bytes(new { schemaVersion = 1, status = "needs-build" }, OcclusionWorkerProtocol.Json), token);
+                return;
+            }
+            await WriteAsync(generated.NativeGrid, generated.Coverage!.Entities, "generated", directory, token,
+                generated.Coverage.RecipeHash, generated.Coverage.ProjectHash);
+            return;
+#else
+            throw new NotSupportedException("This SDK build does not support authored coverage generation.");
+#endif
+        }
         var imported = await UyaOcclusionImportPayload.ReadAsync(workspace, token);
         byte[] gridBytes, mappingBytes;
         if (imported is not null) { gridBytes = imported.AssetGrid; mappingBytes = imported.GameplayMappings; }
@@ -31,14 +48,26 @@ internal static class UyaOcclusionVisibilityService
         var cache = await OcclusionBakeStore.ReadForPreviewAsync(projectRoot, OcclusionWorkerProtocol.Hash(gridBytes), token);
         var bytes = cache is null ? gridBytes
             : await Task.Run(() => OcclusionComposer.CompactGrid(GameId.UYA, gridBytes, cache.NativeGrid, token), token);
-        var grid = UyaOcclusionGridReader.Read(bytes, OcclusionBakeLimits.MaximumCells, token);
         OcclusionComposer.ValidateGrid(GameId.UYA, gridBytes, bytes, original.Octants.Count, token);
         var mappings = UyaOcclusionMappingsReader.Read(mappingBytes, 1_000_000, token);
         var entities = LinkEntities(workspace.Content.Entities, mappings, token);
+        await WriteAsync(bytes, entities, cache is null ? "vanilla" : "generated", directory, token);
+    }
+
+    private static async Task WriteAsync(byte[] bytes, IReadOnlyList<OcclusionVisibilityEntity> entities, string source,
+        string directory, CancellationToken token, string? recipeHash = null, string? projectHash = null)
+    {
+        var grid = UyaOcclusionGridReader.Read(bytes, OcclusionBakeLimits.MaximumCells, token);
         var masks = bytes.AsSpan(grid.MasksOffset, checked((grid.Octants.Select(c => c.MaskIndex).DefaultIfEmpty(-1).Max() + 1) * 128)).ToArray();
-        var data = new OcclusionVisibilityData(1, cache is null ? "vanilla" : "generated", OcclusionWorkerProtocol.Hash(bytes),
-            grid.Octants.Select(c => new OcclusionVisibilityOctant(c.X, c.Y, c.Z, c.MaskIndex)).ToArray(), masks, entities);
+        var data = new OcclusionVisibilityData(1, source, OcclusionWorkerProtocol.Hash(bytes),
+            grid.Octants.Select(c => new OcclusionVisibilityOctant(c.X, c.Y, c.Z, c.MaskIndex)).ToArray(), masks, entities, recipeHash, projectHash);
         await File.WriteAllBytesAsync(Path.Combine(directory, "visibility.json"), JsonSerializer.SerializeToUtf8Bytes(data, OcclusionWorkerProtocol.Json), token);
+    }
+
+    internal static IReadOnlyList<OcclusionVisibilityEntity> ReadEntities(ForgeProjectWorkspace workspace, byte[] packedScene, CancellationToken token)
+    {
+        var mappings = UyaLevelWadUnpacker.Unpack(packedScene).Files.SingleOrDefault(f => f.Path == "gameplay/core/occlusion.bin");
+        return mappings is null ? [] : LinkEntities(workspace.Content.Entities, UyaOcclusionMappingsReader.Read(mappings.Bytes, 1_000_000, token), token);
     }
 
     internal static IReadOnlyList<OcclusionVisibilityEntity> LinkEntities(IReadOnlyList<ProjectEntity> entities,

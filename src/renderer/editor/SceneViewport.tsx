@@ -13,6 +13,8 @@ import type {
   ProjectVector3, ProjectVector4,
 } from '../../types/EditorRuntime.js';
 import type { MobySimulationProjectSnapshot, MobySimulationStats } from '../../types/MobySimulation.js';
+import { isOcclusionVisibilityCurrent, PRIMARY_OCCLUSION_SOURCE_ID } from '../../utils/OcclusionCoverage.ts';
+import type { OcclusionCoverageAuthoring } from '../../types/OcclusionCoverage.js';
 import type { OcclusionSamplePreview, OcclusionVisibilityData, OcclusionViewportState } from '../../types/Occlusion.js';
 import type {
   AssetModelPlacementDragData, AssetPlacementDragData, AssetTfragPlacementDragData,
@@ -26,6 +28,7 @@ import type { InstancedCollisionOverlay } from './EditorContext.ts';
 import {
   disposeObject,
   applySceneEnvironment,
+  cameraPlacementPosition,
   frameObject,
   framePs2Positions,
   positionCameraAtPreferredMoby,
@@ -66,6 +69,8 @@ import {
   interpolatePointerSegment, shouldOrbitWhileCollisionPainting,
 } from './CollisionPainting.ts';
 import { ViewportToolbar } from './ViewportToolbar.tsx';
+import { OcclusionOctantOverlay } from './OcclusionOctantOverlay.ts';
+import { OcclusionCoverageOverlay } from './OcclusionCoverageOverlay.ts';
 import { OcclusionSampleOverlay } from './OcclusionSampleOverlay.ts';
 import { OcclusionOctantLabels } from './OcclusionOctantLabels.ts';
 import { ViewportOcclusion } from './ViewportOcclusion.ts';
@@ -82,6 +87,7 @@ import { forgeLog } from '../log/LogStore.ts';
 import { useLogReporter } from '../log/UseLog.ts';
 
 interface SceneViewportProps {
+  coverage?: OcclusionCoverageAuthoring;
   projectId: string;
   projectRevision: number;
   game: string;
@@ -103,6 +109,7 @@ interface SceneViewportProps {
   showOcclusionOctants: boolean;
   showOcclusionOctantIds: boolean;
   occlusionSamples?: OcclusionSamplePreview;
+  showOcclusionSamples: boolean;
   occlusionVisibility?: OcclusionVisibilityData;
   occlusionEnabled: boolean;
   occlusionFrozen: boolean;
@@ -137,6 +144,7 @@ interface SkyShellProjection {
 }
 
 export function SceneViewport({
+  coverage,
   projectId,
   projectRevision,
   game,
@@ -158,6 +166,7 @@ export function SceneViewport({
   showOcclusionOctants,
   showOcclusionOctantIds,
   occlusionSamples,
+  showOcclusionSamples,
   occlusionVisibility,
   occlusionEnabled,
   occlusionFrozen,
@@ -183,6 +192,12 @@ export function SceneViewport({
   onSplinePointsCommit,
   onAssetDrop,
 }: SceneViewportProps) {
+  const primaryEnabled = coverage?.snapshot?.state.primaryEnabled !== false;
+  const primaryVisible = primaryEnabled && !coverage?.hiddenSources.has(PRIMARY_OCCLUSION_SOURCE_ID);
+  const builtCoverage = occlusionVisibility?.coverageRecipeFingerprint && isOcclusionVisibilityCurrent(occlusionVisibility, coverage?.snapshot)
+    ? occlusionVisibility : undefined;
+  const octantsVisible = Boolean(occlusionSamples || builtCoverage) || primaryVisible;
+  const displayedOctants = occlusionSamples?.cells ?? builtCoverage?.octants ?? terrainSource?.occlusionOctants;
   const container = useRef<HTMLDivElement>(null);
   const [mode, setMode] = useState<EditorTransformMode>('select');
   const [space, setSpace] = useState<EditorTransformSpace>('world');
@@ -199,6 +214,7 @@ export function SceneViewport({
   const [stats, setStats] = useState<{ fps: number; calls: number; triangles: number }>();
   const [mobySimulationStats, setMobySimulationStats] = useState<MobySimulationStats>();
   const currentShowStats = useRef(showStats);
+  const currentCoverage = useRef(coverage); currentCoverage.current = coverage;
   const currentSelection = useRef(selection);
   const currentMissingSelectionMembers = useRef(missingSelectionMembers);
   const currentEntities = useRef(entities);
@@ -239,10 +255,10 @@ export function SceneViewport({
   splinePointsCommitted.current = onSplinePointsCommit;
   assetDropped.current = onAssetDrop;
   const [viewportOcclusion] = useState(() => new ViewportOcclusion());
-  const occlusionOptions = useRef({ enabled: occlusionEnabled, frozen: occlusionFrozen, changed: onOcclusionStateChange });
-  occlusionOptions.current = { enabled: occlusionEnabled, frozen: occlusionFrozen, changed: onOcclusionStateChange };
+  const occlusionOptions = useRef({ enabled: (primaryEnabled || Boolean(builtCoverage)) && occlusionEnabled, frozen: (primaryEnabled || Boolean(builtCoverage)) && occlusionFrozen, changed: onOcclusionStateChange });
+  occlusionOptions.current = { enabled: (primaryEnabled || Boolean(builtCoverage)) && occlusionEnabled, frozen: (primaryEnabled || Boolean(builtCoverage)) && occlusionFrozen, changed: onOcclusionStateChange };
   useEffect(() => { viewportOcclusion.reset(); }, [projectId]);
-  useEffect(() => { viewportOcclusion.setData(occlusionVisibility); }, [projectId, occlusionVisibility]);
+  useEffect(() => { viewportOcclusion.setData(occlusionVisibility, primaryEnabled); }, [projectId, occlusionVisibility, primaryEnabled]);
   const viewport = useRef<{
     projection: SceneProjection;
     scene: THREE.Scene;
@@ -251,6 +267,7 @@ export function SceneViewport({
     camera: THREE.PerspectiveCamera;
     controls: OrbitControls;
     transformTool: TransformTool;
+    coverageOverlay: OcclusionCoverageOverlay;
     outlinePass: OutlinePass;
     content: THREE.Group;
     terrain: THREE.Group;
@@ -307,9 +324,9 @@ export function SceneViewport({
     const occlusion = new THREE.Group();
     occlusion.name = 'Occlusion octants';
     occlusion.matrixAutoUpdate = false;
-    occlusion.visible = showOcclusionOctants;
+    occlusion.visible = octantsVisible && showOcclusionOctants;
     const octantLabels = new OcclusionOctantLabels(element);
-    octantLabels.visible = showOcclusionOctantIds;
+    octantLabels.visible = octantsVisible && showOcclusionOctantIds;
     const sky = new THREE.Group();
     sky.name = 'Sky';
     const currentProjection = new SceneProjection();
@@ -385,6 +402,7 @@ export function SceneViewport({
     controls.update();
     const snapRaycaster = new THREE.Raycaster();
     const snapPointer = new THREE.Vector2();
+    const coverageOverlay = new OcclusionCoverageOverlay(); toolScene.add(coverageOverlay.root); content.add(coverageOverlay.octants);
     const transformTool = new TransformTool(camera, renderer.domElement, toolScene, {
       previewTransforms: (updates) => {
         if (currentLevelSettingsSelection.current) {
@@ -563,6 +581,7 @@ export function SceneViewport({
       camera,
       controls,
       transformTool,
+      coverageOverlay,
       outlinePass,
       content,
       terrain,
@@ -594,7 +613,7 @@ export function SceneViewport({
       || transformTool.isInteracting;
 
     const keyDown = (event: KeyboardEvent) => {
-      if (isTextInput(event.target)) return;
+      if (event.defaultPrevented || isTextInput(event.target)) return;
       if (SNAP_MODIFIER_KEYS.has(event.code)) {
         if (viewportInputActive()) {
           snapModifiers.add(event.code);
@@ -619,7 +638,7 @@ export function SceneViewport({
         setMode(nextMode);
         return;
       }
-      if (command === 'scene.snapToGround' && !transformTool.isInteracting) {
+      if (command === 'scene.snapToGround' && !currentCoverage.current?.selectedId && !transformTool.isInteracting) {
         event.preventDefault();
         if (event.repeat || !transformTool.controls.enabled) return;
         let result;
@@ -657,7 +676,7 @@ export function SceneViewport({
       snapModifiers.clear();
       transformTool.setSnapInverted(false);
     };
-    const picking = new ViewportPicking(camera, currentProjection, levelSettingsOverlay, simulationRoot);
+    const picking = new ViewportPicking(camera, currentProjection, levelSettingsOverlay, simulationRoot, coverageOverlay);
     const deactivateCameraInput = () => {
       cameraInputActive = false;
       movement.clear();
@@ -818,9 +837,14 @@ export function SceneViewport({
       const select = selectOnLookRelease;
       selectOnLookRelease = false;
       if (!select || distance > 4) return;
-      const { markerId, entityId } = picking.pick(
+      const { coverageId, coverageMarkerId, markerId, entityId } = picking.pick(
         event.clientX, event.clientY, renderer.domElement.getBoundingClientRect(),
       );
+      if (coverageId) {
+        currentLevelSettingsSelection.current = undefined; levelSettingsOverlay.setSelected();
+        currentCoverage.current?.select(coverageId, coverageMarkerId); return;
+      }
+      currentCoverage.current?.select(undefined);
       if (markerId) {
         currentLevelSettingsSelection.current = markerId;
         levelSettingsOverlay.setSelected(markerId);
@@ -987,7 +1011,7 @@ export function SceneViewport({
       renderer.setAnimationLoop(null);
       viewportOcclusion.restoreSimulation();
       transformTool.controls.removeEventListener('dragging-changed', toggleCameraDuringTransform);
-      transformTool.dispose();
+      transformTool.dispose(); coverageOverlay.dispose();
       dropGhost.geometry.dispose();
       (dropGhost.material as THREE.Material).dispose();
       controls.dispose();
@@ -1126,11 +1150,6 @@ export function SceneViewport({
     if (!terrainSource) return;
     let disposed = false;
     const loadedScenes: THREE.Object3D[] = [];
-    const octants = createOcclusionOverlay(terrainSource.occlusionOctants, sceneTreeColors.occlusionOctant);
-    if (octants) {
-      viewport.current!.occlusion.add(octants);
-      loadedScenes.push(octants);
-    }
     const total = terrainSource.urls.length + terrainSource.assets.length;
     let completed = 0;
     const reportLoaded = () => {
@@ -1259,7 +1278,6 @@ export function SceneViewport({
     return () => {
       disposed = true;
       viewport.current?.projection.setAssetTemplates(new Map());
-      octants?.removeFromParent();
       if (viewport.current) {
         viewport.current.terrainBounds.makeEmpty();
         viewport.current.syncLevelSettingsBounds();
@@ -1401,30 +1419,36 @@ export function SceneViewport({
         object.material.color.set(sceneTreeColors.occlusionOctant);
     });
   }, [sceneTreeColors]);
-  useEffect(() => { if (viewport.current) viewport.current.occlusion.visible = showOcclusionOctants; }, [showOcclusionOctants]);
+  useEffect(() => {
+    if (!viewport.current || !displayedOctants?.length) return;
+    const overlay = new OcclusionOctantOverlay(displayedOctants, sceneTreeColors.occlusionOctant);
+    viewport.current.occlusion.add(overlay);
+    return () => overlay.dispose();
+  }, [displayedOctants, sceneTreeColors.occlusionOctant]);
+  useEffect(() => { if (viewport.current) viewport.current.occlusion.visible = octantsVisible && showOcclusionOctants; }, [showOcclusionOctants, octantsVisible]);
   useEffect(() => {
     const current = viewport.current;
-    if (!current || !frozenOcclusionOctant || showOcclusionOctants) return;
-    const overlay = createOcclusionOverlay([{ ...frozenOcclusionOctant, maskIndex: 0 }], sceneTreeColors.occlusionOctant)!;
+    if (!current || !octantsVisible || !frozenOcclusionOctant || showOcclusionOctants) return;
+    const overlay = new OcclusionOctantOverlay([frozenOcclusionOctant], sceneTreeColors.occlusionOctant);
     overlay.name = 'Frozen occlusion octant';
     current.content.add(overlay);
-    return () => { overlay.removeFromParent(); disposeObject(overlay); };
-  }, [frozenOcclusionOctant, showOcclusionOctants, sceneTreeColors.occlusionOctant]);
+    return () => overlay.dispose();
+  }, [frozenOcclusionOctant, showOcclusionOctants, sceneTreeColors.occlusionOctant, octantsVisible]);
   useEffect(() => {
     if (!viewport.current) return;
-    viewport.current.octantLabels.visible = showOcclusionOctantIds;
-    viewport.current.octantLabels.frozenOctantId = frozenOcclusionOctant?.id;
-  }, [showOcclusionOctantIds, frozenOcclusionOctant?.id]);
+    viewport.current.octantLabels.visible = octantsVisible && showOcclusionOctantIds;
+    viewport.current.octantLabels.frozenOctantId = octantsVisible ? frozenOcclusionOctant?.id : undefined;
+  }, [showOcclusionOctantIds, frozenOcclusionOctant?.id, octantsVisible]);
   useEffect(() => {
-    viewport.current?.octantLabels.setOctants(terrainSource?.occlusionOctants ?? []);
+    viewport.current?.octantLabels.setOctants(displayedOctants ?? []);
     return () => viewport.current?.octantLabels.setOctants([]);
-  }, [terrainSource]);
+  }, [displayedOctants]);
   useEffect(() => {
-    if (!viewport.current || !occlusionSamples) return;
+    if (!viewport.current || !occlusionSamples || !showOcclusionSamples) return;
     const overlay = new OcclusionSampleOverlay(occlusionSamples);
     viewport.current.content.add(overlay);
     return () => overlay.dispose();
-  }, [occlusionSamples]);
+  }, [occlusionSamples, showOcclusionSamples]);
   useEffect(() => {
     const current = viewport.current;
     if (!current) return;
@@ -1443,26 +1467,51 @@ export function SceneViewport({
 
   useEffect(() => { if (!showStats) setStats(undefined); }, [showStats]);
 
+  useEffect(() => {
+    const current = viewport.current; if (!current) return;
+    current.coverageOverlay.sync(coverage, sceneTreeColors.occlusionOctant);
+    current.transformTool.setExternalTarget(coverage?.available ? current.coverageOverlay.target() : undefined);
+    current.syncTransforms();
+  }, [coverage, sceneTreeColors.occlusionOctant]);
+  useEffect(() => {
+    coverage?.setPlacementProvider(distance => {
+      const camera = viewport.current?.camera;
+      return camera ? cameraPlacementPosition(camera, distance) : undefined;
+    });
+    return () => coverage?.setPlacementProvider(undefined);
+  }, [coverage?.setPlacementProvider]);
+  useEffect(() => { if (coverage?.selectedMarkerId) setMode('translate'); }, [coverage?.selectedMarkerId]);
   useEffect(() => viewport.current?.transformTool.setMode(mode), [mode]);
   useEffect(() => viewport.current?.transformTool.setSpace(space), [space]);
   useEffect(() => viewport.current?.transformTool.setSnapping(
     snapEnabled, translationSnap, rotationSnap, scaleSnap, snapSource, snapTarget,
   ), [rotationSnap, scaleSnap, snapEnabled, snapSource, snapTarget, translationSnap]);
-  useEffect(() => viewport.current?.transformTool.setEnabled(!disabled && !instancedCollisionOverlay?.paint?.active),
-    [disabled, instancedCollisionOverlay?.paint?.active]);
+  useEffect(() => viewport.current?.transformTool.setEnabled(!disabled && !instancedCollisionOverlay?.paint?.active && !coverage?.loading),
+    [disabled, instancedCollisionOverlay?.paint?.active, coverage?.loading]);
   useEffect(() => {
     const canvas = container.current?.querySelector('canvas');
     if (canvas) canvas.style.cursor = instancedCollisionOverlay?.paint?.active ? 'crosshair' : '';
   }, [instancedCollisionOverlay?.paint?.active]);
 
   useEffect(() => {
-    if (!focusEntityId) return;
+    if (!focusEntityId && !coverage?.focusRequest) return;
     const current = viewport.current;
     const entity = currentEntities.current.find((value) => value.id === focusEntityId);
-    focusHandled.current();
-    if (!current || !entity || entity.skyShell) return;
-    const sphere = current.projection.getBounds(entity.id)?.getBoundingSphere(new THREE.Sphere());
-    const center = sphere?.center ?? ps2PositionToScene(entity.transform.position);
+    const coverageId = coverage?.focusRequest?.id;
+    focusHandled.current(); if (coverageId) coverage?.focusHandled();
+    if (!current || !coverageId && (!entity || entity.skyShell)) return;
+    const bounds = coverageId === PRIMARY_OCCLUSION_SOURCE_ID
+      ? terrainSource?.occlusionOctants.reduce((box, cell) => {
+        box.expandByPoint(new THREE.Vector3(cell.x * 4, cell.z * 4, -cell.y * 4));
+        box.expandByPoint(new THREE.Vector3(cell.x * 4 + 4, cell.z * 4 + 4, -cell.y * 4 - 4));
+        return box;
+      }, new THREE.Box3())
+      : coverageId ? current.coverageOverlay.getBounds(coverageId, undefined, coverage?.focusRequest?.markerId) : current.projection.getBounds(entity!.id);
+    if (coverageId && coverageId !== PRIMARY_OCCLUSION_SOURCE_ID && coverage?.showPreview && coverage.preview)
+      bounds?.expandByScalar(coverage.preview.cellSize);
+    const sphere = bounds && !bounds.isEmpty() ? bounds.getBoundingSphere(new THREE.Sphere()) : undefined;
+    const center = sphere?.center ?? (entity ? ps2PositionToScene(entity.transform.position) : undefined);
+    if (!center) return;
     const radius = Math.max(sphere?.radius ?? 8, 1);
     const direction = current.camera.position.clone().sub(current.controls.target);
     if (direction.lengthSq() < 0.0001) direction.set(1, 0.7, 1);
@@ -1475,7 +1524,7 @@ export function SceneViewport({
       elapsed: 0,
       duration: 0.35,
     };
-  }, [focusEntityId]);
+  }, [focusEntityId, coverage?.focusRequest]);
 
   const positionAssetDrop = (clientX: number, clientY: number) => {
     const current = viewport.current;
@@ -1645,7 +1694,10 @@ export function SceneViewport({
         onMobySimulationPausedChange={onMobySimulationPausedChange}
         onMobySimulationReset={resetMobySimulation}
       />
-      {transformNotice && <div className="scene-notice" role="status">{transformNotice}</div>}
+      {(transformNotice || coverage?.showPreview && (coverage.previewStale || coverage.graphInspection)) && <div className="scene-notice" role="status">
+        {transformNotice || (coverage?.previewStale ? 'Coverage preview is out of date. Preview again after editing.'
+          : `Graph inspection: ${coverage?.graphInspection} cells before final union and exclusions. Select a previewed graph in Coverage.`)}
+      </div>}
       {showStats && <div className="scene-stats">
         {stats ? `${stats.fps} FPS · ${stats.calls} calls · ${stats.triangles.toLocaleString()} tris` : 'Measuring…'}
       </div>}
@@ -1687,43 +1739,6 @@ function fxDependencyIds(fx?: EditorFx): string[] {
   ] as string[];
 }
 
-function createOcclusionOverlay(
-  octants: readonly { x: number; y: number; z: number; maskIndex: number }[],
-  color: string,
-): THREE.Group | undefined {
-  if (!octants.length) return undefined;
-  const geometry = new THREE.BoxGeometry(4, 4, 4);
-  const fill = new THREE.InstancedMesh(geometry, new THREE.MeshBasicMaterial({
-    color, depthWrite: false, fog: false, opacity: 0.08, transparent: true,
-  }), octants.length);
-  const edgeGeometry = new THREE.EdgesGeometry(geometry);
-  const edgeVertices = edgeGeometry.getAttribute('position');
-  const edgePositions = new Float32Array(octants.length * edgeVertices.count * 3);
-  const matrix = new THREE.Matrix4();
-  octants.forEach((octant, index) => {
-    const x = octant.x * 4 + 2;
-    const y = octant.z * 4 + 2;
-    const z = -(octant.y * 4 + 2);
-    matrix.makeTranslation(x, y, z);
-    fill.setMatrixAt(index, matrix);
-    for (let vertex = 0; vertex < edgeVertices.count; vertex += 1) {
-      const offset = (index * edgeVertices.count + vertex) * 3;
-      edgePositions[offset] = edgeVertices.getX(vertex) + x;
-      edgePositions[offset + 1] = edgeVertices.getY(vertex) + y;
-      edgePositions[offset + 2] = edgeVertices.getZ(vertex) + z;
-    }
-  });
-  fill.instanceMatrix.needsUpdate = true;
-  edgeGeometry.setAttribute('position', new THREE.BufferAttribute(edgePositions, 3));
-  edgeGeometry.computeBoundingSphere();
-  const edges = new THREE.LineSegments(edgeGeometry, new THREE.LineBasicMaterial({
-    color, fog: false, opacity: 0.55, transparent: true,
-  }));
-  const overlay = new THREE.Group();
-  overlay.name = 'Occlusion octants';
-  overlay.add(fill, edges);
-  return overlay;
-}
 
 function collisionVisibility(
   solid: boolean,

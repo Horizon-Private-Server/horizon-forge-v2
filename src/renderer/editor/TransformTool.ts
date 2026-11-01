@@ -3,13 +3,14 @@ import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import type { TransformControlsGizmo } from 'three/addons/controls/TransformControls.js';
 
 import type { EditorEntity, EditorTransformUpdate, ProjectTransform, ProjectVector4 } from '../../types/EditorRuntime.js';
-import type { EditorSnapSource, EditorSnapTarget } from '../../types/EditorViewport.js';
+import type { EditorSnapSource, EditorSnapTarget, EditorTransformTarget } from '../../types/EditorViewport.js';
 import { parseSplinePointId, transformSplinePoints } from '../../utils/SplinePoints.ts';
 import { cloneProjectTransform, projectTransformToSceneMatrix, sceneMatrixToProjectTransform } from '../../utils/Transforms.ts';
 import {
   expandLinkedCollisionTransforms, indexLinkedCollisionTransforms, inspectTransformSelection,
   type LinkedCollisionTransformIndex,
 } from '../../utils/TransformSelection.ts';
+import { TransformTargetSession } from './TransformTargetSession.ts';
 import { VertexSnapIndex } from './SceneSnapping.ts';
 
 interface TransformProjection {
@@ -35,6 +36,8 @@ interface TransformToolCallbacks {
 
 export class TransformTool {
   readonly controls: TransformControls;
+  private readonly external = new TransformTargetSession();
+  private get activeProxy(): THREE.Object3D { return this.external.target ? this.external.proxy : this.proxy; }
 
   private readonly proxy = new THREE.Object3D();
   private readonly gizmo: TransformControlsGizmo;
@@ -83,6 +86,7 @@ export class TransformTool {
   private collisionLinks: LinkedCollisionTransformIndex = indexLinkedCollisionTransforms([]);
   private cancelled = false;
   private pointerActive = false;
+  private pointerEnding = false;
   private scaleDragStartY?: number;
   private pointerY = 0;
 
@@ -103,11 +107,12 @@ export class TransformTool {
     this.gizmo = gizmo as TransformControlsGizmo;
     this.tightenAxisPickers();
     this.proxy.name = 'Transform pivot';
-    overlay.add(this.proxy, this.controls.getHelper());
+    overlay.add(this.external.proxy, this.proxy, this.controls.getHelper());
     domElement.addEventListener('pointerdown', this.handlePointerDownCapture, true);
     domElement.addEventListener('pointermove', this.handlePointerMoveCapture, true);
     domElement.addEventListener('pointerup', this.handlePointerEndCapture, true);
-    domElement.addEventListener('pointercancel', this.handlePointerEndCapture, true);
+    domElement.addEventListener('pointercancel', this.handlePointerCancelCapture, true);
+    domElement.addEventListener('lostpointercapture', this.handlePointerCancelCapture, true);
     this.controls.addEventListener('mouseDown', this.handleMouseDown);
     this.controls.addEventListener('objectChange', this.applyScreenSpaceScale);
     this.controls.addEventListener('objectChange', this.handleObjectChange);
@@ -119,7 +124,20 @@ export class TransformTool {
   }
 
   setEnabled(enabled: boolean): void {
+    if (!enabled && this.external.target && this.controls.dragging) this.endTargetInteraction();
     this.controls.enabled = enabled;
+  }
+
+  setExternalTarget(target?: EditorTransformTarget): void {
+    if (this.external.target?.key !== target?.key && this.controls.dragging) this.endTargetInteraction();
+    this.external.sync(target);
+    this.updateActiveSelection(); this.refreshAttachment();
+  }
+
+  private endTargetInteraction(): void {
+    if (!this.cancel()) this.controls.reset();
+    this.originals.clear(); this.originalSplinePoints = undefined;
+    this.controls.dragging = false; this.controls.axis = null; this.pointerActive = false;
   }
 
   update(): void {
@@ -127,6 +145,7 @@ export class TransformTool {
   }
 
   setMode(mode: EditorTransformMode): void {
+    if (mode !== this.mode && this.external.interacting) this.endTargetInteraction();
     this.mode = mode;
     if (mode === 'select') this.controls.detach();
     else this.controls.setMode(mode);
@@ -135,6 +154,7 @@ export class TransformTool {
   }
 
   setSpace(space: EditorTransformSpace): void {
+    if (space !== this.space && this.external.interacting) this.endTargetInteraction();
     this.space = space;
     this.controls.setSpace(space);
     this.refreshAttachment();
@@ -183,6 +203,11 @@ export class TransformTool {
   }
 
   private updateActiveSelection(): void {
+    if (this.external.target) {
+      this.activeIds = []; this.activePointIds = []; this.activeSpline = undefined;
+      this.callbacks.availability(this.external.target.translateOnly && this.mode !== 'select' && this.mode !== 'translate'
+        ? 'Coverage markers support the Move tool. Select the graph to rotate or resize its region.' : undefined); return;
+    }
     const { selection } = this;
     const points = selection.map((id) => ({ id, point: parseSplinePointId(id) }))
       .filter((value) => value.point !== undefined);
@@ -211,6 +236,7 @@ export class TransformTool {
   }
 
   cancel(): boolean {
+    if (this.external.cancel()) { this.controls.reset(); return true; }
     if (!this.controls.dragging || this.originals.size === 0 && !this.originalSplinePoints) return false;
     this.cancelled = true;
     this.controls.reset();
@@ -220,10 +246,12 @@ export class TransformTool {
   }
 
   dispose(): void {
+    this.external.cancel(); this.external.proxy.removeFromParent();
     this.domElement.removeEventListener('pointerdown', this.handlePointerDownCapture, true);
     this.domElement.removeEventListener('pointermove', this.handlePointerMoveCapture, true);
     this.domElement.removeEventListener('pointerup', this.handlePointerEndCapture, true);
-    this.domElement.removeEventListener('pointercancel', this.handlePointerEndCapture, true);
+    this.domElement.removeEventListener('pointercancel', this.handlePointerCancelCapture, true);
+    this.domElement.removeEventListener('lostpointercapture', this.handlePointerCancelCapture, true);
     this.controls.removeEventListener('mouseDown', this.handleMouseDown);
     this.controls.removeEventListener('objectChange', this.applyScreenSpaceScale);
     this.controls.removeEventListener('objectChange', this.handleObjectChange);
@@ -239,7 +267,7 @@ export class TransformTool {
     if (event.button !== 0 || this.mode !== 'scale') return;
     this.scaleDragStartY = event.clientY;
     this.pointerY = event.clientY;
-    this.scaleDragStart.copy(this.proxy.scale);
+    this.scaleDragStart.copy(this.activeProxy.scale);
   };
 
   private readonly handlePointerMoveCapture = (event: PointerEvent) => {
@@ -248,7 +276,13 @@ export class TransformTool {
     if (!this.controls.dragging) this.updatePlaneHandleQuadrants();
   };
 
+  private readonly handlePointerCancelCapture = () => {
+    if (this.external.interacting && !this.pointerEnding) this.endTargetInteraction();
+    this.scaleDragStartY = undefined;
+  };
+
   private readonly handlePointerEndCapture = () => {
+    this.pointerEnding = true; queueMicrotask(() => { this.pointerEnding = false; });
     this.scaleDragStartY = undefined;
   };
 
@@ -258,7 +292,7 @@ export class TransformTool {
     if (!axis) return;
     const deltaPixels = this.scaleDragStartY - this.pointerY;
     if (this.activeIds.some((id) => this.entitiesById.get(id)?.tfrag !== undefined)) {
-      this.proxy.scale.setScalar(verticalDragScale(
+      this.activeProxy.scale.setScalar(verticalDragScale(
         this.scaleDragStart.x,
         deltaPixels,
         this.controls.scaleSnap,
@@ -267,7 +301,7 @@ export class TransformTool {
     }
     for (const key of ['x', 'y', 'z'] as const) {
       if (!axis.includes(key.toUpperCase())) continue;
-      this.proxy.scale[key] = verticalDragScale(
+      this.activeProxy.scale[key] = verticalDragScale(
         this.scaleDragStart[key],
         deltaPixels,
         this.controls.scaleSnap,
@@ -278,11 +312,16 @@ export class TransformTool {
   private readonly handleMouseDown = () => {
     this.pointerActive = true;
     this.cancelled = false;
-    this.proxy.updateMatrix();
-    this.startPivot.copy(this.proxy.matrix);
+    this.activeProxy.updateMatrix();
+    this.startPivot.copy(this.activeProxy.matrix);
     this.startPivotPosition.setFromMatrixPosition(this.startPivot);
     this.sourceOffset.set(0, 0, 0);
     this.vertexIndex = undefined;
+    if (this.external.target) {
+      this.external.begin();
+      if (this.snapSource === 'vertex') this.vertexIndex = new VertexSnapIndex(this.external.target.vertices());
+      return;
+    }
     if (this.snapSource === 'origin') {
       const active = this.activeSpline ?? this.entitiesById.get(this.activeIds.at(-1)!);
       if (active) {
@@ -303,6 +342,10 @@ export class TransformTool {
   };
 
   private readonly handleObjectChange = () => {
+    if (this.external.target) {
+      if (this.external.interacting) { this.applyTargetSnap(); this.external.update(this.controls.axis); }
+      return;
+    }
     if (this.originals.size === 0 && !this.originalSplinePoints || this.cancelled) return;
     this.applyTargetSnap();
     if (this.originalSplinePoints && this.activeSpline) {
@@ -318,6 +361,10 @@ export class TransformTool {
   };
 
   private readonly handleMouseUp = () => {
+    if (this.external.target) {
+      this.external.finish(); this.vertexIndex = undefined;
+      queueMicrotask(() => { this.pointerActive = false; }); return;
+    }
     const updates = this.cancelled ? [] : this.buildUpdates();
     const splinePoints = this.cancelled ? undefined : this.buildSplinePoints();
     const changed = !this.proxy.matrix.equals(this.startPivot);
@@ -356,6 +403,11 @@ export class TransformTool {
   }
 
   private refreshAttachment(): void {
+    if (this.external.target) {
+      if (this.mode === 'select' || this.external.target.translateOnly && this.mode !== 'translate') this.controls.detach();
+      else if (!this.controls.dragging) { this.controls.attach(this.external.proxy); this.updatePlaneHandleQuadrants(); }
+      return;
+    }
     if (this.mode === 'select' || !this.projection
       || this.activeIds.length === 0 && this.activePointIds.length === 0 || this.controls.dragging) {
       if (!this.controls.dragging) this.controls.detach();
@@ -396,10 +448,10 @@ export class TransformTool {
   private updatePlaneHandleQuadrants(): void {
     if (!this.controls.object || this.controls.dragging) return;
     this.camera.getWorldPosition(this.cameraOffset);
-    this.proxy.getWorldPosition(this.proxyWorldPosition);
+    this.activeProxy.getWorldPosition(this.proxyWorldPosition);
     this.cameraOffset.sub(this.proxyWorldPosition);
     if (this.mode === 'scale' || this.space === 'local') {
-      this.proxy.getWorldQuaternion(this.inverseProxyRotation).invert();
+      this.activeProxy.getWorldQuaternion(this.inverseProxyRotation).invert();
       this.cameraOffset.applyQuaternion(this.inverseProxyRotation);
     }
     const nextX = nonZeroSign(this.cameraOffset.x, this.planeSigns.x);
@@ -440,13 +492,13 @@ export class TransformTool {
     );
     if (!target) return;
     if (this.snapSource === 'vertex') {
-      this.translationDelta.copy(this.proxy.position).sub(this.startPivotPosition);
+      this.translationDelta.copy(this.activeProxy.position).sub(this.startPivotPosition);
       const source = this.vertexIndex?.nearest(this.snapQuery.copy(target).sub(this.translationDelta));
       if (!source) return;
       this.sourceOffset.copy(source).sub(this.startPivotPosition);
     }
-    this.proxy.position.copy(target).sub(this.sourceOffset);
-    this.proxy.updateMatrix();
+    this.activeProxy.position.copy(target).sub(this.sourceOffset);
+    this.activeProxy.updateMatrix();
   }
 }
 

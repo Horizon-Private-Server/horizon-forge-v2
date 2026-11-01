@@ -26,6 +26,7 @@ export function useKeyboardContext(keybindings: KeybindingMap, onAction: (action
       if (!action) return;
       if (action === 'copyEntities' && window.getSelection()?.toString()) return;
       event.preventDefault();
+      event.stopPropagation();
       onAction(action);
     };
     window.addEventListener('keydown', keyDown, true);

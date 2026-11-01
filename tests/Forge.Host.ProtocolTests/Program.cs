@@ -14,6 +14,18 @@ internal static class Program
     {
         try
         {
+#if FORGE_OCCLUSION_COVERAGE_GENERATION
+            if (args is ["--write-occlusion-coverage-fixture", var fixturePath])
+            {
+                await UyaOcclusionCoverageGenerationTests.RunAsync(fixturePath);
+                return 0;
+            }
+            if (args is ["--occlusion-coverage-generation"])
+            {
+                await UyaOcclusionCoverageGenerationTests.RunAsync();
+                return 0;
+            }
+#endif
             if (args.Length == 3 && args[0] == "--catalog-snapshot-worker")
             {
                 await AssetCatalogSnapshotTests.WriteWorkerAsync(args[1], args[2]);
@@ -30,6 +42,8 @@ internal static class Program
             VerifyInvalidInput(vectors);
             VerifyPayloads();
             EditorPayloadCodecTests.Run();
+            OcclusionCoveragePayloadTests.Run();
+            OcclusionCoveragePreviewPayloadTests.Run();
             VerifyIdentityAndSchema();
             await UyaIsoSetupTests.RunAsync();
             await AssetCatalogTests.RunAsync();
@@ -37,6 +51,13 @@ internal static class Program
             await AssetMaintenanceTests.RunAsync();
             await UyaAssetImportTests.RunAsync();
             await ForgeProjectTests.RunAsync();
+            await ForgeProjectSnapshotTests.RunAsync();
+            await OcclusionCoverageProjectTests.RunAsync();
+            await OcclusionCoveragePreviewTests.RunAsync();
+            await UyaOcclusionSceneSnapshotTests.RunAsync();
+#if FORGE_OCCLUSION_COVERAGE_PREVIEW
+            await UyaOcclusionCoveragePreviewTests.RunAsync();
+#endif
             await ProjectReferenceTests.RunAsync();
             await ProjectGroupTests.RunAsync();
             await GroupTemplateTests.RunAsync();
@@ -52,7 +73,11 @@ internal static class Program
             await MobyDexProjectTests.RunAsync();
             await BakeLayerTests.RunAsync();
             await OcclusionBakeTests.RunAsync();
+            UyaOcclusionCoverageContractTests.Run();
             await UyaOcclusionBakeTests.RunAsync();
+#if FORGE_OCCLUSION_COVERAGE_GENERATION
+            await UyaOcclusionCoverageGenerationTests.RunAsync();
+#endif
             PaletteBakeReportTests.Run();
             await EditorRuntimeTests.RunAsync();
             await EditorSelectionTests.RunAsync();

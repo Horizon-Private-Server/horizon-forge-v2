@@ -75,12 +75,21 @@ internal static class UyaHudBakeService
         BakeLayerPlan plan,
         CancellationToken cancellationToken = default)
     {
+        var workspace = await ForgeProjectWorkspace.OpenAsync(projectRoot, cancellationToken);
+        return await StageAsync(workspace, staging, plan, cancellationToken);
+    }
+
+    internal static async Task<BakeLayerSnapshot> StageAsync(
+        ForgeProjectWorkspace workspace,
+        BakeStagingStore staging,
+        BakeLayerPlan plan,
+        CancellationToken cancellationToken)
+    {
         ArgumentNullException.ThrowIfNull(staging);
         ArgumentNullException.ThrowIfNull(plan);
         if (plan.Layer != BakeLayerId.Hud)
             throw new ArgumentException("HUD staging requires the HUD layer plan.", nameof(plan));
 
-        var workspace = await ForgeProjectWorkspace.OpenAsync(projectRoot, cancellationToken);
         if (workspace.Content.Hud is not { } hud)
         {
             var unavailable = new UyaHudBakeManifest(UyaHudBakeSchema.CurrentVersion, false, false, []);

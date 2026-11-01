@@ -40,5 +40,17 @@ export async function readOcclusionSamplePreview(directory: string, signal: Abor
       ...(c.inwardCorners === undefined ? {} : { inwardCorners: c.inwardCorners }) });
   }
   signal.throwIfAborted();
-  return { profile: scene.profile, origins, cells };
+  const preparation = scene.preparation;
+  if (preparation !== undefined && (!preparation || typeof preparation !== 'object'
+    || !['gridBytes', 'treeBytes', 'maskSlots', 'unsharedMaskBytes', 'alwaysVisibleGroups', 'cellLimit', 'sampleLimit']
+      .every(key => Number.isSafeInteger(preparation[key as keyof typeof preparation]))
+    || preparation.gridBytes < 1 || preparation.gridBytes > 16 * 1024 * 1024
+    || preparation.treeBytes < 1 || preparation.treeBytes >= preparation.gridBytes
+    || preparation.maskSlots < 1 || preparation.maskSlots * 128 > preparation.gridBytes - preparation.treeBytes
+    || preparation.unsharedMaskBytes !== cells.length * 128
+    || preparation.alwaysVisibleGroups < 0 || preparation.alwaysVisibleGroups > 1023
+    || preparation.cellLimit < cells.length || preparation.cellLimit > 100_000
+    || preparation.sampleLimit < origins.length || preparation.sampleLimit > 250_000))
+    throw new Error('Invalid occlusion preparation summary.');
+  return { profile: scene.profile, origins, cells, ...(preparation === undefined ? {} : { preparation }) };
 }

@@ -41,6 +41,12 @@ public static class BridgeHost
                     : null,
             groupTemplateEvaluator: UyaGroupTemplateService.EvaluateAsync,
             groupTemplates: UyaGroupTemplateService.Definitions,
+#if FORGE_OCCLUSION_COVERAGE_PREVIEW
+            occlusionCoveragePreviewExecutor: UyaOcclusionCoveragePreviewService.EvaluateAsync,
+#endif
+#if FORGE_OCCLUSION_COVERAGE_GENERATION
+            occlusionCoverageBuildAvailable: true,
+#endif
             customAssetCommandExecutor: UyaCustomAssetProjectService.ExecuteAsync);
         var requests = new ConcurrentDictionary<uint, CancellationTokenSource>();
         var tasks = new ConcurrentDictionary<uint, Task>();
@@ -212,9 +218,19 @@ public static class BridgeHost
                 case BridgeOpcode.InspectInstancedCollisionSource:
                 case BridgeOpcode.PreviewGroupTemplate:
                 case BridgeOpcode.ApplyGroupTemplatePreview:
+                case BridgeOpcode.QueryOcclusionCoverage:
+                case BridgeOpcode.UpdateOcclusionCoverage:
                     await writer.WriteAsync(new(
                         BridgeMessageKind.Result, frame.Opcode, BridgeErrorCode.None, frame.RequestId,
                         await EditorBridgeHandlers.HandleAsync(frame, editor, requestCancellation.Token)), hostCancellation);
+                    break;
+                case BridgeOpcode.PreviewOcclusionCoverage:
+                    var coverageRequest = OcclusionCoveragePreviewPayloadCodec.DecodeRequest(frame.Payload);
+                    await writer.WriteAsync(new(
+                        BridgeMessageKind.Result, frame.Opcode, BridgeErrorCode.None, frame.RequestId,
+                        OcclusionCoveragePreviewPayloadCodec.Encode(await editor.PreviewOcclusionCoverageAsync(
+                            coverageRequest.Fingerprint, coverageRequest.SourcePath,
+                            CreateProgressReporter(frame, writer, hostCancellation), requestCancellation.Token))), hostCancellation);
                     break;
                 case BridgeOpcode.QuerySoundWorkspace:
                 case BridgeOpcode.RenderSoundPreview:

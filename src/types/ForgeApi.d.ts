@@ -4,7 +4,8 @@ import type {
 } from './EditorRuntime.js';
 import type { AssetExplorerPage, AssetExplorerQuery, AssetModelKind, AssetPreviewKind, AssetPreviewSource, CustomModelPreviewView } from './AssetExplorer.js';
 import type { ForgeNotification } from './Notifications.js';
-import type { OcclusionBakeSummary, OcclusionSamplePreview, OcclusionVisibilityData } from './Occlusion.js';
+import type { OcclusionBakeSummary, OcclusionSamplePreview, OcclusionVisibilityResult } from './Occlusion.js';
+import type { OcclusionCoveragePreview, OcclusionCoverageSnapshot, OcclusionCoverageState, OcclusionCoverageUpdateResult } from './OcclusionCoverage.js';
 import type { UpdateCheckResult, UpdateLifecycleAction, UpdateLifecycleSnapshot } from './Updates.js';
 import type { SoundPreviewSource, SoundWorkspace } from './SoundWorkspace.js';
 import type {
@@ -385,6 +386,11 @@ export interface ForgeApi {
   openEditorProject(path: string): Promise<EditorSnapshot>;
   closeEditorProject(): Promise<void>;
   getEditorSnapshot(): Promise<EditorSnapshot>;
+  previewOcclusionCoverage(projectFingerprint: string): Promise<OcclusionCoveragePreview>;
+  cancelOcclusionCoveragePreview(): Promise<void>;
+  onOcclusionCoverageProgress(listener: (progress: Progress) => void): () => void;
+  getOcclusionCoverage(): Promise<OcclusionCoverageSnapshot>;
+  updateOcclusionCoverage(projectFingerprint: string, state: OcclusionCoverageState): Promise<OcclusionCoverageUpdateResult>;
   getSoundWorkspace(): Promise<SoundWorkspace>;
   getSoundPreview(
     nativeIndex: number,
@@ -413,7 +419,7 @@ export interface ForgeApi {
   cancelBuildAndPatch(): Promise<void>;
   rebuildOcclusion(samplePullIn?: number, pixelEdgeAllowance?: boolean): Promise<OcclusionBakeSummary>;
   previewOcclusionSamples(samplePullIn?: number): Promise<OcclusionSamplePreview>;
-  getOcclusionVisibility(): Promise<OcclusionVisibilityData>;
+  getOcclusionVisibility(): Promise<OcclusionVisibilityResult>;
   runWindowAction(action: ForgeWindowAction): void;
   setEditorTextInputActive(active: boolean): void;
   readEditorEvents(afterSequence: number, limit?: number): Promise<EditorEvent[]>;

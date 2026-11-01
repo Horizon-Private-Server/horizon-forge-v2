@@ -2,6 +2,7 @@ using RatchetPs2.Core.Occlusion;
 using System.Numerics;
 using System.Text.Json;
 using Forge.Host.Domain.Occlusion;
+using Forge.Host.Domain;
 
 internal static class OcclusionBakeTests
 {
@@ -125,8 +126,44 @@ internal static class OcclusionBakeTests
                 Directory.CreateSymbolicLink(Path.Combine(linked, "cache"), Path.Combine(root, "cache"));
                 await ThrowsAsync<InvalidDataException>(() => OcclusionBakeStore.ReadAsync(linked, scene.InputHash, cache.OriginalGridHash, CancellationToken.None));
             }
+            await VerifyCoverageIdentityAsync(Path.Combine(root, "coverage"), cache);
         }
         finally { Directory.Delete(root, true); }
+    }
+    private static async Task VerifyCoverageIdentityAsync(string root, OcclusionBakeCache source)
+    {
+        var project = await ForgeProjectWorkspace.CreateAsync(root, "Coverage identity",
+            new("DL", "NTSC-U", "1.00", "dl-ntsc-u"), new("DL", "NTSC-U", "1.00", 3, new string('a', 32)), []);
+        project.SetPrimaryOcclusionCoverageEnabled(false);
+        const int algorithmVersion = 7;
+        var identity = new OcclusionBakeCoverage(project.OcclusionCoverageRecipeFingerprint, project.OcclusionVisibilityFingerprint,
+            algorithmVersion, new string('a', 64), []);
+        var cache = source with { Coverage = identity, Octants = 1 };
+        await OcclusionBakeStore.CommitAsync(root, cache, default);
+        OcclusionBakeStore.ValidateCoverageIdentity(project, identity, algorithmVersion);
+        Equal(true, await OcclusionBakeStore.ReadCoverageAsync(project, algorithmVersion, default) is not null,
+            "shared coverage identity accepts the adapter-supplied algorithm version without game-specific dependencies");
+        foreach (var stale in new[] { identity with { RecipeHash = new string('b', 64) },
+            identity with { ProjectHash = new string('c', 64) }, identity with { AlgorithmVersion = algorithmVersion + 1 } })
+        {
+            Throws<InvalidDataException>(() => OcclusionBakeStore.ValidateCoverageIdentity(project, stale, algorithmVersion));
+            await OcclusionBakeStore.CommitAsync(root, cache with { Coverage = stale }, default);
+            Equal(true, await OcclusionBakeStore.ReadCoverageAsync(project, algorithmVersion, default) is null,
+                "cache reads and commit validation reject the same recipe, scene and algorithm mismatches");
+        }
+        Throws<InvalidDataException>(() => OcclusionBakeStore.ValidateCoverageIdentity(project, identity with { CoordinateHash = "bad" }, algorithmVersion));
+        await OcclusionBakeStore.CommitAsync(root, cache, default);
+        Equal(true, await OcclusionBakeStore.ReadCoverageAsync(project, algorithmVersion + 1, default) is null,
+            "the adapter chooses the expected algorithm version");
+        await OcclusionBakeStore.CommitAsync(root, cache with { Coverage = null }, default);
+        Equal(true, await OcclusionBakeStore.ReadCoverageAsync(project, algorithmVersion, default) is null,
+            "source-mode caches cannot satisfy authored coverage reads");
+        project.SetPrimaryOcclusionCoverageEnabled(true);
+        identity = identity with { RecipeHash = project.OcclusionCoverageRecipeFingerprint };
+        await OcclusionBakeStore.CommitAsync(root, cache with { Coverage = identity }, default);
+        Throws<InvalidDataException>(() => OcclusionBakeStore.ValidateCoverageIdentity(project, identity, algorithmVersion));
+        Equal(true, await OcclusionBakeStore.ReadCoverageAsync(project, algorithmVersion, default) is null,
+            "Primary-only mode ignores authored coverage even when hashes and algorithm match");
     }
     private static void SharedCornerChecks()
     {

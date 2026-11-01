@@ -10,6 +10,11 @@ public sealed partial class EditorRuntime : IAsyncDisposable
         "editor.entity.rename", "editor.entity.layer", "editor.entity.state", "editor.entity.delete",
         "editor.entity.duplicate", "editor.level-settings.update", "editor.clipboard", "editor.history",
         "editor.save", "editor.recovery",
+        "editor.occlusion-coverage.query", "editor.occlusion-coverage.update", "editor.occlusion-coverage.preview",
+        "editor.occlusion-coverage.build",
+#if FORGE_OCCLUSION_COVERAGE_GRAPH_SHAPES
+        "editor.occlusion-coverage.graph-shapes",
+#endif
         "editor.asset.create", "editor.sky-shell.add", "editor.sky-shell.update", "editor.sky-shell.reorder",
         "editor.palette-optimization.update",
         "editor.hud.replace", "editor.hud.append", "editor.hud.remove",
@@ -51,6 +56,7 @@ public sealed partial class EditorRuntime : IAsyncDisposable
     private readonly EditorMapGroupResolver? _mapGroupResolver;
     private readonly EditorGroupTemplateEvaluator? _groupTemplateEvaluator;
     private readonly EditorCustomAssetCommandExecutor? _customAssetCommandExecutor;
+    private readonly bool _occlusionCoverageBuildAvailable;
     private readonly IReadOnlyList<EditorGroupTemplateDefinition> _groupTemplates;
     private readonly ushort _hudMinimumAppendSpriteId;
     private readonly ushort _hudMaximumAppendSpriteId;
@@ -87,7 +93,9 @@ public sealed partial class EditorRuntime : IAsyncDisposable
         EditorSourceClassNameResolver? sourceClassNameResolver = null,
         EditorGroupTemplateEvaluator? groupTemplateEvaluator = null,
         IReadOnlyList<EditorGroupTemplateDefinition>? groupTemplates = null,
-        EditorCustomAssetCommandExecutor? customAssetCommandExecutor = null)
+        EditorCustomAssetCommandExecutor? customAssetCommandExecutor = null,
+        EditorOcclusionCoveragePreviewExecutor? occlusionCoveragePreviewExecutor = null,
+        bool occlusionCoverageBuildAvailable = false)
     {
         _placementResolver = placementResolver;
         _transformCapabilityResolver = transformCapabilityResolver;
@@ -109,9 +117,13 @@ public sealed partial class EditorRuntime : IAsyncDisposable
         _groupTemplateEvaluator = groupTemplateEvaluator;
         _groupTemplates = NormalizeGroupTemplateDefinitions(groupTemplates ?? []);
         _customAssetCommandExecutor = customAssetCommandExecutor;
+        _occlusionCoveragePreviewExecutor = occlusionCoveragePreviewExecutor;
+        _occlusionCoverageBuildAvailable = occlusionCoverageBuildAvailable;
     }
 
     public bool HasCapability(string capability) => RuntimeCapabilities.Contains(capability, StringComparer.Ordinal)
+        && (capability != "editor.occlusion-coverage.preview" || _occlusionCoveragePreviewExecutor is not null)
+        && (capability != "editor.occlusion-coverage.build" || _occlusionCoverageBuildAvailable)
         && (_groupTemplateEvaluator is not null && _groupTemplates.Count > 0
             || !capability.StartsWith("editor.group-template.", StringComparison.Ordinal));
 

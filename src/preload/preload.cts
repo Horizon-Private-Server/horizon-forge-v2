@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import type { OcclusionCoverageState } from '../types/OcclusionCoverage.js';
 import type {
   BuildPatchProgress,
   BuildLayerId,
@@ -88,6 +89,16 @@ const forgeApi = Object.freeze({
   openEditorProject: (path: string) => ipcRenderer.invoke('forge:editor-open', path),
   closeEditorProject: () => ipcRenderer.invoke('forge:editor-close'),
   getEditorSnapshot: () => ipcRenderer.invoke('forge:editor-query'),
+  previewOcclusionCoverage: (fingerprint: string) => ipcRenderer.invoke('forge:occlusion-coverage-preview', fingerprint),
+  cancelOcclusionCoveragePreview: () => ipcRenderer.invoke('forge:occlusion-coverage-preview-cancel'),
+  onOcclusionCoverageProgress: (listener: (progress: Progress) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, progress: Progress) => listener(progress);
+    ipcRenderer.on('forge:occlusion-coverage-progress', handler);
+    return () => ipcRenderer.off('forge:occlusion-coverage-progress', handler);
+  },
+  getOcclusionCoverage: () => ipcRenderer.invoke('forge:occlusion-coverage-query'),
+  updateOcclusionCoverage: (fingerprint: string, state: OcclusionCoverageState) =>
+    ipcRenderer.invoke('forge:occlusion-coverage-update', fingerprint, state),
   getSoundWorkspace: () => ipcRenderer.invoke('forge:sound-workspace'),
   getSoundPreview: (nativeIndex: number, preferAudible: boolean, catalogSource?: { bankAssetId: string; game: string }) =>
     ipcRenderer.invoke('forge:sound-preview', nativeIndex, preferAudible, catalogSource),

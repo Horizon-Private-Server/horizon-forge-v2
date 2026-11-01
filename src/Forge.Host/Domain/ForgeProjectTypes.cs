@@ -252,6 +252,7 @@ public sealed record ForgeProjectContent(
     public ProjectCustomModelState CustomModels { get; init; } = ProjectCustomModelState.Empty;
     public IReadOnlyList<ContentImportBatch> ImportBatches { get; init; } = [];
     public ProjectSoundState Sounds { get; init; } = ProjectSoundState.Empty;
+    public ProjectOcclusionCoverageState OcclusionCoverage { get; init; } = ProjectOcclusionCoverageState.PrimaryOnly;
 }
 
 public sealed record ProjectRecoverySnapshot(

@@ -2,15 +2,25 @@ import { lstat, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { setImmediate } from 'node:timers/promises';
 
-import type { OcclusionVisibilityData } from '../types/Occlusion.js';
+import type { OcclusionVisibilityData, OcclusionVisibilityResult } from '../types/Occlusion.js';
 
-export async function readOcclusionVisibility(directory: string, signal: AbortSignal): Promise<OcclusionVisibilityData> {
+export async function readOcclusionVisibility(directory: string, signal: AbortSignal): Promise<OcclusionVisibilityResult> {
   const file = path.join(directory, 'visibility.json'), stat = await lstat(file);
   if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 64 * 1024 * 1024)
     throw new Error('Occlusion visibility exceeds its resource budget or is not a regular file.');
   const bytes = await readFile(file);
   if (bytes.length > 64 * 1024 * 1024) throw new Error('Occlusion visibility exceeds its resource budget.');
-  const data = JSON.parse(bytes.toString()) as Omit<OcclusionVisibilityData, 'masks'> & { masks: string };
+  const data = JSON.parse(bytes.toString()) as Omit<OcclusionVisibilityData, 'masks'> & { masks: string; status?: string };
+  signal.throwIfAborted();
+  if (!data || typeof data !== 'object') throw new Error('Invalid occlusion visibility data.');
+  if (data.status !== undefined) {
+    if (data.schemaVersion !== 1 || data.status !== 'needs-build') throw new Error('Invalid occlusion visibility status.');
+    return { schemaVersion: 1, status: 'needs-build' };
+  }
+  if ((data.coverageRecipeFingerprint != null || data.projectFingerprint != null)
+    && (data.source !== 'generated' || typeof data.coverageRecipeFingerprint !== 'string' || typeof data.projectFingerprint !== 'string'
+      || !/^[a-f0-9]{64}$/.test(data.coverageRecipeFingerprint) || !/^[a-f0-9]{64}$/.test(data.projectFingerprint)))
+    throw new Error('Invalid generated coverage identity.');
   if (data?.schemaVersion !== 1 || !['vanilla', 'generated'].includes(data.source) || !/^[a-f0-9]{64}$/.test(data.gridHash)
     || !Array.isArray(data.octants) || data.octants.length > 100_000
     || !Array.isArray(data.entities) || data.entities.length > 100_000

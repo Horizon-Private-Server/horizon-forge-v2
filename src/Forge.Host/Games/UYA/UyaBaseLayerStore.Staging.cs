@@ -36,6 +36,15 @@ public static partial class UyaBaseLayerStore
         CancellationToken cancellationToken) =>
         StageAsync(projectRoot, catalog, staging, plan, null, fault, cancellationToken);
 
+    internal static Task<BakeLayerSnapshot> StageAsync(
+        ForgeProjectWorkspace workspace,
+        AssetCatalogStore catalog,
+        BakeStagingStore staging,
+        BakeLayerPlan plan,
+        UyaBakePreparation preparation,
+        CancellationToken cancellationToken) =>
+        StageAsync(workspace.RootPath, catalog, staging, plan, preparation, null, cancellationToken, workspace);
+
     private static async Task<BakeLayerSnapshot> StageAsync(
         string projectRoot,
         AssetCatalogStore catalog,
@@ -43,13 +52,14 @@ public static partial class UyaBaseLayerStore
         BakeLayerPlan plan,
         UyaBakePreparation? preparation,
         Action<string>? fault,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        ForgeProjectWorkspace? capturedWorkspace = null)
     {
         ArgumentNullException.ThrowIfNull(staging);
         ArgumentNullException.ThrowIfNull(plan);
         if (!UyaBaseLayerSchema.Layers.Contains(plan.Layer))
             throw new ArgumentException("Plan is not a UYA base layer.", nameof(plan));
-        var workspace = await ForgeProjectWorkspace.OpenAsync(projectRoot, cancellationToken);
+        var workspace = capturedWorkspace ?? await ForgeProjectWorkspace.OpenAsync(projectRoot, cancellationToken);
         if (preparation is not null && preparation.ProjectFingerprint != workspace.CurrentFingerprint)
             throw new InvalidDataException("Project content changed after bake preflight.");
         var inspection = await InspectAsync(workspace, catalog, plan.Layer, cancellationToken);

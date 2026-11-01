@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import type { BuildPatchProgress } from '../types/ForgeApi.js';
-import type { OcclusionBakeSummary, OcclusionSamplePreview, OcclusionVisibilityData } from '../types/Occlusion.js';
+import type { OcclusionBakeSummary, OcclusionSamplePreview, OcclusionVisibilityResult } from '../types/Occlusion.js';
 import { hostLaunch } from './HostLaunch.js';
 import { readOcclusionSamplePreview } from './OcclusionSamplePreview.js';
 import { readOcclusionVisibility } from './OcclusionVisibility.js';
@@ -56,7 +56,7 @@ async function withPreparedScene<T>(
 export async function loadOcclusionVisibility(
   projectRoot: string, _catalogRoot: string, sourceIso: string, signal: AbortSignal,
   progress: (value: BuildPatchProgress) => void,
-): Promise<OcclusionVisibilityData> {
+): Promise<OcclusionVisibilityResult> {
   return withOcclusionJob(signal, progress, async (directory, run) => {
     const host = hostLaunch();
     await run(host.command, [...host.args, '--occlusion-visibility', projectRoot, sourceIso, directory], 'Load occlusion');
@@ -94,7 +94,9 @@ async function withOcclusionJob<T>(signal: AbortSignal, progress: (value: BuildP
             if (!result || !Number.isSafeInteger(result.octants) || result.octants < 1
               || !Number.isSafeInteger(result.origins) || result.origins < 1
               || !Number.isFinite(result.wallMs) || result.wallMs < 0
-              || result.gpuMs !== null && (!Number.isFinite(result.gpuMs) || result.gpuMs < 0)) {
+              || result.gpuMs !== null && (!Number.isFinite(result.gpuMs) || result.gpuMs < 0)
+              || result.nativeGridBytes !== undefined && (!Number.isSafeInteger(result.nativeGridBytes)
+                || result.nativeGridBytes < 1 || result.nativeGridBytes > 16 * 1024 * 1024)) {
               errors = 'Occlusion worker returned an invalid completion summary.';
               child.kill();
               return;
