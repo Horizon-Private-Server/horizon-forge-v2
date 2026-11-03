@@ -1,3 +1,4 @@
+using Forge.Host.Domain;
 using RatchetPs2.Core.Wad.Models;
 
 namespace Forge.Host.Games.UYA;
@@ -8,7 +9,7 @@ public sealed record UyaDevelopmentIsoPatchPlan(
     long CleanIsoLength,
     ulong DevelopmentDevice,
     ulong DevelopmentFile,
-    UyaIsoIdentity DevelopmentIso,
+    IsoIdentity DevelopmentIso,
     IsoPatchPlan SdkPlan);
 
 public sealed record UyaIsoPatchResult(

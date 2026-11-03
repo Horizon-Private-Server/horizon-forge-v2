@@ -764,7 +764,7 @@ internal static class UyaBakeWorkflowTests
             await VerifyCapturedBakeAsync(project, catalog, context);
 
             var physicalIso = iso.ToArray();
-            UyaIsoSetupTests.AddDiscIdentity(physicalIso);
+            DiscImageFixture.AddIdentity(physicalIso);
             BinaryPrimitives.WriteInt32LittleEndian(
                 physicalIso.AsSpan(0x500 * UyaLevelConstants.SectorSize + 8), 3);
             using var physicalStream = new MemoryStream(physicalIso, writable: false);
@@ -1622,7 +1622,7 @@ internal static class UyaBakeWorkflowTests
 
     private static Skybox ReadSkybox(byte[] levelWad)
     {
-        var bytes = UyaBaseLayerService.ExtractSky(UyaLevelWadUnpacker.Unpack(levelWad))!.Bytes;
+        var bytes = LevelAssetExtractor.ExtractLevelWad(GameId.UYA, levelWad).SkyboxBytes!;
         using var stream = new MemoryStream(bytes, writable: false);
         return SkyboxReader.Read(stream, GameId.UYA);
     }

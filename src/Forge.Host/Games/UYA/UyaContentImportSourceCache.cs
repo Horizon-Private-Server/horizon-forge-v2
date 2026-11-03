@@ -3,7 +3,7 @@ using Forge.Host.Domain;
 namespace Forge.Host.Games.UYA;
 
 internal sealed record UyaContentImportSourceSnapshot(
-    UyaIsoIdentity Identity,
+    IsoIdentity Identity,
     AssetCatalogStore Catalog,
     UyaBaseLevelData Source,
     IReadOnlyList<UyaContentImportSourceFamily> Families,
@@ -36,7 +36,7 @@ internal static class UyaContentImportSourceCache
                 return cached.Snapshot;
             }
 
-            UyaIsoIdentity identity;
+            IsoIdentity identity;
             if (_identityEntry is { } verified && verified.Version == discVersion)
             {
                 identity = verified.Identity;
@@ -124,7 +124,7 @@ internal static class UyaContentImportSourceCache
 
     private sealed record IdentityCacheEntry(
         DiscVersion Version,
-        UyaIsoIdentity Identity);
+        IsoIdentity Identity);
 
     private sealed record SourceCacheEntry(
         SourceVersion Version,

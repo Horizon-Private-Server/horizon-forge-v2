@@ -18,6 +18,31 @@ internal static class UyaCustomTieClassRegistry
             preferredClassId: null,
             occupiedNativeClassIds);
 
+    public static ProjectCustomClassRegistry AllocateConverted(
+        ProjectCustomClassRegistry registry, AssetKind kind, AssetId sourceAssetId, int sourceClassId,
+        IReadOnlySet<int> occupiedClassIds)
+    {
+        if (kind != AssetKind.Moby)
+            return Allocate(registry, kind, sourceAssetId,
+                new(ProjectCustomClassOrigin.ConvertedAsset, sourceClassId), null, occupiedClassIds);
+        Validate(registry);
+        if (sourceClassId is < 0 or > ushort.MaxValue) throw new ArgumentOutOfRangeException(nameof(sourceClassId));
+        var reference = new ProjectAssetReference(sourceAssetId, kind);
+        var previous = registry.Allocations.SingleOrDefault(value => value.Asset == reference);
+        if (previous is not null)
+        {
+            if (previous.ClassId != sourceClassId)
+                throw new InvalidDataException($"DL Moby asset is already bound to class 0x{previous.ClassId:X4}; reopen the project to repair old conversions.");
+            return registry;
+        }
+        if (occupiedClassIds.Contains(sourceClassId) || registry.Allocations.Any(value =>
+            value.Asset.Kind == kind && value.ClassId == sourceClassId))
+            throw new InvalidDataException($"DL Moby class 0x{sourceClassId:X4} conflicts with another project asset. "
+                + "Resolve the class conflict before importing this variant.");
+        return registry with { Allocations = registry.Allocations.Append(new(reference, sourceClassId,
+            new(ProjectCustomClassOrigin.ConvertedAsset, sourceClassId))).ToArray() };
+    }
+
     public static UyaTieClassRebaseResult RebaseDonor(
         ProjectCustomClassRegistry registry,
         IReadOnlyList<UyaDonorTieClass> donorClasses,
@@ -218,12 +243,15 @@ internal static class UyaCustomTieClassRegistry
             || registry.Allocations.Any(value => value is null || value.Asset is null
                 || value.Asset.Id.ToString().Length != AssetId.TextLength
                 || value.Asset.Kind is not (AssetKind.Tie or AssetKind.Shrub or AssetKind.Moby)
-                || value.ClassId is < FirstClassId or > LastClassId
+                || value.ClassId is < 0 or > LastClassId
+                || (value.ClassId < FirstClassId && !(value.Asset.Kind == AssetKind.Moby
+                    && value.Provenance is { Origin: ProjectCustomClassOrigin.ConvertedAsset }
+                    && value.Provenance.SourceClassId == value.ClassId))
                 || value.Provenance is null
                 || !Enum.IsDefined(value.Provenance.Origin)
                 || (value.Provenance.Origin == ProjectCustomClassOrigin.ImportedModel
                     && (value.Asset.Kind != AssetKind.Tie || value.Provenance.SourceClassId is not null))
-                || (value.Provenance.Origin == ProjectCustomClassOrigin.DonorMap
+                || (value.Provenance.Origin is ProjectCustomClassOrigin.DonorMap or ProjectCustomClassOrigin.ConvertedAsset
                     && value.Provenance.SourceClassId is null or < 0 or > ushort.MaxValue)))
             throw new InvalidDataException("UYA custom TIE class allocation is outside the supported namespace.");
         if (registry.Allocations.Select(value => value.Asset).Distinct().Count() != registry.Allocations.Count

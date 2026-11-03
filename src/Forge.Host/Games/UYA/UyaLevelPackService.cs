@@ -202,17 +202,6 @@ public static class UyaLevelPackService
         collision = ExpandPrimaryStreamBuffer(
             collision, sourceBase[(BakeLayerId.Collision, "collision.bin")].Bytes, maximumCollisionLength);
         var assets = UyaLevelWadRenderPackageBuilder.ReadAssetSourceFiles(sourcePackage.Files);
-        UyaSoundCompositionResult? soundComposition = null;
-        if (workspace.Content.Sounds.Programs.Count > 0)
-        {
-            var sourceSoundBank = sourcePackage.Files.SingleOrDefault(
-                    value => value.Path == "level_wad/sound.bnk")?.Bytes
-                ?? throw new InvalidDataException("The source level has no retained sound bank.");
-            soundComposition = await UyaSoundCompositionService.ComposeAsync(
-                workspace, sourceSoundBank, assets.HeaderBytes, cancellationToken);
-        }
-        if (soundComposition?.BankChanged == true)
-            replacements.Add("level_wad/sound.bnk", soundComposition.BankBytes);
         var stagedTerrains = chunkTerrains.ToDictionary(
             value => (ProjectTfragSourceKind.Chunk, value.Key), value => value.Value);
         if (terrain is not null)
@@ -332,13 +321,21 @@ public static class UyaLevelPackService
             replacements["assets/asset_header.bin"] = fxComposition.HeaderBytes;
             replacements["assets/asset_wad_payload.bin"] = fxComposition.AssetBytes;
         }
-        if (soundComposition?.RemapChanged == true)
+        if (workspace.Content.Sounds.Programs.Count > 0)
         {
+            var sourceSoundBank = sourcePackage.Files.SingleOrDefault(
+                    value => value.Path == "level_wad/sound.bnk")?.Bytes
+                ?? throw new InvalidDataException("The source level has no retained sound bank.");
             var currentHeader = replacements.TryGetValue("assets/asset_header.bin", out var soundHeader)
-                ? soundHeader.Span
+                ? soundHeader.ToArray()
                 : assets.HeaderBytes;
-            replacements["assets/asset_header.bin"] = SoundBankComposer.ComposeRemap(
-                GameId.UYA, currentHeader, soundComposition.Remap, cancellationToken);
+            var soundComposition = await UyaSoundCompositionService.ComposeAsync(
+                workspace, sourceSoundBank, assets.HeaderBytes, currentHeader, cancellationToken);
+            if (soundComposition.BankChanged)
+                replacements.Add("level_wad/sound.bnk", soundComposition.BankBytes);
+            if (soundComposition.RemapChanged)
+                replacements["assets/asset_header.bin"] = SoundBankComposer.ComposeRemap(
+                    GameId.UYA, currentHeader, soundComposition.Remap, cancellationToken);
         }
 
         var gameplayRoot = SnapshotRoot(staging, BakeLayerId.Gameplay);
@@ -350,6 +347,12 @@ public static class UyaLevelPackService
 
         await UyaHudBakeService.AddReplacementsAsync(
             SnapshotRoot(staging, BakeLayerId.Hud), replacements, cancellationToken);
+
+        var runtimeHeader = replacements.TryGetValue("assets/asset_header.bin", out var finalHeader)
+            ? finalHeader.Span : assets.HeaderBytes;
+        var sourceOverlay = sourcePackage.Files.Single(value => value.Path == "code/code.bin").Bytes;
+        var overlay = LevelAssetComposer.ComposeMobyClassLookup(GameId.UYA, sourceOverlay, runtimeHeader, cancellationToken);
+        if (!overlay.AsSpan().SequenceEqual(sourceOverlay)) replacements.Add("code/code.bin", overlay);
 
         ValidateOpaque(SnapshotRoot(staging, BakeLayerId.Opaque), sourceLevelWad, sourcePackage,
             ReplacedOpaqueSections(replacements));
@@ -468,6 +471,7 @@ public static class UyaLevelPackService
             .Select(value => $"gameplay/{Path.GetFileNameWithoutExtension(value)}")
             .ToHashSet(StringComparer.Ordinal);
         if (replacements.ContainsKey("hud/header.bin")) sections.Add("level-data/hud-header");
+        if (replacements.ContainsKey("code/code.bin")) sections.Add("level-data/code-overlay");
         if (replacements.ContainsKey("assets/asset_header.bin")) sections.Add("level/sound-remap");
         if (replacements.ContainsKey("level_wad/sound.bnk")) sections.Add("level/sound-bank");
         if (replacements.ContainsKey("occlusion/occlusion.bin")) sections.Add("level/occlusion");

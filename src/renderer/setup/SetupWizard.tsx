@@ -1,7 +1,7 @@
-import { Alert, Button, Checkbox, Group, Modal, Progress, Stack, Text, TextInput, Title } from '@mantine/core';
-import { useEffect, useState } from 'react';
+import { Alert, Badge, Button, Checkbox, Group, Modal, Paper, Progress, Stack, Text, TextInput, Title } from '@mantine/core';
+import { useEffect, useRef, useState } from 'react';
 
-import type { SetupProgress, SetupState } from '../../types/ForgeApi.js';
+import type { AssetSourceGame, SetupProgress, SetupState } from '../../types/ForgeApi.js';
 import { errorMessage } from '../../utils/Errors.ts';
 import { formatBytes } from '../../utils/Format.ts';
 
@@ -18,12 +18,11 @@ export function SetupWizard({ opened, onClose }: SetupWizardProps) {
   const [progress, setProgress] = useState<SetupProgress>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useLoggedMessage('Setup');
+  const active = useRef(false);
 
   useEffect(() => window.forge.onSetupProgress((value) => {
     setProgress(value);
-    forgeLog.sync('Setup progress', [{ source: 'Setup', severity: 'info',
-      message: { validate: 'Verifying clean ISO…', copy: 'Creating and verifying development ISO…',
-        import: 'Importing reusable assets…' }[value.operation] }]);
+    forgeLog.sync('Setup progress', [{ source: 'Setup', severity: 'info', message: progressLabel(value) }]);
   }), []);
   useEffect(() => {
     if (opened) void refresh().catch(showError);
@@ -39,141 +38,141 @@ export function SetupWizard({ opened, onClose }: SetupWizardProps) {
     setError(errorMessage(reason));
   }
 
-  async function chooseDirectory(kind: 'projects' | 'developmentIsos'): Promise<void> {
-    try {
-      setState(await window.forge.chooseSetupDirectory(kind));
-    } catch (reason) {
-      showError(reason);
-    }
-  }
-
-  async function chooseSource(): Promise<void> {
+  async function runOperation(action: () => Promise<void>): Promise<void> {
+    if (active.current) return;
+    active.current = true;
     setBusy(true);
     setError(undefined);
-    setProgress({ operation: 'validate', completed: 0, total: 1 });
     try {
-      const result = await window.forge.chooseUyaSource();
-      if (result && !result.identity.isSupported) setError(result.identity.diagnostic);
-      await refresh();
+      await action();
     } catch (reason) {
       showError(reason);
     } finally {
+      try { await refresh(); } catch (reason) { showError(reason); }
+      active.current = false;
       setBusy(false);
       setProgress(undefined);
     }
+  }
+
+  async function chooseSource(game: AssetSourceGame): Promise<void> {
+    await runOperation(async () => {
+      setProgress({ operation: 'validate', game, completed: 0, total: 1 });
+      const result = await window.forge.chooseAssetSource(game);
+      if (result && !result.identity.isSupported) setError(result.identity.diagnostic);
+    });
+  }
+
+  async function importSource(game: AssetSourceGame, force = false): Promise<void> {
+    setProgress({ operation: 'import', game, completed: 0, total: 1 });
+    const result = await window.forge.importAssets(game, force);
+    forgeLog.write('Setup', result.failedAssets ? 'warning' : 'success',
+      `${force ? 'Re-imported' : 'Imported'} ${result.assetAppearances.toLocaleString()} ${game} asset appearances `
+      + `across ${result.completedLevels} levels. ${result.failedAssets} assets failed.`);
   }
 
   async function finishSetup(): Promise<void> {
-    setBusy(true);
-    setError(undefined);
-    try {
+    await runOperation(async () => {
       let next = await refresh();
       if (!next.developmentIsoReady) {
-        setProgress({ operation: 'copy', completed: 0, total: 1 });
+        setProgress({ operation: 'copy', game: 'UYA', completed: 0, total: 1 });
         if (!await window.forge.createDevelopmentIso()) return;
         next = await refresh();
       }
-      if (next.importUyaAssets && !next.assetImportComplete) {
-        setProgress({ operation: 'import', completed: 0, total: 1 });
-        const result = await window.forge.importUyaAssets();
-        forgeLog.write('Setup', result.failedAssets ? 'warning' : 'success',
-          `Imported ${result.assetAppearances.toLocaleString()} asset appearances. ${result.failedAssets} assets failed.`);
-      }
+      if (next.sources.UYA.importEnabled && !next.sources.UYA.importComplete)
+        await importSource('UYA');
       if (!(await refresh()).required) {
-        forgeLog.write('Setup', 'success', 'Setup complete.');
+        forgeLog.write('Setup', 'success', 'UYA setup complete.');
         onClose();
       }
-    } catch (reason) {
-      showError(reason);
-    } finally {
-      setBusy(false);
-      setProgress(undefined);
-    }
+    });
   }
 
-  async function reimportAssets(): Promise<void> {
-    setBusy(true);
-    setError(undefined);
-    setProgress({ operation: 'import', completed: 0, total: 1 });
-    try {
-      const result = await window.forge.importUyaAssets(true);
-      forgeLog.write('Setup', result.failedAssets ? 'warning' : 'success',
-        `Re-imported ${result.assetAppearances.toLocaleString()} asset appearances across ${result.completedLevels} levels. `
-        + `${result.failedAssets} assets failed.`);
-      await refresh();
-    } catch (reason) {
-      showError(reason);
-    } finally {
-      setBusy(false);
-      setProgress(undefined);
-    }
-  }
-
-  const insufficientSpace = Boolean(!state?.developmentIsoReady && state?.source?.size && state.availableBytes !== undefined
-    && state.availableBytes < state.source.size);
-  const canFinish = Boolean(state?.source?.fingerprint && state.developmentIsoDirectory && !insufficientSpace && !busy);
+  const insufficientSpace = Boolean(!state?.developmentIsoReady && state?.sources.UYA.identity?.size && state.availableBytes !== undefined
+    && state.availableBytes < state.sources.UYA.identity.size);
+  const canFinish = Boolean(state?.sources.UYA.identity?.fingerprint
+    && (state.developmentIsoReady || state.developmentIsoDirectory) && !insufficientSpace && !busy);
   const setupRequired = state?.required ?? true;
+  const canClose = !setupRequired && !busy;
 
   return (
     <Modal
       opened={opened}
-      onClose={setupRequired ? () => {} : onClose}
-      withCloseButton={!setupRequired}
-      closeOnClickOutside={!setupRequired}
-      closeOnEscape={!setupRequired}
+      onClose={canClose ? onClose : () => {}}
+      withCloseButton={canClose}
+      closeOnClickOutside={canClose}
+      closeOnEscape={canClose}
       title="Set up Horizon Forge"
       size="lg"
     >
       <Stack>
-        <Text c="dimmed">Forge keeps the clean source read-only and creates a separate development ISO for patching.</Text>
-        {error && <Alert color="red" title="Setup could not continue">{error}</Alert>}
+        <Text c="dimmed">Choose a clean source for each game to import reusable assets. Interrupted imports resume automatically.</Text>
+        {error && <Alert color="red" title="Setup operation failed">{error}</Alert>}
 
-        <Title order={5}>Locations</Title>
-        <PathRow label="Projects directory" value={state?.projectsDirectory ?? ''} onChoose={() => void chooseDirectory('projects')} disabled={busy} />
-        <PathRow label="Development ISO directory" value={state?.developmentIsoDirectory ?? ''} onChoose={() => void chooseDirectory('developmentIsos')} disabled={busy} />
+        <Title order={5}>Projects</Title>
+        <PathRow label="Projects directory" value={state?.projectsDirectory ?? ''} disabled={busy || !state}
+          onChoose={() => void runOperation(async () => { await window.forge.chooseSetupDirectory('projects'); })} />
 
-        <Title order={5}>Clean UYA source</Title>
-        <PathRow label="NTSC-U ISO" value={state?.sourceIso ?? ''} onChoose={() => void chooseSource()} disabled={busy} />
-        {state?.source && (
-          <Text size="xs">
-            {state.source.game} · {state.source.region} · revision {state.source.revision} · {state.source.serial} · {formatBytes(state.source.size)} · MD5 {state.source.fingerprint}
-          </Text>
-        )}
+        {(['UYA', 'DL'] as const).map((game) => {
+          const source = state?.sources[game];
+          const status = !source?.iso ? 'Not configured' : !source.identity ? 'Source unavailable or unverified'
+            : source.importComplete ? 'Assets imported' : 'Ready to import / resume';
+          return <Paper withBorder p="sm" key={game}>
+            <Stack gap="xs">
+              <Group justify="space-between">
+                <Title order={5}>{game === 'UYA' ? 'Up Your Arsenal (UYA)' : 'Deadlocked (DL)'}</Title>
+                <Badge variant="light" color={source?.importComplete ? 'teal' : 'gray'}>{status}</Badge>
+              </Group>
+              <Text size="sm" c="dimmed">{game === 'UYA'
+                ? 'Source for UYA map projects and reusable assets.'
+                : 'Optional Deadlocked assets for the shared catalog.'}</Text>
+              <PathRow label={`Clean ${game} NTSC-U ISO`} value={source?.iso ?? ''}
+                onChoose={() => void chooseSource(game)} disabled={busy || !state} />
+              {source?.identity && <Text size="xs">
+                {source.identity.region} · revision {source.identity.revision} · {source.identity.serial} · {formatBytes(source.identity.size)} · MD5 {source.identity.fingerprint}
+              </Text>}
+              <Checkbox
+                label={`Enable ${game} asset import`}
+                description={game === 'UYA' ? 'Included when finishing UYA setup.' : 'Import separately below; you can finish setup without DL assets.'}
+                checked={source?.importEnabled ?? false}
+                disabled={busy || !state}
+                onChange={(event) => {
+                  const enabled = event.currentTarget.checked;
+                  void runOperation(async () => { await window.forge.setSetting(`imports.${game.toLowerCase()}.enabled`, enabled); });
+                }}
+              />
+              <Group justify="flex-end">
+                <Button variant="default" disabled={busy || !source?.identity || !source.importEnabled}
+                  onClick={() => void runOperation(() => importSource(game, source?.importComplete))}>
+                  {source?.importComplete ? `Re-import ${game} assets` : `Import / resume ${game} assets`}
+                </Button>
+              </Group>
+            </Stack>
+          </Paper>;
+        })}
 
-        <Checkbox
-          label="Import reusable UYA assets after setup"
-          description="The asset import runs in the next setup stage and can be resumed."
-          checked={state?.importUyaAssets ?? true}
-          disabled={busy}
-          onChange={(event) => void window.forge.setSetting('imports.uya.enabled', event.currentTarget.checked)
-            .then(() => refresh()).catch(showError)}
-        />
-
-        {state?.source?.size && (
-          <Text size="xs" c={insufficientSpace ? 'red' : 'dimmed'}>
-            Copy requires {formatBytes(state.source.size)}; destination has {formatBytes(state.availableBytes)} available.
-          </Text>
-        )}
-        {progress && (
-          <Stack gap={2}>
-            <Text size="xs">{{
-              validate: 'Verifying clean ISO…',
-              copy: 'Creating and verifying development ISO…',
-              import: 'Importing reusable UYA assets…',
-            }[progress.operation]}</Text>
-            <Progress value={progress.completed / progress.total * 100} animated />
+        <Paper withBorder p="sm">
+          <Stack gap="xs">
+            <Title order={5}>UYA map building</Title>
+            <Text size="sm" c="dimmed">Forge creates a separate UYA development ISO for patching. Clean source ISOs stay read-only.</Text>
+            <PathRow label="Development ISO directory" value={state?.developmentIsoDirectory ?? ''} disabled={busy || !state}
+              onChoose={() => void runOperation(async () => { await window.forge.chooseSetupDirectory('developmentIsos'); })} />
+            {state?.developmentIsoReady ? <Text size="xs">Development ISO ready: {state.developmentIso}</Text>
+              : state?.sources.UYA.identity?.size ? <Text size="xs" c={insufficientSpace ? 'red' : 'dimmed'}>
+                Copy requires {formatBytes(state.sources.UYA.identity.size)}; destination has {formatBytes(state.availableBytes)} available.
+              </Text> : null}
           </Stack>
-        )}
+        </Paper>
+
+        {progress && <Stack gap={2}>
+          <Text size="xs" role="status">{progressLabel(progress)}</Text>
+          <Progress value={progress.total > 0 ? Math.min(100, Math.max(0, progress.completed / progress.total * 100)) : 0} animated />
+        </Stack>}
 
         <Group justify="flex-end">
           {busy && <Button variant="default" onClick={() => void window.forge.cancelSetupOperation().catch(showError)}>Cancel operation</Button>}
-          {state?.assetImportComplete && !busy && (
-            <Button variant="default" onClick={() => void reimportAssets()}>Re-import UYA assets</Button>
-          )}
-          <Button disabled={!canFinish} onClick={() => void finishSetup()}>
-            {state?.developmentIsoReady && state.importUyaAssets && !state.assetImportComplete
-              ? 'Resume asset import'
-              : 'Finish setup'}
+          <Button disabled={setupRequired ? !canFinish : busy} onClick={() => setupRequired ? void finishSetup() : onClose()}>
+            {setupRequired ? 'Finish UYA setup' : 'Done'}
           </Button>
         </Group>
       </Stack>
@@ -181,11 +180,20 @@ export function SetupWizard({ opened, onClose }: SetupWizardProps) {
   );
 }
 
+function progressLabel(progress: SetupProgress): string {
+  const game = progress.game ?? 'UYA';
+  return {
+    validate: `Verifying clean ${game} ISO…`,
+    copy: 'Creating and verifying UYA development ISO…',
+    import: `Importing reusable ${game} assets…`,
+  }[progress.operation];
+}
+
 function PathRow({ label, value, onChoose, disabled }: { label: string; value: string; onChoose(): void; disabled: boolean }) {
   return (
     <div className="setting-item">
       <TextInput label={label} value={value} readOnly />
-      <Button variant="default" onClick={onChoose} disabled={disabled}>Browse…</Button>
+      <Button variant="default" aria-label={`Choose ${label}`} onClick={onChoose} disabled={disabled}>Browse…</Button>
     </div>
   );
 }

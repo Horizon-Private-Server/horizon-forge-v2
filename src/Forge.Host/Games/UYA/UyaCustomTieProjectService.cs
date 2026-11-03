@@ -170,8 +170,10 @@ internal static class UyaCustomTieProjectService
         var state = new ProjectCustomModelState(
             ProjectCustomModelSchema.CurrentVersion,
             models.OrderBy(value => value.Canonical.Id.ToString(), StringComparer.Ordinal).ToArray());
-        await workspace.CommitCustomModelsAsync(
-            state, registry, entities, attachments.Attachments, cancellationToken);
+        await workspace.CommitAssetsAsync(workspace.Content with
+        {
+            CustomModels = state, CustomClasses = registry, Entities = entities,
+        }, attachments.Attachments, cancellationToken);
         return model;
     }
 

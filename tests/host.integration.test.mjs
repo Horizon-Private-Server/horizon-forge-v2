@@ -12,13 +12,18 @@ import {
   HostClient,
   HostOperationError,
 } from '../dist-electron/main/bridge/HostClient.js';
-import { decodeEditorCommandResult } from '../dist-electron/main/bridge/EditorPayloadCodec.js';
+import { decodeEditorCommandResult, encodeEditorCommand } from '../dist-electron/main/bridge/EditorPayloadCodec.js';
 import { PayloadWriter } from '../dist-electron/main/bridge/PayloadIO.js';
 import { BridgeErrorCode } from '../dist-electron/main/bridge/BridgeProtocol.js';
 import { applyEditorCommandResult } from '../dist-electron/utils/EditorCommandResult.js';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const hostDll = path.join(projectRoot, 'src/Forge.Host/bin/Release/net10.0/Forge.Host.dll');
+
+test('placement source encoding matches the C# interoperability fixture', async () => {
+  const fixture = JSON.parse(await readFile(new URL('./fixtures/editor-asset-source-v6.json', import.meta.url), 'utf8'));
+  assert.equal(encodeEditorCommand(fixture.command).toString('hex'), fixture.payloadHex);
+});
 
 test('host handshake, echo, progress, cancellation, crash recovery, and concurrency', { timeout: 30_000 }, async (context) => {
   const client = new HostClient('dotnet', [hostDll], 25);
@@ -27,7 +32,9 @@ test('host handshake, echo, progress, cancellation, crash recovery, and concurre
   const expectedRevision = (await readFile(path.join(projectRoot, 'ratchet-sdk.version'), 'utf8')).trim();
   const handshake = await client.start();
   assert.equal(handshake.sdkRevision, expectedRevision);
-  assert.deepEqual(handshake.supportedGames, ['UYA']);
+  assert.deepEqual(handshake.supportedGames, ['UYA', 'DL']);
+  assert.ok(handshake.capabilities.includes('dl.assets.import'));
+  assert.ok(handshake.capabilities.includes('dl.iso.validate'));
   assert.ok(handshake.capabilities.includes('bridge.cancellation'));
   assert.ok(handshake.capabilities.includes('uya.iso.copy'));
   assert.ok(handshake.capabilities.includes('uya.assets.import'));
@@ -83,6 +90,11 @@ test('host handshake, echo, progress, cancellation, crash recovery, and concurre
   assert.equal(await realpath((await copy.result).path), await realpath(copyTarget));
   assert.deepEqual(await readFile(copyTarget), copyBytes);
   assert.ok(copyProgress.length > 0);
+  const invalidGame = await client.validateSourceIso('RC1', copySource);
+  await assert.rejects(invalidGame.result, error => error.code === BridgeErrorCode.InvalidInput);
+  const dlImport = await client.importAssets('DL', copySource, path.join(copyDirectory, 'assets'), '0'.repeat(32), '1.00');
+  await assert.rejects(dlImport.result, error => error instanceof HostOperationError && error.code === BridgeErrorCode.Conflict);
+
 
   const maintenanceRoot = await mkdtemp(path.join(tmpdir(), 'forge-host-maintenance-'));
   context.after(() => rm(maintenanceRoot, { recursive: true, force: true }));
@@ -151,6 +163,8 @@ test('host handshake, echo, progress, cancellation, crash recovery, and concurre
   });
   assert.deepEqual(selected.selection, [entityId]);
   assert.equal(lastCommandResult.kind, 'selection');
+  assert.match(opened.soundRevision, /^[0-9a-f]{32}$/);
+  assert.equal(selected.soundRevision, opened.soundRevision);
   assert.equal(selected.entities, opened.entities);
   const transformed = await executeEditorCommand({
     id: '30000000-0000-4000-8000-000000000002',

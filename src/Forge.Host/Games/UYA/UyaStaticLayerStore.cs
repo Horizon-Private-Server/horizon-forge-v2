@@ -313,6 +313,9 @@ public static class UyaStaticLayerStore
                             && (value.ClassId == entity.Source.ClassId
                                 || value.Provenance.SourceClassId == entity.Source.ClassId));
                     var attachedClassId = allocation?.ClassId ?? entity.Source.ClassId;
+                    if (kind == AssetKind.Moby && allocation?.Provenance is { Origin: ProjectCustomClassOrigin.ConvertedAsset }
+                        && allocation.ClassId != allocation.Provenance.SourceClassId)
+                        throw new InvalidDataException("DL Moby still has an obsolete custom oClass. Reopen the project to restore its source class and resolve any reported class conflicts.");
                     if (allocation is not null && entity.Source.ClassId != attachedClassId)
                         throw new InvalidDataException(
                             $"stale imported class 0x{entity.Source.ClassId:X4}; expected 0x{attachedClassId:X4}");

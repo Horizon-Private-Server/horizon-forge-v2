@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { OcclusionCoverageState } from '../types/OcclusionCoverage.js';
 import type {
+  AssetSourceGame,
   BuildPatchProgress,
   BuildLayerId,
   AssetExplorerQuery,
@@ -38,9 +39,9 @@ const forgeApi = Object.freeze({
   runNotificationAction: (id: string) => ipcRenderer.invoke('forge:notifications-action', id),
   getSetupState: () => ipcRenderer.invoke('forge:setup-state'),
   chooseSetupDirectory: (kind: 'projects' | 'developmentIsos') => ipcRenderer.invoke('forge:setup-choose-directory', kind),
-  chooseUyaSource: () => ipcRenderer.invoke('forge:setup-choose-source'),
+  chooseAssetSource: (game: AssetSourceGame) => ipcRenderer.invoke('forge:setup-choose-source', game),
   createDevelopmentIso: () => ipcRenderer.invoke('forge:setup-create-development-iso'),
-  importUyaAssets: (force = false) => ipcRenderer.invoke('forge:setup-import-uya-assets', force),
+  importAssets: (game: AssetSourceGame, force = false) => ipcRenderer.invoke('forge:setup-import-assets', game, force),
   getContentImportOptions: () => ipcRenderer.invoke('forge:content-import-options'),
   planContentImport: (sourceLevel: number, selections: ContentImportSelection[]) =>
     ipcRenderer.invoke('forge:content-import-plan', sourceLevel, selections),

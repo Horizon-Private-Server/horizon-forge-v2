@@ -1,5 +1,6 @@
 using Forge.Host.Games.UYA;
 using Forge.Host.ProtocolTests.Games.UYA;
+using Forge.Host.ProtocolTests.Games.DL;
 using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -14,6 +15,51 @@ internal static class Program
     {
         try
         {
+            if (args is ["--qualify-uya-moby-lookups", var lookupIso])
+            {
+                await UyaMobyClassLookupTests.QualifyAsync(lookupIso);
+                return 0;
+            }
+            if (args is ["--qualify-moby-sound-packing", var soundProject, var soundScratch, var soundCatalog, var soundIso])
+            {
+                await UyaDlAssetResourceTests.QualifySoundPackingAsync(soundProject, soundScratch, soundCatalog, soundIso);
+                return 0;
+            }
+            if (args is ["--qualify-dl-moby-classes", var classProject, var classScratch, var classCatalog])
+            {
+                await UyaConvertedMobyClassTests.QualifyAsync(classProject, classScratch, classCatalog);
+                return 0;
+            }
+            if (args is ["--qualify-dl-tie-repair", var repairProject, var repairScratch])
+            {
+                await UyaConvertedAssetPlacementTests.QualifyRepairAsync(repairProject, repairScratch);
+                return 0;
+            }
+            if (args is ["--qualify-dl-assets", var dlIso, var dlCatalog])
+            {
+                await DlAssetImportTests.QualifyAsync(dlIso, dlCatalog);
+                return 0;
+            }
+            if (args is ["--qualify-dl-placement", var placementCatalog, var placementIso, var placementProject])
+            {
+                await UyaConvertedAssetPlacementTests.QualifyAsync(placementCatalog, placementIso, placementProject);
+                return 0;
+            }
+            if (args is ["--dl-placement"])
+            {
+                UyaAssetPlacementCompatibilityTests.Run();
+                UyaMobyClassLookupTests.Run();
+                UyaMobyLodTests.Run();
+                await UyaConvertedAssetPlacementTests.RunAsync();
+                await UyaDlAssetResourceTests.RunAsync();
+                await UyaConvertedMobyClassTests.RunAsync();
+                return 0;
+            }
+            if (args is ["--dl-assets"])
+            {
+                await DlAssetImportTests.RunAsync();
+                return 0;
+            }
 #if FORGE_OCCLUSION_COVERAGE_GENERATION
             if (args is ["--write-occlusion-coverage-fixture", var fixturePath])
             {
@@ -31,7 +77,7 @@ internal static class Program
                 await AssetCatalogSnapshotTests.WriteWorkerAsync(args[1], args[2]);
                 return 0;
             }
-            var json = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "fixtures", "bridge-v5.json"));
+            var json = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "fixtures", "bridge-v6.json"));
             var vectors = JsonSerializer.Deserialize<List<GoldenFrame>>(json, new JsonSerializerOptions
             {
                 PropertyNameCaseInsensitive = true,
@@ -50,6 +96,13 @@ internal static class Program
             await AssetCatalogSnapshotTests.RunAsync();
             await AssetMaintenanceTests.RunAsync();
             await UyaAssetImportTests.RunAsync();
+            await DlAssetImportTests.RunAsync();
+            UyaAssetPlacementCompatibilityTests.Run();
+            await UyaConvertedAssetPlacementTests.RunAsync();
+            await UyaDlAssetResourceTests.RunAsync();
+            await UyaConvertedMobyClassTests.RunAsync();
+            UyaMobyClassLookupTests.Run();
+            UyaMobyLodTests.Run();
             await ForgeProjectTests.RunAsync();
             await ForgeProjectSnapshotTests.RunAsync();
             await OcclusionCoverageProjectTests.RunAsync();
@@ -207,10 +260,10 @@ internal static class Program
             "FX inventory bridge payload");
         Equal(new BridgeProgress(2, 10), BridgePayloadCodec.DecodeProgress(
             BridgePayloadCodec.EncodeProgress(2, 10)), "progress payload");
-        var iso = new UyaIsoValidationPayload(true, "UYA", "NTSC-U", "1.00", "SCUS-97353", 4_379_377_664,
+        var iso = new IsoValidationPayload(true, "UYA", "NTSC-U", "1.00", "SCUS-97353", 4_379_377_664,
             UyaIsoService.SupportedMd5, "verified");
-        Equal(iso, BridgePayloadCodec.DecodeUyaIsoValidation(
-            BridgePayloadCodec.EncodeUyaIsoValidation(iso)), "ISO validation payload");
+        Equal(iso, BridgePayloadCodec.DecodeIsoValidation(
+            BridgePayloadCodec.EncodeIsoValidation(iso)), "ISO validation payload");
         var copyRequest = new DevelopmentIsoRequest("source.iso", "target.iso", UyaIsoService.SupportedMd5, true);
         Equal(copyRequest, BridgePayloadCodec.DecodeDevelopmentIsoRequest(
             BridgePayloadCodec.EncodeDevelopmentIsoRequest(copyRequest)), "development ISO request payload");
@@ -221,9 +274,9 @@ internal static class Program
             "source.iso", "assets", UyaIsoService.SupportedMd5, "1.00", true);
         Equal(importRequest, BridgePayloadCodec.DecodeUyaAssetImportRequest(
             BridgePayloadCodec.EncodeUyaAssetImportRequest(importRequest)), "asset import request payload");
-        var importResult = new UyaAssetImportResultPayload(40, 40, 900, 500, 2, true);
-        Equal(importResult, BridgePayloadCodec.DecodeUyaAssetImportResult(
-            BridgePayloadCodec.EncodeUyaAssetImportResult(importResult)), "asset import result payload");
+        var importResult = new AssetImportResultPayload(40, 40, 900, 500, 2, true);
+        Equal(importResult, BridgePayloadCodec.DecodeAssetImportResult(
+            BridgePayloadCodec.EncodeAssetImportResult(importResult)), "asset import result payload");
         var options = new UyaProjectOptionsPayload([1, 3, 5], ["partial"]);
         var decodedOptions = BridgePayloadCodec.DecodeUyaProjectOptions(BridgePayloadCodec.EncodeUyaProjectOptions(options));
         Equal(true, options.Levels.SequenceEqual(decodedOptions.Levels), "project option levels");

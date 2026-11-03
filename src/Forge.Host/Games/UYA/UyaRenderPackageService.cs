@@ -425,19 +425,7 @@ public static partial class UyaRenderPackageService
                 new("model.buffer.bin", collision.BinBytes, "application/octet-stream"),
             ]);
         }
-        var canonical = UyaCanonicalAssetCodec.Decode(bytes);
-        var frontendKind = kind switch
-        {
-            AssetKind.Moby => FrontendAssetKind.Moby,
-            AssetKind.Tie => FrontendAssetKind.Tie,
-            AssetKind.Shrub => FrontendAssetKind.Shrub,
-            _ => throw new NotSupportedException($"{kind} render assets are not supported."),
-        };
-        return await Task.Run(
-            () => FrontendAssetPackageBuilder.Build(
-                GameId.UYA, frontendKind, canonical.ModelBytes, canonical.Textures,
-                new(PreserveAuthoredRepeatedTexCoordTiles: kind == AssetKind.Tie)),
-            cancellationToken);
+        return await CatalogModelPreviewService.BuildAsync(kind, bytes, cancellationToken);
     }
 
     internal static string ResolveEntryPath(string root, string entryPath)

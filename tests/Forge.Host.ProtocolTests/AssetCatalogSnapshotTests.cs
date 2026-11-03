@@ -14,7 +14,7 @@ internal static class AssetCatalogSnapshotTests
             await VerifyOrderingAsync(Path.Combine(root, "ordering"));
             await VerifyBatchFailureAsync(Path.Combine(root, "batch-failure"));
             await VerifySourceIdentityAsync(Path.Combine(root, "source-identity"));
-            await VerifyOversizedCommitAsync(Path.Combine(root, "oversized"));
+            await VerifyCatalogSizeLimitsAsync(Path.Combine(root, "size-limits"));
         }
         finally { if (Directory.Exists(root)) Directory.Delete(root, recursive: true); }
     }
@@ -124,19 +124,35 @@ internal static class AssetCatalogSnapshotTests
         finally { if (!process.HasExited) process.Kill(entireProcessTree: true); }
     }
 
-    private static async Task VerifyOversizedCommitAsync(string root)
+    private static async Task VerifyCatalogSizeLimitsAsync(string root)
     {
         var store = await AssetCatalogStore.OpenAsync(root);
         var kept = await store.PutAsync(AssetKind.Tie, 1, "protected"u8.ToArray(), Metadata("keep"));
-        var original = await File.ReadAllBytesAsync(store.CatalogPath);
         var aliases = Enumerable.Range(0, 1_024).Select(index => $"{index:D4}" + new string('x', 4_086)).ToArray();
-        var batch = Enumerable.Range(0, 17).Select(index => new AssetCatalogPut(
-            AssetKind.Tie, 1, System.Text.Encoding.UTF8.GetBytes($"large-{index}"), Metadata("large") with { Aliases = aliases })).ToArray();
+        var count = checked((int)(AssetCatalogSnapshots.MaximumCatalogBytes / aliases.Sum(alias => alias.Length)) + 1);
+        var batch = Enumerable.Range(0, count).Select(index => new AssetCatalogPut(
+            AssetKind.Tie, 1, System.Text.Encoding.UTF8.GetBytes($"large-{index}"), Metadata("large") with
+            {
+                Aliases = aliases,
+                Source = Metadata("large").Source with { Game = index % 2 == 0 ? "UYA" : "DL" },
+            })).ToArray();
+        await store.PutManyAsync(batch[..17]);
+        var original = await File.ReadAllBytesAsync(store.CatalogPath);
+        Check(original.LongLength > 64L * 1024 * 1024, "Large-catalog regression did not exceed the previous limit.");
+        // Change the content identity so reopening exercises hydration instead of the snapshot cache.
+        await File.AppendAllTextAsync(store.CatalogPath, " ");
+        store = await AssetCatalogStore.OpenReadOnlyAsync(root);
+        Check(store.Query(new()).Count == 18, "Catalog larger than 64 MiB lost committed assets when reopened.");
+        Check(store.Query(new(Game: "UYA")).Count == 10 && store.Query(new(Game: "DL")).Count == 8,
+            "Large catalog lost UYA or DL source provenance.");
+        await store.UpdateMetadataAsync(kept.Id, Metadata("updated"));
+        original = await File.ReadAllBytesAsync(store.CatalogPath);
         await ExpectAsync<InvalidDataException>(() => store.PutManyAsync(batch));
         var after = await File.ReadAllBytesAsync(store.CatalogPath);
         Check(original.SequenceEqual(after), "Oversized commit replaced the last valid catalog.");
-        Check(store.Query(new()).Single().Id == kept.Id, "Failed commit changed the live snapshot.");
-        Check((await AssetCatalogStore.OpenReadOnlyAsync(root)).Query(new()).Single().Id == kept.Id, "Failed commit poisoned snapshot reuse.");
+        Check(store.Query(new()).Count == 18 && store.Query(new(Id: kept.Id)).Single().Aliases.Contains("updated"),
+            "Failed commit changed the live snapshot.");
+        Check((await AssetCatalogStore.OpenReadOnlyAsync(root)).Query(new()).Count == 18, "Failed commit poisoned snapshot reuse.");
         Check(!Directory.EnumerateFiles(root, "*.partial", SearchOption.AllDirectories).Any(), "Failed commit leaked a partial catalog.");
     }
 

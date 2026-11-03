@@ -1,5 +1,21 @@
 namespace Forge.Host.Domain;
 
+public sealed record AssetSourceSelection(string Game, string Region, string Revision,
+    string Level, string Archive, int SourceIndex)
+{
+    public static AssetSourceSelection From(AssetSource source) =>
+        new(source.Game, source.Region, source.Revision, source.Level, source.Archive, source.SourceIndex);
+
+    public bool Matches(AssetSource source) => this == From(source);
+
+    public void Validate()
+    {
+        if (new[] { Game, Region, Revision, Level }.Any(value => string.IsNullOrWhiteSpace(value) || value.Length > 128)
+            || string.IsNullOrWhiteSpace(Archive) || Archive.Length > 4096 || SourceIndex < 0)
+            throw new InvalidDataException("Asset source selection is invalid.");
+    }
+}
+
 public sealed record AssetTextureUse(
     AssetKind OwnerKind,
     int OwnerClassId,

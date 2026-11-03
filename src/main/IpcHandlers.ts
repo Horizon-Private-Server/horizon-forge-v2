@@ -3,7 +3,7 @@ import type { BrowserWindow } from 'electron';
 import { mkdir, open, readFile, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 
-import type { AssetExplorerQuery, EditorCustomModelImport, ProjectHubState } from '../types/ForgeApi.js';
+import type { AssetExplorerQuery, AssetSourceGame, EditorCustomModelImport, ProjectHubState, SetupAssetSource, SetupState } from '../types/ForgeApi.js';
 import { safeProjectDirectoryName } from '../utils/ApplicationPaths.js';
 import { showOpenDialog, showSaveDialog } from '../utils/ElectronDialogs.js';
 import { errorMessage } from '../utils/Errors.js';
@@ -32,7 +32,11 @@ interface IpcHandlersOptions {
   getMainWindow: () => BrowserWindow | undefined;
 }
 
-const uyaImportVersion = 2;
+const importVersions = { UYA: 2, DL: 2 };
+
+function assertAssetSourceGame(value: unknown): asserts value is AssetSourceGame {
+  if (value !== 'UYA' && value !== 'DL') throw new TypeError('Unsupported asset source game');
+}
 const maximumMobyDexDatasetBytes = 16 * 1024 * 1024;
 const maximumCustomModelDocumentBytes = 16 * 1024 * 1024;
 const maximumCustomModelDependencyBytes = 64 * 1024 * 1024;
@@ -118,39 +122,37 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
     return Object.fromEntries(snapshot.entries.map((entry) => [entry.key, entry.value]));
   }
 
-  async function getSetupState() {
+  async function getSetupState(): Promise<SetupState> {
     const values = await getSettingValues();
-    const sourceIso = String(values['sources.uya.iso'] ?? '');
+    const sources = {} as Record<AssetSourceGame, SetupAssetSource>;
+    for (const game of ['UYA', 'DL'] as const) {
+      const key = game.toLowerCase();
+      const iso = String(values[`sources.${key}.iso`] ?? '');
+      const fingerprint = String(values[`sources.${key}.fingerprint`] ?? '');
+      const verified = Boolean(iso && await fileExists(iso) && values[`sources.${key}.game`] === game
+        && values[`sources.${key}.region`] === 'NTSC-U' && fingerprint.length === 32);
+      sources[game] = {
+        iso,
+        identity: verified ? {
+          game, region: String(values[`sources.${key}.region`]), revision: String(values[`sources.${key}.revision`]),
+          serial: String(values[`sources.${key}.serial`]), size: Number(values[`sources.${key}.size`]), fingerprint,
+        } : undefined,
+        importEnabled: Boolean(values[`imports.${key}.enabled`]),
+        importComplete: verified && values[`imports.${key}.completedFingerprint`] === fingerprint
+          && values[`imports.${key}.completedVersion`] === importVersions[game],
+      };
+    }
     const developmentIso = String(values['targets.uya.developmentIso'] ?? '');
+    const developmentIsoReady = Boolean(developmentIso && await fileExists(developmentIso));
     const developmentIsoDirectory = String(values['paths.developmentIsos'] ?? '');
-    const sourceExists = sourceIso ? await fileExists(sourceIso) : false;
-    const targetExists = developmentIso ? await fileExists(developmentIso) : false;
-    const sourceVerified = sourceExists
-      && values['sources.uya.game'] === 'UYA'
-      && values['sources.uya.region'] === 'NTSC-U'
-      && typeof values['sources.uya.fingerprint'] === 'string'
-      && values['sources.uya.fingerprint'].length === 32;
-    const importUyaAssets = Boolean(values['imports.uya.enabled']);
-    const assetImportComplete = sourceVerified
-      && values['imports.uya.completedFingerprint'] === values['sources.uya.fingerprint']
-      && values['imports.uya.completedVersion'] === uyaImportVersion;
     return {
-      required: !sourceVerified || !targetExists || (importUyaAssets && !assetImportComplete),
+      required: !sources.UYA.identity || !developmentIsoReady
+        || sources.UYA.importEnabled && !sources.UYA.importComplete,
       projectsDirectory: String(values['paths.projects'] ?? ''),
       developmentIsoDirectory,
-      sourceIso,
       developmentIso,
-      developmentIsoReady: targetExists,
-      importUyaAssets,
-      assetImportComplete,
-      source: sourceIso ? {
-        game: String(values['sources.uya.game'] ?? ''),
-        region: String(values['sources.uya.region'] ?? ''),
-        revision: String(values['sources.uya.revision'] ?? ''),
-        serial: String(values['sources.uya.serial'] ?? ''),
-        size: Number(values['sources.uya.size'] ?? 0),
-        fingerprint: String(values['sources.uya.fingerprint'] ?? ''),
-      } : undefined,
+      developmentIsoReady,
+      sources,
       availableBytes: await availableBytes(developmentIsoDirectory),
     };
   }
@@ -293,8 +295,10 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
     await settings.set(kind === 'projects' ? 'paths.projects' : 'paths.developmentIsos', selection.filePaths[0]);
     return getSetupState();
   });
-  ipcMain.handle('forge:setup-choose-source', async (event) => {
+  ipcMain.handle('forge:setup-choose-source', async (event, game: unknown) => {
     assertSender(event.sender.id);
+    assertAssetSourceGame(game);
+    const key = game.toLowerCase();
     if (activeSetupRequestId !== undefined) throw new Error('Another setup operation is already running');
     const selection = await showOpenDialog(getMainWindow(), {
       properties: ['openFile'],
@@ -304,26 +308,26 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
     const sourcePath = selection.filePaths[0];
     activeSetupRequestId = 0;
     try {
-      const request = await host.validateUyaIso(sourcePath, (progress) => {
-        event.sender.send('forge:setup-progress', { operation: 'validate', ...progress });
+      const request = await host.validateSourceIso(game, sourcePath, (progress) => {
+        event.sender.send('forge:setup-progress', { operation: 'validate', game, ...progress });
       });
       activeSetupRequestId = request.requestId;
       const identity = await request.result;
       if (identity.isSupported) {
         const values = await getSettingValues();
-        const sameSource = String(values['sources.uya.fingerprint'] ?? '') === identity.fingerprint;
+        const sameSource = String(values[`sources.${key}.fingerprint`] ?? '') === identity.fingerprint;
         await settings.setMany({
-          'sources.uya.iso': sourcePath,
-          'sources.uya.game': identity.game,
-          'sources.uya.region': identity.region,
-          'sources.uya.revision': identity.revision,
-          'sources.uya.serial': identity.serial,
-          'sources.uya.size': identity.size,
-          'sources.uya.fingerprint': identity.fingerprint,
+          [`sources.${key}.iso`]: sourcePath,
+          [`sources.${key}.game`]: identity.game,
+          [`sources.${key}.region`]: identity.region,
+          [`sources.${key}.revision`]: identity.revision,
+          [`sources.${key}.serial`]: identity.serial,
+          [`sources.${key}.size`]: identity.size,
+          [`sources.${key}.fingerprint`]: identity.fingerprint,
           ...sameSource ? {} : {
-            'targets.uya.developmentIso': '',
-            'imports.uya.completedFingerprint': '',
-            'imports.uya.completedVersion': 0,
+            ...game === 'UYA' ? { 'targets.uya.developmentIso': '' } : {},
+            [`imports.${key}.completedFingerprint`]: '',
+            [`imports.${key}.completedVersion`]: 0,
           },
         });
       }
@@ -371,31 +375,34 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
       activeSetupRequestId = undefined;
     }
   });
-  ipcMain.handle('forge:setup-import-uya-assets', async (event, force: unknown) => {
+  ipcMain.handle('forge:setup-import-assets', async (event, game: unknown, force: unknown) => {
     assertSender(event.sender.id);
+    assertAssetSourceGame(game);
+    const key = game.toLowerCase();
     if (typeof force !== 'boolean') throw new TypeError('Asset re-import option is invalid');
     if (activeSetupRequestId !== undefined) throw new Error('Another setup operation is already running');
     const values = await getSettingValues();
-    const sourceIsoPath = String(values['sources.uya.iso'] ?? '');
-    const fingerprint = String(values['sources.uya.fingerprint'] ?? '');
-    const revision = String(values['sources.uya.revision'] ?? '');
+    const sourceIsoPath = String(values[`sources.${key}.iso`] ?? '');
+    const fingerprint = String(values[`sources.${key}.fingerprint`] ?? '');
+    const revision = String(values[`sources.${key}.revision`] ?? '');
     if (!sourceIsoPath || !fingerprint || !revision) throw new Error('Select and validate the source ISO first.');
 
     activeSetupRequestId = 0;
     try {
-      const request = await host.importUyaAssets(
+      const request = await host.importAssets(
+        game,
         sourceIsoPath,
         settings.paths.assets,
         fingerprint,
         revision,
-        (progress) => event.sender.send('forge:setup-progress', { operation: 'import', ...progress }),
+        (progress) => event.sender.send('forge:setup-progress', { operation: 'import', game, ...progress }),
         force,
       );
       activeSetupRequestId = request.requestId;
       const result = await request.result;
       await settings.setMany({
-        'imports.uya.completedFingerprint': fingerprint,
-        'imports.uya.completedVersion': uyaImportVersion,
+        [`imports.${key}.completedFingerprint`]: fingerprint,
+        [`imports.${key}.completedVersion`]: importVersions[game],
       });
       return result;
     } finally {

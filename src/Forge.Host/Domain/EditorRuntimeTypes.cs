@@ -300,7 +300,8 @@ public sealed record EditorAssetPlacement(
     AssetId AssetId,
     AssetKind Kind,
     int ClassId,
-    ProjectTransform Transform);
+    ProjectTransform Transform,
+    AssetSourceSelection? Source = null);
 
 public delegate Task<ProjectEntity> EditorAssetPlacementResolver(
     ForgeProjectWorkspace workspace,
@@ -590,4 +591,5 @@ public sealed record EditorSnapshot(
     long LastEventSequence,
     IReadOnlyList<string> Capabilities,
     IReadOnlyList<EditorTool> Tools,
-    IReadOnlyList<EditorDiagnostic> Diagnostics);
+    IReadOnlyList<EditorDiagnostic> Diagnostics,
+    string SoundRevision = "");

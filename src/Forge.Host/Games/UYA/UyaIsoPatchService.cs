@@ -389,5 +389,5 @@ public static class UyaIsoPatchService
         FileStream Source,
         FileStream Target,
         FileIdentity Identity,
-        UyaIsoIdentity Disc);
+        IsoIdentity Disc);
 }

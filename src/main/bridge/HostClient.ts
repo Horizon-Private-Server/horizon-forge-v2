@@ -1,6 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 
 import type {
+  AssetSourceGame,
   AssetExplorerPage,
   DevelopmentIsoResult,
   BuildPlan,
@@ -20,8 +21,8 @@ import type {
   ForgeProjectDescriptor,
   ForgeProjectSummary,
   Progress,
-  UyaAssetImportResult,
-  UyaIsoIdentity,
+  AssetImportResult,
+  IsoIdentity,
   UyaProjectOptions,
   UyaProjectPreflight,
 } from '../../types/ForgeApi.js';
@@ -46,7 +47,7 @@ import type { SoundPreviewSource, SoundWorkspace } from '../../types/SoundWorksp
 import type { OcclusionCoveragePreview, OcclusionCoverageSnapshot, OcclusionCoverageState, OcclusionCoverageUpdateResult } from '../../types/OcclusionCoverage.js';
 import { decodeOcclusionCoveragePreview, encodeOcclusionCoveragePreviewRequest } from './OcclusionCoveragePreviewPayloadCodec.js';
 import { decodeOcclusionCoverageSnapshot, encodeOcclusionCoverageUpdate } from './OcclusionCoveragePayloadCodec.js';
-import { PayloadReader } from './PayloadIO.js';
+import { PayloadReader, PayloadWriter } from './PayloadIO.js';
 import { decodeAssetExplorerPage, encodeAssetExplorerRequest } from './AssetExplorerPayloadCodec.js';
 import {
   decodeContentImportCapabilityMatrix,
@@ -92,8 +93,8 @@ import {
   decodeDevelopmentIso,
   decodeProgress,
   decodeText,
-  decodeUyaAssetImportResult,
-  decodeUyaIsoValidation,
+  decodeAssetImportResult,
+  decodeIsoValidation,
   decodeForgeProjectDescriptor,
   decodeForgeProjectSummary,
   decodeUyaProjectOptions,
@@ -245,12 +246,44 @@ export class HostClient {
     return { requestId: request.requestId, result: request.result.then(decodeText) };
   }
 
+  async validateSourceIso(
+    game: AssetSourceGame,
+    sourcePath: string,
+    onProgress?: (progress: Progress) => void,
+  ): Promise<HostRequest<IsoIdentity>> {
+    const writer = new PayloadWriter();
+    writer.writeString(game);
+    writer.writeString(sourcePath);
+    const request = await this.#request(BridgeOpcode.ValidateSourceIso, writer.toBuffer(), onProgress);
+    return { requestId: request.requestId, result: request.result.then(decodeIsoValidation) };
+  }
+
+  async importAssets(
+    game: AssetSourceGame,
+    sourceIsoPath: string,
+    catalogRootPath: string,
+    fingerprint: string,
+    revision: string,
+    onProgress?: (progress: Progress) => void,
+    force = false,
+  ): Promise<HostRequest<AssetImportResult>> {
+    const writer = new PayloadWriter();
+    writer.writeString(game);
+    writer.writeString(sourceIsoPath);
+    writer.writeString(catalogRootPath);
+    writer.writeString(fingerprint);
+    writer.writeString(revision);
+    writer.writeBoolean(force);
+    const request = await this.#request(BridgeOpcode.ImportAssets, writer.toBuffer(), onProgress);
+    return { requestId: request.requestId, result: request.result.then(decodeAssetImportResult) };
+  }
+
   async validateUyaIso(
     path: string,
     onProgress?: (progress: Progress) => void,
-  ): Promise<HostRequest<UyaIsoIdentity>> {
+  ): Promise<HostRequest<IsoIdentity>> {
     const request = await this.#request(BridgeOpcode.ValidateUyaIso, encodeText(path), onProgress);
-    return { requestId: request.requestId, result: request.result.then(decodeUyaIsoValidation) };
+    return { requestId: request.requestId, result: request.result.then(decodeIsoValidation) };
   }
 
   async createDevelopmentIso(
@@ -273,11 +306,11 @@ export class HostClient {
     revision: string,
     onProgress?: (progress: Progress) => void,
     force = false,
-  ): Promise<HostRequest<UyaAssetImportResult>> {
+  ): Promise<HostRequest<AssetImportResult>> {
     const request = await this.#request(BridgeOpcode.ImportUyaAssets, encodeUyaAssetImportRequest({
       sourceIsoPath, catalogRootPath, fingerprint, revision, force,
     }), onProgress);
-    return { requestId: request.requestId, result: request.result.then(decodeUyaAssetImportResult) };
+    return { requestId: request.requestId, result: request.result.then(decodeAssetImportResult) };
   }
 
   async listUyaProjectLevels(sourceIsoPath: string): Promise<HostRequest<UyaProjectOptions>> {

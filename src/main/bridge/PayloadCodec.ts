@@ -6,8 +6,8 @@ import type {
   ForgeProjectDescriptor,
   ForgeProjectSummary,
   Progress,
-  UyaAssetImportResult,
-  UyaIsoIdentity,
+  AssetImportResult,
+  IsoIdentity,
   UyaProjectOptions,
   UyaProjectPreflight,
 } from '../../types/ForgeApi.js';
@@ -95,7 +95,7 @@ export function decodeProgress(payload: Uint8Array): Progress {
   return { completed, total };
 }
 
-export function encodeUyaIsoValidation(value: UyaIsoIdentity): Buffer {
+export function encodeIsoValidation(value: IsoIdentity): Buffer {
   const writer = new PayloadWriter();
   writer.writeBoolean(value.isSupported);
   writer.writeString(value.game);
@@ -108,7 +108,7 @@ export function encodeUyaIsoValidation(value: UyaIsoIdentity): Buffer {
   return writer.toBuffer();
 }
 
-export function decodeUyaIsoValidation(payload: Uint8Array): UyaIsoIdentity {
+export function decodeIsoValidation(payload: Uint8Array): IsoIdentity {
   const reader = new PayloadReader(payload);
   const value = {
     isSupported: reader.readBoolean(),
@@ -183,7 +183,7 @@ export function decodeUyaAssetImportRequest(payload: Uint8Array): UyaAssetImport
   return value;
 }
 
-export function encodeUyaAssetImportResult(value: UyaAssetImportResult): Buffer {
+export function encodeAssetImportResult(value: AssetImportResult): Buffer {
   const writer = new PayloadWriter();
   writer.writeUInt32(value.completedLevels);
   writer.writeUInt32(value.totalLevels);
@@ -194,7 +194,7 @@ export function encodeUyaAssetImportResult(value: UyaAssetImportResult): Buffer 
   return writer.toBuffer();
 }
 
-export function decodeUyaAssetImportResult(payload: Uint8Array): UyaAssetImportResult {
+export function decodeAssetImportResult(payload: Uint8Array): AssetImportResult {
   const reader = new PayloadReader(payload);
   const value = {
     completedLevels: reader.readUInt32(),

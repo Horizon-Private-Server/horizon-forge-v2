@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Runtime.CompilerServices;
 using RatchetPs2.Core.Games;
 using RatchetPs2.Core.Sounds;
 using RatchetPs2.Sdk;
@@ -8,18 +9,24 @@ namespace Forge.Host.Domain;
 internal static class SoundWorkspaceService
 {
     private const string SoundBankSection = "level/sound-bank";
+    private static readonly ConditionalWeakTable<ProjectSoundState, string> Revisions = new();
+
+    internal static string Revision(ProjectSoundState state) =>
+        Revisions.GetValue(state, _ => Guid.NewGuid().ToString("N"));
 
     public static async Task<EditorSoundWorkspace> ReadAsync(
         ForgeProjectWorkspace workspace,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        ProjectSoundPreviewBank? previewBank = null)
     {
         ArgumentNullException.ThrowIfNull(workspace);
-        var state = workspace.Content.Sounds;
+        var state = previewBank?.State ?? workspace.Content.Sounds;
         var targetGame = TargetGame(workspace);
         var stalePreviewState = state.Programs.Any(value => !value.PreviewSupported);
-        var currentPrograms = stalePreviewState
-            ? await ReadCurrentProgramsAsync(workspace, cancellationToken)
-            : null;
+        IReadOnlyDictionary<int, SoundProgramInfo>? currentPrograms = null;
+        if (stalePreviewState)
+            currentPrograms = previewBank is null ? await ReadCurrentProgramsAsync(workspace, cancellationToken)
+                : SoundBankReader.Inspect(targetGame, previewBank.Bytes, cancellationToken).Programs.ToDictionary(value => value.NativeIndex);
         var samples = state.Samples.ToDictionary(value => value.Asset.Id);
         var globalSlots = state.GlobalRemaps
             .Where(value => value.NativeProgramIndex >= 0)
@@ -80,7 +87,8 @@ internal static class SoundWorkspaceService
                 globalSlots.TryGetValue(program.Provenance.NativeIndex, out var globals) ? globals : [],
                 mobyDependents.TryGetValue(program.Provenance.NativeIndex, out var dependents) ? dependents : [],
                 programSamples,
-                HasRandomTriggerGate(program.Operations),
+                SoundBankReader.HasRandomTriggerGate(targetGame,
+                    program.Operations.Select(operation => (operation.Type, operation.Argument0))),
                 current?.PreviewSupported ?? program.PreviewSupported,
                 current is null ? program.PreviewBlocker : current.PreviewBlocker);
         }).OrderBy(value => value.NativeIndex).ToArray();
@@ -96,14 +104,15 @@ internal static class SoundWorkspaceService
         ForgeProjectWorkspace workspace,
         int nativeIndex,
         bool preferAudible,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        ProjectSoundPreviewBank? previewBank = null)
     {
         ArgumentNullException.ThrowIfNull(workspace);
-        var program = workspace.Content.Sounds.Programs.SingleOrDefault(
+        var program = (previewBank?.State ?? workspace.Content.Sounds).Programs.SingleOrDefault(
             value => value.Provenance.NativeIndex == nativeIndex)
             ?? throw new ArgumentOutOfRangeException(nameof(nativeIndex), "Sound program does not exist.");
-        var bank = await ReadSoundBankAsync(workspace.RootPath, cancellationToken);
-        if (!string.Equals(
+        var bank = previewBank?.Bytes ?? await ReadSoundBankAsync(workspace.RootPath, cancellationToken);
+        if (previewBank is null && !string.Equals(
                 Convert.ToHexString(SHA256.HashData(bank)).ToLowerInvariant(),
                 program.Provenance.BankSha256,
                 StringComparison.Ordinal))
@@ -161,16 +170,6 @@ internal static class SoundWorkspaceService
             preview.IsVariable);
     }
 
-    private static bool HasRandomTriggerGate(IReadOnlyList<ProjectSoundOperation> operations)
-    {
-        for (var index = 0; index <= operations.Count - 3; index++)
-            if (operations[index] is { Type: 0x1f } random
-                && operations[index + 1] is { Type: 0x22 } test
-                && operations[index + 2].Type == 0x18
-                && random.Argument0 == test.Argument0) return true;
-        return false;
-    }
-
     private static async Task<IReadOnlyDictionary<int, RatchetPs2.Core.Sounds.SoundProgramInfo>> ReadCurrentProgramsAsync(
         ForgeProjectWorkspace workspace,
         CancellationToken cancellationToken)
@@ -189,7 +188,7 @@ internal static class SoundWorkspaceService
             : throw new NotSupportedException(
                 $"Sound preview is not supported for {workspace.Manifest.Target.Game}.");
 
-    private static async Task<byte[]> ReadSoundBankAsync(string projectRoot, CancellationToken cancellationToken)
+    internal static async Task<byte[]> ReadSoundBankAsync(string projectRoot, CancellationToken cancellationToken)
     {
         var inspection = await OpaqueContentStore.InspectAsync(projectRoot, cancellationToken);
         if (!inspection.IsValid) throw new InvalidDataException(string.Join(' ', inspection.Blockers));

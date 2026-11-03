@@ -8,7 +8,7 @@ import type {
   EditorGroupTemplatePreview,
   EditorGroupTemplateRequest,
 } from '../../types/EditorRuntime.js';
-import type { AssetExplorerFamily } from '../../types/AssetExplorer.js';
+import type { AssetExplorerFamily, AssetVariantSelection } from '../../types/AssetExplorer.js';
 import type { SceneTreeColors } from '../../types/SceneTree.js';
 import type { CollisionVisualization } from '../../types/CollisionVisualization.js';
 import type { OcclusionSamplePreview, OcclusionVisibilityData } from '../../types/Occlusion.js';
@@ -75,6 +75,9 @@ export interface EditorContextValue {
   mobySimulationPaused: boolean;
   setMobySimulationPaused(value: boolean): void;
   assetPreview?: AssetExplorerFamily;
+  assetVariants: Readonly<Record<string, AssetVariantSelection>>;
+  selectAssetVariant(familyId: string, selection: AssetVariantSelection): void;
+  synchronizeAssetFamilies(families: AssetExplorerFamily[]): void;
   assetThumbnails: AssetThumbnailRuntime | null | undefined;
   inspectAsset(family?: AssetExplorerFamily, activate?: boolean): void;
   inspectReferencedAsset(assetId: string, assetKind: string): Promise<void>;

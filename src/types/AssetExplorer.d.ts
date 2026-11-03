@@ -80,6 +80,14 @@ export interface AssetExplorerSource {
   };
 }
 
+export type AssetSourceSelection = Pick<AssetExplorerSource,
+  'game' | 'region' | 'revision' | 'level' | 'archive' | 'sourceIndex'>;
+
+export interface AssetVariantSelection {
+  assetId: string;
+  source?: AssetSourceSelection;
+}
+
 export interface AssetExplorerItem {
   assetId: string;
   category: AssetExplorerCategory;
@@ -104,12 +112,14 @@ export interface AssetExplorerFamily {
   classId?: number;
   variants: AssetExplorerItem[];
   representativeAssetId: string;
+  representativeSource?: AssetSourceSelection;
 }
 
 export interface AssetModelPlacementDragData {
   assetId: string;
   kind: AssetModelKind;
   classId: number;
+  source?: AssetSourceSelection;
 }
 
 export interface AssetSkyShellDragData {

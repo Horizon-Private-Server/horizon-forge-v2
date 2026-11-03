@@ -92,6 +92,7 @@ test('settings validate defaults and preserve unknown keys', async () => {
     assert.deepEqual(await store.export(false), {
       'build.uya.forceOversizedInPlace': false,
       'editor.autosaveSeconds': 30,
+      'imports.dl.enabled': false,
       'imports.uya.enabled': true,
       'keybindings.overrides': '{}',
       'projects.applyGroupTemplatesOnCreate': false,

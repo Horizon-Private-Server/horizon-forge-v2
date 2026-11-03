@@ -74,7 +74,7 @@ export function SoundWorkspacePanel() {
       if (runtime.current === nextRuntime) runtime.current = undefined;
       void nextRuntime.dispose();
     };
-  }, [project.projectId]);
+  }, [project.projectId, project.soundRevision]);
 
   useEffect(() => {
     if (!playback.playing) return;

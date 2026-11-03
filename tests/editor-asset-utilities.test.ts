@@ -5,15 +5,17 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { AssetThumbnailCache } from '../src/main/AssetThumbnailCache.ts';
-import type { AssetExplorerItem } from '../src/types/AssetExplorer.js';
+import type { AssetExplorerItem, AssetExplorerSource } from '../src/types/AssetExplorer.js';
 import type { EditorEntity, EditorInstancedCollisionCandidate } from '../src/types/EditorRuntime.js';
 import {
   ASSET_PLACEMENT_MIME, createAssetPlacementCommand, createSkyShellAddCommand,
   createTfragPlacementCommand, readAssetPlacementDrag,
 } from '../src/utils/AssetPlacement.ts';
 import {
-  assetExplorerFilterCount, assetExplorerQueryKey, buildAssetFamilies,
+  assetExplorerFilterCount, assetExplorerQueryKey, assetExplorerSourceKey, buildAssetFamilies,
   isStaleAssetExplorerCursor, retainAssetExplorerPageDepth,
+  resolveAssetFamilyVariant,
+  assetFamilyVariantOptions, assetVariantKey, resolveAssetFamilySelection, assetPreviewKind,
 } from '../src/utils/AssetExplorer.ts';
 import { parseCustomModelPreviewDetails } from '../src/utils/CustomModelPreview.ts';
 import { recommendInstancedCollisionCandidate } from '../src/utils/InstancedCollision.ts';
@@ -212,6 +214,25 @@ test('custom tfrag drag repositions every partition while preserving relative ed
   ]);
 });
 
+test('asset source keys distinguish DL missions and native indices sharing a sound bank', () => {
+  const source: AssetExplorerSource = {
+    game: 'DL', region: 'NTSC-U', revision: '1.00', level: 'level01',
+    archive: 'missions/0005/classes.bin', sourceIndex: 22,
+    mobySounds: { bankAssetId: 'a'.repeat(64), slots: [] },
+  };
+  const sources: AssetExplorerSource[] = [
+    source,
+    { ...source, archive: 'missions/0006/classes.bin' },
+    { ...source, sourceIndex: 23 },
+    { ...source, region: 'PAL' },
+    { ...source, mobySounds: { bankAssetId: 'b'.repeat(64), slots: [] } },
+    { ...source, textureUse: { ownerKind: 'moby', ownerClassId: 0x263e, role: 'material', slot: 0, restorable: true } },
+    { ...source, textureUse: { ownerKind: 'moby', ownerClassId: 0x263e, role: 'material', slot: 1, restorable: true } },
+  ];
+  assert.equal(new Set(sources.map(assetExplorerSourceKey)).size, sources.length);
+  assert.equal(assetExplorerSourceKey({ ...source }), assetExplorerSourceKey(source));
+});
+
 test('asset explorer groups exact variants by target class and prefers the base-level source', () => {
   const variant = (assetId: string, classIds: number[], level: string, revision = '1.00'): AssetExplorerItem => ({
     assetId, category: 'mobys', displayLabel: 'moby:0x000B', canonicalFormatVersion: 1, byteSize: 100,
@@ -230,6 +251,85 @@ test('asset explorer groups exact variants by target class and prefers the base-
   assert.equal(families[0].representativeAssetId, 'a'.repeat(64));
   assert.deepEqual(families[0].variants.map((item) => item.assetId), ['a'.repeat(64), 'b'.repeat(64)]);
   assert.equal(families[1].variants[0].sources[0].revision, '2.00');
+});
+
+test('selected DL moby variants preserve their exact model and sound source during placement', () => {
+  const variant = (assetId: string, level: string, bankAssetId: string): AssetExplorerItem => ({
+    assetId, category: 'mobys', displayLabel: 'moby:0x2117', canonicalFormatVersion: 1, byteSize: 100,
+    aliases: [], tags: [], classIds: [0x2117], previewState: 'notCached', canPlace: true,
+    sources: [{
+      game: 'DL', region: 'NTSC-U', revision: '1.00', level, archive: 'classes.bin', sourceIndex: 1,
+      mobySounds: { bankAssetId, slots: [] },
+    }],
+  });
+  const first = variant('a'.repeat(64), 'level02', 'c'.repeat(64));
+  const second = variant('b'.repeat(64), 'level11', 'd'.repeat(64));
+  const target = { game: 'UYA', region: 'NTSC-U', revision: '1.00', level: 3 };
+  const [family] = buildAssetFamilies([first, second], target);
+  assert.equal(resolveAssetFamilyVariant(family), first);
+
+  const selected = resolveAssetFamilyVariant(family, second.assetId);
+  assert.equal(selected, second);
+  assert.equal(selected.sources[0].mobySounds?.bankAssetId, 'd'.repeat(64));
+  const payload = { assetId: selected.assetId, kind: 'moby', classId: family.classId };
+  const drag = readAssetPlacementDrag({
+    getData: (type: string) => type === ASSET_PLACEMENT_MIME ? JSON.stringify(payload) : '',
+  } as DataTransfer);
+  assert.ok(drag?.kind === 'moby');
+  const command = createAssetPlacementCommand(drag, { x: 1, y: 2, z: 3 });
+  assert.equal(command.kind, 'createEntityFromAsset');
+  assert.equal(command.placement.assetId, second.assetId);
+  assert.equal(command.placement.classId, 0x2117);
+
+  // Catalog refreshes retain the choice; filters that exclude it use the visible variant.
+  const [refreshed] = buildAssetFamilies([second, first], target);
+  assert.equal(resolveAssetFamilyVariant(refreshed, second.assetId), second);
+  const [filtered] = buildAssetFamilies([first], target);
+  assert.equal(resolveAssetFamilyVariant(filtered, second.assetId), first);
+  assert.equal(resolveAssetFamilyVariant(family, 'e'.repeat(64)), first);
+  assert.equal(resolveAssetFamilyVariant({ ...family, representativeAssetId: 'e'.repeat(64) }), first);
+});
+
+test('moby source selections survive placement and follow visible level filters', () => {
+  const source = (level: string): AssetExplorerSource => ({
+    game: 'DL', region: 'NTSC-U', revision: '1.00', level, archive: 'classes.bin', sourceIndex: 1,
+  });
+  const item: AssetExplorerItem = {
+    assetId: 'a'.repeat(64), category: 'mobys', displayLabel: 'moby:0x20FA', canonicalFormatVersion: 1, byteSize: 1,
+    sources: [source('level01'), source('level42')], aliases: [], tags: [], classIds: [0x20fa],
+    canPlace: true, previewState: 'notCached',
+  };
+  const target = { game: 'UYA', region: 'NTSC-U', revision: '1.00', level: 3 };
+  const [family] = buildAssetFamilies([item], target);
+  const options = assetFamilyVariantOptions(family);
+  assert.equal(options.length, 2);
+  assert.notEqual(assetVariantKey(options[0]), assetVariantKey(options[1]));
+  const selected = resolveAssetFamilySelection(family, options[1]);
+  assert.equal(resolveAssetFamilySelection(family, options[1], options), options[1]);
+  assert.equal(resolveAssetFamilySelection(family, undefined, options), options[0]);
+  assert.equal(resolveAssetFamilySelection(family, { assetId: 'f'.repeat(64) }, options), options[0]);
+  assert.equal(selected.source?.level, 'level42');
+  const payload = { ...selected, kind: 'moby' as const, classId: 0x20fa };
+  const drag = readAssetPlacementDrag({
+    getData: (type: string) => type === ASSET_PLACEMENT_MIME ? JSON.stringify(payload) : '',
+  } as DataTransfer);
+  assert.ok(drag?.kind === 'moby');
+  const command = createAssetPlacementCommand(drag, { x: 0, y: 0, z: 0 });
+  assert.equal(command.kind, 'createEntityFromAsset');
+  assert.deepEqual(command.placement.source, selected.source);
+  const [filtered] = buildAssetFamilies([item], target, { level: 'level01' });
+  assert.equal(filtered.familyId, family.familyId);
+  assert.equal(resolveAssetFamilySelection(filtered, selected).source?.level, 'level01');
+  assert.deepEqual(filtered.variants[0].sources.map((value) => value.level), ['level01']);
+  const malformed = { ...payload, source: { ...selected.source, sourceIndex: -1 } };
+  assert.equal(readAssetPlacementDrag({
+    getData: (type: string) => type === ASSET_PLACEMENT_MIME ? JSON.stringify(malformed) : '',
+  } as DataTransfer), undefined);
+});
+
+test('preview kinds cover every asset explorer category', () => {
+  assert.deepEqual(['ties', 'shrubs', 'mobys', 'tfrags', 'skyShells', 'textures'].map((category) =>
+    assetPreviewKind(category as AssetExplorerItem['category'])), ['tie', 'shrub', 'moby', 'tfrag', 'sky', 'texture']);
 });
 
 test('asset explorer retains project-attached class assets without vanilla sources', () => {

@@ -11,20 +11,72 @@ internal sealed record UyaMobySoundImportPlan(
 
 internal static class UyaMobySoundImportService
 {
+    internal static ProjectSoundState NormalizeLegacyRemaps(ProjectSoundState state)
+    {
+        if (state.SourceRemapRange is not { } source) return state;
+        var changed = false;
+        var maps = state.MobyRemaps.Select(map =>
+        {
+            if (map.RawListOffset <= 0 || map.Slots.Count == 0) return map;
+            var first = map.Slots[0];
+            if (first.NativeProgramIndex != -1 || first.Sound is not null
+                || first.SourceRange.Length != 4 || first.SourceRange.Offset != source.Offset + map.RawListOffset)
+                return map;
+            // Older inventories exposed the primary bank selector as a null sound slot.
+            changed = true;
+            return map with { Slots = map.Slots.Skip(1).Select((slot, index) => slot with { Slot = index }).ToArray() };
+        }).ToArray();
+        return changed ? state with { MobyRemaps = maps } : state;
+    }
+
+    public static async Task<EditorDiagnostic?> HydrateLegacyRemapsAsync(
+        ForgeProjectWorkspace workspace, CancellationToken cancellationToken)
+    {
+        var state = NormalizeLegacyRemaps(workspace.Content.Sounds);
+        if (ReferenceEquals(state, workspace.Content.Sounds)) return null;
+        await workspace.SetSoundsAsync(state, cancellationToken: cancellationToken);
+        return new("uya-sounds.remaps-repaired", EditorDiagnosticSeverity.Info,
+            "Corrected legacy UYA sound-slot numbering. Save the project and rebuild occlusion and the map.");
+    }
+
     public static async Task ImportAsync(
         ForgeProjectWorkspace workspace,
         AssetCatalogStore catalog,
         AssetCatalogEntry moby,
         int classId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        AssetSourceSelection? selection = null)
     {
-        var source = SelectSource(workspace, moby, classId);
-        if (source?.MobySounds is not { } use || use.Slots.Count == 0) return;
+        cancellationToken.ThrowIfCancellationRequested();
+        var source = SelectSource(workspace, moby, classId, selection);
+        var reference = new ProjectAssetReference(moby.Id, AssetKind.Moby);
+        var existing = workspace.Content.Sounds.MobyRemaps.SingleOrDefault(value => value.ClassId == classId);
+        var slots = source?.MobySounds?.Slots ?? [];
+        if (source is not null && existing?.Moby == reference && existing.Source == AssetSourceSelection.From(source)
+            && slots.All(slot => slot.NativeProgramIndex < 0 || slot.Sound is not null)
+            && existing.Slots.OrderBy(slot => slot.Slot).Select(slot => (slot.Slot, slot.NativeProgramIndex, slot.Sound?.Id))
+                .SequenceEqual(slots.OrderBy(slot => slot.Slot).Select(slot => (slot.Slot, slot.NativeProgramIndex, slot.Sound))))
+            return;
+        if (source?.MobySounds is not { Slots.Count: > 0 } use)
+        {
+            if (selection is null) return;
+            EnsureSourceCanChange(workspace, existing, [], reference);
+            var map = new ProjectMobySoundMap(existing?.DefinitionIndex
+                ?? workspace.Content.Sounds.MobyRemaps.Select(value => value.DefinitionIndex).DefaultIfEmpty(-1).Max() + 1,
+                classId, reference, 0, new(0, 0), [], AssetSourceSelection.From(source!));
+            await workspace.SetSoundsAsync(workspace.Content.Sounds with
+            {
+                MobyRemaps = workspace.Content.Sounds.MobyRemaps.Where(value => value.ClassId != classId).Append(map).ToArray(),
+            }, cancellationToken: cancellationToken);
+            return;
+        }
+        EnsureSourceCanChange(workspace, existing, use.Slots, reference);
         var bankBytes = await UyaInstancedCollisionCompositionService.ReadAssetAsync(
             workspace, catalog, use.Bank, AssetKind.SoundBank, cancellationToken);
-        var bank = SoundBankReader.Inspect(GameId.UYA, bankBytes, cancellationToken);
+        var sourceGame = Enum.Parse<GameId>(source.Game);
+        var bank = SoundBankReader.Inspect(sourceGame, bankBytes, cancellationToken);
         var donor = SoundProjectService.CreateBank(
-            GameId.UYA, ParseLevel(source.Level), bankBytes, bank);
+            sourceGame, ParseLevel(source.Level), bankBytes, bank);
         var plan = Prepare(
             workspace.Content.Sounds,
             donor,
@@ -32,8 +84,33 @@ internal static class UyaMobySoundImportService
             bank,
             use,
             classId,
-            new(moby.Id, AssetKind.Moby));
+            reference,
+            AssetSourceSelection.From(source));
         await workspace.SetSoundsAsync(plan.State, plan.Attachments, cancellationToken);
+    }
+
+    public static async Task<EditorDiagnostic?> HydrateConvertedAsync(ForgeProjectWorkspace workspace,
+        AssetCatalogStore catalog, CancellationToken cancellationToken)
+    {
+        var imported = 0;
+        var warnings = new List<string>();
+        foreach (var allocation in workspace.Content.CustomClasses.Allocations.Where(value =>
+            value.Asset.Kind == AssetKind.Moby && value.Provenance.Origin == ProjectCustomClassOrigin.ConvertedAsset))
+        {
+            if (workspace.Content.Sounds.MobyRemaps.Any(value => value.ClassId == allocation.ClassId)) continue;
+            var entry = catalog.Query(new(Id: allocation.Asset.Id)).SingleOrDefault();
+            if (entry is null || !entry.Sources.Any(value => value.Game == "DL" && value.MobySounds?.Slots.Count > 0)) continue;
+            try
+            {
+                await ImportAsync(workspace, catalog, entry, allocation.ClassId, cancellationToken);
+                if (workspace.Content.Sounds.MobyRemaps.Any(value => value.ClassId == allocation.ClassId)) imported++;
+            }
+            catch (Exception error) when (error is InvalidDataException or FileNotFoundException)
+            { warnings.Add($"DL moby 0x{allocation.ClassId:X4} sounds could not be imported: {error.Message}"); }
+        }
+        return imported == 0 && warnings.Count == 0 ? null : new("dl-moby.sounds-hydrated",
+            warnings.Count == 0 ? EditorDiagnosticSeverity.Info : EditorDiagnosticSeverity.Warning,
+            $"Imported sounds for {imported} converted DL moby class(es). " + string.Join(' ', warnings));
     }
 
     internal static UyaMobySoundImportPlan Prepare(
@@ -43,7 +120,8 @@ internal static class UyaMobySoundImportService
         SoundBankInventory donorBank,
         AssetMobySoundUse use,
         int classId,
-        ProjectAssetReference moby)
+        ProjectAssetReference moby,
+        AssetSourceSelection? selection = null)
     {
         if (target.Programs.Count == 0)
             throw new InvalidDataException("The target project sound inventory is missing.");
@@ -119,7 +197,8 @@ internal static class UyaMobySoundImportService
             moby,
             checked((short)(slots.Length == 0 ? 0 : 1)),
             new(0, 0),
-            slots);
+            slots,
+            selection);
         var maps = existingMap is null
             ? target.MobyRemaps.Append(map).ToArray()
             : target.MobyRemaps.Select(value => value.ClassId == classId ? map : value).ToArray();
@@ -146,15 +225,36 @@ internal static class UyaMobySoundImportService
     private static AssetSource? SelectSource(
         ForgeProjectWorkspace workspace,
         AssetCatalogEntry moby,
-        int classId)
+        int classId,
+        AssetSourceSelection? selection)
     {
+        var allocation = workspace.Content.CustomClasses.Allocations.SingleOrDefault(value => value.Asset.Id == moby.Id
+            && value.Provenance.Origin == ProjectCustomClassOrigin.ConvertedAsset);
+        var sourceGame = allocation is null ? workspace.Manifest.Target.Game : "DL";
+        var sourceClass = allocation?.Provenance.SourceClassId ?? classId;
+        selection ??= workspace.Content.Sounds.MobyRemaps.SingleOrDefault(value => value.ClassId == classId
+            && value.Moby?.Id == moby.Id)?.Source;
+        if (selection is not null)
+        {
+            selection.Validate();
+            return moby.Sources.SingleOrDefault(value => selection.Matches(value)
+                && value.Game == sourceGame && value.Region == workspace.Manifest.Target.Region
+                && value.Revision == workspace.Manifest.Target.Revision
+                && (value.MobySounds?.ClassId is null || value.MobySounds.ClassId == sourceClass))
+                ?? throw new InvalidDataException("The selected moby sound source is unavailable; refresh the asset selection.");
+        }
         var candidates = moby.Sources.Where(value =>
-            value.Game == workspace.Manifest.Target.Game
+            value.Game == sourceGame
             && value.Region == workspace.Manifest.Target.Region
             && value.Revision == workspace.Manifest.Target.Revision
             && value.MobySounds is { } sounds
-            && (sounds.ClassId is null || sounds.ClassId == classId)).ToArray();
+            && (sounds.ClassId is null || sounds.ClassId == sourceClass)).ToArray();
         if (candidates.Length == 0) return null;
+        if (allocation is not null)
+            // DL level numbers do not identify UYA donor levels; use the first complete source variant.
+            return candidates.OrderBy(value => value.MobySounds!.Slots.Count == 0 ? 2
+                    : value.MobySounds.Slots.Any(slot => slot.Sound is null) ? 1 : 0)
+                .ThenBy(value => value.Level, StringComparer.Ordinal).ThenBy(value => value.Archive, StringComparer.Ordinal).First();
         var targetLevel = $"level{workspace.Manifest.BaseLevel.Level:00}";
         var preferred = candidates.Where(value => value.Level == targetLevel).ToArray();
         if (preferred.Length > 0) candidates = preferred;
@@ -164,6 +264,18 @@ internal static class UyaMobySoundImportService
                 $"Moby asset {moby.Id} has different sound mappings in multiple source levels; "
                 + "select an exact source variant before placement.");
         return first;
+    }
+
+    private static void EnsureSourceCanChange(ForgeProjectWorkspace workspace, ProjectMobySoundMap? existing,
+        IReadOnlyList<AssetSoundSlot> slots, ProjectAssetReference moby)
+    {
+        if (existing is null || !workspace.Content.Entities.Any(entity => entity.Layer == "mobys"
+            && entity.Source?.ClassId == existing.ClassId)) return;
+        var before = existing.Slots.OrderBy(value => value.Slot).Select(value => (value.Slot, value.Sound?.Id));
+        var after = slots.OrderBy(value => value.Slot).Select(value => (value.Slot, value.Sound));
+        if (existing.Moby is not null && existing.Moby != moby || !before.SequenceEqual(after))
+            throw new InvalidDataException($"Moby class 0x{existing.ClassId:X4} already uses another sound variant in the scene. "
+                + "Delete its instances before importing this source; all instances of an oClass share its sounds.");
     }
 
     private static bool Equivalent(AssetMobySoundUse left, AssetMobySoundUse right) =>

@@ -22,7 +22,8 @@
   <ItemGroup>
     <ProjectReference Include="../../src/Forge.Host/Forge.Host.csproj" />
     <ProjectReference Include="../../src/Forge.Updater/Forge.Updater.csproj" />
-    <None Include="../fixtures/bridge-v5.json" Link="fixtures/bridge-v5.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../fixtures/bridge-v6.json" Link="fixtures/bridge-v6.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../fixtures/editor-asset-source-v6.json" Link="fixtures/editor-asset-source-v6.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../fixtures/identity-v0.json" Link="fixtures/identity-v0.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../fixtures/occlusion-coverage-preview-graph-v1.json" Link="fixtures/occlusion-coverage-preview-graph-v1.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../fixtures/occlusion-coverage-preview-v1.json" Link="fixtures/occlusion-coverage-preview-v1.json" CopyToOutputDirectory="PreserveNewest" />

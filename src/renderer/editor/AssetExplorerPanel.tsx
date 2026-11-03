@@ -8,16 +8,19 @@ import type {
   AssetExplorerItem,
   AssetExplorerPage,
   AssetExplorerQuery,
-  AssetPreviewKind,
+  AssetVariantSelection,
 } from '../../types/AssetExplorer.js';
 import type { SceneTreeColors, SceneTreeKind } from '../../types/SceneTree.js';
 import { ASSET_PLACEMENT_MIME, SKY_SHELL_PLACEMENT_MIME } from '../../utils/AssetPlacement.ts';
 import {
+  assetPreviewKind,
   assetExplorerFilterCount,
   assetExplorerQueryKey,
   buildAssetFamilies,
   isStaleAssetExplorerCursor,
   retainAssetExplorerPageDepth,
+  resolveAssetFamilyVariant,
+  resolveAssetFamilySelection,
 } from '../../utils/AssetExplorer.ts';
 import { errorMessage } from '../../utils/Errors.ts';
 import { formatUyaLevelLabel } from '../../utils/UyaLevels.ts';
@@ -38,7 +41,7 @@ const CATEGORIES: { label: string; value: AssetExplorerCategory }[] = [
 const EMPTY_FACETS: AssetExplorerFacets = { games: [], levels: [], regions: [], revisions: [], tags: [] };
 
 export function AssetExplorerPanel() {
-  const { assetThumbnails, inspectAsset, project, sceneTreeColors } = useEditor();
+  const { assetThumbnails, assetVariants, inspectAsset, synchronizeAssetFamilies, project, sceneTreeColors } = useEditor();
   const [category, setCategory] = useState<AssetExplorerCategory>('ties');
   const [search, setSearch] = useState('');
   const [querySearch, setQuerySearch] = useState('');
@@ -163,7 +166,8 @@ export function AssetExplorerPanel() {
     region: project.baseLevel.region,
     revision: project.baseLevel.revision,
     level: project.baseLevel.level,
-  }), [items, project.baseLevel]);
+  }, filters), [items, project.baseLevel, filters]);
+  useEffect(() => synchronizeAssetFamilies(families), [families, synchronizeAssetFamilies]);
   const windowed = assetGridWindow(families.length, viewport.width, viewport.height, viewport.scrollTop);
   useEffect(() => {
     if (error || !nextCursor || loading || windowed.endIndex < families.length - windowed.columns * 2) return;
@@ -255,6 +259,7 @@ export function AssetExplorerPanel() {
             <AssetCard
               color={assetCategoryColor(family.category, sceneTreeColors)}
               family={family}
+              selection={assetVariants[family.familyId]}
               visible={assetGridItemVisible(index, windowed.columns, viewport.height, viewport.scrollTop)}
               runtime={assetThumbnails}
               onActivate={() => inspectAsset(family)}
@@ -268,20 +273,21 @@ export function AssetExplorerPanel() {
   </section>;
 }
 
-export function AssetCard({ color, family, runtime, onActivate, visible = true }: {
+export function AssetCard({ color, family, selection: selected, runtime, onActivate, visible = true }: {
   color: string;
   family: AssetExplorerFamily;
+  selection?: AssetVariantSelection;
   runtime: AssetThumbnailRuntime | null | undefined;
   onActivate(): void;
   visible?: boolean;
 }) {
-  const item = family.variants.find((variant) => variant.assetId === family.representativeAssetId)
-    ?? family.variants[0];
+  const selection = resolveAssetFamilySelection(family, selected);
+  const item = resolveAssetFamilyVariant(family, selection.assetId);
   const previewVisible = useRef(visible);
   previewVisible.current = visible;
   const [thumbnail, setThumbnail] = useState<string>();
   const [failure, setFailure] = useState<'none' | 'meshless' | 'unavailable'>('none');
-  const kind = previewKind(item);
+  const kind = assetPreviewKind(item.category);
   const customModel = item.tags.includes('custom-model');
   useEffect(() => {
     setThumbnail(undefined);
@@ -331,7 +337,7 @@ export function AssetCard({ color, family, runtime, onActivate, visible = true }
         ? { assetId: item.assetId, kind, shellIndex: item.shellIndex, dropError: skyCapacityError }
         : kind === 'tfrag'
           ? { assetId: item.assetId, kind, importId: item.previewRevision }
-        : { assetId: item.assetId, kind, classId: family.classId };
+        : { assetId: item.assetId, kind, classId: family.classId, source: selection.source };
       event.dataTransfer.setData(ASSET_PLACEMENT_MIME, JSON.stringify(payload));
       if (kind === 'sky') event.dataTransfer.setData(SKY_SHELL_PLACEMENT_MIME, '1');
     }}
@@ -359,16 +365,6 @@ function assetCategoryColor(category: AssetExplorerCategory, colors: SceneTreeCo
     ties: 'tie', shrubs: 'shrub', mobys: 'moby', tfrags: 'tfrag', skyShells: 'sky', textures: 'object',
   })[category] as SceneTreeKind;
   return colors[kind];
-}
-
-function previewKind(item: AssetExplorerItem): AssetPreviewKind | undefined {
-  if (item.category === 'ties') return 'tie';
-  if (item.category === 'shrubs') return 'shrub';
-  if (item.category === 'mobys') return 'moby';
-  if (item.category === 'tfrags') return 'tfrag';
-  if (item.category === 'textures') return 'texture';
-  if (item.category === 'skyShells') return 'sky';
-  return undefined;
 }
 
 function categoryLabel(category: AssetExplorerCategory): string {

@@ -1,3 +1,5 @@
+import type { AssetSourceSelection } from './AssetExplorer.js';
+
 export interface ProjectVector3 {
   x: number;
   y: number;
@@ -105,6 +107,7 @@ export interface EditorAssetPlacement {
   kind: 'Tie' | 'Shrub' | 'Moby';
   classId: number;
   transform: ProjectTransform;
+  source?: AssetSourceSelection;
 }
 
 export interface EditorSkyShell {
@@ -633,6 +636,7 @@ export interface EditorImportBatch {
 }
 
 export interface EditorSnapshot {
+  soundRevision?: string;
   projectPath: string;
   projectId: string;
   projectName: string;

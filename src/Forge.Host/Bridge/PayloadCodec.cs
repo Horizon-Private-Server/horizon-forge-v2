@@ -81,7 +81,7 @@ public static partial class BridgePayloadCodec
         return new(completed, total);
     }
 
-    public static byte[] EncodeUyaIsoValidation(UyaIsoValidationPayload value)
+    public static byte[] EncodeIsoValidation(IsoValidationPayload value)
     {
         var writer = new PayloadWriter();
         writer.WriteBoolean(value.IsSupported);
@@ -95,10 +95,10 @@ public static partial class BridgePayloadCodec
         return writer.ToArray();
     }
 
-    public static UyaIsoValidationPayload DecodeUyaIsoValidation(ReadOnlySpan<byte> payload)
+    public static IsoValidationPayload DecodeIsoValidation(ReadOnlySpan<byte> payload)
     {
         var reader = new PayloadReader(payload);
-        var value = new UyaIsoValidationPayload(
+        var value = new IsoValidationPayload(
             reader.ReadBoolean(), reader.ReadString(), reader.ReadString(), reader.ReadString(),
             reader.ReadString(), reader.ReadUInt64(), reader.ReadString(), reader.ReadString());
         reader.Complete();
@@ -161,7 +161,7 @@ public static partial class BridgePayloadCodec
         return value;
     }
 
-    public static byte[] EncodeUyaAssetImportResult(UyaAssetImportResultPayload value)
+    public static byte[] EncodeAssetImportResult(AssetImportResultPayload value)
     {
         var writer = new PayloadWriter();
         writer.WriteUInt32(value.CompletedLevels);
@@ -173,10 +173,10 @@ public static partial class BridgePayloadCodec
         return writer.ToArray();
     }
 
-    public static UyaAssetImportResultPayload DecodeUyaAssetImportResult(ReadOnlySpan<byte> payload)
+    public static AssetImportResultPayload DecodeAssetImportResult(ReadOnlySpan<byte> payload)
     {
         var reader = new PayloadReader(payload);
-        var value = new UyaAssetImportResultPayload(
+        var value = new AssetImportResultPayload(
             reader.ReadUInt32(), reader.ReadUInt32(), reader.ReadUInt32(), reader.ReadUInt32(), reader.ReadUInt32(), reader.ReadBoolean());
         reader.Complete();
         return value;

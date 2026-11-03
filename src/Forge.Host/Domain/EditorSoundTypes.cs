@@ -1,5 +1,7 @@
 namespace Forge.Host.Domain;
 
+internal sealed record ProjectSoundPreviewBank(byte[] Bytes, ProjectSoundState State);
+
 public sealed record EditorSoundSample(
     string AssetId,
     string SourceContentId,

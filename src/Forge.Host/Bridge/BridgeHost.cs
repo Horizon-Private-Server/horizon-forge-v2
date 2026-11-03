@@ -145,6 +145,14 @@ public static class BridgeHost
                 case BridgeOpcode.Echo:
                     await HandleEchoAsync(frame, writer, requestCancellation.Token, hostCancellation);
                     break;
+                case BridgeOpcode.ValidateSourceIso:
+                case BridgeOpcode.ImportAssets:
+                    await writer.WriteAsync(new(
+                        BridgeMessageKind.Result, frame.Opcode, BridgeErrorCode.None, frame.RequestId,
+                        await SetupBridgeHandlers.HandleAsync(
+                            frame, handshake.SdkRevision, CreateProgressReporter(frame, writer, hostCancellation),
+                            requestCancellation.Token)), hostCancellation);
+                    break;
                 case BridgeOpcode.ValidateUyaIso:
                     await HandleValidateUyaIsoAsync(frame, writer, requestCancellation.Token, hostCancellation);
                     break;
@@ -409,7 +417,7 @@ public static class BridgeHost
             frame.Opcode,
             BridgeErrorCode.None,
             frame.RequestId,
-            BridgePayloadCodec.EncodeUyaIsoValidation(new(
+            BridgePayloadCodec.EncodeIsoValidation(new(
                 identity.IsSupported,
                 identity.Game,
                 identity.Region,
@@ -468,7 +476,7 @@ public static class BridgeHost
             frame.Opcode,
             BridgeErrorCode.None,
             frame.RequestId,
-            BridgePayloadCodec.EncodeUyaAssetImportResult(new(
+            BridgePayloadCodec.EncodeAssetImportResult(new(
                 checked((uint)result.CompletedLevels),
                 checked((uint)result.TotalLevels),
                 checked((uint)result.AssetAppearances),

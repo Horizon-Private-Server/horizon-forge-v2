@@ -8,7 +8,7 @@ public sealed record HostHandshake(
 
 public readonly record struct EchoRequest(string Message, uint DelayMs);
 public readonly record struct BridgeProgress(uint Completed, uint Total);
-public sealed record UyaIsoValidationPayload(
+public sealed record IsoValidationPayload(
     bool IsSupported,
     string Game,
     string Region,
@@ -25,7 +25,7 @@ public sealed record UyaAssetImportRequestPayload(
     string Fingerprint,
     string Revision,
     bool Force);
-public readonly record struct UyaAssetImportResultPayload(
+public readonly record struct AssetImportResultPayload(
     uint CompletedLevels,
     uint TotalLevels,
     uint AssetAppearances,

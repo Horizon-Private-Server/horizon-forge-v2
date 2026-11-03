@@ -3,10 +3,10 @@ using System.Text;
 using System.Text.Json;
 using Forge.Host.Domain;
 using RatchetPs2.Core.Games;
-using RatchetPs2.Core.Skyboxes;
 using RatchetPs2.Core.Textures.Pif;
 using RatchetPs2.Core.Textures.Png;
 using RatchetPs2.Core.Wad.Models;
+using RatchetPs2.Sdk;
 
 namespace Forge.Host.Games.UYA;
 
@@ -14,7 +14,7 @@ public static class UyaAssetPreviewService
 {
     public const int SchemaVersion = 6;
     private const int TextureRasterSchemaVersion = 2;
-    private const int SkyRenderSchemaVersion = 2;
+    private const int SkyRenderSchemaVersion = 3;
     private const int CollisionRenderSchemaVersion = 2;
     private const string MarkerName = ".forge-asset-preview.json";
     // ponytail: bounded lock striping avoids per-key lock retention; increase stripes only if collisions profile hot.
@@ -41,7 +41,15 @@ public static class UyaAssetPreviewService
         var entry = catalog.Query(new(Id: request.AssetId)).SingleOrDefault();
         if (entry is not null && entry.Kind != request.Kind)
             throw new InvalidDataException("Asset kind does not match the catalog entry.");
-        var package = entry?.Kind switch
+        if (projectWorkspace is null && !string.IsNullOrWhiteSpace(request.ProjectPath))
+            projectWorkspace = await ForgeProjectWorkspace.OpenAsync(request.ProjectPath, cancellationToken);
+        var projectAsset = projectWorkspace?.ResolveAsset(new(request.AssetId, request.Kind), catalog);
+        var package = projectAsset is { ProjectAttached: true, CanonicalFormatVersion: UyaAssetImportService.CanonicalFormatVersion }
+            && request.Kind is (AssetKind.Tie or AssetKind.Shrub or AssetKind.Moby)
+            ? await UyaRenderPackageService.BuildAssetPackageAsync(
+                projectAsset.Effective.Id, projectAsset.Effective.Kind, projectAsset.CanonicalFormatVersion,
+                projectAsset.Size, projectAsset.Path, cancellationToken)
+            : entry?.Kind switch
         {
             AssetKind.Texture => await BuildTexturePackageAsync(
                 entry,
@@ -88,15 +96,17 @@ public static class UyaAssetPreviewService
         ForgeProjectWorkspace? projectWorkspace,
         CancellationToken cancellationToken)
     {
-        if (request.Kind is not (AssetKind.Tie or AssetKind.Tfrag)
+        if (request.Kind is not (AssetKind.Tie or AssetKind.Tfrag or AssetKind.Shrub or AssetKind.Moby)
             || string.IsNullOrWhiteSpace(request.ProjectPath))
             return sdkRevision;
         var workspace = projectWorkspace
             ?? await ForgeProjectWorkspace.OpenAsync(request.ProjectPath, cancellationToken);
+        var replacement = workspace.ResolveAssetReference(new(request.AssetId, request.Kind));
+        if (replacement.Id != request.AssetId) return $"{sdkRevision}:{replacement.Id}";
         var assetRevision = request.Kind == AssetKind.Tie
             ? workspace.Content.CustomModels.Models
                 .SingleOrDefault(model => model.Canonical.Id == request.AssetId)?.Native.Id.ToString()
-            : UyaCustomTfragPreviewService.ResolveRevision(workspace, request.AssetId);
+            : request.Kind == AssetKind.Tfrag ? UyaCustomTfragPreviewService.ResolveRevision(workspace, request.AssetId) : null;
         return assetRevision is null ? sdkRevision : $"{sdkRevision}:{assetRevision}";
     }
 
@@ -292,33 +302,12 @@ public static class UyaAssetPreviewService
             entry, path, ForgeProjectWorkspace.MaxAttachedAssetBytes, cancellationToken);
         return await Task.Run(() =>
         {
-            using var stream = new MemoryStream(bytes, writable: false);
-            var sky = SkyboxReader.Read(stream, GameId.UYA);
-            IReadOnlyList<SkyboxShell> shells = shellIndex is { } index
-                ? [sky.Shells.SingleOrDefault(value => value.Index == index)
-                    ?? throw new InvalidDataException($"Sky shell {index} is not present in the asset.")]
-                : sky.Shells;
-            var textureIds = shells.SelectMany(shell => shell.Clusters).SelectMany(cluster => cluster.Triangles)
-                .Select(triangle => (int)triangle.TextureId).ToHashSet();
-            var textures = sky.Textures.Where(texture => textureIds.Contains(texture.Index)).ToArray();
-            var selected = new Skybox(
-                sky.Header with
-                {
-                    ShellCount = checked((short)shells.Count),
-                    SpriteCount = 0,
-                    SpriteMax = 0,
-                    TextureCount = checked((short)textures.Length),
-                },
-                shells, textures, [], sky.FxList, sky.ByteLength);
-            var export = SkyboxGltfExporter.Export(selected, "model.gltf",
-                SkyboxGameProfile.ForGame(GameId.UYA).CreateExportOptions(
-                    "model.buffer.bin", null, 1, includeDiagnostics: false, minify: true));
-            return PackedFilePackageBuilder.Pack([
-                new("model.gltf", export.GltfBytes, "model/gltf+json"),
-                new("model.buffer.bin", export.BinBytes, "application/octet-stream"),
-                .. export.Textures.Select(texture =>
-                    new PackedFile($"textures/{texture.FileName}", texture.PngBytes, "image/png")),
-            ]);
+            var source = entry.Sources.OrderBy(value => value.Game == "UYA" ? 0 : 1)
+                .ThenBy(value => value.Level, StringComparer.Ordinal).First();
+            if (!Enum.TryParse<GameId>(source.Game, out var game)) throw new NotSupportedException($"Sky preview is not supported for {source.Game}.");
+            var level = source.Level.StartsWith("level", StringComparison.Ordinal) && int.TryParse(source.Level.AsSpan(5), out var parsedLevel)
+                ? (int?)parsedLevel : null;
+            return SkyboxPreviewPackageBuilder.Build(game, bytes, level, shellIndex, cancellationToken);
         }, cancellationToken);
     }
 

@@ -98,7 +98,8 @@ public sealed record ProjectMobySoundMap(
     ProjectAssetReference? Moby,
     short RawListOffset,
     ProjectSoundSourceRange ConfigurationRange,
-    IReadOnlyList<ProjectSoundRemapSlot> Slots);
+    IReadOnlyList<ProjectSoundRemapSlot> Slots,
+    AssetSourceSelection? Source = null);
 
 public sealed record ProjectSoundState(
     int SchemaVersion,

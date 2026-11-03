@@ -12,7 +12,7 @@ internal static class UyaProjectPreparationTests
         {
             var source = Path.Combine(root, "source.iso");
             var bytes = UyaProjectTests.CreateIso();
-            UyaIsoSetupTests.AddDiscIdentity(bytes);
+            DiscImageFixture.AddIdentity(bytes);
             await File.WriteAllBytesAsync(source, bytes);
             var request = new UyaProjectCreationRequest(source, Path.Combine(root, "catalog"),
                 Path.Combine(root, "project"), "Preparation", new string('a', 32), "1.00", 3, true);

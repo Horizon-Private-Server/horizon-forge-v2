@@ -5,6 +5,13 @@ internal static class EditorPayloadCodecTests
 {
     public static void Run()
     {
+        using var sourceFixture = System.Text.Json.JsonDocument.Parse(File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "fixtures", "editor-asset-source-v6.json")));
+        var sourceCommand = EditorPayloadCodec.DecodeCommand(Convert.FromHexString(
+            sourceFixture.RootElement.GetProperty("payloadHex").GetString()!));
+        Equal(new AssetSourceSelection("DL", "NTSC-U", "1.00", "level42", "missions/0006/classes.bin", 7),
+            sourceCommand.Placement!.Source, "TypeScript placement source decodes across the host bridge");
+        Equal(0x20fa, sourceCommand.Placement.ClassId, "placement class after source decoding");
         var owner = EntityId.New();
         var snapshot = new EditorSnapshot(
             "project",

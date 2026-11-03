@@ -4,7 +4,7 @@ namespace Forge.Host.Domain;
 
 internal static class AssetCatalogSnapshots
 {
-    public const long MaximumCatalogBytes = 64L * 1024 * 1024;
+    public const long MaximumCatalogBytes = 256L * 1024 * 1024;
     private const long MaximumCachedBytes = MaximumCatalogBytes;
     private const int MaximumSnapshots = 4;
     private static readonly LinkedList<CachedSnapshot> Cache = new();

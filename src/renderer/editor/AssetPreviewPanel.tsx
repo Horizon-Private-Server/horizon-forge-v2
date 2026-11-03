@@ -1,8 +1,10 @@
 import { Badge, Button, Code, Group, SegmentedControl, Select, Stack, Text } from '@mantine/core';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
-import type { AssetExplorerCategory, AssetExplorerItem, AssetPreviewKind } from '../../types/AssetExplorer.js';
+import type { AssetExplorerCategory } from '../../types/AssetExplorer.js';
 import type { AssetPreviewSource, CustomModelPreviewDetails } from '../../types/AssetExplorer.js';
+import { assetPreviewKind, assetExplorerSourceKey, assetFamilyVariantOptions, assetSourceSelection, assetVariantKey,
+  resolveAssetFamilySelection, resolveAssetFamilyVariant } from '../../utils/AssetExplorer.ts';
 import { createAssetPlacementCommand, createSkyShellAddCommand } from '../../utils/AssetPlacement.ts';
 import { contentOriginLabel } from '../../utils/ContentOrigin.ts';
 import { parseCustomModelPreviewDetails } from '../../utils/CustomModelPreview.ts';
@@ -12,21 +14,26 @@ import { AssetModelPreview } from './AssetModelPreview.tsx';
 import { useEditor } from './EditorContext.ts';
 import { EditorEmptyState, EditorPanel } from './EditorPrimitives.tsx';
 import { MobySoundButtons } from './MobySoundButtons.tsx';
+import { tfragSourceIndex } from './TfragTemplates.ts';
 
 import { useLoggedMessage } from '../log/UseLog.ts';
 
 export function AssetPreviewPanel() {
-  const { assetPreview: family, busy, execute, inspectAsset, openImportBatch, project } = useEditor();
-  const [assetId, setAssetId] = useState('');
-  useEffect(() => setAssetId(family?.representativeAssetId ?? ''), [family]);
+  const {
+    assetPreview: family, assetVariants, selectAssetVariant,
+    busy, execute, inspectAsset, openImportBatch, project, terrain, sceneLoad,
+  } = useEditor();
+  const options = useMemo(() => family ? assetFamilyVariantOptions(family) : [], [family]);
   if (!family) return <EditorPanel label="Asset Preview">
     <EditorEmptyState message="Select an asset to inspect it." />
   </EditorPanel>;
-  const item = family.variants.find((variant) => variant.assetId === assetId)
-    ?? family.variants.find((variant) => variant.assetId === family.representativeAssetId)
-    ?? family.variants[0];
-  const kind = previewKind(item);
+  const selection = resolveAssetFamilySelection(family, assetVariants[family.familyId], options);
+  const item = resolveAssetFamilyVariant(family, selection.assetId);
+  const kind = assetPreviewKind(item.category);
   const customModel = kind === 'tie' && item.tags.includes('custom-model');
+  const nativeTfrag = kind === 'tfrag' ? project.entities.find((entity) => entity.asset?.id === item.assetId
+    && entity.tfrag && !entity.tfrag.customImportId) : undefined;
+  const terrainUrl = nativeTfrag && terrain?.urls.find((url) => tfragSourceIndex(url) === nativeTfrag.tfrag!.sourceIndex);
   const customInstanceCount = customModel
     ? project.entities.filter((entity) => entity.asset?.id === item.assetId).length
     : 0;
@@ -44,6 +51,12 @@ export function AssetPreviewPanel() {
         ? <CustomModelPreview
             assetId={item.assetId} label={item.displayLabel} previewRevision={item.previewRevision}
           />
+        : nativeTfrag
+        ? terrainUrl ? <AssetModelPreview
+            assetId={item.assetId} kind="tfrag" label={item.displayLabel}
+            terrainSource={{ url: terrainUrl, entity: nativeTfrag }}
+          /> : <EditorEmptyState message={sceneLoad?.status === 'loading'
+            ? 'Loading terrain preview…' : 'Terrain preview unavailable. Reload the scene and retry.'} />
         : kind === 'texture' && item.previewState !== 'missingBlob'
         ? <AssetTexturePreview assetId={item.assetId} label={item.displayLabel} />
         : kind && kind !== 'texture' && item.previewState !== 'missingBlob'
@@ -54,20 +67,25 @@ export function AssetPreviewPanel() {
       <Text fw={600}>{family.displayLabel}</Text>
       <Group gap="xs">
         <Badge variant="light">{categoryLabel(family.category)}</Badge>
-        <Badge variant="light">{family.variants.length} exact {family.variants.length === 1 ? 'variant' : 'variants'}</Badge>
+        <Badge variant="light">{options.length} exact {options.length === 1 ? 'variant' : 'variants'}</Badge>
         <Badge color={item.canPlace ? 'teal' : 'gray'} variant="light">
           {item.canPlace ? 'Compatible' : 'Preview only'}
         </Badge>
       </Group>
-      {family.variants.length > 1 && <Select
+      {options.length > 1 && <Select
         aria-label="Exact source variant"
-        data={family.variants.map((variant) => ({
-          value: variant.assetId,
-          label: `${[...new Set(variant.sources.map((source) => source.level))].join(', ')} · ${variant.assetId.slice(0, 12)}`,
+        data={options.map((variant) => ({
+          value: assetVariantKey(variant),
+          label: `${variant.source ? `${variant.source.level} · ${variant.source.archive} · ${variant.source.sourceIndex}`
+            : [...new Set(family.variants.find((item) => item.assetId === variant.assetId)!.sources.map((source) => source.level))].join(', ')} · ${variant.assetId.slice(0, 12)}`,
         }))}
         label="Exact source variant"
-        value={item.assetId}
-        onChange={(value) => { if (value) setAssetId(value); }}
+        description="Used for preview and placement from the Asset Explorer."
+        value={assetVariantKey(selection)}
+        onChange={(value) => {
+          const option = options.find((option) => assetVariantKey(option) === value);
+          if (option) selectAssetVariant(family.familyId, option);
+        }}
       />}
       {levels.length > 0 && <Text size="sm" c="dimmed">Sources: {levels.join(', ')}</Text>}
       {projectUses.map((use) => <Text key={`${use.label}:${use.batch ?? ''}`} size="sm" c="dimmed">
@@ -86,17 +104,19 @@ export function AssetPreviewPanel() {
         Class IDs: {item.classIds.map((value) => `0x${value.toString(16).padStart(4, '0')}`).join(', ')}
       </Text>}
       {kind === 'moby' && family.classId !== undefined && <MobySoundButtons
+        key={`${assetVariantKey(selection)}:${family.classId}`}
         assetId={item.assetId}
         classId={family.classId}
         projectId={project.projectId}
-        sources={item.sources}
+        soundRevision={project.soundRevision}
+        sources={selection.source ? item.sources.filter((source) =>
+          assetExplorerSourceKey(selection.source!) === assetExplorerSourceKey(assetSourceSelection(source))) : item.sources}
       />}
       {item.shellIndex !== undefined && <Text size="sm">Shell index: {item.shellIndex}</Text>}
       {item.aliases.length > 0 && <Text size="sm">Aliases: {item.aliases.join(', ')}</Text>}
       {item.tags.length > 0 && <Group gap="xs">{item.tags.map((tag) => <Badge key={tag}>{tag}</Badge>)}</Group>}
       {item.sources.map((source) => <Text
-        key={`${source.game}:${source.region}:${source.revision}:${source.level}:${source.archive}:${source.sourceIndex}:${
-          source.textureUse ? `${source.textureUse.ownerKind}:${source.textureUse.ownerClassId}:${source.textureUse.role}:${source.textureUse.slot}` : ''}`}
+        key={assetExplorerSourceKey(source)}
         size="sm"
       >
         {source.game} · {source.region} · {source.revision} · Level {source.level}
@@ -110,7 +130,7 @@ export function AssetPreviewPanel() {
         disabled={busy || !item.canPlace}
         title={item.canPlace ? 'Place at project origin' : item.placementDisabledReason}
         onClick={() => void execute(createAssetPlacementCommand({
-          assetId: item.assetId, kind, classId: family.classId!,
+          assetId: item.assetId, kind, classId: family.classId!, source: selection.source,
         }, { x: 0, y: 0, z: 0 }))}
       >Place at origin</Button>}
       {customModel && <Button
@@ -236,16 +256,6 @@ function formatBounds(details: CustomModelPreviewDetails): string {
   const format = (number: number) => Number(number.toFixed(3)).toString();
   return `[${format(value.minimumX)}, ${format(value.minimumY)}, ${format(value.minimumZ)}]–[${
     format(value.maximumX)}, ${format(value.maximumY)}, ${format(value.maximumZ)}]`;
-}
-
-function previewKind(item: AssetExplorerItem): AssetPreviewKind | undefined {
-  if (item.category === 'ties') return 'tie';
-  if (item.category === 'shrubs') return 'shrub';
-  if (item.category === 'mobys') return 'moby';
-  if (item.category === 'tfrags') return 'tfrag';
-  if (item.category === 'textures') return 'texture';
-  if (item.category === 'skyShells') return 'sky';
-  return undefined;
 }
 
 function AssetTexturePreview({ assetId, label }: { assetId: string; label: string }) {

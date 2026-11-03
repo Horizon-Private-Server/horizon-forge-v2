@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import type { KeybindingMap, KeybindingOverrides } from '../../types/Keybindings.js';
 import type { SceneTreeColors, SceneTreeKind } from '../../types/SceneTree.js';
 import type { CollisionVisualization } from '../../types/CollisionVisualization.js';
-import type { UiSize } from '../../types/ForgeApi.js';
+import type { AssetSourceGame, UiSize } from '../../types/ForgeApi.js';
 import { errorMessage } from '../../utils/Errors.ts';
 import { parseKeybindingOverrides, resolveKeybindings } from '../../utils/Keybindings.ts';
 import {
@@ -28,6 +28,7 @@ import { useLoggedMessage } from '../log/UseLog.ts';
 interface SettingsModalProps {
   opened: boolean;
   onClose(): void;
+  onOpenSetup(): void;
   onKeybindingsChange(value: KeybindingMap): void;
   sceneTreeColors: SceneTreeColors;
   onSceneTreeColorsChange(value: SceneTreeColors): void;
@@ -43,6 +44,7 @@ interface SettingsModalProps {
 export function SettingsModal({
   opened,
   onClose,
+  onOpenSetup,
   onKeybindingsChange,
   sceneTreeColors,
   onSceneTreeColorsChange,
@@ -54,7 +56,7 @@ export function SettingsModal({
   uiSize,
   onUiSizeChange,
 }: SettingsModalProps) {
-  const [sourceIso, setSourceIso] = useState('');
+  const [sourceIsos, setSourceIsos] = useState<Partial<Record<AssetSourceGame, string>>>({});
   const [forceOversizedInPlace, setForceOversizedInPlace] = useState(false);
   const [showViewportStats, setShowViewportStats] = useState(true);
   const [applyGroupTemplatesOnCreate, setApplyGroupTemplatesOnCreate] = useState(true);
@@ -69,7 +71,6 @@ export function SettingsModal({
   useEffect(() => {
     if (!opened) return;
     void window.forge.getSettings().then((snapshot) => {
-      const source = snapshot.entries.find((entry) => entry.key === 'sources.uya.iso');
       const forcedInPlace = snapshot.entries.find((entry) => entry.key === 'build.uya.forceOversizedInPlace');
       const stats = snapshot.entries.find((entry) => entry.key === 'ui.showViewportStats');
       const applyTemplates = snapshot.entries.find((entry) => entry.key === 'projects.applyGroupTemplatesOnCreate');
@@ -78,7 +79,9 @@ export function SettingsModal({
       const channel = snapshot.entries.find((entry) => entry.key === 'updates.channel');
       const storedBindings = snapshot.entries.find((entry) => entry.key === 'keybindings.overrides')?.value;
       const overrides = parseKeybindingOverrides(storedBindings);
-      setSourceIso(typeof source?.value === 'string' ? source.value : '');
+      setSourceIsos(Object.fromEntries((['UYA', 'DL'] as const).map((game) => [game,
+        String(snapshot.entries.find((entry) => entry.key === `sources.${game.toLowerCase()}.iso`)?.value ?? ''),
+      ])));
       setForceOversizedInPlace(forcedInPlace?.value === true);
       setShowViewportStats(stats?.value === true);
       setApplyGroupTemplatesOnCreate(applyTemplates?.value === true);
@@ -133,13 +136,15 @@ export function SettingsModal({
         </Tabs.List>
         <Tabs.Panel value="general" pt="sm">
           <Stack>
-            <TextInput
-              label="Clean UYA ISO"
-              description="The verified source used by Forge. Change it from Forge → Setup."
+            {(['UYA', 'DL'] as const).map((game) => <TextInput
+              key={game}
+              label={`Clean ${game} ISO`}
+              description={game === 'UYA' ? 'Source for UYA map projects and asset imports.' : 'Source for optional Deadlocked asset imports.'}
               placeholder="Not configured"
-              value={sourceIso}
+              value={sourceIsos[game] ?? ''}
               readOnly
-            />
+            />)}
+            <Button variant="default" onClick={() => { onClose(); onOpenSetup(); }}>Open Setup</Button>
             <Switch
               checked={forceOversizedInPlace}
               label="Force oversized UYA levels to patch in place"

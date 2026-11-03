@@ -1,3 +1,5 @@
+using RatchetPs2.Core.Games;
+
 namespace Forge.Host.Domain;
 
 internal static partial class ForgeProjectValidation
@@ -137,6 +139,7 @@ internal static partial class ForgeProjectValidation
             throw new InvalidDataException("Project contains duplicate moby sound-map definitions.");
         foreach (var map in state.MobyRemaps)
         {
+            map.Source?.Validate();
             if (map.DefinitionIndex < 0 || map.ClassId < 0 || map.Slots is null
                 || map.Slots.Count > 0 && map.RawListOffset <= 0
                 || map.Slots.Any(value => value is null))
@@ -249,7 +252,8 @@ internal static partial class ForgeProjectValidation
 
     private static void ValidateProvenance(ProjectSoundProvenance value, string owner)
     {
-        if (value is null || !Enum.IsDefined(value.Origin) || value.Game is not "UYA"
+        if (value is null || !Enum.IsDefined(value.Origin)
+            || !Enum.TryParse<GameId>(value.Game, out var game) || !Enum.IsDefined(game)
             || value.Level < 0 || value.NativeIndex < 0
             || value.BankSha256.Length != 64
             || value.BankSha256.Any(character => !char.IsAsciiHexDigitLower(character)))

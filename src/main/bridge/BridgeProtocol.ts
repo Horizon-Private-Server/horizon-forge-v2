@@ -53,6 +53,8 @@ export const BridgeOpcode = {
   QueryOcclusionCoverage: 42,
   UpdateOcclusionCoverage: 43,
   PreviewOcclusionCoverage: 44,
+  ValidateSourceIso: 45,
+  ImportAssets: 46,
 } as const;
 
 export const BridgeErrorCode = {

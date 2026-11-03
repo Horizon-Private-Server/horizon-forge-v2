@@ -10,7 +10,7 @@ import { OcclusionSampleOverlay, occlusionSampleSceneKey } from '../src/renderer
 import { OcclusionOctantLabels } from '../src/renderer/editor/OcclusionOctantLabels.ts';
 import type { OcclusionSamplePreview } from '../src/types/Occlusion.js';
 import { SceneGeometryBatch } from '../src/renderer/editor/SceneGeometryBatch.ts';
-import { addTfragTemplates, tfragSourceIndex } from '../src/renderer/editor/TfragTemplates.ts';
+import { addTfragTemplates, createTfragPreview, tfragSourceIndex } from '../src/renderer/editor/TfragTemplates.ts';
 import { SceneBillboardResources } from '../src/renderer/editor/SceneBillboardGizmo.ts';
 import {
   LevelSettingsOverlayProjection, levelSettingsPositionField,
@@ -1054,6 +1054,17 @@ test('tfrag source groups become local entity templates with exact picking and v
   );
   assert.equal(tfragSourceIndex('forge-asset://cache/assets/tfrag/chunks/chunk12/tfrag.gltf'), 12);
   assert.deepEqual(result, { matched: 2, missingAssetIds: [] });
+
+  const preview = createTfragPreview(scene, 'forge-asset://cache/assets/tfrag/tfrag.gltf', piece);
+  assert.equal(preview.children.length, 1, 'native preview contains the selected terrain group');
+  const previewMesh = preview.children[0] as THREE.Mesh;
+  assert.equal(previewMesh.material, source.material, 'preview keeps the terrain render materials and textures');
+  assert.equal(previewMesh.geometry, source.geometry);
+  assert.deepEqual(new THREE.Box3().setFromObject(preview).getCenter(new THREE.Vector3()).toArray(), [0, 0, 0],
+    'preview uses source-local geometry without the authored instance transform');
+  assert.equal(source.parent, lod, 'preview extraction preserves the loaded source scene');
+  assert.throws(() => createTfragPreview(scene,
+    'forge-asset://cache/assets/tfrag/chunks/chunk1/tfrag.gltf', piece), /selected terrain piece is missing/);
 
   const projection = new SceneProjection();
   projection.setAssetTemplates(templates);

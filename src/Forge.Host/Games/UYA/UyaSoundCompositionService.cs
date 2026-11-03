@@ -1,7 +1,9 @@
 using RatchetPs2.Core.Games;
+using RatchetPs2.Core.LevelAssets;
 using RatchetPs2.Core.Sounds;
 using RatchetPs2.Sdk;
 using Forge.Host.Domain;
+using System.Runtime.CompilerServices;
 
 namespace Forge.Host.Games.UYA;
 
@@ -22,15 +24,122 @@ internal sealed record UyaSoundCompositionPlan(
 
 internal static class UyaSoundCompositionService
 {
+    private static readonly ConditionalWeakTable<ForgeProjectWorkspace, PreviewCache> PreviewCaches = new();
+
+    private sealed class PreviewCache
+    {
+        internal readonly SemaphoreSlim Gate = new(1, 1);
+        internal ProjectSoundState? State;
+        internal ProjectSoundPreviewBank? Bank;
+    }
     public static async Task<UyaSoundCompositionResult> ComposeAsync(
         ForgeProjectWorkspace workspace,
         byte[] sourceBankBytes,
         byte[] sourceHeaderBytes,
+        byte[] targetHeaderBytes,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(workspace);
         ArgumentNullException.ThrowIfNull(sourceBankBytes);
         ArgumentNullException.ThrowIfNull(sourceHeaderBytes);
+        ArgumentNullException.ThrowIfNull(targetHeaderBytes);
+        var state = UyaMobySoundImportService.NormalizeLegacyRemaps(workspace.Content.Sounds);
+        var header = LevelAssetReader.ReadHeader(targetHeaderBytes);
+        var classes = LevelAssetReader.ReadModelDefinitions(
+            targetHeaderBytes, header.MobyModelOffset, header.MobyModelCount)
+            .Select(value => value.ModelId).ToHashSet();
+        // Deleted placements retain their sound state for undo, but have no packed model.
+        var packedMaps = state.MobyRemaps.Where(value => classes.Contains(value.ClassId)).ToArray();
+        var requiredPrograms = RequiredPrograms(state, packedMaps, cancellationToken);
+        var composed = await ComposeBankAsync(workspace, sourceBankBytes, requiredPrograms, cancellationToken);
+        var sourceProgramCount = composed.Plan.RetainedProgramCount;
+        var indexByAsset = composed.Plan.ProgramSlots;
+        var slotsByClass = packedMaps.ToDictionary(
+            value => value.ClassId,
+            value => (IReadOnlyList<int>)value.Slots.OrderBy(slot => slot.Slot)
+                .Select(slot => ResolveSlot(slot, indexByAsset, sourceProgramCount)).ToArray());
+        var globals = state.GlobalRemaps.OrderBy(value => value.Slot)
+            .Select(value => ResolveSlot(value, indexByAsset, sourceProgramCount)).ToArray();
+        var other = state.OpaqueOtherRange is not { } range
+            ? []
+            : sourceHeaderBytes.AsSpan(range.Offset, range.Length).ToArray();
+        if (other.Length != checked(state.OpaqueOtherRecordCount * 0x20))
+            throw new InvalidDataException("Project sound-remap opaque records do not match their retained source range.");
+        var remap = new SoundRemapComposition(composed.Programs.Count, slotsByClass, globals, other);
+        var remapChanged = RemapChanged(targetHeaderBytes, sourceProgramCount, remap);
+        return new(composed.BankBytes, remap, composed.BankChanged, remapChanged, composed.Plan);
+    }
+
+    public static async Task<ProjectSoundPreviewBank?> PreparePreviewAsync(
+        ForgeProjectWorkspace workspace, CancellationToken token)
+    {
+        var cache = PreviewCaches.GetValue(workspace, _ => new());
+        await cache.Gate.WaitAsync(token);
+        try
+        {
+            var state = workspace.Content.Sounds;
+            if (ReferenceEquals(cache.State, state)) return cache.Bank;
+            var bank = await CreatePreviewAsync(workspace, token);
+            cache.State = state;
+            cache.Bank = bank;
+            return bank;
+        }
+        finally { cache.Gate.Release(); }
+    }
+
+    private static async Task<ProjectSoundPreviewBank?> CreatePreviewAsync(
+        ForgeProjectWorkspace workspace, CancellationToken token)
+    {
+        var state = UyaMobySoundImportService.NormalizeLegacyRemaps(workspace.Content.Sounds);
+        if (ReferenceEquals(state, workspace.Content.Sounds)
+            && state.Programs.All(value => value.Provenance.Origin == ProjectSoundOrigin.Base)) return null;
+        var composed = await ComposeBankAsync(workspace,
+            await SoundWorkspaceService.ReadSoundBankAsync(workspace.RootPath, token), null, token,
+            enforceSpuBudget: false);
+        ProjectSoundRemapSlot Slot(ProjectSoundRemapSlot value) => value.Sound is { } sound
+            ? value with { NativeProgramIndex = composed.Plan.ProgramSlots[sound.Id] } : value;
+        return new(composed.BankBytes, state with
+        {
+            Programs = composed.Programs.Select((program, index) => program with
+            {
+                Provenance = program.Provenance with { NativeIndex = index },
+            }).ToArray(),
+            MobyRemaps = state.MobyRemaps.Select(map => map with { Slots = map.Slots.Select(Slot).ToArray() }).ToArray(),
+            GlobalRemaps = state.GlobalRemaps.Select(Slot).ToArray(),
+        });
+    }
+
+    private sealed record BankComposition(byte[] BankBytes, bool BankChanged,
+        UyaSoundCompositionPlan Plan, IReadOnlyList<ProjectSoundProgram> Programs);
+
+    private static IReadOnlySet<AssetId> RequiredPrograms(
+        ProjectSoundState state, IReadOnlyList<ProjectMobySoundMap> packedMaps, CancellationToken token)
+    {
+        var programs = state.Programs.Where(value => value.Asset is not null)
+            .GroupBy(value => value.Asset!.Id).ToDictionary(value => value.Key, value => value.First());
+        var basePrograms = state.Programs.Where(value => value.Provenance.Origin == ProjectSoundOrigin.Base);
+        var pending = new Stack<AssetId>(packedMaps.SelectMany(value => value.Slots)
+            .Concat(state.GlobalRemaps).Where(value => value.Sound is not null).Select(value => value.Sound!.Id)
+            .Concat(basePrograms.Where(value => value.Asset is not null).Select(value => value.Asset!.Id))
+            .Concat(basePrograms.SelectMany(value => value.Operations)
+                .Where(value => value.ReferencedProgram is not null).Select(value => value.ReferencedProgram!.Id)));
+        var required = new HashSet<AssetId>();
+        while (pending.TryPop(out var id))
+        {
+            token.ThrowIfCancellationRequested();
+            if (!required.Add(id)) continue;
+            if (!programs.TryGetValue(id, out var program))
+                throw new InvalidDataException($"Project sound graph contains a missing program dependency {id}.");
+            foreach (var operation in program.Operations)
+                if (operation.ReferencedProgram is { } reference) pending.Push(reference.Id);
+        }
+        return required;
+    }
+
+    private static async Task<BankComposition> ComposeBankAsync(
+        ForgeProjectWorkspace workspace, byte[] sourceBankBytes,
+        IReadOnlySet<AssetId>? requiredPrograms, CancellationToken cancellationToken, bool enforceSpuBudget = true)
+    {
         var state = workspace.Content.Sounds;
         if (state.Programs.Count == 0)
             throw new InvalidDataException("Project sound inventory is missing.");
@@ -54,7 +163,8 @@ internal static class UyaSoundCompositionService
             if (program.Asset is { } asset) keyByAsset.TryAdd(asset.Id, key);
         }
         foreach (var group in state.Programs
-            .Where(value => value.Provenance.Origin != ProjectSoundOrigin.Base && value.Asset is not null)
+            .Where(value => value.Provenance.Origin != ProjectSoundOrigin.Base && value.Asset is { } asset
+                && (requiredPrograms is null || requiredPrograms.Contains(asset.Id)))
             .GroupBy(value => value.Asset!.Id)
             .OrderBy(value => value.Key.ToString(), StringComparer.Ordinal))
         {
@@ -79,30 +189,13 @@ internal static class UyaSoundCompositionService
         var bankChanged = programInputs.Length != source.Programs.Count;
         var bank = bankChanged
             ? SoundBankComposer.Compose(
-                GameId.UYA, sourceBankBytes, programInputs, samples, cancellationToken).BankBytes
+                GameId.UYA, sourceBankBytes, programInputs, samples, cancellationToken, enforceSpuBudget).BankBytes
             : sourceBankBytes;
         var indexByAsset = new Dictionary<AssetId, int>();
         for (var index = 0; index < selected.Count; index++)
             if (selected[index].Program.Asset is { } asset) indexByAsset.TryAdd(asset.Id, index);
 
-        var slotsByClass = state.MobyRemaps.ToDictionary(
-            value => value.ClassId,
-            value => (IReadOnlyList<int>)value.Slots.OrderBy(slot => slot.Slot)
-                .Select(slot => ResolveSlot(slot, indexByAsset, source.Programs.Count)).ToArray());
-        var globals = state.GlobalRemaps.OrderBy(value => value.Slot)
-            .Select(value => ResolveSlot(value, indexByAsset, source.Programs.Count)).ToArray();
-        var other = state.OpaqueOtherRange is not { } range
-            ? []
-            : sourceHeaderBytes.AsSpan(range.Offset, range.Length).ToArray();
-        if (other.Length != checked(state.OpaqueOtherRecordCount * 0x20))
-            throw new InvalidDataException("Project sound-remap opaque records do not match their retained source range.");
-        var remap = new SoundRemapComposition(programInputs.Length, slotsByClass, globals, other);
-        var remapChanged = RemapChanged(sourceHeaderBytes, source.Programs.Count, remap);
-        return new(
-            bank,
-            remap,
-            bankChanged,
-            remapChanged,
+        return new(bank, bankChanged,
             new(
                 source.Programs.Count,
                 reusedPrograms,
@@ -113,7 +206,7 @@ internal static class UyaSoundCompositionService
                         && value.Provenance.All(provenance => provenance.Origin != ProjectSoundOrigin.Base))
                     .Select(value => value.Asset.Id)
                     .OrderBy(value => value.ToString(), StringComparer.Ordinal).ToArray(),
-                bank.Length));
+                bank.Length), selected.Select(value => value.Program).ToArray());
     }
 
     private static async Task<SoundBankSampleInput[]> BuildSamplesAsync(

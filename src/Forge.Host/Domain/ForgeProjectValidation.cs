@@ -227,7 +227,7 @@ internal static partial class ForgeProjectValidation
                 || !Enum.IsDefined(allocation.Provenance.Origin)
                 || (allocation.Provenance.Origin == ProjectCustomClassOrigin.ImportedModel
                     && allocation.Provenance.SourceClassId is not null)
-                || (allocation.Provenance.Origin == ProjectCustomClassOrigin.DonorMap
+                || (allocation.Provenance.Origin is ProjectCustomClassOrigin.DonorMap or ProjectCustomClassOrigin.ConvertedAsset
                     && allocation.Provenance.SourceClassId is null or < 0))
                 throw new InvalidDataException("Project custom class allocation is invalid.");
             var asset = assets.SingleOrDefault(value => value.Id == allocation.Asset.Id);

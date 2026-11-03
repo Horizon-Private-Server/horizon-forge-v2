@@ -153,6 +153,12 @@ export function encodeEditorCommand(value: EditorCommand): Buffer {
     writer.writeString(value.placement.kind);
     writer.writeUInt32(value.placement.classId);
     writeTransform(writer, value.placement.transform);
+    writer.writeBoolean(value.placement.source !== undefined);
+    if (value.placement.source) {
+      const source = value.placement.source;
+      for (const part of [source.game, source.region, source.revision, source.level, source.archive]) writer.writeString(part);
+      writer.writeUInt32(source.sourceIndex);
+    }
   }
   writer.writeBoolean(value.kind === 'addSkyShellFromAsset');
   if (value.kind === 'addSkyShellFromAsset') {
@@ -567,10 +573,11 @@ export function decodeEditorSnapshot(payload: Uint8Array): EditorSnapshot {
     code: reader.readString(), severity: enumValue(severities, reader.readUInt32(), 'diagnostic severity'),
     message: reader.readString(),
   }));
+  const soundRevision = reader.readString();
   reader.complete();
   return {
     projectPath, projectId, projectName, target, baseLevel, levelSettings, hud, fx, customModels, entities, references, groups, mapGroups, groupTemplates, importBatches, selection, isDirty,
-    canUndo, canRedo, canPaste, lastEventSequence, capabilities, tools, diagnostics,
+    canUndo, canRedo, canPaste, lastEventSequence, capabilities, tools, diagnostics, soundRevision,
   };
 }
 

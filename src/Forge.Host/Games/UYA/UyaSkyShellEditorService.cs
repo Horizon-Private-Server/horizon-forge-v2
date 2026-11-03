@@ -9,6 +9,29 @@ internal static class UyaSkyShellEditorService
 {
     private const float RuntimeFrameRate = 60f;
 
+    internal static (bool CanPlace, string? DisabledReason) PlacementCompatibility(
+        AssetCatalogEntry entry,
+        string targetRegion,
+        string targetRevision,
+        bool blobAvailable,
+        int? shellIndex,
+        uint currentShellCount)
+    {
+        if (!blobAvailable) return (false, "The catalog blob is missing.");
+        if (shellIndex is null) return (false, "The source shell index is unavailable.");
+        if (targetRegion != "NTSC-U")
+            return (false, $"Sky shell editing is not supported for UYA {targetRegion}.");
+        if (!entry.Sources.Any(source => source.Game == "UYA"
+                && source.Region == targetRegion && source.Revision == targetRevision)
+            && !entry.Sources.Any(source => source is { Game: "DL", Region: "NTSC-U", Revision: "1.00" }
+                && targetRevision == "1.00" && entry.CanonicalFormatVersion == 0))
+            return (false, $"The shell is not compatible with UYA {targetRegion} {targetRevision}.");
+        if (currentShellCount >= SkyboxFormat.MaxShellCount)
+            return (false, $"Maximum of {SkyboxFormat.MaxShellCount} sky shells reached. " +
+                "Delete an existing shell before adding another.");
+        return (true, null);
+    }
+
     public static async Task<IReadOnlyList<EntityId>> ExecuteAsync(
         ForgeProjectWorkspace workspace,
         string catalogRootPath,
@@ -36,7 +59,7 @@ internal static class UyaSkyShellEditorService
                     "sky",
                     ProjectTransform.Identity,
                     new(source.AssetId, AssetKind.Sky),
-                    new("UYA", resolved.Level, "level_wad/assets/sky", source.ShellIndex),
+                    new(resolved.Game, resolved.Level, "level_wad/assets/sky", source.ShellIndex),
                     SkyShell: new(
                         source.ShellIndex,
                         order,
@@ -45,7 +68,27 @@ internal static class UyaSkyShellEditorService
                             SkyboxFormat.RotationTickRadians * RuntimeFrameRate)));
                 await ComposeAsync(
                     workspace, catalog, workspace.Content.Entities.Append(entity).ToArray(), cancellationToken);
-                workspace.AddEntity(entity);
+                if (resolved.OriginalBytes is { } original)
+                {
+                    var attachments = new ProjectAssetAttachmentCollector();
+                    attachments.Attach(AssetKind.Sky, 0, original);
+                    var id = AssetId.Compute(AssetKind.Sky, 0, resolved.Bytes);
+                    var content = workspace.Content with
+                    {
+                        Entities = workspace.Content.Entities.Append(entity).ToArray(),
+                    };
+                    if (id != source.AssetId)
+                    {
+                        var existing = workspace.Content.Assets.SingleOrDefault(value => value.Id == id);
+                        var replacement = attachments.Attach(AssetKind.Sky, 0, resolved.Bytes, existing is null ? source.AssetId : existing.ParentId);
+                        var reference = new ProjectAssetReference(source.AssetId, AssetKind.Sky);
+                        content = content with { AssetOverrides = content.AssetOverrides.Where(value => value.Source != reference)
+                            .Append(new(ProjectAssetOverrideSchema.CurrentVersion, reference, replacement)).ToArray(),
+                        };
+                    }
+                    await workspace.CommitAssetsAsync(content, attachments.Attachments, cancellationToken);
+                }
+                else workspace.AddEntity(entity);
                 return [entity.EntityId];
             }
             case EditorCommandKind.UpdateSkyShell:
@@ -203,6 +246,9 @@ internal static class UyaSkyShellEditorService
             .ThenBy(value => value.Archive, StringComparer.Ordinal)
             .ThenBy(value => value.SourceIndex)
             .FirstOrDefault();
+        source ??= entry?.Sources.Where(value => value is { Game: "DL", Region: "NTSC-U", Revision: "1.00" }
+                && workspace.Manifest.Target.Revision == "1.00" && entry.CanonicalFormatVersion == 0)
+            .OrderBy(value => value.Level, StringComparer.Ordinal).FirstOrDefault();
         if (source is null && (!workspace.Content.Assets.Any(value => value.Id == assetId)
                 || attachedSourceLevel is null))
             throw new InvalidDataException($"Sky asset {assetId} is incompatible with the active project target.");
@@ -211,9 +257,16 @@ internal static class UyaSkyShellEditorService
         var bytes = await AssetCatalogBlobReader.ReadVerifiedAsync(
             resolved.Effective.Id, resolved.Effective.Kind, resolved.CanonicalFormatVersion, resolved.Size,
             resolved.Path, ForgeProjectWorkspace.MaxAttachedAssetBytes, cancellationToken);
+        byte[]? original = null;
+        if (source?.Game == "DL" && resolved.Effective.Id == assetId)
+        {
+            original = bytes;
+            bytes = await Task.Run(() => SkyboxComposer.Convert(GameId.DL, GameId.UYA,
+                original, ParseLevel(source.Level), cancellationToken), cancellationToken);
+        }
         using var stream = new MemoryStream(bytes, writable: false);
         var skybox = SkyboxReader.Read(stream, GameId.UYA);
-        return new(bytes, skybox, source is null ? attachedSourceLevel!.Value : ParseLevel(source.Level));
+        return new(bytes, skybox, source is null ? attachedSourceLevel!.Value : ParseLevel(source.Level), original, source?.Game ?? "UYA");
     }
 
     private static int ParseLevel(string value)
@@ -243,5 +296,5 @@ internal static class UyaSkyShellEditorService
         return ticks * unit;
     }
 
-    private sealed record ResolvedSky(byte[] Bytes, Skybox Skybox, int Level);
+    private sealed record ResolvedSky(byte[] Bytes, Skybox Skybox, int Level, byte[]? OriginalBytes = null, string Game = "UYA");
 }

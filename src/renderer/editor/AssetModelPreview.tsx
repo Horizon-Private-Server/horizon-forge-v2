@@ -6,12 +6,14 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 import type { AssetModelKind, AssetPreviewSource } from '../../types/AssetExplorer.js';
+import type { EditorEntity } from '../../types/EditorRuntime.js';
 import { errorMessage } from '../../utils/Errors.ts';
 import { configurePs2AssetPreview } from '../../utils/Ps2Materials.ts';
 import { disposeObject, frameCameraOnObject } from '../../utils/Scene.ts';
 import { configureSkybox } from '../../utils/SkyboxScene.ts';
 
 import { useLoggedMessage } from '../log/UseLog.ts';
+import { createTfragPreview } from './TfragTemplates.ts';
 
 interface AssetModelPreviewProps {
   assetId: string;
@@ -21,11 +23,14 @@ interface AssetModelPreviewProps {
   customView?: 'source' | 'target';
   previewRevision?: string;
   onSource?: (source: AssetPreviewSource) => void;
+  terrainSource?: { url: string; entity: EditorEntity };
 }
 
 export function AssetModelPreview({
-  assetId, kind, label, shellIndex, customView, previewRevision, onSource,
+  assetId, kind, label, shellIndex, customView, previewRevision, onSource, terrainSource,
 }: AssetModelPreviewProps) {
+  const terrainUrl = terrainSource?.url;
+  const terrainEntity = terrainSource?.entity;
   const container = useRef<HTMLDivElement>(null);
   const resetView = useRef<() => void>(() => undefined);
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -48,6 +53,7 @@ export function AssetModelPreview({
     if (!element || !visible) return;
     let disposed = false;
     let root: THREE.Object3D | undefined;
+    let terrainResources: THREE.Object3D | undefined;
     let updateSky: ((deltaSeconds: number) => void) | undefined;
     let renderer: THREE.WebGLRenderer;
     try {
@@ -121,17 +127,23 @@ export function AssetModelPreview({
       event.preventDefault();
     };
     renderer.domElement.addEventListener('keydown', keyDown);
-    void window.forge.getAssetPreview(assetId, kind, requestToken, shellIndex, customView).then((source) => {
-      if (disposed) return;
-      onSource?.(source);
-      return new GLTFLoader().loadAsync(source.url);
-    }).then((gltf) => {
+    const model = terrainUrl ? new GLTFLoader().loadAsync(terrainUrl)
+      : window.forge.getAssetPreview(assetId, kind, requestToken, shellIndex, customView).then((source) => {
+        if (disposed) return;
+        onSource?.(source);
+        return new GLTFLoader().loadAsync(source.url);
+      });
+    void model.then((gltf) => {
       if (!gltf) return;
       root = gltf.scene;
       if (disposed) {
         disposeObject(root);
         root = undefined;
         return;
+      }
+      if (terrainUrl && terrainEntity) {
+        terrainResources = root;
+        root = createTfragPreview(root, terrainUrl, terrainEntity);
       }
       if (!configurePs2AssetPreview(root, kind)) throw new Error('Asset has no renderable mesh data.');
       if (kind === 'sky') updateSky = configureSkybox(root).update;
@@ -147,19 +159,22 @@ export function AssetModelPreview({
 
     return () => {
       disposed = true;
-      void window.forge.cancelAssetPreview(requestToken);
+      if (!terrainUrl) void window.forge.cancelAssetPreview(requestToken);
       resetView.current = () => undefined;
       observer.disconnect();
       controls.removeEventListener('change', invalidate);
       if (animationFrame) cancelAnimationFrame(animationFrame);
       renderer.domElement.removeEventListener('keydown', keyDown);
       controls.dispose();
-      if (root) disposeObject(root);
+      if (terrainResources) {
+        if (root && root !== terrainResources) terrainResources.add(root);
+        disposeObject(terrainResources);
+      } else if (root) disposeObject(root);
       renderer.dispose();
       renderer.forceContextLoss();
       renderer.domElement.remove();
     };
-  }, [assetId, customView, kind, label, onSource, previewRevision, retry, shellIndex, visible]);
+  }, [assetId, customView, kind, label, onSource, previewRevision, retry, shellIndex, terrainEntity, terrainUrl, visible]);
 
   return <div className="asset-model-preview">
     <div className="asset-model-preview-canvas" ref={container} />

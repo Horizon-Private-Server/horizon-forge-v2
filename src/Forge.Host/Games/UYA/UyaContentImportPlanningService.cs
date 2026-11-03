@@ -314,7 +314,7 @@ internal static partial class UyaContentImportPlanningService
     }
 
     internal static void ValidateSourceIdentity(
-        UyaIsoIdentity identity,
+        IsoIdentity identity,
         string expectedFingerprint,
         string targetFingerprint)
     {

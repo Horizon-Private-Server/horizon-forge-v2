@@ -253,6 +253,9 @@ internal static class EditorPayloadCodec
                 assetKind,
                 checked((int)reader.ReadUInt32()),
                 ReadTransform(ref reader));
+            if (reader.ReadBoolean()) placement = placement with { Source = new(
+                reader.ReadString(), reader.ReadString(), reader.ReadString(), reader.ReadString(), reader.ReadString(),
+                checked((int)reader.ReadUInt32())) };
         }
         var skyShellSource = reader.ReadBoolean()
             ? new EditorSkyShellSource(AssetId.Parse(reader.ReadString()), checked((int)reader.ReadUInt32()))
@@ -568,6 +571,7 @@ internal static class EditorPayloadCodec
             writer.WriteUInt32((uint)diagnostic.Severity);
             writer.WriteString(diagnostic.Message);
         }
+        writer.WriteString(value.SoundRevision);
         return writer.ToArray();
     }
 

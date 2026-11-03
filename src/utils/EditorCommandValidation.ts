@@ -1,6 +1,7 @@
 import type {
   EditorCommand, EditorGroupTemplateRequest, EditorLevelSettings,
 } from '../types/EditorRuntime.js';
+import { isAssetSourceSelection } from './AssetExplorer.ts';
 
 const commandKinds = new Set([
   'setSelection', 'renameProject', 'updateTransform', 'updateTransforms',
@@ -327,7 +328,8 @@ function isAssetPlacement(value: unknown): boolean {
     && ['Tie', 'Shrub', 'Moby'].includes(String(placement.kind))
     && Number.isInteger(placement.classId) && Number(placement.classId) >= 0
     && Number(placement.classId) <= 0xffff
-    && isTransform(placement.transform);
+    && isTransform(placement.transform)
+    && (placement.source === undefined || isAssetSourceSelection(placement.source));
 }
 
 function isTransform(value: unknown): boolean {

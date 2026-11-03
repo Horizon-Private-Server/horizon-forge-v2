@@ -1,7 +1,10 @@
 using Forge.Host.Games.UYA;
 using System.Buffers.Binary;
 using Forge.Host.Domain;
+using RatchetPs2.Core.Games;
 using RatchetPs2.Games.UYA.Level;
+using RatchetPs2.Sdk;
+using System.Text.Json;
 
 namespace Forge.Host.ProtocolTests.Games.UYA;
 
@@ -26,6 +29,10 @@ internal static class UyaAssetImportTests
             var request = new UyaAssetImportRequest(
                 "synthetic.iso", root, new string('a', 32), "1.00", "test-importer-v0");
             var isoBytes = CreateIso();
+            var wad = LevelArchiveReader.ExtractPrimary(GameId.UYA, new MemoryStream(isoBytes), 1);
+            Equal(JsonSerializer.Serialize(LevelAssetExtractor.ExtractLevelWad(GameId.UYA, wad)),
+                JsonSerializer.Serialize(LevelAssetExtractor.ExtractUnpacked(GameId.UYA, UyaLevelWadUnpacker.Unpack(wad).Files)),
+                "reusing unpacked files preserves the complete extraction result");
             var cancellation = new CancellationTokenSource();
             await ThrowsCancelledAsync(() => UyaAssetImportService.ImportValidatedAsync(
                 new MemoryStream(isoBytes, writable: false),
@@ -116,7 +123,7 @@ internal static class UyaAssetImportTests
         string root,
         UyaAssetImportRequest request,
         byte[] isoBytes,
-        UyaAssetImportResult expected)
+        AssetImportResult expected)
     {
         var failedRoot = Path.Combine(root, "failed-publication");
         var blockedCatalog = Path.Combine(failedRoot, "catalog-v0.json");

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import type { AssetExplorerSource } from '../../types/AssetExplorer.js';
 import type { SoundProgramEntry, SoundWorkspace } from '../../types/SoundWorkspace.js';
+import { assetExplorerSourceKey } from '../../utils/AssetExplorer.ts';
 import { errorMessage } from '../../utils/Errors.ts';
 import { readSoundPreviewPreferences } from '../../utils/SoundPreviewPreferences.ts';
 import { forgeLog } from '../log/LogStore.ts';
@@ -20,10 +21,11 @@ interface MobySoundButtonsProps {
   assetId: string;
   classId: number;
   projectId: string;
+  soundRevision?: string;
   sources: AssetExplorerSource[];
 }
 
-export function MobySoundButtons({ assetId, classId, projectId, sources }: MobySoundButtonsProps) {
+export function MobySoundButtons({ assetId, classId, projectId, soundRevision, sources }: MobySoundButtonsProps) {
   const [workspace, setWorkspace] = useState<SoundWorkspace>();
   const [loadingError, setLoadingError] = useLoggedMessage('Moby sounds');
   const [entryError, setEntryError] = useState<{ nativeIndex: number; message: string }>();
@@ -33,6 +35,7 @@ export function MobySoundButtons({ assetId, classId, projectId, sources }: MobyS
   const [activeCatalogSource, setActiveCatalogSource] = useState('');
   const playGeneration = useRef(0);
   const catalogSources = sources.filter((source) => source.mobySounds !== undefined);
+  const useProjectSounds = sources.length === 0;
 
   useEffect(() => {
     let disposed = false;
@@ -49,7 +52,7 @@ export function MobySoundButtons({ assetId, classId, projectId, sources }: MobyS
     );
     runtime.current = nextRuntime;
     void Promise.all([
-      catalogSources.length === 0 ? window.forge.getSoundWorkspace() : Promise.resolve(undefined),
+      useProjectSounds ? window.forge.getSoundWorkspace() : Promise.resolve(undefined),
       window.forge.getSettings(),
     ])
       .then(([soundWorkspace, settings]) => {
@@ -65,7 +68,7 @@ export function MobySoundButtons({ assetId, classId, projectId, sources }: MobyS
       if (runtime.current === nextRuntime) runtime.current = undefined;
       void nextRuntime.dispose();
     };
-  }, [projectId, catalogSources.length]);
+  }, [projectId, useProjectSounds, useProjectSounds ? soundRevision : undefined]);
 
   useEffect(() => {
     ++playGeneration.current;
@@ -110,17 +113,20 @@ export function MobySoundButtons({ assetId, classId, projectId, sources }: MobyS
       {catalogSources.length > 0 && <Badge variant="light">
         {catalogSources.reduce((count, source) => count + (source.mobySounds?.slots.length ?? 0), 0)}
       </Badge>}
-      {catalogSources.length === 0 && workspace && <Badge variant="light">{slots.length}</Badge>}
+      {useProjectSounds && workspace && <Badge variant="light">{slots.length}</Badge>}
     </Group>
-    {catalogSources.length === 0 && !workspace && !loadingError
+    {useProjectSounds && !workspace && !loadingError
       && <Text c="dimmed" size="sm">Reading sound remaps…</Text>}
     {loadingError && <Text c="dimmed" size="sm">Sound remaps unavailable. See Log.</Text>}
-    {catalogSources.length === 0 && workspace && slots.length === 0 && <Text c="dimmed" size="sm">
+    {useProjectSounds && workspace && slots.length === 0 && <Text c="dimmed" size="sm">
       This moby has no sound remaps in the current level.
+    </Text>}
+    {!useProjectSounds && catalogSources.length === 0 && <Text c="dimmed" size="sm">
+      This source has no sound remaps.
     </Text>}
     {catalogSources.map((source) => {
       const sounds = source.mobySounds!;
-      const sourceKey = `${source.game}:${source.revision}:${source.level}:${sounds.bankAssetId}`;
+      const sourceKey = assetExplorerSourceKey(source);
       return <Stack gap={4} key={sourceKey}>
         <Text c="dimmed" size="xs">{source.game} · {source.level}</Text>
         {sounds.slots.length === 0
@@ -148,7 +154,7 @@ export function MobySoundButtons({ assetId, classId, projectId, sources }: MobyS
           })}</Group>}
       </Stack>;
     })}
-    {catalogSources.length === 0 && slots.length > 0 && <Group gap="xs" wrap="wrap">
+    {useProjectSounds && slots.length > 0 && <Group gap="xs" wrap="wrap">
       {slots.map(({ slot, program }) => {
         const active = playback.nativeIndex === program.nativeIndex;
         const stopping = active && playback.playing;

@@ -2,6 +2,7 @@ import type {
   AssetModelPlacementDragData, AssetPlacementDragData, AssetSkyShellDragData, AssetTfragPlacementDragData,
 } from '../types/AssetExplorer.js';
 import type { EditorCommand, EditorEntity, ProjectVector3 } from '../types/EditorRuntime.js';
+import { isAssetSourceSelection } from './AssetExplorer.ts';
 
 export const ASSET_PLACEMENT_MIME = 'application/x-horizon-forge-asset';
 export const SKY_SHELL_PLACEMENT_MIME = 'application/x-horizon-forge-sky-shell';
@@ -26,6 +27,7 @@ export function readAssetPlacementDrag(data: DataTransfer): AssetPlacementDragDa
         ? value as unknown as AssetTfragPlacementDragData : undefined;
     return ['tie', 'shrub', 'moby'].includes(String(value.kind))
       && Number.isInteger(value.classId) && Number(value.classId) >= 0 && Number(value.classId) <= 0xffff
+      && (value.source === undefined || isAssetSourceSelection(value.source))
       ? value as unknown as AssetModelPlacementDragData : undefined;
   } catch {
     return undefined;
@@ -64,6 +66,7 @@ export function createAssetPlacementCommand(asset: AssetModelPlacementDragData, 
     entityIds: [],
     placement: {
       assetId: asset.assetId,
+      ...(asset.source ? { source: asset.source } : {}),
       kind: asset.kind === 'tie' ? 'Tie' : asset.kind === 'shrub' ? 'Shrub' : 'Moby',
       classId: asset.classId,
       transform: {

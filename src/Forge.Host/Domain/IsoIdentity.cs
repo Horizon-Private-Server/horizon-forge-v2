@@ -1,6 +1,6 @@
-namespace Forge.Host.Games.UYA;
+namespace Forge.Host.Domain;
 
-public sealed record UyaIsoIdentity(
+public sealed record IsoIdentity(
     bool IsSupported,
     string Game,
     string Region,

@@ -1,4 +1,5 @@
 using Forge.Host.Domain;
+using Forge.Host.Games.UYA;
 
 namespace Forge.Host.Bridge;
 
@@ -12,7 +13,7 @@ internal static class SoundBridgeHandlers
         BridgeOpcode.QuerySoundWorkspace => await runtime.ReadWorkspaceAsync(
             async (workspace, token) => SoundPayloadCodec.EncodeWorkspace(
                 await SoundWorkspaceService.ReadAsync(
-                    RequireEmpty(frame.Payload, workspace), token)), cancellationToken),
+                    RequireEmpty(frame.Payload, workspace), token, await PreparePreviewAsync(workspace, token))), cancellationToken),
         BridgeOpcode.RenderSoundPreview => await RenderPreviewAsync(frame.Payload, runtime, cancellationToken),
         _ => throw new BridgeProtocolException(BridgeErrorCode.UnknownOpcode, $"Unsupported sound opcode: {frame.Opcode}"),
     };
@@ -29,8 +30,12 @@ internal static class SoundBridgeHandlers
                 request.NativeIndex, request.PreferAudible, cancellationToken));
         return await runtime.ReadWorkspaceAsync(async (workspace, token) =>
             SoundPayloadCodec.EncodePreview(await SoundWorkspaceService.RenderPreviewAsync(
-                workspace, request.NativeIndex, request.PreferAudible, token)), cancellationToken);
+                workspace, request.NativeIndex, request.PreferAudible, token, await PreparePreviewAsync(workspace, token))), cancellationToken);
     }
+
+    private static Task<ProjectSoundPreviewBank?> PreparePreviewAsync(ForgeProjectWorkspace workspace, CancellationToken token) =>
+        workspace.Manifest.Target.Game == "UYA" ? UyaSoundCompositionService.PreparePreviewAsync(workspace, token)
+            : Task.FromResult<ProjectSoundPreviewBank?>(null);
 
     private static ForgeProjectWorkspace RequireEmpty(byte[] payload, ForgeProjectWorkspace workspace)
     {

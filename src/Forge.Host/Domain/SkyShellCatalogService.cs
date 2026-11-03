@@ -56,7 +56,8 @@ public static class SkyShellCatalogService
             var path = catalog.ResolveBlobPath(entry.Id);
             var indexes = ShellIndexes(entry).ToArray();
             if (indexes.Length == 0 && path is not null)
-                indexes = await ReadShellIndexesAsync(entry, path, game, cancellationToken);
+                indexes = await ReadShellIndexesAsync(entry, path,
+                    Enum.TryParse<GameId>(entry.Sources.FirstOrDefault()?.Game, out var sourceGame) ? sourceGame : game, cancellationToken);
             if (indexes.Length == 0) indexes = [-1];
             foreach (var index in indexes)
             {

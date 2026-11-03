@@ -80,13 +80,13 @@ internal static class UyaSoundProjectTests
         var workspace = await CreateWorkspaceAsync(projectPath);
         await workspace.SetSoundsAsync(target);
         var unchanged = await UyaSoundCompositionService.ComposeAsync(
-            workspace, targetBankBytes, targetHeaderBytes, CancellationToken.None);
+            workspace, targetBankBytes, targetHeaderBytes, targetHeaderBytes, CancellationToken.None);
         Equal(false, unchanged.BankChanged, "no-edit sound composition retains the source bank");
         Equal(targetBankBytes, unchanged.BankBytes, "no-edit sound composition is byte exact");
         await workspace.SetSoundsAsync(state, plan.Attachments);
 
         var composition = await UyaSoundCompositionService.ComposeAsync(
-            workspace, targetBankBytes, targetHeaderBytes, CancellationToken.None);
+            workspace, targetBankBytes, targetHeaderBytes, targetHeaderBytes, CancellationToken.None);
         var output = SoundBankReader.Inspect(GameId.UYA, composition.BankBytes);
         Equal(true, composition.BankChanged, "imported sound marks the target bank changed");
         Equal(targetBank.Programs.Count + 1, output.Programs.Count,

@@ -15,6 +15,14 @@ export function tfragSourceIndex(url: string): number | undefined {
   return /\/tfrag\/tfrag\.gltf$/i.test(path) ? 0 : undefined;
 }
 
+export function createTfragPreview(scene: THREE.Object3D, url: string, entity: EditorEntity): THREE.Object3D {
+  const templates = new Map<string, THREE.Object3D>();
+  addTfragTemplates(scene, url, [entity], templates);
+  const preview = entity.asset && templates.get(entity.asset.id);
+  if (!preview) throw new Error('The selected terrain piece is missing from the current render package.');
+  return preview;
+}
+
 export function addTfragTemplates(
   scene: THREE.Object3D,
   url: string,

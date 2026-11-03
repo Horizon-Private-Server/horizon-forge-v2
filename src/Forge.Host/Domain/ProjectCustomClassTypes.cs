@@ -11,6 +11,7 @@ public enum ProjectCustomClassOrigin
 {
     ImportedModel,
     DonorMap,
+    ConvertedAsset,
 }
 
 public sealed record ProjectCustomClassProvenance(

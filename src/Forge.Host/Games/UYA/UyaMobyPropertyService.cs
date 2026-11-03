@@ -22,8 +22,9 @@ internal static class UyaMobyPropertyService
 
     public static IReadOnlyList<EditorMobyPropertyDescriptor>? Describe(ProjectEntity entity)
     {
-        if (entity.Asset is { Kind: not AssetKind.Moby }
-            || entity.Provenance is not { Game: "UYA", Section: "gameplay/core/moby_instances" }
+        if (entity.Layer != "mobys" || entity.Asset is { Kind: not AssetKind.Moby }
+            || entity.Provenance is not null
+                and not { Game: "UYA", Section: "gameplay/core/moby_instances" }
             || entity.Source?.RawRecord.Length != UyaMobyInstancesReader.RecordSize)
             return null;
         var value = UyaMobyInstancesReader.ReadInstance(entity.Source.RawRecord);

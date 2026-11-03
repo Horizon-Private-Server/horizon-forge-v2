@@ -171,15 +171,21 @@ are four non-negative `s16` values:
 4. global sound-ID count.
 
 Bytes `0x08..otherOffset` are one four-byte record per moby definition: an `s16` offset
-and `s16` count selecting an ordered list of 32-bit sound indexes. A positive count
+and `s16` count selecting a list of 32-bit words. A positive count
 requires a nonzero bounded offset. A zero count ignores its offset; the corpus contains
 unused nonzero values there, so writers preserve them rather than interpreting them.
-Corpus moby slots contain either `-1` or an index in the matching bank; `-1` is the
-only proven nullable sentinel. Global IDs are also 32-bit bank indexes. The 32-byte
+The first word is a bank selector, included in the count; the native loader adds one
+to it, so `-1` selects the primary level bank at runtime index zero. The remaining
+words are ordered sound slots, containing either `-1` or a program index. The selector
+is excluded from typed sound-slot inventories. Secondary-bank selectors are unsupported.
+Global IDs are 32-bit program indexes without a bank-selector prefix. The 32-byte
 other records are preserved as opaque until their owner and fields are proven.
 SDK composition rebuilds the ordered moby lists against final program slots, preserves
 opaque other records and global-list semantics, appends the rebuilt block to the asset
 header, patches the owning offset, and semantically re-reads the result.
+Runtime qualification also reads the selector and slots directly as the UYA loader
+does, independently of SDK inventory readback. Existing projects repair the old
+selector-as-slot inventory using its retained source ranges before composition.
 
 Typed project links use `(owner class, remap slot) -> Sound Asset ID`. Native sound
 indexes remain provenance/output allocation only. A missing, wrong-bank, or non-`-1`
@@ -231,6 +237,10 @@ graphs are rejected in v1 rather than assigned order-dependent IDs.
   tone metadata, remap links, and opaque retained regions.
 - Every untouched entry/sample preserves its encoded bytes. Unsupported or ambiguous
   content blocks a composition that would require relocating or rewriting it.
+- Packing retains the base bank and adds only imported programs reachable from packed
+  moby sound maps, global remaps, or retained programs, including their child programs
+  and samples. Sounds belonging only to deleted mobys remain in project state for
+  preview and undo, but are excluded from packed output.
 
 ## Bounds
 

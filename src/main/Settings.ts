@@ -284,6 +284,24 @@ function createDefinitions(paths: ApplicationPaths, defaultUpdateChannel: Update
       validate: (value): value is number => Number.isSafeInteger(value) && Number(value) >= 0,
     },
     {
+      key: 'imports.dl.enabled', group: 'Imports', label: 'Import DL assets', type: 'boolean',
+      description: 'Import reusable DL assets after setup.', defaultValue: false, restartRequired: false, machineSpecific: false,
+      editable: true,
+      validate: (value): value is boolean => typeof value === 'boolean',
+    },
+    {
+      key: 'imports.dl.completedFingerprint', group: 'Imports', label: 'Imported DL source', type: 'text',
+      description: 'Fingerprint of the DL source whose global import completed.', defaultValue: '', restartRequired: false, machineSpecific: true,
+      editable: false,
+      validate: (value): value is string => typeof value === 'string' && (value === '' || /^[0-9a-f]{32}$/i.test(value)),
+    },
+    {
+      key: 'imports.dl.completedVersion', group: 'Imports', label: 'DL import version', type: 'number',
+      description: 'Version of the completed DL global import.', defaultValue: 0, restartRequired: false, machineSpecific: true,
+      editable: false,
+      validate: (value): value is number => Number.isSafeInteger(value) && Number(value) >= 0,
+    },
+    {
       key: 'paths.projects', group: 'Paths', label: 'Projects directory', type: 'path',
       description: 'Default location for Forge projects.', defaultValue: paths.defaultProjects, restartRequired: false, machineSpecific: true,
       editable: true,
@@ -328,6 +346,42 @@ function createDefinitions(paths: ApplicationPaths, defaultUpdateChannel: Update
     },
     {
       key: 'sources.uya.fingerprint', group: 'Sources', label: 'Source MD5', type: 'text',
+      description: 'PCSX2/Redump-compatible data-track checksum.', defaultValue: '', restartRequired: false, machineSpecific: true, editable: false,
+      validate: (value): value is string => typeof value === 'string' && (value === '' || /^[0-9a-f]{32}$/i.test(value)),
+    },
+    {
+      key: 'sources.dl.iso', group: 'Sources', label: 'Clean DL ISO', type: 'path',
+      description: 'Verified clean NTSC-U source ISO; change it through Setup.', defaultValue: '', restartRequired: false, machineSpecific: true,
+      editable: false,
+      validate: absolutePath,
+    },
+    {
+      key: 'sources.dl.game', group: 'Sources', label: 'Source game', type: 'text',
+      description: 'Detected source game.', defaultValue: '', restartRequired: false, machineSpecific: true, editable: false,
+      validate: (value): value is string => typeof value === 'string' && (value === '' || value === 'DL'),
+    },
+    {
+      key: 'sources.dl.region', group: 'Sources', label: 'Source region', type: 'text',
+      description: 'Detected source region.', defaultValue: '', restartRequired: false, machineSpecific: true, editable: false,
+      validate: (value): value is string => typeof value === 'string',
+    },
+    {
+      key: 'sources.dl.revision', group: 'Sources', label: 'Source revision', type: 'text',
+      description: 'Detected source revision.', defaultValue: '', restartRequired: false, machineSpecific: true, editable: false,
+      validate: (value): value is string => typeof value === 'string',
+    },
+    {
+      key: 'sources.dl.serial', group: 'Sources', label: 'Source serial', type: 'text',
+      description: 'Detected source serial.', defaultValue: '', restartRequired: false, machineSpecific: true, editable: false,
+      validate: (value): value is string => typeof value === 'string',
+    },
+    {
+      key: 'sources.dl.size', group: 'Sources', label: 'Source size', type: 'number',
+      description: 'Verified source size in bytes.', defaultValue: 0, restartRequired: false, machineSpecific: true, editable: false,
+      validate: (value): value is number => Number.isSafeInteger(value) && Number(value) >= 0,
+    },
+    {
+      key: 'sources.dl.fingerprint', group: 'Sources', label: 'Source MD5', type: 'text',
       description: 'PCSX2/Redump-compatible data-track checksum.', defaultValue: '', restartRequired: false, machineSpecific: true, editable: false,
       validate: (value): value is string => typeof value === 'string' && (value === '' || /^[0-9a-f]{32}$/i.test(value)),
     },

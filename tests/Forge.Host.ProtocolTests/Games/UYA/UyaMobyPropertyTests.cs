@@ -14,6 +14,7 @@ internal static class UyaMobyPropertyTests
         Directory.CreateDirectory(root);
         try
         {
+            await VerifyPlacedInstancesAsync(root);
             var projectPath = Path.Combine(root, "project");
             var entity = Moby();
             var created = await ForgeProjectWorkspace.CreateAsync(
@@ -150,6 +151,51 @@ internal static class UyaMobyPropertyTests
         {
             Directory.Delete(root, recursive: true);
         }
+    }
+
+    private static async Task VerifyPlacedInstancesAsync(string root)
+    {
+        var path = Path.Combine(root, "placed");
+        var entities = new[] { 0x2079, 0x209a }.Select((classId, index) => Moby(index) with
+        {
+            Provenance = null,
+            Source = new(classId, UyaGameplayInstanceTemplates.CreateMoby(classId, index + 1)),
+        }).ToArray();
+        Equal<IReadOnlyList<EditorMobyPropertyDescriptor>?>(null,
+            UyaMobyPropertyService.Describe(entities[0] with { Layer = "ties" }),
+            "a native-sized record in another layer does not expose moby properties");
+        Equal<IReadOnlyList<EditorMobyPropertyDescriptor>?>(null,
+            UyaMobyPropertyService.Describe(entities[0] with
+            {
+                Provenance = new("DL", 1, "gameplay/core/moby_instances", 0),
+            }), "foreign instance provenance does not expose UYA properties");
+        await ForgeProjectWorkspace.CreateAsync(path, "Placed moby properties",
+            new("UYA", "NTSC-U", "1.00", "uya-ntsc-u"),
+            new("UYA", "NTSC-U", "1.00", 3, new string('e', 32)), entities);
+        await using var runtime = new EditorRuntime(
+            mobyPropertyResolver: UyaMobyPropertyService.Describe,
+            mobyPropertyCommandExecutor: UyaMobyPropertyService.ExecuteAsync);
+        var snapshot = await runtime.OpenAsync(path, TimeSpan.Zero);
+        Equal(true, snapshot.Entities.All(entity => entity.MobyProperties?.Count == 14),
+            "newly placed mobys expose all native instance properties without source provenance");
+        var original = snapshot.Entities[0].MobyProperties!.Single(value => value.Key == UyaMobyPropertyService.DrawDistance).Value.Integer;
+        snapshot = await runtime.ExecuteAsync(new(Guid.NewGuid().ToString("D"),
+            EditorCommandKind.SetMobyInstanceProperty, [entities[0].EntityId],
+            MobyPropertyEdit: new(UyaMobyPropertyService.DrawDistance, 0x2079,
+                new(EditorMobyPropertyValueKind.Integer, Integer: 4096))));
+        Equal(4096, snapshot.Entities[0].MobyProperties!.Single(value => value.Key == UyaMobyPropertyService.DrawDistance).Value.Integer,
+            "placed moby instance properties are editable");
+        snapshot = await runtime.ExecuteAsync(new(Guid.NewGuid().ToString("D"), EditorCommandKind.Undo, []));
+        Equal(original, snapshot.Entities[0].MobyProperties!.Single(value => value.Key == UyaMobyPropertyService.DrawDistance).Value.Integer,
+            "undo restores placed moby instance data");
+        await runtime.ExecuteAsync(new(Guid.NewGuid().ToString("D"), EditorCommandKind.Redo, []));
+        await runtime.SaveAsync();
+        var saved = await ForgeProjectWorkspace.OpenAsync(path);
+        var expected = entities[0].Source!.RawRecord.ToArray();
+        BinaryPrimitives.WriteInt32LittleEndian(expected.AsSpan(0x30), 4096);
+        Equal(true, saved.Content.Entities[0].Source!.RawRecord.SequenceEqual(expected)
+            && saved.Content.Entities[1].Source!.RawRecord.SequenceEqual(entities[1].Source!.RawRecord),
+            "save and reopen retain the placed instance edit without changing other native fields or mobys");
     }
 
     private static ProjectEntity Moby(int sourceIndex = 0)

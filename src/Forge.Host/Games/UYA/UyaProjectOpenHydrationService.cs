@@ -11,6 +11,11 @@ internal static class UyaProjectOpenHydrationService
         CancellationToken cancellationToken)
     {
         var diagnostics = new List<EditorDiagnostic>();
+        Add(diagnostics, await UyaMobySoundImportService.HydrateLegacyRemapsAsync(workspace, cancellationToken));
+        Add(diagnostics, await UyaConvertedMobyClassRepairService.HydrateAsync(workspace, cancellationToken));
+        if (catalog is not null)
+            Add(diagnostics, await UyaMobySoundImportService.HydrateConvertedAsync(workspace, catalog, cancellationToken));
+        Add(diagnostics, await UyaConvertedAssetRepairService.HydrateAsync(workspace, cancellationToken));
         Add(diagnostics, await UyaMobyPVarService.HydrateFromSourceAsync(workspace, mobyDex, cancellationToken));
         Add(diagnostics, await UyaTfragProjectService.HydrateAsync(workspace, catalog, cancellationToken));
         if (catalog is not null)

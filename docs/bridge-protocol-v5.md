@@ -12,6 +12,34 @@ The interoperability vectors in
 [`tests/fixtures/bridge-v5.json`](../tests/fixtures/bridge-v5.json) cover v5 framing.
 Earlier documents and fixtures remain historical compatibility records.
 
+## Asset setup operations
+
+Opcodes 45 (`ValidateSourceIso`) and 46 (`ImportAssets`) add game-neutral setup
+requests. Both accept a game string (`UYA` or `DL`) followed by the clean source ISO
+path. Import then carries the catalog root, expected MD5, revision (strings), and
+force-reimport flag (`bool`). Unknown games, malformed fields, and trailing bytes
+are rejected. Electron supplies the configured paths and verified source identity.
+
+Validation returns the existing disc identity payload. Import returns completed
+levels, total levels, asset appearances, unique assets, failures (`u32` each), and
+resumed (`bool`). Existing progress and cancellation frames apply to both requests.
+The host advertises `dl.iso.validate` and `dl.assets.import`, along with the
+supported model families. Existing UYA opcodes 2 and 4 remain available.
+
+DL assets use a distinct canonical model header (`HFDL01`) and provenance. Catalog
+previews dispatch to the source game's SDK converter. Dropping a supported DL tie,
+shrub, or moby into a UYA NTSC-U 1.00 project converts and attaches a native UYA copy,
+allocates a project class for ties/shrubs, preserves the source oClass for mobys,
+and records an override while preserving the original
+source identity. The conversion participates in placement undo/redo and normal UYA
+baking. Moby conversion preserves sound definitions and animation triggers, and
+placement imports referenced sound programs/samples and class remaps. DL setup
+imports core/mission sound banks and raw skies with shell aliases. Sky previews
+use source-game texture/rotation rules; shell placement attaches a UYA conversion.
+Game behavior is not ported; unreadable animations reject placement without
+changing project state. This does not enable
+DL project creation or baking.
+
 ## Occlusion coverage operations
 
 Opcodes 42 (`QueryOcclusionCoverage`) and 43 (`UpdateOcclusionCoverage`) are additive,

@@ -42,6 +42,9 @@ export interface KnownSettings {
   'imports.uya.enabled': boolean;
   'imports.uya.completedFingerprint': string;
   'imports.uya.completedVersion': number;
+  'imports.dl.enabled': boolean;
+  'imports.dl.completedFingerprint': string;
+  'imports.dl.completedVersion': number;
   'projects.applyGroupTemplatesOnCreate': boolean;
   'paths.projects': string;
   'preview.sound.ambientMuted': boolean;
@@ -56,6 +59,13 @@ export interface KnownSettings {
   'sources.uya.revision': string;
   'sources.uya.serial': string;
   'sources.uya.size': number;
+  'sources.dl.fingerprint': string;
+  'sources.dl.game': string;
+  'sources.dl.iso': string;
+  'sources.dl.region': string;
+  'sources.dl.revision': string;
+  'sources.dl.serial': string;
+  'sources.dl.size': number;
   'targets.uya.developmentIso': string;
   'ui.editorLayout': string;
   'ui.componentSize': UiSize;
@@ -152,7 +162,9 @@ export interface EditorLoadProgress extends Progress {
   status: 'loading' | 'error';
 }
 
-export interface UyaIsoIdentity {
+export type AssetSourceGame = 'UYA' | 'DL';
+
+export interface IsoIdentity {
   isSupported: boolean;
   game: string;
   region: string;
@@ -169,7 +181,7 @@ export interface DevelopmentIsoResult {
   fingerprint: string;
 }
 
-export interface UyaAssetImportResult {
+export interface AssetImportResult {
   completedLevels: number;
   totalLevels: number;
   assetAppearances: number;
@@ -265,21 +277,26 @@ export interface ProjectHubState {
   diagnostic?: string;
 }
 
+export interface SetupAssetSource {
+  iso: string;
+  identity?: Omit<IsoIdentity, 'isSupported' | 'diagnostic'>;
+  importEnabled: boolean;
+  importComplete: boolean;
+}
+
 export interface SetupState {
   required: boolean;
   projectsDirectory: string;
   developmentIsoDirectory: string;
-  sourceIso: string;
   developmentIso: string;
   developmentIsoReady: boolean;
-  importUyaAssets: boolean;
-  assetImportComplete: boolean;
-  source?: Omit<UyaIsoIdentity, 'isSupported' | 'diagnostic'>;
+  sources: Record<AssetSourceGame, SetupAssetSource>;
   availableBytes?: number;
 }
 
 export interface SetupProgress extends Progress {
   operation: 'validate' | 'copy' | 'import';
+  game?: AssetSourceGame;
 }
 
 export interface EditorSceneEnvironment {
@@ -342,9 +359,9 @@ export interface ForgeApi {
   runNotificationAction(id: string): Promise<void>;
   getSetupState(): Promise<SetupState>;
   chooseSetupDirectory(kind: 'projects' | 'developmentIsos'): Promise<SetupState>;
-  chooseUyaSource(): Promise<{ path: string; identity: UyaIsoIdentity } | undefined>;
+  chooseAssetSource(game: AssetSourceGame): Promise<{ path: string; identity: IsoIdentity } | undefined>;
   createDevelopmentIso(): Promise<DevelopmentIsoResult | undefined>;
-  importUyaAssets(force?: boolean): Promise<UyaAssetImportResult>;
+  importAssets(game: AssetSourceGame, force?: boolean): Promise<AssetImportResult>;
   getContentImportOptions(): Promise<ContentImportOptions>;
   planContentImport(sourceLevel: number, selections: ContentImportSelection[]): Promise<ContentImportPlan>;
   applyContentImport(

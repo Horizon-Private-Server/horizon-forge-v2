@@ -196,6 +196,7 @@ function ForgeApp({ uiSize, onUiSizeChange }: { uiSize: UiSize; onUiSizeChange(v
       <SettingsModal
         opened={settingsOpened}
         onClose={() => setSettingsOpened(false)}
+        onOpenSetup={() => setSetupOpened(true)}
         onKeybindingsChange={setKeybindings}
         sceneTreeColors={sceneTreeColors}
         onSceneTreeColorsChange={setSceneTreeColors}

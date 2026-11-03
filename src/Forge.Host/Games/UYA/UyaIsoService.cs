@@ -16,7 +16,7 @@ public static partial class UyaIsoService
     public static string SupportedMd5 => SupportedProfile.Md5;
     public static long SupportedSize => SupportedProfile.Size;
 
-    public static async Task<UyaIsoIdentity> ValidateAsync(
+    public static async Task<IsoIdentity> ValidateAsync(
         string sourcePath,
         Func<IsoProgress, ValueTask>? progress = null,
         CancellationToken cancellationToken = default,
@@ -30,28 +30,18 @@ public static partial class UyaIsoService
         return await ValidateAsync(source, progress, cancellationToken, expectedMd5, expectedSize);
     }
 
-    internal static async Task<UyaIsoIdentity> ValidateAsync(
+    internal static async Task<IsoIdentity> ValidateAsync(
         FileStream source,
         Func<IsoProgress, ValueTask>? progress = null,
         CancellationToken cancellationToken = default,
         string? expectedMd5 = null,
         long? expectedSize = null)
     {
-        expectedMd5 ??= SupportedMd5;
-        expectedSize ??= SupportedSize;
-        var disc = DiscImageInspector.Inspect(GameId.UYA, source);
-        var game = disc.Game?.ToString() ?? "Unknown";
-
-        var fingerprint = await HashAsync(source, progress, cancellationToken);
-        var supported = disc.Game == GameId.UYA && disc.Region == SupportedProfile.Region && source.Length == expectedSize
-            && fingerprint.Equals(expectedMd5, StringComparison.OrdinalIgnoreCase);
-        var diagnostic = supported
-            ? "Verified clean UYA NTSC-U disc."
-            : $"Unsupported disc: expected clean UYA NTSC-U {SupportedProfile.Serial}, {expectedSize} bytes, MD5 {expectedMd5}; found {disc.Serial} {disc.Region} revision {disc.Revision}, {source.Length} bytes, MD5 {fingerprint}.";
-        return new(supported, game, disc.Region, disc.Revision, disc.Serial, source.Length, fingerprint, diagnostic);
+        return await IsoSourceService.ValidateAsync(
+            GameId.UYA, source, progress, cancellationToken, expectedMd5, expectedSize);
     }
 
-    public static UyaIsoIdentity InspectDevelopment(
+    public static IsoIdentity InspectDevelopment(
         Stream source,
         long? expectedSize = null,
         bool allowLarger = false)

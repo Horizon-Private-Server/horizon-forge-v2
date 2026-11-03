@@ -26,8 +26,8 @@ import {
   decodeProgress,
   decodeText,
   decodeUyaAssetImportRequest,
-  decodeUyaAssetImportResult,
-  decodeUyaIsoValidation,
+  decodeAssetImportResult,
+  decodeIsoValidation,
   decodeForgeProjectDescriptor,
   decodeForgeProjectSummary,
   decodeProjectInspectRequest,
@@ -44,8 +44,8 @@ import {
   encodeProgress,
   encodeText,
   encodeUyaAssetImportRequest,
-  encodeUyaAssetImportResult,
-  encodeUyaIsoValidation,
+  encodeAssetImportResult,
+  encodeIsoValidation,
   encodeForgeProjectDescriptor,
   encodeForgeProjectSummary,
   encodeProjectInspectRequest,
@@ -112,7 +112,7 @@ interface GoldenFrame {
 }
 
 const vectors = JSON.parse(
-  readFileSync(new URL('./fixtures/bridge-v5.json', import.meta.url), 'utf8'),
+  readFileSync(new URL('./fixtures/bridge-v6.json', import.meta.url), 'utf8'),
 ) as GoldenFrame[];
 
 function frameFrom(vector: GoldenFrame): BridgeFrame {
@@ -227,6 +227,10 @@ test('asset placement commands validate their untrusted token and transform', ()
   assert.equal(isEditorCommand(command), true);
   assert.equal(isEditorCommand({ ...command, placement: { ...command.placement, assetId: '../catalog' } }), false);
   assert.equal(isEditorCommand({ ...command, placement: { ...command.placement, classId: 65_536 } }), false);
+  const source = { game: 'DL', region: 'NTSC-U', revision: '1.00', level: 'level42', archive: 'classes.bin', sourceIndex: 0 };
+  assert.equal(isEditorCommand({ ...command, placement: { ...command.placement, source } }), true);
+  assert.equal(isEditorCommand({ ...command, placement: { ...command.placement, source: { ...source, sourceIndex: -1 } } }), false);
+  assert.equal(isEditorCommand({ ...command, placement: { ...command.placement, source: { ...source, archive: 'x'.repeat(4097) } } }), false);
 });
 
 test('sky shell commands validate source, rotation, and order payloads', () => {
@@ -620,7 +624,7 @@ test('operation payloads round trip and reject trailing data', () => {
     fingerprint: 'ba9f2b38c7346e7b6e5b8e87717d5893',
     diagnostic: 'verified',
   };
-  assert.deepEqual(decodeUyaIsoValidation(encodeUyaIsoValidation(iso)), iso);
+  assert.deepEqual(decodeIsoValidation(encodeIsoValidation(iso)), iso);
   const copyRequest = {
     sourcePath: '/clean.iso', targetPath: '/development.iso', fingerprint: iso.fingerprint, overwrite: true,
   };
@@ -638,7 +642,7 @@ test('operation payloads round trip and reject trailing data', () => {
   const importResult = {
     completedLevels: 40, totalLevels: 40, assetAppearances: 900, uniqueAssets: 500, failedAssets: 2, resumed: true,
   };
-  assert.deepEqual(decodeUyaAssetImportResult(encodeUyaAssetImportResult(importResult)), importResult);
+  assert.deepEqual(decodeAssetImportResult(encodeAssetImportResult(importResult)), importResult);
   const projectOptions = { levels: [1, 3, 5], warnings: ['partial'] };
   assert.deepEqual(decodeUyaProjectOptions(encodeUyaProjectOptions(projectOptions)), projectOptions);
   const createProject = {

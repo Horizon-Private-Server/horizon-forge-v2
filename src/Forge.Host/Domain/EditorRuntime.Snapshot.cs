@@ -191,7 +191,8 @@ public sealed partial class EditorRuntime
             RuntimeCapabilities.Where(HasCapability).ToArray(),
             RuntimeTools.ToArray(),
             _diagnostics.Concat(PlacementDiagnostics(workspace)).Concat(GroupDiagnostics(groups))
-                .TakeLast(MaxDiagnostics).ToArray());
+                .TakeLast(MaxDiagnostics).ToArray(),
+            SoundWorkspaceService.Revision(workspace.Content.Sounds));
     }
 
     private bool EntityIsDirty(

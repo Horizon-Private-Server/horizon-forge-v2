@@ -1,7 +1,6 @@
 using Forge.Host.Domain;
 using Forge.Host.Games.UYA;
 using RatchetPs2.Core.Games;
-using RatchetPs2.Core.Skyboxes;
 
 namespace Forge.Host.Bridge;
 
@@ -277,7 +276,12 @@ internal static class ProjectBridgeHandlers
         SkyShellCatalogItem item)
     {
         var entry = item.Entry;
-        var (canPlace, disabledReason) = SkyShellPlacementCompatibility(entry, request, item);
+        var (canPlace, disabledReason) = request.TargetGame switch
+        {
+            "UYA" => UyaSkyShellEditorService.PlacementCompatibility(entry, request.TargetRegion, request.TargetRevision,
+                item.BlobAvailable, item.ShellIndex, request.CurrentSkyShellCount),
+            _ => (false, $"Sky shell editing is not supported for {request.TargetGame} {request.TargetRegion}."),
+        };
         return new(
             entry.Id.ToString(),
             request.Category,
@@ -296,25 +300,6 @@ internal static class ProjectBridgeHandlers
             item.ShellIndex is { } shellIndex ? checked((uint)shellIndex) : null);
     }
 
-    private static (bool CanPlace, string? DisabledReason) SkyShellPlacementCompatibility(
-        AssetCatalogEntry entry,
-        AssetExplorerRequestPayload request,
-        SkyShellCatalogItem item)
-    {
-        if (!item.BlobAvailable) return (false, "The catalog blob is missing.");
-        if (item.ShellIndex is null) return (false, "The source shell index is unavailable.");
-        if (request.TargetGame != "UYA" || request.TargetRegion != "NTSC-U")
-            return (false, $"Sky shell editing is not supported for {request.TargetGame} {request.TargetRegion}.");
-        if (!entry.Sources.Any(source => source.Game == request.TargetGame
-                && source.Region == request.TargetRegion && source.Revision == request.TargetRevision))
-            return (false,
-                $"The shell is not compatible with {request.TargetGame} {request.TargetRegion} {request.TargetRevision}.");
-        if (request.CurrentSkyShellCount >= SkyboxFormat.MaxShellCount)
-            return (false, $"Maximum of {SkyboxFormat.MaxShellCount} sky shells reached. " +
-                "Delete an existing shell before adding another.");
-        return (true, null);
-    }
-
     private static AssetExplorerItemPayload ToExplorerItem(
         AssetCatalogStore catalog,
         AssetExplorerRequestPayload request,
@@ -322,7 +307,12 @@ internal static class ProjectBridgeHandlers
     {
         var blobAvailable = catalog.ResolveBlobPath(entry.Id) is not null;
         var classIds = ClassIds(entry);
-        var (canPlace, disabledReason) = PlacementCompatibility(entry, request, classIds, blobAvailable);
+        var (canPlace, disabledReason) = request.TargetGame switch
+        {
+            "UYA" => UyaAssetPlacementService.PlacementCompatibility(entry, request.TargetRegion, request.TargetRevision,
+                classIds, blobAvailable),
+            _ => (false, $"Asset placement is not supported for {request.TargetGame} {request.TargetRegion}."),
+        };
         return new(
             entry.Id.ToString(),
             request.Category,
@@ -357,25 +347,6 @@ internal static class ProjectBridgeHandlers
             canPlace,
             disabledReason,
             null);
-    }
-
-    private static (bool CanPlace, string? DisabledReason) PlacementCompatibility(
-        AssetCatalogEntry entry,
-        AssetExplorerRequestPayload request,
-        IReadOnlyList<int> classIds,
-        bool blobAvailable)
-    {
-        if (entry.Kind is not (AssetKind.Tie or AssetKind.Shrub or AssetKind.Moby))
-            return (false, $"{request.Category} are preview-only.");
-        if (!blobAvailable) return (false, "The catalog blob is missing.");
-        if (!entry.Sources.Any(source =>
-                source.Game == request.TargetGame
-                && source.Region == request.TargetRegion
-                && source.Revision == request.TargetRevision))
-            return (false,
-                $"The asset is not compatible with {request.TargetGame} {request.TargetRegion} {request.TargetRevision}.");
-        if (classIds.Count == 0) return (false, "The asset has no class identity for placement.");
-        return (true, null);
     }
 
     private static int[] ClassIds(AssetCatalogEntry entry)

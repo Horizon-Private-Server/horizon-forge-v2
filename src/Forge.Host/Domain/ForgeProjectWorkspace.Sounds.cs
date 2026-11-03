@@ -10,6 +10,7 @@ public sealed partial class ForgeProjectWorkspace
         ArgumentNullException.ThrowIfNull(state);
         attachments ??= [];
         cancellationToken.ThrowIfCancellationRequested();
+        if (attachments.Count == 0 && SameJson(state, Content.Sounds)) return;
 
         var resolved = attachments.Select(value =>
         {

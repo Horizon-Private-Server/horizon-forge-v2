@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { KeybindingMap } from '../../types/Keybindings.js';
 import type { EditorSelectionActions } from '../../types/EditorSelectionActions.js';
-import type { AssetExplorerCategory, AssetExplorerFamily } from '../../types/AssetExplorer.js';
+import type { AssetExplorerCategory, AssetExplorerFamily, AssetVariantSelection } from '../../types/AssetExplorer.js';
 import type {
   EditorCommand, EditorEntity, EditorSnapshot, EditorInstancedCollisionGenerationSettings, EditorGroupTemplateRequest,
   ProjectVector4,
@@ -146,6 +146,7 @@ export function EditorWorkspace({
   const [mobySimulationEnabled, setMobySimulationEnabled] = useState(true);
   const [mobySimulationPaused, setMobySimulationPaused] = useState(false);
   const [assetPreview, setAssetPreview] = useState<AssetExplorerFamily>();
+  const [assetVariants, setAssetVariants] = useState<Record<string, AssetVariantSelection>>({});
   const [assetThumbnails, setAssetThumbnails] = useState<AssetThumbnailRuntime | null>();
   const [instancedCollisionOverlay, setInstancedCollisionOverlay] = useState<InstancedCollisionOverlay>();
   const [renderedInstancedCollisionEntityIds, setRenderedInstancedCollisionEntityIds] = useState<Set<string>>(
@@ -183,6 +184,7 @@ export function EditorWorkspace({
       setOcclusionFrozen(false);
       setCameraFocus(undefined);
       setAssetPreview(undefined);
+      setAssetVariants({});
       setInstancedCollisionOverlay(undefined);
       setRenderedInstancedCollisionEntityIds(new Set());
       setSplinePointSelection([]);
@@ -322,6 +324,14 @@ export function EditorWorkspace({
     setAssetPreview(family);
     if (family && activate && api) showEditorPanel(api, 'assetPreview');
   }, [api]);
+
+  const selectAssetVariant = useCallback((familyId: string, selection: AssetVariantSelection) => {
+    setAssetVariants((variants) => ({ ...variants, [familyId]: selection }));
+  }, []);
+
+  const synchronizeAssetFamilies = useCallback((families: AssetExplorerFamily[]) => {
+    setAssetPreview((current) => current ? families.find((family) => family.familyId === current.familyId) ?? current : current);
+  }, []);
 
   const updateOcclusionCoverage = useCallback(async (fingerprint: string, state: OcclusionCoverageState) => {
     if (buildRunning.current) throw new Error('Wait for the active operation before editing coverage.');
@@ -697,6 +707,9 @@ export function EditorWorkspace({
     mobySimulationPaused,
     setMobySimulationPaused,
     assetPreview,
+    assetVariants,
+    selectAssetVariant,
+    synchronizeAssetFamilies,
     assetThumbnails,
     inspectAsset,
     inspectReferencedAsset,
@@ -740,7 +753,7 @@ export function EditorWorkspace({
       catch (cause) { reportError(errorMessage(cause)); }
       finally { setBusy(false); }
     },
-  }), [coverage, activeImportBatchId, applyGroupTemplatePreview, applyInstancedCollisionPreview, assetPreview, assetThumbnails, buildAndPatch, rebuildOcclusion, previewOcclusionSamples, updateOcclusionCoverage, occlusionSamples, occlusionSamplesStale, occlusionSamplePullIn, occlusionPixelEdgeAllowance, showOcclusionSamples, buildProgress, buildResult, busy, cameraFocus,
+  }), [coverage, activeImportBatchId, applyGroupTemplatePreview, applyInstancedCollisionPreview, assetPreview, assetVariants, selectAssetVariant, synchronizeAssetFamilies, assetThumbnails, buildAndPatch, rebuildOcclusion, previewOcclusionSamples, updateOcclusionCoverage, occlusionSamples, occlusionSamplesStale, occlusionSamplePullIn, occlusionPixelEdgeAllowance, showOcclusionSamples, buildProgress, buildResult, busy, cameraFocus,
     cancelGroupTemplatePreview,
     cancelInstancedCollisionPreview, execute,
     filterSceneToImportBatch, hostStatus, inspectAsset, inspectReferencedAsset, navigateToEntity, openImportBatch, removeImportBatch, showReferences, keybindings,
