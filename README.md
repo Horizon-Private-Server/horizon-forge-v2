@@ -94,13 +94,9 @@ Reopening a project repairs known earlier GC conversions and restores source cla
 IDs together with their instances. Independent model edits and class conflicts are
 preserved and reported. Save and rebuild occlusion and the map after a repair.
 
-Bootstrap applies `build/ratchet-sdk-gc-assets.patch` to the pinned SDK until its GC
-asset support is released upstream. Bootstrap records the applied patch in the
-SDK checkout's Git metadata so later patch revisions can replace it safely.
-Repeated runs accept the current or recorded patch and refuse unrelated SDK edits.
+GC asset support is included in the pinned SDK release. Bootstrap uses the clean
+SDK checkout directly and refuses local SDK edits.
 The focused SDK GC regressions run as part of `npm test` and CI.
-Remove the patch and its bootstrap handling
-when updating `ratchet-sdk.version` to the SDK release containing these changes.
 
 ## Project planning
 

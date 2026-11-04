@@ -1,3 +1,2 @@
 *.sh text eol=lf
 *.json text eol=lf
-build/*.patch text eol=lf -whitespace

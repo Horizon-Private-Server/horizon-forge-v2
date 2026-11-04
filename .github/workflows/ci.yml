@@ -48,7 +48,7 @@ jobs:
             ~/.npm
             ~/.nuget/packages
             .dependencies/ratchet-ps2-cli
-          key: ${{ runner.os }}-deps-${{ hashFiles('package-lock.json', 'global.json', 'ratchet-sdk.version', 'build/ratchet-sdk-gc-assets.patch') }}
+          key: ${{ runner.os }}-deps-${{ hashFiles('package-lock.json', 'global.json', 'ratchet-sdk.version') }}
 
       - name: Install frontend dependencies
         shell: bash
@@ -58,7 +58,9 @@ jobs:
 
       - name: Bootstrap pinned Ratchet SDK
         shell: bash
-        run: bash scripts/bootstrap-ratchet-sdk.sh 2>&1 | tee artifacts/ci-logs/sdk-bootstrap.log
+        run: |
+          bash scripts/bootstrap-ratchet-sdk.sh 2>&1 | tee artifacts/ci-logs/sdk-bootstrap.log
+          bash scripts/test-bootstrap-ratchet-sdk.sh .dependencies/ratchet-ps2-cli 2>&1 | tee artifacts/ci-logs/sdk-bootstrap-tests.log
 
       - name: Build and test
         shell: bash
