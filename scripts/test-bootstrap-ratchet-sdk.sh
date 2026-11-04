@@ -51,7 +51,9 @@ fi
 [[ $(cat "$sdk_root/unrelated-file") == 'user data' ]]
 rm "$sdk_root/unrelated-file"
 
-git -C "$sdk_root" checkout --quiet --detach HEAD^
+# Keep the pinned tree: older blobs may be absent from CI's filtered SDK clone.
+git -C "$sdk_root" -c user.name=Forge -c user.email=forge.invalid -c commit.gpgsign=false \
+  commit --allow-empty --quiet -m "Bootstrap revision mismatch fixture"
 if bash "$bootstrap" --source "$sdk_root" 2>/dev/null; then
   echo "Bootstrap accepted an unpinned SDK revision" >&2
   exit 1
