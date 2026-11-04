@@ -23,7 +23,7 @@ internal static class UyaSkyShellEditorService
             return (false, $"Sky shell editing is not supported for UYA {targetRegion}.");
         if (!entry.Sources.Any(source => source.Game == "UYA"
                 && source.Region == targetRegion && source.Revision == targetRevision)
-            && !entry.Sources.Any(source => source is { Game: "DL", Region: "NTSC-U", Revision: "1.00" }
+            && !entry.Sources.Any(source => UyaAssetSourceCompatibility.CanConvert(source)
                 && targetRevision == "1.00" && entry.CanonicalFormatVersion == 0))
             return (false, $"The shell is not compatible with UYA {targetRegion} {targetRevision}.");
         if (currentShellCount >= SkyboxFormat.MaxShellCount)
@@ -246,7 +246,7 @@ internal static class UyaSkyShellEditorService
             .ThenBy(value => value.Archive, StringComparer.Ordinal)
             .ThenBy(value => value.SourceIndex)
             .FirstOrDefault();
-        source ??= entry?.Sources.Where(value => value is { Game: "DL", Region: "NTSC-U", Revision: "1.00" }
+        source ??= entry?.Sources.Where(value => UyaAssetSourceCompatibility.CanConvert(value)
                 && workspace.Manifest.Target.Revision == "1.00" && entry.CanonicalFormatVersion == 0)
             .OrderBy(value => value.Level, StringComparer.Ordinal).FirstOrDefault();
         if (source is null && (!workspace.Content.Assets.Any(value => value.Id == assetId)
@@ -258,10 +258,10 @@ internal static class UyaSkyShellEditorService
             resolved.Effective.Id, resolved.Effective.Kind, resolved.CanonicalFormatVersion, resolved.Size,
             resolved.Path, ForgeProjectWorkspace.MaxAttachedAssetBytes, cancellationToken);
         byte[]? original = null;
-        if (source?.Game == "DL" && resolved.Effective.Id == assetId)
+        if (source is not null && UyaAssetSourceCompatibility.CanConvert(source) && resolved.Effective.Id == assetId)
         {
             original = bytes;
-            bytes = await Task.Run(() => SkyboxComposer.Convert(GameId.DL, GameId.UYA,
+            bytes = await Task.Run(() => SkyboxComposer.Convert(Enum.Parse<GameId>(source.Game), GameId.UYA,
                 original, ParseLevel(source.Level), cancellationToken), cancellationToken);
         }
         using var stream = new MemoryStream(bytes, writable: false);

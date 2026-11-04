@@ -45,6 +45,9 @@ export interface KnownSettings {
   'imports.dl.enabled': boolean;
   'imports.dl.completedFingerprint': string;
   'imports.dl.completedVersion': number;
+  'imports.gc.enabled': boolean;
+  'imports.gc.completedFingerprint': string;
+  'imports.gc.completedVersion': number;
   'projects.applyGroupTemplatesOnCreate': boolean;
   'paths.projects': string;
   'preview.sound.ambientMuted': boolean;
@@ -66,6 +69,13 @@ export interface KnownSettings {
   'sources.dl.revision': string;
   'sources.dl.serial': string;
   'sources.dl.size': number;
+  'sources.gc.fingerprint': string;
+  'sources.gc.game': string;
+  'sources.gc.iso': string;
+  'sources.gc.region': string;
+  'sources.gc.revision': string;
+  'sources.gc.serial': string;
+  'sources.gc.size': number;
   'targets.uya.developmentIso': string;
   'ui.editorLayout': string;
   'ui.componentSize': UiSize;
@@ -162,7 +172,7 @@ export interface EditorLoadProgress extends Progress {
   status: 'loading' | 'error';
 }
 
-export type AssetSourceGame = 'UYA' | 'DL';
+export type AssetSourceGame = 'UYA' | 'DL' | 'GC';
 
 export interface IsoIdentity {
   isSupported: boolean;

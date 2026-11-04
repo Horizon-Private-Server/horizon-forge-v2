@@ -5,6 +5,10 @@ forge_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 version_file="$forge_root/ratchet-sdk.version"
 managed_root="$forge_root/.dependencies/ratchet-ps2-cli"
 repository=${RATCHET_SDK_REPOSITORY:-https://github.com/badger41/ratchet-ps2-cli.git}
+# Remove this patch when ratchet-sdk.version points to a release containing GC asset support.
+sdk_patch="$forge_root/build/ratchet-sdk-gc-assets.patch"
+
+source "$forge_root/scripts/ratchet-sdk-patch.sh"
 
 usage() {
   echo "Usage: $0 [--source /path/to/ratchet-ps2-cli]" >&2
@@ -71,10 +75,12 @@ else
 
   current_revision=$(git -C "$sdk_root" rev-parse HEAD 2>/dev/null || true)
   if [[ $current_revision != "$expected_revision" ]]; then
-    [[ -z $(git -C "$sdk_root" status --porcelain) ]] || {
-      echo "Managed Ratchet SDK has local changes; refusing to replace them: $sdk_root" >&2
-      exit 1
-    }
+    if [[ -n $(git -C "$sdk_root" status --porcelain) ]]; then
+      sdk_remove_forge_patch || {
+        echo "Managed Ratchet SDK has local changes; refusing to replace them: $sdk_root" >&2
+        exit 1
+      }
+    fi
     git -C "$sdk_root" checkout --detach "$expected_revision"
   fi
 fi
@@ -85,8 +91,8 @@ actual_revision=$(git -C "$sdk_root" rev-parse HEAD)
   exit 1
 }
 
-[[ -z $(git -C "$sdk_root" status --porcelain) ]] || {
-  echo "Ratchet SDK checkout has local changes and cannot represent selector $selector: $sdk_root" >&2
+sdk_prepare_forge_patch || {
+  echo "Ratchet SDK checkout cannot apply Forge's GC patch without replacing local changes: $sdk_root" >&2
   exit 1
 }
 

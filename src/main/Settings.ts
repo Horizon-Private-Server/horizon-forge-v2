@@ -302,6 +302,24 @@ function createDefinitions(paths: ApplicationPaths, defaultUpdateChannel: Update
       validate: (value): value is number => Number.isSafeInteger(value) && Number(value) >= 0,
     },
     {
+      key: 'imports.gc.enabled', group: 'Imports', label: 'Import GC assets', type: 'boolean',
+      description: 'Import reusable GC assets after setup.', defaultValue: false, restartRequired: false, machineSpecific: false,
+      editable: true,
+      validate: (value): value is boolean => typeof value === 'boolean',
+    },
+    {
+      key: 'imports.gc.completedFingerprint', group: 'Imports', label: 'Imported GC source', type: 'text',
+      description: 'Fingerprint of the GC source whose global import completed.', defaultValue: '', restartRequired: false, machineSpecific: true,
+      editable: false,
+      validate: (value): value is string => typeof value === 'string' && (value === '' || /^[0-9a-f]{32}$/i.test(value)),
+    },
+    {
+      key: 'imports.gc.completedVersion', group: 'Imports', label: 'GC import version', type: 'number',
+      description: 'Version of the completed GC global import.', defaultValue: 0, restartRequired: false, machineSpecific: true,
+      editable: false,
+      validate: (value): value is number => Number.isSafeInteger(value) && Number(value) >= 0,
+    },
+    {
       key: 'paths.projects', group: 'Paths', label: 'Projects directory', type: 'path',
       description: 'Default location for Forge projects.', defaultValue: paths.defaultProjects, restartRequired: false, machineSpecific: true,
       editable: true,
@@ -382,6 +400,42 @@ function createDefinitions(paths: ApplicationPaths, defaultUpdateChannel: Update
     },
     {
       key: 'sources.dl.fingerprint', group: 'Sources', label: 'Source MD5', type: 'text',
+      description: 'PCSX2/Redump-compatible data-track checksum.', defaultValue: '', restartRequired: false, machineSpecific: true, editable: false,
+      validate: (value): value is string => typeof value === 'string' && (value === '' || /^[0-9a-f]{32}$/i.test(value)),
+    },
+    {
+      key: 'sources.gc.iso', group: 'Sources', label: 'Clean GC ISO', type: 'path',
+      description: 'Verified clean NTSC-U source ISO; change it through Setup.', defaultValue: '', restartRequired: false, machineSpecific: true,
+      editable: false,
+      validate: absolutePath,
+    },
+    {
+      key: 'sources.gc.game', group: 'Sources', label: 'Source game', type: 'text',
+      description: 'Detected source game.', defaultValue: '', restartRequired: false, machineSpecific: true, editable: false,
+      validate: (value): value is string => typeof value === 'string' && (value === '' || value === 'GC'),
+    },
+    {
+      key: 'sources.gc.region', group: 'Sources', label: 'Source region', type: 'text',
+      description: 'Detected source region.', defaultValue: '', restartRequired: false, machineSpecific: true, editable: false,
+      validate: (value): value is string => typeof value === 'string',
+    },
+    {
+      key: 'sources.gc.revision', group: 'Sources', label: 'Source revision', type: 'text',
+      description: 'Detected source revision.', defaultValue: '', restartRequired: false, machineSpecific: true, editable: false,
+      validate: (value): value is string => typeof value === 'string',
+    },
+    {
+      key: 'sources.gc.serial', group: 'Sources', label: 'Source serial', type: 'text',
+      description: 'Detected source serial.', defaultValue: '', restartRequired: false, machineSpecific: true, editable: false,
+      validate: (value): value is string => typeof value === 'string',
+    },
+    {
+      key: 'sources.gc.size', group: 'Sources', label: 'Source size', type: 'number',
+      description: 'Verified source size in bytes.', defaultValue: 0, restartRequired: false, machineSpecific: true, editable: false,
+      validate: (value): value is number => Number.isSafeInteger(value) && Number(value) >= 0,
+    },
+    {
+      key: 'sources.gc.fingerprint', group: 'Sources', label: 'Source MD5', type: 'text',
       description: 'PCSX2/Redump-compatible data-track checksum.', defaultValue: '', restartRequired: false, machineSpecific: true, editable: false,
       validate: (value): value is string => typeof value === 'string' && (value === '' || /^[0-9a-f]{32}$/i.test(value)),
     },

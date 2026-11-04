@@ -93,6 +93,7 @@ test('settings validate defaults and preserve unknown keys', async () => {
       'build.uya.forceOversizedInPlace': false,
       'editor.autosaveSeconds': 30,
       'imports.dl.enabled': false,
+      'imports.gc.enabled': false,
       'imports.uya.enabled': true,
       'keybindings.overrides': '{}',
       'projects.applyGroupTemplatesOnCreate': false,

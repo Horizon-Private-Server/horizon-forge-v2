@@ -12,7 +12,7 @@ public static class UyaMobyDexDataset
             ?? throw new InvalidOperationException("Embedded UYA MobyDex dataset is missing.");
         if (stream.Length > MobyDexDatasetSchema.MaximumJsonBytes)
             throw new InvalidDataException("Embedded UYA MobyDex dataset exceeds the size limit.");
-        var bytes = GC.AllocateUninitializedArray<byte>(checked((int)stream.Length));
+        var bytes = System.GC.AllocateUninitializedArray<byte>(checked((int)stream.Length));
         stream.ReadExactly(bytes);
         return Parse(bytes);
     }

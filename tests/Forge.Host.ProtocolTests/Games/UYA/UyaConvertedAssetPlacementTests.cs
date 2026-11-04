@@ -242,11 +242,11 @@ internal static class UyaConvertedAssetPlacementTests
         Check(await UyaConvertedAssetRepairService.HydrateAsync(reopened, default) is null, "repair is stable after save and reopen");
     }
 
-    public static async Task QualifyAsync(string sourceCatalogPath, string sourceIsoPath, string projectPath)
+    public static async Task QualifyAsync(string sourceCatalogPath, string sourceIsoPath, string projectPath, string sourceGame = "DL")
     {
         var original = await AssetCatalogStore.OpenReadOnlyAsync(sourceCatalogPath);
         var catalog = await AssetCatalogStore.OpenAsync(Path.Combine(projectPath, "qualification-catalog"));
-        var workspace = await ForgeProjectWorkspace.CreateAsync(projectPath, "DL placement qualification",
+        var workspace = await ForgeProjectWorkspace.CreateAsync(projectPath, $"{sourceGame} placement qualification",
             new("UYA", "NTSC-U", "1.00", "uya-ntsc-u"), new("UYA", "NTSC-U", "1.00", 3, new string('a', 32)), []);
         await UyaStaticLayerStore.WriteSourceAsync(projectPath, new("UYA", "NTSC-U", "1.00", 3, new string('a', 32)),
         [
@@ -265,11 +265,11 @@ internal static class UyaConvertedAssetPlacementTests
         var selected = new List<AssetCatalogEntry>();
         foreach (var kind in new[] { AssetKind.Tie, AssetKind.Shrub, AssetKind.Moby })
         {
-            var entry = original.Query(new(Kind: kind, Game: "DL", Limit: 1000)).First(value => kind != AssetKind.Moby
+            var entry = original.Query(new(Kind: kind, Game: sourceGame, Limit: 1000)).First(value => kind != AssetKind.Moby
                 || CatalogModelCodec.Decode(File.ReadAllBytes(original.ResolveBlobPath(value.Id)!)).ModelBytes[8] > 0
                     && value.Sources.Any(source => source.MobySounds is { Slots.Count: > 0 } sounds && sounds.Slots.All(slot => slot.Sound is not null)));
             var bytes = await File.ReadAllBytesAsync(original.ResolveBlobPath(entry.Id)!);
-            var chosenSource = entry.Sources.First(value => value.Game == "DL" && (kind != AssetKind.Moby
+            var chosenSource = entry.Sources.First(value => value.Game == sourceGame && (kind != AssetKind.Moby
                 || value.MobySounds is { Slots.Count: > 0 } sounds && sounds.Slots.All(slot => slot.Sound is not null)));
             if (chosenSource.MobySounds is { } use)
             {
@@ -278,8 +278,8 @@ internal static class UyaConvertedAssetPlacementTests
                     await File.ReadAllBytesAsync(original.ResolveBlobPath(bank.Id)!),
                     new(bank.ImporterVersion, bank.Sources[0], bank.Aliases, bank.Tags));
                 var slot = use.Slots.First(value => value.PreviewSupported);
-                var audio = await SoundWorkspaceService.RenderCatalogPreviewAsync(catalog.RootPath, bank.Id, "DL", slot.NativeProgramIndex, true, default);
-                Check(audio.Pcm16.Length > 0, "retail DL moby sound catalog playback");
+                var audio = await SoundWorkspaceService.RenderCatalogPreviewAsync(catalog.RootPath, bank.Id, sourceGame, slot.NativeProgramIndex, true, default);
+                Check(audio.Pcm16.Length > 0, $"retail {sourceGame} moby sound catalog playback");
             }
             entry = await catalog.PutAsync(kind, entry.CanonicalFormatVersion, bytes,
                 new(entry.ImporterVersion, chosenSource, entry.Aliases, entry.Tags));
@@ -329,9 +329,9 @@ internal static class UyaConvertedAssetPlacementTests
         var expectedMap = workspace.Content.Sounds.MobyRemaps.Single(value => value.ClassId == mobyClass);
         Check(map.Slots.Count > 0 && map.Slots.Zip(expectedMap.Slots).All(pair => pair.First.NativeProgramIndex < 0
             || ProjectSounds.ProgramId(outputInventory.Programs[pair.First.NativeProgramIndex].ContentId!) == pair.Second.Sound!.Id),
-            "DL sounds re-read from the baked UYA bank and remap with identical identities");
-        await UyaDlAssetResourceTests.QualifySkiesAsync(original, catalog, workspace, source.HeaderBytes, assetWad);
-        Console.WriteLine("Retail DL models: placement, native preview, save/reopen, static bake, texture inventory, UYA asset/sound-bank composition and all DL sky conversions passed.");
+            $"{sourceGame} sounds re-read from the baked UYA bank and remap with identical identities");
+        await UyaDlAssetResourceTests.QualifySkiesAsync(original, catalog, workspace, source.HeaderBytes, assetWad, sourceGame);
+        Console.WriteLine($"Retail {sourceGame} models: placement, native preview, save/reopen, static bake, texture inventory, UYA asset/sound-bank composition and all {sourceGame} sky conversions passed.");
     }
 
     public static async Task QualifyRepairAsync(string sourceProjectPath, string scratchPath)

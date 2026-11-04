@@ -20,9 +20,9 @@ internal static class UyaCustomTieClassRegistry
 
     public static ProjectCustomClassRegistry AllocateConverted(
         ProjectCustomClassRegistry registry, AssetKind kind, AssetId sourceAssetId, int sourceClassId,
-        IReadOnlySet<int> occupiedClassIds)
+        IReadOnlySet<int> occupiedClassIds, bool preserveSourceClassId = false)
     {
-        if (kind != AssetKind.Moby)
+        if (kind != AssetKind.Moby && !preserveSourceClassId)
             return Allocate(registry, kind, sourceAssetId,
                 new(ProjectCustomClassOrigin.ConvertedAsset, sourceClassId), null, occupiedClassIds);
         Validate(registry);
@@ -32,12 +32,12 @@ internal static class UyaCustomTieClassRegistry
         if (previous is not null)
         {
             if (previous.ClassId != sourceClassId)
-                throw new InvalidDataException($"DL Moby asset is already bound to class 0x{previous.ClassId:X4}; reopen the project to repair old conversions.");
+                throw new InvalidDataException($"Converted {kind} asset is already bound to class 0x{previous.ClassId:X4}; reopen the project to repair old conversions.");
             return registry;
         }
         if (occupiedClassIds.Contains(sourceClassId) || registry.Allocations.Any(value =>
             value.Asset.Kind == kind && value.ClassId == sourceClassId))
-            throw new InvalidDataException($"DL Moby class 0x{sourceClassId:X4} conflicts with another project asset. "
+            throw new InvalidDataException($"Converted {kind} class 0x{sourceClassId:X4} conflicts with another project asset. "
                 + "Resolve the class conflict before importing this variant.");
         return registry with { Allocations = registry.Allocations.Append(new(reference, sourceClassId,
             new(ProjectCustomClassOrigin.ConvertedAsset, sourceClassId))).ToArray() };
@@ -239,13 +239,12 @@ internal static class UyaCustomTieClassRegistry
             || registry.AllocationVersion != ProjectCustomClassSchema.CurrentAllocationVersion)
             throw new InvalidDataException("UYA custom TIE class registry version is unsupported.");
         if (registry.Allocations is null
-            || registry.Allocations.Count > LastClassId - FirstClassId + 1
+            || registry.Allocations.Count > ProjectCustomClassSchema.MaximumAllocations
             || registry.Allocations.Any(value => value is null || value.Asset is null
                 || value.Asset.Id.ToString().Length != AssetId.TextLength
                 || value.Asset.Kind is not (AssetKind.Tie or AssetKind.Shrub or AssetKind.Moby)
                 || value.ClassId is < 0 or > LastClassId
-                || (value.ClassId < FirstClassId && !(value.Asset.Kind == AssetKind.Moby
-                    && value.Provenance is { Origin: ProjectCustomClassOrigin.ConvertedAsset }
+                || (value.ClassId < FirstClassId && !(value.Provenance is { Origin: ProjectCustomClassOrigin.ConvertedAsset }
                     && value.Provenance.SourceClassId == value.ClassId))
                 || value.Provenance is null
                 || !Enum.IsDefined(value.Provenance.Origin)

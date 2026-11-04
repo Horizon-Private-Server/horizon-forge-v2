@@ -28,7 +28,7 @@ internal static class UyaGroupTemplateDataset
             ?? throw new InvalidOperationException("Embedded UYA group-template dataset is missing.");
         if (stream.Length > MaximumJsonBytes)
             throw new InvalidDataException("Embedded UYA group-template dataset exceeds the size limit.");
-        var bytes = GC.AllocateUninitializedArray<byte>(checked((int)stream.Length));
+        var bytes = System.GC.AllocateUninitializedArray<byte>(checked((int)stream.Length));
         stream.ReadExactly(bytes);
         return Parse(bytes);
     }

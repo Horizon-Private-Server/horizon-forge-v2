@@ -161,7 +161,7 @@ public static partial class UyaIsoService
             partialPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, BufferSize,
             FileOptions.Asynchronous | FileOptions.SequentialScan | FileOptions.WriteThrough);
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.MD5);
-        var buffer = GC.AllocateUninitializedArray<byte>(BufferSize);
+        var buffer = System.GC.AllocateUninitializedArray<byte>(BufferSize);
         long copied = 0;
         int count;
         while ((count = await source.ReadAsync(buffer, cancellationToken)) != 0)
@@ -184,7 +184,7 @@ public static partial class UyaIsoService
         long? progressTotal = null)
     {
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.MD5);
-        var buffer = GC.AllocateUninitializedArray<byte>(BufferSize);
+        var buffer = System.GC.AllocateUninitializedArray<byte>(BufferSize);
         // Offset reads let level extraction use this same open file without disturbing the hash.
         var handle = source.SafeFileHandle;
         // Cached reads may complete synchronously; allow sibling preparation to start first.

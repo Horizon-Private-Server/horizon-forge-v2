@@ -32,8 +32,9 @@ test('host handshake, echo, progress, cancellation, crash recovery, and concurre
   const expectedRevision = (await readFile(path.join(projectRoot, 'ratchet-sdk.version'), 'utf8')).trim();
   const handshake = await client.start();
   assert.equal(handshake.sdkRevision, expectedRevision);
-  assert.deepEqual(handshake.supportedGames, ['UYA', 'DL']);
+  assert.deepEqual(handshake.supportedGames, ['UYA', 'DL', 'GC']);
   assert.ok(handshake.capabilities.includes('dl.assets.import'));
+  assert.ok(handshake.capabilities.includes('gc.assets.import'));
   assert.ok(handshake.capabilities.includes('dl.iso.validate'));
   assert.ok(handshake.capabilities.includes('bridge.cancellation'));
   assert.ok(handshake.capabilities.includes('uya.iso.copy'));

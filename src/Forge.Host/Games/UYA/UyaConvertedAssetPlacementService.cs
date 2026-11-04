@@ -11,51 +11,55 @@ internal static class UyaConvertedAssetPlacementService
     public static async Task<int> PrepareAsync(ForgeProjectWorkspace workspace, AssetCatalogStore catalog,
         AssetCatalogEntry entry, int sourceClassId, CancellationToken cancellationToken)
     {
-        if (!entry.Sources.Any(source => source is { Game: "DL", Region: "NTSC-U", Revision: "1.00" })
+        if (!entry.Sources.Any(UyaAssetSourceCompatibility.CanConvert)
             || entry.Tags.Contains("texture:placeholder", StringComparer.Ordinal))
-            throw new InvalidDataException("The catalog asset has no complete supported DL source.");
+            throw new InvalidDataException("The catalog asset has no complete supported source.");
         var reference = new ProjectAssetReference(entry.Id, entry.Kind);
+        var preserveSourceClassId = entry.Kind == AssetKind.Moby || entry.Sources.Any(value => value.Game == "GC");
         var previous = workspace.Content.CustomClasses.Allocations.SingleOrDefault(value => value.Asset == reference);
         if (previous is not null)
         {
             if (previous.Provenance.Origin != ProjectCustomClassOrigin.ConvertedAsset)
                 throw new InvalidDataException("The source asset already has a different class allocation.");
-            if (entry.Kind == AssetKind.Moby && previous.ClassId != sourceClassId)
-                throw new InvalidDataException($"The DL Moby is bound to class 0x{previous.ClassId:X4}; reopen the project to restore its source oClass.");
+            if (preserveSourceClassId && previous.ClassId != sourceClassId)
+                throw new InvalidDataException($"The converted {entry.Kind} is bound to class 0x{previous.ClassId:X4}; reopen the project to restore its source class.");
             return previous.ClassId;
         }
+        var layer = entry.Kind.ToString().ToLowerInvariant() + "s";
         var classes = workspace.Content.CustomClasses;
         var sounds = workspace.Content.Sounds;
-        if (entry.Kind == AssetKind.Moby)
+        if (preserveSourceClassId)
         {
-            var unused = classes.Allocations.SingleOrDefault(value => value.Asset.Kind == AssetKind.Moby
+            var unused = classes.Allocations.SingleOrDefault(value => value.Asset.Kind == entry.Kind
                 && value.ClassId == sourceClassId && value.Provenance.Origin == ProjectCustomClassOrigin.ConvertedAsset);
             if (unused is not null)
             {
                 if (workspace.Content.Entities.Any(entity => entity.Asset == unused.Asset
-                    || entity.Layer == "mobys" && entity.Source?.ClassId == sourceClassId))
-                    throw new InvalidDataException($"DL Moby class 0x{sourceClassId:X4} already has another variant in the scene. "
+                    || entity.Layer == layer && entity.Source?.ClassId == sourceClassId))
+                    throw new InvalidDataException($"Converted {entry.Kind} class 0x{sourceClassId:X4} already has another variant in the scene. "
                         + "Delete its instances before importing this variant; UYA supports one model per oClass.");
                 // The replacement command captures the old allocation and sounds for undo.
                 classes = classes with { Allocations = classes.Allocations.Where(value => value != unused).ToArray() };
-                sounds = sounds with { MobyRemaps = sounds.MobyRemaps.Where(value =>
-                    value.ClassId != sourceClassId || value.Moby != unused.Asset).ToArray() };
+                if (entry.Kind == AssetKind.Moby)
+                    sounds = sounds with { MobyRemaps = sounds.MobyRemaps.Where(value =>
+                        value.ClassId != sourceClassId || value.Moby != unused.Asset).ToArray() };
             }
         }
-        var occupied = workspace.Content.Entities.Where(entity => entry.Kind == AssetKind.Moby
-                ? entity.Layer == "mobys" : entity.Asset?.Kind == entry.Kind)
+        var occupied = workspace.Content.Entities.Where(entity => entity.Layer == layer)
             .Select(entity => entity.Source?.ClassId).OfType<int>().ToHashSet();
         if (entry.Kind == AssetKind.Moby)
             occupied.UnionWith(sounds.MobyRemaps.Where(value => value.Moby != reference)
                 .Select(value => value.ClassId));
         var registry = UyaCustomTieClassRegistry.AllocateConverted(
-            classes, entry.Kind, entry.Id, sourceClassId, occupied);
+            classes, entry.Kind, entry.Id, sourceClassId, occupied,
+            preserveSourceClassId: preserveSourceClassId);
         var targetClassId = registry.Allocations.Single(value => value.Asset == reference).ClassId;
         var path = catalog.ResolveBlobPath(entry.Id) ?? throw new FileNotFoundException("The source model blob is missing.");
         var bytes = await AssetCatalogBlobReader.ReadVerifiedAsync(entry.Id, entry.Kind, entry.CanonicalFormatVersion,
             entry.Size, path, ForgeProjectWorkspace.MaxAttachedAssetBytes, cancellationToken);
         var source = CatalogModelCodec.Decode(bytes);
-        if (source.Game != GameId.DL) throw new InvalidDataException("The source model blob is not a DL asset.");
+        if (!entry.Sources.Any(value => value.Game == source.Game.ToString() && UyaAssetSourceCompatibility.CanConvert(value)))
+            throw new InvalidDataException("The source model blob does not match a supported catalog source.");
         if (source.DefinitionBytes.Length != (entry.Kind == AssetKind.Shrub ? 0x30 : 0x20))
             throw new InvalidDataException("The source definition does not match its asset kind.");
         var kind = entry.Kind switch
@@ -68,12 +72,12 @@ internal static class UyaConvertedAssetPlacementService
         var nativeBytes = await Task.Run(() =>
         {
             var converted = LevelAssetModelConverter.Convert(
-                GameId.DL, GameId.UYA, kind, source.ModelBytes, targetClassId, cancellationToken);
+                source.Game, GameId.UYA, kind, source.ModelBytes, targetClassId, cancellationToken);
             var textures = source.Textures.Select(texture =>
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 return texture with { PifBytes = LevelAssetModelConverter.ConvertTexture(
-                    GameId.DL, GameId.UYA, texture.PifBytes, (TextureRole)texture.Role) };
+                    source.Game, GameId.UYA, texture.PifBytes, (TextureRole)texture.Role) };
             }).ToArray();
             return UyaCanonicalAssetCodec.Encode(source.DefinitionBytes, converted, textures);
         }, cancellationToken);

@@ -16,6 +16,7 @@ internal static class UyaProjectOpenHydrationService
         if (catalog is not null)
             Add(diagnostics, await UyaMobySoundImportService.HydrateConvertedAsync(workspace, catalog, cancellationToken));
         Add(diagnostics, await UyaConvertedAssetRepairService.HydrateAsync(workspace, cancellationToken));
+        Add(diagnostics, await UyaConvertedGcAssetRepairService.HydrateAsync(workspace, cancellationToken));
         Add(diagnostics, await UyaMobyPVarService.HydrateFromSourceAsync(workspace, mobyDex, cancellationToken));
         Add(diagnostics, await UyaTfragProjectService.HydrateAsync(workspace, catalog, cancellationToken));
         if (catalog is not null)

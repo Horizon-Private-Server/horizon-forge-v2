@@ -450,7 +450,7 @@ internal static class UyaDlAssetResourceTests
     }
 
     internal static async Task QualifySkiesAsync(AssetCatalogStore original, AssetCatalogStore catalog,
-        ForgeProjectWorkspace workspace, byte[] headerBytes, byte[] assetWad)
+        ForgeProjectWorkspace workspace, byte[] headerBytes, byte[] assetWad, string sourceGame = "DL")
     {
         var header = LevelAssetReader.ReadHeader(headerBytes);
         var offsets = LevelAssetReader.CollectKnownAssetOffsets(header, assetWad.Length,
@@ -462,12 +462,12 @@ internal static class UyaDlAssetResourceTests
         var payload = new UyaBaseLayerPayload(BakeLayerId.Sky, "sky.bin", AssetKind.Sky, "assets/sky", 0, baseSky);
         var native = (await catalog.PutManyAsync(UyaBaseLayerService.CreateCatalogPuts([payload], source, "qualification"))).Single();
         await UyaBaseLayerStore.WriteAsync(workspace.RootPath, source, [payload], [native]);
-        var skies = original.Query(new(Kind: AssetKind.Sky, Game: "DL"));
+        var skies = original.Query(new(Kind: AssetKind.Sky, Game: sourceGame));
         foreach (var sky in skies)
         {
             var bytes = await File.ReadAllBytesAsync(original.ResolveBlobPath(sky.Id)!);
-            var origin = sky.Sources.First(value => value.Game == "DL");
-            var converted = SkyboxComposer.Convert(GameId.DL, GameId.UYA, bytes, int.Parse(origin.Level.AsSpan(5)));
+            var origin = sky.Sources.First(value => value.Game == sourceGame);
+            var converted = SkyboxComposer.Convert(Enum.Parse<GameId>(sourceGame), GameId.UYA, bytes, int.Parse(origin.Level.AsSpan(5)));
             using var stream = new MemoryStream(converted);
             var read = SkyboxReader.Read(stream, GameId.UYA);
             Check(read.Shells.Count > 0, "retail DL sky shells survive UYA conversion");
@@ -485,7 +485,7 @@ internal static class UyaDlAssetResourceTests
         await workspace.SaveAsync();
         var reopened = await ForgeProjectWorkspace.OpenAsync(workspace.RootPath);
         await UyaSkyShellEditorService.ComposeAsync(reopened, catalog, reopened.Content.Entities, default);
-        Console.WriteLine($"Qualified {skies.Count} unique DL skies: source previews, UYA conversion and native composition/save/reopen.");
+        Console.WriteLine($"Qualified {skies.Count} unique {sourceGame} skies: source previews, UYA conversion and native composition/save/reopen.");
     }
 
     private static AssetSource Source() => new("DL", "NTSC-U", "1.00", "level01", "assets/asset_wad.bin", 0, new string('b', 32));

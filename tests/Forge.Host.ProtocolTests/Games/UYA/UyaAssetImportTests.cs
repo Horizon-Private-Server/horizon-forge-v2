@@ -158,7 +158,7 @@ internal static class UyaAssetImportTests
         }
     }
 
-    private static byte[] CreateIso()
+    internal static byte[] CreateIso()
     {
         const int headerSector = 0x500;
         var bytes = new byte[(headerSector + 2) * UyaLevelConstants.SectorSize];

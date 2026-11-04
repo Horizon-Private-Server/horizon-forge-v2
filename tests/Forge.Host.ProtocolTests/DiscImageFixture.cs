@@ -3,7 +3,7 @@ using System.Text;
 
 internal static class DiscImageFixture
 {
-    internal static void AddIdentity(byte[] bytes, string serial = "SCUS_973.53", string videoMode = "NTSC")
+    internal static void AddIdentity(byte[] bytes, string serial = "SCUS_973.53", string videoMode = "NTSC", string revision = "1.00")
     {
         const int rootSector = 20;
         const int systemSector = 21;
@@ -16,7 +16,7 @@ internal static class DiscImageFixture
 
         var root = bytes.AsSpan(rootSector * 2048, 2048);
         WriteDirectoryRecord(root, systemSector, 128, Encoding.ASCII.GetBytes("SYSTEM.CNF;1"));
-        var configuration = Encoding.ASCII.GetBytes($"BOOT2 = cdrom0:\\{serial};1\r\nVER = 1.00\r\nVMODE = {videoMode}\r\n");
+        var configuration = Encoding.ASCII.GetBytes($"BOOT2 = cdrom0:\\{serial};1\r\nVER = {revision}\r\nVMODE = {videoMode}\r\n");
         configuration.CopyTo(bytes.AsSpan(systemSector * 2048));
     }
 

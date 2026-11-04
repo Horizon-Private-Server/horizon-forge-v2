@@ -32,10 +32,10 @@ interface IpcHandlersOptions {
   getMainWindow: () => BrowserWindow | undefined;
 }
 
-const importVersions = { UYA: 2, DL: 2 };
+const importVersions = { UYA: 2, DL: 2, GC: 1 };
 
 function assertAssetSourceGame(value: unknown): asserts value is AssetSourceGame {
-  if (value !== 'UYA' && value !== 'DL') throw new TypeError('Unsupported asset source game');
+  if (value !== 'UYA' && value !== 'DL' && value !== 'GC') throw new TypeError('Unsupported asset source game');
 }
 const maximumMobyDexDatasetBytes = 16 * 1024 * 1024;
 const maximumCustomModelDocumentBytes = 16 * 1024 * 1024;
@@ -125,7 +125,7 @@ export function registerIpcHandlers(options: IpcHandlersOptions): void {
   async function getSetupState(): Promise<SetupState> {
     const values = await getSettingValues();
     const sources = {} as Record<AssetSourceGame, SetupAssetSource>;
-    for (const game of ['UYA', 'DL'] as const) {
+    for (const game of ['UYA', 'DL', 'GC'] as const) {
       const key = game.toLowerCase();
       const iso = String(values[`sources.${key}.iso`] ?? '');
       const fingerprint = String(values[`sources.${key}.fingerprint`] ?? '');

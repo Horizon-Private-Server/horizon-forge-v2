@@ -113,19 +113,19 @@ export function SetupWizard({ opened, onClose }: SetupWizardProps) {
         <PathRow label="Projects directory" value={state?.projectsDirectory ?? ''} disabled={busy || !state}
           onChoose={() => void runOperation(async () => { await window.forge.chooseSetupDirectory('projects'); })} />
 
-        {(['UYA', 'DL'] as const).map((game) => {
+        {(['UYA', 'DL', 'GC'] as const).map((game) => {
           const source = state?.sources[game];
           const status = !source?.iso ? 'Not configured' : !source.identity ? 'Source unavailable or unverified'
             : source.importComplete ? 'Assets imported' : 'Ready to import / resume';
           return <Paper withBorder p="sm" key={game}>
             <Stack gap="xs">
               <Group justify="space-between">
-                <Title order={5}>{game === 'UYA' ? 'Up Your Arsenal (UYA)' : 'Deadlocked (DL)'}</Title>
+                <Title order={5}>{game === 'UYA' ? 'Up Your Arsenal (UYA)' : game === 'DL' ? 'Deadlocked (DL)' : 'Going Commando (GC)'}</Title>
                 <Badge variant="light" color={source?.importComplete ? 'teal' : 'gray'}>{status}</Badge>
               </Group>
               <Text size="sm" c="dimmed">{game === 'UYA'
                 ? 'Source for UYA map projects and reusable assets.'
-                : 'Optional Deadlocked assets for the shared catalog.'}</Text>
+                : `Optional ${game === 'DL' ? 'Deadlocked' : 'Going Commando'} assets for the shared catalog.`}</Text>
               <PathRow label={`Clean ${game} NTSC-U ISO`} value={source?.iso ?? ''}
                 onChoose={() => void chooseSource(game)} disabled={busy || !state} />
               {source?.identity && <Text size="xs">
@@ -133,7 +133,7 @@ export function SetupWizard({ opened, onClose }: SetupWizardProps) {
               </Text>}
               <Checkbox
                 label={`Enable ${game} asset import`}
-                description={game === 'UYA' ? 'Included when finishing UYA setup.' : 'Import separately below; you can finish setup without DL assets.'}
+                description={game === 'UYA' ? 'Included when finishing UYA setup.' : `Import separately below; you can finish setup without ${game} assets.`}
                 checked={source?.importEnabled ?? false}
                 disabled={busy || !state}
                 onChange={(event) => {

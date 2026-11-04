@@ -11,7 +11,7 @@ internal static class UyaCustomTieNativeCodec
     {
         if (definition.IsEmpty || model.IsEmpty)
             throw new ArgumentException("Custom TIE native sections cannot be empty.");
-        var bytes = GC.AllocateUninitializedArray<byte>(checked(HeaderSize + definition.Length + model.Length));
+        var bytes = System.GC.AllocateUninitializedArray<byte>(checked(HeaderSize + definition.Length + model.Length));
         Magic.CopyTo(bytes);
         BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(8), ProjectCustomTieNativeVersion);
         BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(12), definition.Length);

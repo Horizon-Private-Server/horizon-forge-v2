@@ -23,7 +23,7 @@ public static class UyaAssetPlacementService
             && entry.CanonicalFormatVersion == UyaAssetImportService.CanonicalFormatVersion
             && entry.Tags.Contains("vanilla", StringComparer.Ordinal)
             && !entry.Tags.Contains("texture:placeholder", StringComparer.Ordinal)
-            && entry.Sources.Any(source => source is { Game: "DL", Region: "NTSC-U", Revision: "1.00" });
+            && entry.Sources.Any(UyaAssetSourceCompatibility.CanConvert);
         if (!native && !convertible)
             return (false, $"The asset is not compatible with UYA {targetRegion} {targetRevision}.");
         if (classIds.Count == 0) return (false, "The asset has no class identity for placement.");
@@ -77,8 +77,9 @@ public static class UyaAssetPlacementService
             || !AssetCatalogPaging.ClassIds(entry).Contains(placement.ClassId))
             throw new InvalidDataException("The catalog asset does not contain the selected class.");
         var converted = !entry.Sources.Any(source => source is { Game: "UYA", Region: "NTSC-U", Revision: "1.00" });
-        if (placement.Source is { } source && (source.Game != (converted ? "DL" : "UYA")
-            || source.Region != "NTSC-U" || source.Revision != "1.00"))
+        if (placement.Source is { } source && (converted ? !entry.Sources.Any(value => source.Matches(value)
+                && UyaAssetSourceCompatibility.CanConvert(value))
+                : source.Game != "UYA" || source.Region != "NTSC-U" || source.Revision != "1.00"))
             throw new InvalidDataException("The selected asset source is not supported by this project.");
         if (converted)
             placement = placement with { ClassId = await UyaConvertedAssetPlacementService.PrepareAsync(

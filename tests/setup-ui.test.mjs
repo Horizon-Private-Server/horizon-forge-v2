@@ -32,7 +32,7 @@ function setupState() {
   });
   return {
     projectsDirectory: '/projects', developmentIsoDirectory: '/development', developmentIso: '/development/UYA.iso',
-    developmentIsoReady: true, availableBytes: 200, sources: { UYA: source('UYA'), DL: source('DL') },
+    developmentIsoReady: true, availableBytes: 200, sources: { UYA: source('UYA'), DL: source('DL'), GC: source('GC') },
   };
 }
 
@@ -51,66 +51,69 @@ async function mountSetup(state, forge = {}) {
   return { runtime, render, get closed() { return closed; } };
 }
 
-test('DL controls select, enable, cancel, resume, and re-import independently of UYA', async () => {
-  const state = setupState();
-  state.sources.DL.importEnabled = false;
-  state.sources.DL.importComplete = false;
-  const calls = [];
-  let pending, report;
-  const ui = await mountSetup(state, {
-    onSetupProgress: callback => { report = callback; return () => {}; },
-    chooseAssetSource: async game => { calls.push(['choose', game]); },
-    setSetting: async (key, value) => {
-      assert.equal(key, 'imports.dl.enabled'); state.sources.DL.importEnabled = value;
-    },
-    importAssets: (game, force) => {
-      calls.push(['import', game, force]);
-      return new Promise((resolve, reject) => { pending = { resolve, reject }; });
-    },
-    createDevelopmentIso: async () => { throw new Error('DL imports must not create a development ISO'); },
-    cancelSetupOperation: async () => pending.reject(new Error('Import cancelled')),
+for (const game of ['DL', 'GC']) {
+  test(`${game} controls select, enable, cancel, resume, and re-import independently of UYA`, async () => {
+    const state = setupState();
+    state.sources[game].importEnabled = false;
+    state.sources[game].importComplete = false;
+    const calls = [];
+    let pending, report;
+    const ui = await mountSetup(state, {
+      onSetupProgress: callback => { report = callback; return () => {}; },
+      chooseAssetSource: async game => { calls.push(['choose', game]); },
+      setSetting: async (key, value) => {
+        assert.equal(key, `imports.${game.toLowerCase()}.enabled`); state.sources[game].importEnabled = value;
+      },
+      importAssets: (game, force) => {
+        calls.push(['import', game, force]);
+        return new Promise((resolve, reject) => { pending = { resolve, reject }; });
+      },
+      createDevelopmentIso: async () => { throw new Error(`${game} imports must not create a development ISO`); },
+      cancelSetupOperation: async () => pending.reject(new Error('Import cancelled')),
+    });
+    let tree = ui.render();
+    assert.equal(tree.props.withCloseButton, true);
+    assert.equal(button(tree, `Import / resume ${game} assets`).disabled, true);
+    find(tree, node => node.props?.label === `Clean ${game} NTSC-U ISO`).props.onChoose();
+    await settle();
+    assert.deepEqual(calls, [['choose', game]]);
+    tree = ui.render();
+    find(tree, node => node.type === 'Checkbox' && node.props.label === `Enable ${game} asset import`)
+      .props.onChange({ currentTarget: { checked: true } });
+    await settle();
+    tree = ui.render();
+    const start = button(tree, `Import / resume ${game} assets`);
+    assert.equal(start.disabled, false);
+    start.onClick(); start.onClick();
+    tree = ui.render();
+    assert.equal(calls.filter(call => call[0] === 'import').length, 1, 'rapid clicks start only one import');
+    assert.equal(button(tree, 'Re-import UYA assets').disabled, true);
+    report({ operation: 'import', game: game, completed: 1, total: 2 });
+    tree = ui.render();
+    assert.ok(find(tree, node => node.props?.role === 'status' && node.props.children === `Importing reusable ${game} assets…`));
+    button(tree, 'Cancel operation').onClick();
+    await settle();
+    tree = ui.render();
+    assert.equal(tree.props.withCloseButton, true, 'cancelled optional imports leave setup closable');
+    assert.equal(button(tree, 'Done').disabled, false);
+    assert.equal(state.sources.UYA.importComplete, true);
+    button(tree, `Import / resume ${game} assets`).onClick();
+    state.sources[game].importComplete = true;
+    pending.resolve(importResult);
+    await settle();
+    tree = ui.render();
+    button(tree, `Re-import ${game} assets`).onClick();
+    pending.resolve(importResult);
+    await settle();
+    assert.deepEqual(calls.filter(call => call[0] === 'import'), [
+      ['import', game, false], ['import', game, false], ['import', game, true],
+    ]);
+    button(ui.render(), 'Done').onClick();
+    assert.equal(ui.closed, 1);
+    ui.runtime.dispose();
   });
-  let tree = ui.render();
-  assert.equal(tree.props.withCloseButton, true);
-  assert.equal(button(tree, 'Import / resume DL assets').disabled, true);
-  find(tree, node => node.props?.label === 'Clean DL NTSC-U ISO').props.onChoose();
-  await settle();
-  assert.deepEqual(calls, [['choose', 'DL']]);
-  tree = ui.render();
-  find(tree, node => node.type === 'Checkbox' && node.props.label === 'Enable DL asset import')
-    .props.onChange({ currentTarget: { checked: true } });
-  await settle();
-  tree = ui.render();
-  const start = button(tree, 'Import / resume DL assets');
-  assert.equal(start.disabled, false);
-  start.onClick(); start.onClick();
-  tree = ui.render();
-  assert.equal(calls.filter(call => call[0] === 'import').length, 1, 'rapid clicks start only one import');
-  assert.equal(button(tree, 'Re-import UYA assets').disabled, true);
-  report({ operation: 'import', game: 'DL', completed: 1, total: 2 });
-  tree = ui.render();
-  assert.ok(find(tree, node => node.props?.role === 'status' && node.props.children === 'Importing reusable DL assets…'));
-  button(tree, 'Cancel operation').onClick();
-  await settle();
-  tree = ui.render();
-  assert.equal(tree.props.withCloseButton, true, 'cancelled optional imports leave setup closable');
-  assert.equal(button(tree, 'Done').disabled, false);
-  assert.equal(state.sources.UYA.importComplete, true);
-  button(tree, 'Import / resume DL assets').onClick();
-  state.sources.DL.importComplete = true;
-  pending.resolve(importResult);
-  await settle();
-  tree = ui.render();
-  button(tree, 'Re-import DL assets').onClick();
-  pending.resolve(importResult);
-  await settle();
-  assert.deepEqual(calls.filter(call => call[0] === 'import'), [
-    ['import', 'DL', false], ['import', 'DL', false], ['import', 'DL', true],
-  ]);
-  button(ui.render(), 'Done').onClick();
-  assert.equal(ui.closed, 1);
-  ui.runtime.dispose();
-});
+
+}
 
 test('finishing UYA setup ignores enabled DL imports without a source', async () => {
   const state = setupState();
@@ -155,11 +158,11 @@ test('DL asset extraction can run before UYA source or development ISO setup', a
   ui.runtime.dispose();
 });
 
-test('Settings displays both source paths and opens Setup after closing Settings', async () => {
+test('Settings displays all source paths and opens Setup after closing Settings', async () => {
   const calls = [];
   const runtime = createRendererHarness({ dependencies, forge: {
     getSettings: async () => ({ entries: [
-      { key: 'sources.uya.iso', value: '/UYA.iso' }, { key: 'sources.dl.iso', value: '/DL.iso' },
+      { key: 'sources.uya.iso', value: '/UYA.iso' }, { key: 'sources.dl.iso', value: '/DL.iso' }, { key: 'sources.gc.iso', value: '/GC.iso' },
     ] }),
   } });
   const component = runtime.load('settings/SettingsModal');
@@ -174,7 +177,7 @@ test('Settings displays both source paths and opens Setup after closing Settings
   runtime.render(component, props);
   await settle();
   const tree = runtime.render(component, props);
-  for (const game of ['UYA', 'DL']) {
+  for (const game of ['UYA', 'DL', 'GC']) {
     const input = find(tree, node => node.type === 'TextInput' && node.props.label === `Clean ${game} ISO`);
     assert.equal(input.props.value, `/${game}.iso`);
     assert.equal(input.props.readOnly, true);

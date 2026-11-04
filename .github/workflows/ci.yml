@@ -48,7 +48,7 @@ jobs:
             ~/.npm
             ~/.nuget/packages
             .dependencies/ratchet-ps2-cli
-          key: ${{ runner.os }}-deps-${{ hashFiles('package-lock.json', 'global.json', 'ratchet-sdk.version') }}
+          key: ${{ runner.os }}-deps-${{ hashFiles('package-lock.json', 'global.json', 'ratchet-sdk.version', 'build/ratchet-sdk-gc-assets.patch') }}
 
       - name: Install frontend dependencies
         shell: bash

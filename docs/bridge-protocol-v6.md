@@ -27,3 +27,11 @@ unchanged. Preview allocation limits are separate from the PS2 SPU packing limit
 packing continues to omit unused imported programs and samples.
 
 [Interoperability vectors](../tests/fixtures/bridge-v6.json) cover v6 framing.
+
+GC asset sources use the existing game-neutral setup opcodes with game `GC`.
+The host advertises `gc.iso.validate` and `gc.assets.import` plus the supported
+model families. GC NTSC-U 1.01 models use the `HFGC01` canonical header and retain
+GC provenance; preview dispatches to GC and UYA placement attaches a converted
+native copy through the existing undo/redo and bake flow. GC skies and legacy
+primary/chunk sound banks use the shared catalog models. Framing and payload
+layouts are unchanged.

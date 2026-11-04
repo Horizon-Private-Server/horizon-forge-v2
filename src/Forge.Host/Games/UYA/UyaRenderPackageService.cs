@@ -12,7 +12,7 @@ namespace Forge.Host.Games.UYA;
 
 public static partial class UyaRenderPackageService
 {
-    public const int SchemaVersion = 14;
+    public const int SchemaVersion = 15;
     private const string MarkerName = ".forge-render-package.json";
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 

@@ -1,0 +1,3328 @@
+diff --git a/src/RatchetPs2.Core/Properties/AssemblyInfo.cs b/src/RatchetPs2.Core/Properties/AssemblyInfo.cs
+index c128444..72384ea 100644
+--- a/src/RatchetPs2.Core/Properties/AssemblyInfo.cs
++++ b/src/RatchetPs2.Core/Properties/AssemblyInfo.cs
+@@ -2,3 +2,5 @@ using System.Runtime.CompilerServices;
+ 
+ [assembly: InternalsVisibleTo("RatchetPs2.Experimental")]
+ [assembly: InternalsVisibleTo("RatchetPs2.Games.UYA")]
++
++[assembly: InternalsVisibleTo("RatchetPs2.Games.GC")]
+diff --git a/src/RatchetPs2.Core/Sounds/Snd989SoundBankComposer.cs b/src/RatchetPs2.Core/Sounds/Snd989SoundBankComposer.cs
+index 5297d5a..58d9e05 100644
+--- a/src/RatchetPs2.Core/Sounds/Snd989SoundBankComposer.cs
++++ b/src/RatchetPs2.Core/Sounds/Snd989SoundBankComposer.cs
+@@ -26,6 +26,8 @@ public static class Snd989SoundBankComposer
+         var source = Snd989SoundBankReader.Inspect(sourceBytes, cancellationToken);
+         if (programs.Count > short.MaxValue || samples.Count > short.MaxValue)
+             throw new InvalidDataException("989snd composition exceeds signed 16-bit table counts.");
++        if (source.FormatVersion != 3)
++            throw new NotSupportedException("Use a target v3 bank when composing legacy sound programs.");
+         if (ReadUInt32LittleEndian(sourceBytes, ContainerHeaderSize + 0x38) != 0
+             || ReadUInt32LittleEndian(sourceBytes, ContainerHeaderSize + 0x3c) != 0)
+             throw new NotSupportedException(
+diff --git a/src/RatchetPs2.Core/Sounds/Snd989SoundBankReader.cs b/src/RatchetPs2.Core/Sounds/Snd989SoundBankReader.cs
+index 10c1f2c..368f57c 100644
+--- a/src/RatchetPs2.Core/Sounds/Snd989SoundBankReader.cs
++++ b/src/RatchetPs2.Core/Sounds/Snd989SoundBankReader.cs
+@@ -66,8 +66,12 @@ public static partial class Snd989SoundBankReader
+             if (bytes[offset] != 0)
+                 throw new InvalidDataException("989snd bank sector padding is not zero.");
+ 
+-        if (metadata.Length < 0x40 || ReadUInt32LittleEndian(metadata, 0) != Sblk
+-            || ReadUInt32LittleEndian(metadata, 4) != 3 || ReadUInt32LittleEndian(metadata, 8) != 4
++        var version = metadata.Length >= 8 ? ReadUInt32LittleEndian(metadata, 4) : 0;
++        var legacy = version == 1;
++        var headerSize = legacy ? 0x3c : 0x40;
++        var grainSize = legacy ? 40 : 8;
++        if (metadata.Length < headerSize || ReadUInt32LittleEndian(metadata, 0) != Sblk
++            || version is not (1 or 3) || ReadUInt32LittleEndian(metadata, 8) != 4
+             || ReadUInt32LittleEndian(metadata, 0x0c) != DawBlockId)
+             throw new InvalidDataException("989snd SBlk header is unsupported.");
+         var programCount = ReadNonNegativeInt16(metadata, 0x16, "program count");
+@@ -75,19 +79,23 @@ public static partial class Snd989SoundBankReader
+         var declaredSampleCount = ReadNonNegativeInt16(metadata, 0x1a, "sample count");
+         var programsOffset = ToInt32(ReadUInt32LittleEndian(metadata, 0x1c), "program table offset");
+         var grainsOffset = ToInt32(ReadUInt32LittleEndian(metadata, 0x20), "grain table offset");
+-        var grainDataOffset = ToInt32(ReadUInt32LittleEndian(metadata, 0x34), "grain data offset");
+-        if (ReadUInt32LittleEndian(metadata, 0x28) != sampleDataLength
+-            || ReadUInt32LittleEndian(metadata, 0x2c) < sampleDataLength
+-            || programsOffset != 0x40
++        var grainDataOffset = legacy ? checked(grainsOffset + grainCount * grainSize)
++            : ToInt32(ReadUInt32LittleEndian(metadata, 0x34), "grain data offset");
++        // Legacy chunk banks can reserve more SPU bytes than their trimmed sample payload contains.
++        var declaredSampleBytes = ReadUInt32LittleEndian(metadata, 0x28);
++        if ((!legacy && declaredSampleBytes != sampleDataLength)
++            || declaredSampleBytes < sampleDataLength || declaredSampleBytes > MaximumSampleBytes
++            || ReadUInt32LittleEndian(metadata, 0x2c) < declaredSampleBytes
++            || programsOffset != headerSize
+             || checked(programsOffset + programCount * 12) != grainsOffset
+-            || checked(grainsOffset + grainCount * 8) != grainDataOffset)
++            || checked(grainsOffset + grainCount * grainSize) != grainDataOffset)
+             throw new InvalidDataException("989snd bank table layout is invalid.");
+         _ = Slice(metadata, programsOffset, checked(programCount * 12), "program table");
+-        _ = Slice(metadata, grainsOffset, checked(grainCount * 8), "grain table");
++        _ = Slice(metadata, grainsOffset, checked(grainCount * grainSize), "grain table");
+ 
+         var operations = ReadOperations(
+             metadata, metadataOffset, grainsOffset, grainDataOffset, grainCount,
+-            programCount, unchecked((int)DawBlockId), cancellationToken);
++            programCount, unchecked((int)DawBlockId), cancellationToken, legacy);
+         var samples = ReadSamples(
+             sampleData,
+             sampleDataOffset,
+@@ -109,9 +117,9 @@ public static partial class Snd989SoundBankReader
+             var count = unchecked((sbyte)metadata[offset + 4]);
+             var firstOffset = ToInt32(
+                 ReadUInt32LittleEndian(metadata, offset + 8), $"program {index} first grain");
+-            if (count < 0 || firstOffset % 8 != 0 || firstOffset / 8 > grainCount - count)
++            if (count < 0 || firstOffset % grainSize != 0 || firstOffset / grainSize > grainCount - count)
+                 throw new InvalidDataException($"989snd program {index} grain window is invalid.");
+-            var firstIndex = firstOffset / 8;
++            var firstIndex = firstOffset / grainSize;
+             var programOperations = publicOperations.Skip(firstIndex).Take(count).ToArray();
+             var sampleIds = programOperations
+                 .Where(value => value.Tone is not null)
+@@ -124,6 +132,10 @@ public static partial class Snd989SoundBankReader
+             var instanceLimit = unchecked((sbyte)metadata[offset + 5]);
+             var flags = ReadUInt16LittleEndian(metadata, offset + 6);
+             var blocker = PreviewBlocker(programOperations);
++            if (legacy)
++                for (var grain = firstIndex; grain < firstIndex + count; grain++)
++                    if (!LegacyArgumentsFit(metadata.Slice(grainsOffset + grain * grainSize, grainSize)))
++                        blocker = "Legacy grain arguments exceed the supported signed-byte range.";
+             programs[index] = new(
+                 index,
+                 null,
+@@ -144,7 +156,7 @@ public static partial class Snd989SoundBankReader
+ 
+         return new(
+             "989snd-sblk",
+-            3,
++            checked((int)version),
+             unchecked((int)DawBlockId),
+             new(metadataOffset, metadataLength),
+             new(sampleDataOffset, sampleDataLength),
+@@ -189,15 +201,16 @@ public static partial class Snd989SoundBankReader
+         int grainCount,
+         int programCount,
+         int blockId,
+-        CancellationToken cancellationToken)
++        CancellationToken cancellationToken,
++        bool legacy = false)
+     {
+         var result = new ParsedOperation[grainCount];
+         for (var index = 0; index < grainCount; index++)
+         {
+             if ((index & 0xff) == 0) cancellationToken.ThrowIfCancellationRequested();
+-            var offset = grainsOffset + index * 8;
++            var offset = grainsOffset + index * (legacy ? 40 : 8);
+             var opcode = ReadUInt32LittleEndian(metadata, offset);
+-            var type = (byte)(opcode >> 24);
++            var type = legacy ? checked((byte)opcode) : (byte)(opcode >> 24);
+             var parameterLength = type switch
+             {
+                 1 or 9 => 24,
+@@ -210,7 +223,7 @@ public static partial class Snd989SoundBankReader
+             SoundSourceRange? parameterProvenance = null;
+             if (parameterLength > 0)
+             {
+-                parameterOffset = checked(grainDataOffset + (int)(opcode & 0x00ffffff));
++                parameterOffset = legacy ? offset + 8 : checked(grainDataOffset + (int)(opcode & 0x00ffffff));
+                 parameterBytes = Slice(
+                     metadata, parameterOffset, parameterLength, $"grain {index} parameters").ToArray();
+                 parameterProvenance = new(metadataOffset + parameterOffset, parameterLength);
+@@ -222,11 +235,11 @@ public static partial class Snd989SoundBankReader
+             result[index] = new(
+                 index,
+                 type,
+-                unchecked((sbyte)(byte)opcode),
+-                unchecked((sbyte)(byte)(opcode >> 8)),
+-                unchecked((sbyte)(byte)(opcode >> 16)),
++                legacy ? unchecked((sbyte)ReadInt16LittleEndian(metadata, offset + 8)) : unchecked((sbyte)(byte)opcode),
++                legacy ? unchecked((sbyte)ReadInt16LittleEndian(metadata, offset + 10)) : unchecked((sbyte)(byte)(opcode >> 8)),
++                legacy ? unchecked((sbyte)ReadInt16LittleEndian(metadata, offset + 12)) : unchecked((sbyte)(byte)(opcode >> 16)),
+                 ReadInt32LittleEndian(metadata, offset + 4),
+-                new(metadataOffset + offset, 8),
++                new(metadataOffset + offset, legacy ? 40 : 8),
+                 parameterProvenance,
+                 parameterBytes,
+                 tone,
+@@ -235,6 +248,14 @@ public static partial class Snd989SoundBankReader
+         return result;
+     }
+ 
++    private static bool LegacyArgumentsFit(ReadOnlySpan<byte> grain)
++    {
++        if (ReadUInt32LittleEndian(grain, 0) is >= 1 and <= 9) return true;
++        for (var offset = 8; offset <= 12; offset += 2)
++            if (ReadInt16LittleEndian(grain, offset) is < sbyte.MinValue or > sbyte.MaxValue) return false;
++        return true;
++    }
++
+     private static ParsedTone ReadTone(ReadOnlySpan<byte> bytes, int grainIndex)
+     {
+         var sampleOffset = ToInt32(
+@@ -313,8 +334,9 @@ public static partial class Snd989SoundBankReader
+             }
+             if (end < 0) throw new InvalidDataException("989snd sample has no terminating ADPCM frame.");
+             var looping = (endFlags & 2) != 0;
+-            if (looping != (loopStart is not null))
+-                throw new InvalidDataException("989snd sample loop markers are inconsistent.");
++            if (looping && loopStart is null)
++                throw new InvalidDataException("989snd looping sample has no loop-start marker.");
++            if (!looping) loopStart = null;
+             var encoded = sampleData[start..end];
+             result[index] = new(
+                 Snd989SoundIdentity.HashSample(encoded),
+diff --git a/src/RatchetPs2.Core/Sounds/SoundBankModels.cs b/src/RatchetPs2.Core/Sounds/SoundBankModels.cs
+index 8c9a3cf..2586aad 100644
+--- a/src/RatchetPs2.Core/Sounds/SoundBankModels.cs
++++ b/src/RatchetPs2.Core/Sounds/SoundBankModels.cs
+@@ -77,7 +77,10 @@ public sealed record SoundMobyRemapInfo(
+     short RawSlotCount,
+     SoundSourceRange ConfigurationProvenance,
+     SoundSourceRange? SlotProvenance,
+-    IReadOnlyList<SoundRemapSlotInfo> Slots);
++    IReadOnlyList<SoundRemapSlotInfo> Slots)
++{
++    public int BankIndex { get; init; } = -1;
++}
+ 
+ public sealed record SoundRemapInventory(
+     SoundSourceRange Provenance,
+diff --git a/src/RatchetPs2.Core/Ties/Binary/TiePacketPrimitiveDecoder.cs b/src/RatchetPs2.Core/Ties/Binary/TiePacketPrimitiveDecoder.cs
+index ffe10b7..9b77b6a 100644
+--- a/src/RatchetPs2.Core/Ties/Binary/TiePacketPrimitiveDecoder.cs
++++ b/src/RatchetPs2.Core/Ties/Binary/TiePacketPrimitiveDecoder.cs
+@@ -173,7 +173,8 @@ internal static class TiePacketPrimitiveDecoder
+         {
+             var comparison = left.GsPacketWriteOffset.CompareTo(right.GsPacketWriteOffset);
+             if (comparison != 0) return comparison;
+-            comparison = left.Vertex.Index.CompareTo(right.Vertex.Index);
++            // VU transforms uploads in order; the final write owns a reused GS destination.
++            comparison = right.Vertex.Index.CompareTo(left.Vertex.Index);
+             return comparison != 0 ? comparison : left.IsSecondaryWriteOffset.CompareTo(right.IsSecondaryWriteOffset);
+         });
+         var unique = new List<TiePacketVertexReference>(raw.Count);
+diff --git a/src/RatchetPs2.Core/Ties/Gltf/TieGltfExporter.cs b/src/RatchetPs2.Core/Ties/Gltf/TieGltfExporter.cs
+index 3728162..d8d9618 100644
+--- a/src/RatchetPs2.Core/Ties/Gltf/TieGltfExporter.cs
++++ b/src/RatchetPs2.Core/Ties/Gltf/TieGltfExporter.cs
+@@ -1,4 +1,5 @@
+ using System.Diagnostics;
++using System.Numerics;
+ using RatchetPs2.Core.Gltf;
+ using RatchetPs2.Core.Textures.Png;
+ 
+@@ -95,67 +96,11 @@ public static class TieGltfExporter
+         var glowColorResult = TieGltfGlowBuilder.BuildColors(tie, topology, positions.Count);
+         AddTiming(options, "tie.glow", "Tie glow colors", glowStart);
+ 
+-        var sourceNormalPhaseStart = Stopwatch.GetTimestamp();
+-        var sourceNormalPhaseAnalysis = profile.UsePackedVertexNormalTableSource
+-            && tie.RgbaRemapOperations.Any(operation => operation.LodIndex == topology.LodIndex)
+-                ? TieGltfSourceNormalPhaseAnalysis.Empty
+-                : TieGltfSourceNormalPhaseAnalyzer.Analyze(tie, topology, positions, profile);
+-        AddTiming(
+-            options,
+-            "tie.source-normal-phase",
+-            "Tie source normal phase",
+-            sourceNormalPhaseStart,
+-            $"{sourceNormalPhaseAnalysis.Strips.Count} strips");
+-        var useSourceNormalStripWinding = profile.OrientTriangleWindingToNormals
+-            && sourceNormalPhaseAnalysis.Strips.Count == topology.Strips.Count
+-            && sourceNormalPhaseAnalysis.Strips.All(strip =>
+-                strip.PhaseVote is TieGltfSourceNormalPhaseVote.Current or TieGltfSourceNormalPhaseVote.Inverted);
+-        var packetGroupsStart = Stopwatch.GetTimestamp();
+-        var invertedStripIndices = useSourceNormalStripWinding
+-            ? sourceNormalPhaseAnalysis.Strips
+-                .Where(strip => strip.PhaseVote == TieGltfSourceNormalPhaseVote.Inverted)
+-                .Select(strip => strip.StripIndex)
+-                .ToHashSet()
+-            : [];
+-        var packetGroupResult = TieGltfPacketIndexGroupBuilder.Build(
+-            tie,
+-            topology,
+-            glowColorResult.Colors,
+-            invertedStripIndices);
++        var facing = BuildFacing(tie, topology, positions, glowColorResult.Colors, profile, options);
++        var sourceNormalPhaseAnalysis = facing.PhaseAnalysis;
++        var packetGroupResult = facing.Packets;
++        var normalResult = facing.Normals;
+         var flatIndices = packetGroupResult.PacketIndexGroups.SelectMany(group => group.Indices).ToArray();
+-        AddTiming(
+-            options,
+-            "tie.packet-groups",
+-            "Tie packet index groups",
+-            packetGroupsStart,
+-            $"{packetGroupResult.PacketIndexGroups.Count} groups, {flatIndices.Length} indices");
+-
+-        var normalStart = Stopwatch.GetTimestamp();
+-        var normalResult = TieGltfNormalBuilder.Build(
+-            tie,
+-            topology,
+-            positions,
+-            flatIndices,
+-            sourceNormalPhaseAnalysis,
+-            profile);
+-        if (profile.OrientTriangleWindingToNormals
+-            && !useSourceNormalStripWinding
+-            && TieGltfGeometryBuilder.OrientTrianglesConsistently(
+-                positions,
+-                normalResult.IndexNormals,
+-                normalResult.SourceNormalIndexStates,
+-                packetGroupResult.PacketIndexGroups) > 0)
+-        {
+-            flatIndices = packetGroupResult.PacketIndexGroups.SelectMany(group => group.Indices).ToArray();
+-            normalResult = TieGltfNormalBuilder.Build(
+-                tie,
+-                topology,
+-                positions,
+-                flatIndices,
+-                sourceNormalPhaseAnalysis,
+-                profile);
+-        }
+-        AddTiming(options, "tie.normals", "Tie normals", normalStart, $"{normalResult.Normals.Count} normals");
+ 
+         var ambientStart = Stopwatch.GetTimestamp();
+         var ambientIndexResult = profile.UseAmbientIndexAttribute
+@@ -233,6 +178,103 @@ public static class TieGltfExporter
+         return export;
+     }
+ 
++    /// <summary>Resolves logical triangle facing using the same policy as the source-game preview, without serializing glTF.</summary>
++    public static IReadOnlyList<TieTriangle> ResolveTriangleFacing(TieClass tie, int lodIndex, TieGameProfile profile) =>
++        ResolveTriangleFacing(tie, lodIndex, profile, includeCoincidentAdjacency: false);
++
++    internal static IReadOnlyList<TieTriangle> ResolveTriangleFacing(TieClass tie, int lodIndex, TieGameProfile profile,
++        bool includeCoincidentAdjacency, bool includeOverlappingAdjacency = false)
++    {
++        ArgumentNullException.ThrowIfNull(tie);
++        ArgumentNullException.ThrowIfNull(profile);
++        var topology = tie.LodTopologies.Single(value => value.LodIndex == lodIndex);
++        if (topology.UnresolvedLogicalVertexCount > 0)
++            throw new InvalidDataException($"Tie LOD {lodIndex} has unresolved logical vertices.");
++        var facing = BuildFacing(tie, topology, TieGltfPositionBuilder.BuildPositions(tie, topology), [], profile,
++            new TieGltfExportOptions { LodIndex = lodIndex, GameProfile = profile }, includeCoincidentAdjacency, includeOverlappingAdjacency);
++        var indices = facing.Packets.PacketIndexGroups.SelectMany(group => group.Indices).ToArray();
++        if (indices.Length != topology.Triangles.Count * 3)
++            throw new InvalidDataException("Resolved tie facing changed the triangle count.");
++        return topology.Triangles.Select((triangle, index) => triangle with
++        {
++            A = checked((int)indices[index * 3]),
++            B = checked((int)indices[index * 3 + 1]),
++            C = checked((int)indices[index * 3 + 2]),
++        }).ToArray();
++    }
++
++    private static TieFacing BuildFacing(TieClass tie, TieLodTopology topology, IReadOnlyList<Vector3> positions,
++        IReadOnlyList<Vector4> glowColors, TieGameProfile profile, TieGltfExportOptions options,
++        bool includeCoincidentAdjacency = false, bool includeOverlappingAdjacency = false)
++    {
++        var sourceNormalPhaseStart = Stopwatch.GetTimestamp();
++        var sourceNormalPhaseAnalysis = profile.UsePackedVertexNormalTableSource
++            && tie.RgbaRemapOperations.Any(operation => operation.LodIndex == topology.LodIndex)
++                ? TieGltfSourceNormalPhaseAnalysis.Empty
++                : TieGltfSourceNormalPhaseAnalyzer.Analyze(tie, topology, positions, profile);
++        AddTiming(
++            options,
++            "tie.source-normal-phase",
++            "Tie source normal phase",
++            sourceNormalPhaseStart,
++            $"{sourceNormalPhaseAnalysis.Strips.Count} strips");
++        var useSourceNormalStripWinding = profile.OrientTriangleWindingToNormals
++            && sourceNormalPhaseAnalysis.Strips.Count == topology.Strips.Count
++            && sourceNormalPhaseAnalysis.Strips.All(strip =>
++                strip.PhaseVote is TieGltfSourceNormalPhaseVote.Current or TieGltfSourceNormalPhaseVote.Inverted);
++        var packetGroupsStart = Stopwatch.GetTimestamp();
++        var invertedStripIndices = useSourceNormalStripWinding
++            ? sourceNormalPhaseAnalysis.Strips
++                .Where(strip => strip.PhaseVote == TieGltfSourceNormalPhaseVote.Inverted)
++                .Select(strip => strip.StripIndex)
++                .ToHashSet()
++            : [];
++        var packetGroupResult = TieGltfPacketIndexGroupBuilder.Build(
++            tie,
++            topology,
++            glowColors,
++            invertedStripIndices);
++        var flatIndices = packetGroupResult.PacketIndexGroups.SelectMany(group => group.Indices).ToArray();
++        AddTiming(
++            options,
++            "tie.packet-groups",
++            "Tie packet index groups",
++            packetGroupsStart,
++            $"{packetGroupResult.PacketIndexGroups.Count} groups, {flatIndices.Length} indices");
++
++        var normalStart = Stopwatch.GetTimestamp();
++        var normalResult = TieGltfNormalBuilder.Build(
++            tie,
++            topology,
++            positions,
++            flatIndices,
++            sourceNormalPhaseAnalysis,
++            profile);
++        if (profile.OrientTriangleWindingToNormals
++            && !useSourceNormalStripWinding
++            && TieGltfGeometryBuilder.OrientTrianglesConsistently(
++                positions,
++                normalResult.IndexNormals,
++                normalResult.SourceNormalIndexStates,
++                packetGroupResult.PacketIndexGroups, includeCoincidentAdjacency, includeOverlappingAdjacency) > 0)
++        {
++            flatIndices = packetGroupResult.PacketIndexGroups.SelectMany(group => group.Indices).ToArray();
++            normalResult = TieGltfNormalBuilder.Build(
++                tie,
++                topology,
++                positions,
++                flatIndices,
++                sourceNormalPhaseAnalysis,
++                profile);
++        }
++        AddTiming(options, "tie.normals", "Tie normals", normalStart, $"{normalResult.Normals.Count} normals");
++
++        return new(sourceNormalPhaseAnalysis, packetGroupResult, normalResult);
++    }
++
++    private sealed record TieFacing(TieGltfSourceNormalPhaseAnalysis PhaseAnalysis,
++        TieGltfPacketIndexGroupBuildResult Packets, TieGltfNormalBuildResult Normals);
++
+     private static void AddTiming(
+         TieGltfExportOptions options,
+         string key,
+diff --git a/src/RatchetPs2.Core/Ties/Gltf/TieGltfGeometryBuilder.cs b/src/RatchetPs2.Core/Ties/Gltf/TieGltfGeometryBuilder.cs
+index 1c5a5c1..a2be933 100644
+--- a/src/RatchetPs2.Core/Ties/Gltf/TieGltfGeometryBuilder.cs
++++ b/src/RatchetPs2.Core/Ties/Gltf/TieGltfGeometryBuilder.cs
+@@ -11,7 +11,9 @@ internal static class TieGltfGeometryBuilder
+         IReadOnlyList<Vector3> positions,
+         IReadOnlyList<Vector3> indexNormals,
+         IReadOnlyList<TieGltfSourceNormalState> sourceNormalIndexStates,
+-        IReadOnlyList<PacketIndexGroup> groups)
++        IReadOnlyList<PacketIndexGroup> groups,
++        bool includeCoincidentAdjacency = false,
++        bool includeOverlappingAdjacency = false)
+     {
+         var triangles = new List<WindingTriangle>();
+         var sourceIndexOffset = 0;
+@@ -36,10 +38,13 @@ internal static class TieGltfGeometryBuilder
+         var neighbors = Enumerable.Range(0, triangles.Count)
+             .Select(_ => new List<WindingNeighbor>())
+             .ToArray();
+-        foreach (var uses in edgeUses.Values.Where(uses => uses.Count == 2))
++        foreach (var (edge, uses) in edgeUses.Where(pair => pair.Value.Count == 2))
+         {
+             var left = uses[0];
+             var right = uses[1];
++            // Coplanar faces on the same side of an edge overlap; joining them can invert a whole surface.
++            if (!includeCoincidentAdjacency && (Coincident(triangles[left.TriangleIndex], triangles[right.TriangleIndex])
++                || !includeOverlappingAdjacency && Overlapping(edge, triangles[left.TriangleIndex], triangles[right.TriangleIndex]))) continue;
+             var sameFlip = left.Forward != right.Forward;
+             neighbors[left.TriangleIndex].Add(new WindingNeighbor(right.TriangleIndex, sameFlip));
+             neighbors[right.TriangleIndex].Add(new WindingNeighbor(left.TriangleIndex, sameFlip));
+@@ -149,6 +154,25 @@ internal static class TieGltfGeometryBuilder
+             uses.Add(new WindingEdgeUse(triangleIndex, forward));
+         }
+ 
++        bool Overlapping(WindingEdge edge, WindingTriangle left, WindingTriangle right)
++        {
++            var direction = edge.B - edge.A;
++            var leftNormal = Vector3.Cross(direction, Third(left) - edge.A);
++            var rightNormal = Vector3.Cross(direction, Third(right) - edge.A);
++            var lengths = leftNormal.LengthSquared() * rightNormal.LengthSquared();
++            return lengths > 0 && Vector3.Dot(leftNormal, rightNormal) > 0
++                && Vector3.Cross(leftNormal, rightNormal).LengthSquared() <= lengths * 1e-8f;
++
++            Vector3 Third(WindingTriangle triangle) => new[] { triangle.A, triangle.B, triangle.C }
++                .Select(index => positions[index]).FirstOrDefault(point => point != edge.A && point != edge.B, edge.A);
++        }
++
++        bool Coincident(WindingTriangle left, WindingTriangle right) =>
++            Contains(right, positions[left.A]) && Contains(right, positions[left.B]) && Contains(right, positions[left.C]);
++
++        bool Contains(WindingTriangle triangle, Vector3 point) =>
++            positions[triangle.A] == point || positions[triangle.B] == point || positions[triangle.C] == point;
++
+         bool HasExactSourceNormals(int offset)
+         {
+             return offset >= 0
+diff --git a/src/RatchetPs2.Games.UYA/Builders/UyaFrontendAssetPackageBuilder.cs b/src/RatchetPs2.Games.UYA/Builders/UyaFrontendAssetPackageBuilder.cs
+index 43801bd..f3c984c 100644
+--- a/src/RatchetPs2.Games.UYA/Builders/UyaFrontendAssetPackageBuilder.cs
++++ b/src/RatchetPs2.Games.UYA/Builders/UyaFrontendAssetPackageBuilder.cs
+@@ -1,134 +1,12 @@
+ using RatchetPs2.Core.Games;
+-using RatchetPs2.Core.Gltf;
+ using RatchetPs2.Core.LevelAssets;
+-using RatchetPs2.Core.Moby;
+-using RatchetPs2.Core.Shrubs;
+-using RatchetPs2.Core.Textures;
+-using RatchetPs2.Core.Textures.Pif;
+-using RatchetPs2.Core.Textures.Png;
+-using RatchetPs2.Core.Ties;
+ using RatchetPs2.Core.Wad.Models;
+ 
+ namespace RatchetPs2.Games.UYA.Builders;
+ 
+ internal static class UyaFrontendAssetPackageBuilder
+ {
+-    public static PackedFilePackage Build(
+-        FrontendAssetKind kind,
+-        byte[] modelBytes,
+-        IReadOnlyList<FrontendAssetTexture> textures,
+-        bool preserveTieRepeatedTexCoordTiles = false)
+-    {
+-        ArgumentNullException.ThrowIfNull(modelBytes);
+-        ArgumentNullException.ThrowIfNull(textures);
+-        if (!Enum.IsDefined(kind)) throw new ArgumentOutOfRangeException(nameof(kind));
+-        if (modelBytes.Length == 0) throw new ArgumentException("Asset model bytes cannot be empty.", nameof(modelBytes));
+-        if (textures.Any(texture => texture is null || texture.Role > 1 || texture.PifBytes is null))
+-            throw new ArgumentException("Asset textures contain an invalid entry.", nameof(textures));
+-        if (textures.Count(texture => texture.Role == 1) > 1)
+-            throw new ArgumentException("An asset can contain at most one billboard texture.", nameof(textures));
+-
+-        var files = new List<PackedFile>();
+-        var uris = new Dictionary<int, string>();
+-        var sizes = new Dictionary<int, TextureSize>();
+-        var alpha = new Dictionary<int, TextureAlphaInfo>();
+-        TextureResource? billboard = null;
+-        var textureIndex = 0;
+-        foreach (var texture in textures)
+-        {
+-            var exported = PifAssetExporter.Export(texture.PifBytes);
+-            var resource = new TextureResource(
+-                texture.Role == 1 ? "textures/billboard.png" : $"textures/tex.{textureIndex:0000}.png",
+-                new(exported.Texture.Header.USize, exported.Texture.Header.VSize),
+-                TextureConverter.AnalyzeAlpha(TextureConverter.Decode(exported.Texture)));
+-            files.Add(new(resource.Path, exported.PngBytes, "image/png"));
+-            if (texture.Role == 1)
+-            {
+-                billboard = resource;
+-                continue;
+-            }
+-            uris[textureIndex] = resource.Path;
+-            sizes[textureIndex] = resource.Size;
+-            alpha[textureIndex] = resource.Alpha;
+-            textureIndex++;
+-        }
+-
+-        using var input = new MemoryStream(modelBytes, writable: false);
+-        var (gltf, buffer) = kind switch
+-        {
+-            FrontendAssetKind.Moby => ExportMoby(input, uris, sizes, alpha),
+-            FrontendAssetKind.Tie => ExportTie(input, uris, sizes, alpha, preserveTieRepeatedTexCoordTiles),
+-            FrontendAssetKind.Shrub => ExportShrub(input, uris, sizes, alpha, billboard),
+-            _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+-        };
+-        files.Add(new("model.gltf", gltf, "model/gltf+json"));
+-        files.Add(new("model.buffer.bin", buffer, "application/octet-stream"));
+-        return PackedFilePackageBuilder.Pack(files);
+-    }
+-
+-    private static (byte[] Gltf, byte[] Buffer) ExportMoby(
+-        Stream input,
+-        IReadOnlyDictionary<int, string> uris,
+-        IReadOnlyDictionary<int, TextureSize> sizes,
+-        IReadOnlyDictionary<int, TextureAlphaInfo> alpha)
+-    {
+-        var export = MobyGltfExporter.Export(input, "model.gltf", new()
+-        {
+-            BufferFileName = "model.buffer.bin",
+-            LodIndex = 0,
+-            SkipAnimationSequences = true,
+-            ExternalTextureUris = uris,
+-            ExternalTextureSizes = sizes,
+-            ExternalTextureAlpha = alpha,
+-        });
+-        return (export.GltfBytes, export.BinBytes);
+-    }
+-
+-    private static (byte[] Gltf, byte[] Buffer) ExportTie(
+-        Stream input,
+-        IReadOnlyDictionary<int, string> uris,
+-        IReadOnlyDictionary<int, TextureSize> sizes,
+-        IReadOnlyDictionary<int, TextureAlphaInfo> alpha,
+-        bool preserveRepeatedTexCoordTiles)
+-    {
+-        var export = TieGltfExporter.Export(input, "model.gltf", new()
+-        {
+-            BufferFileName = "model.buffer.bin",
+-            GameProfile = TieGameProfile.ForGame(GameId.UYA),
+-            ExternalTextureUris = uris,
+-            ExternalTextureSizes = sizes,
+-            ExternalTextureAlpha = alpha,
+-            PreserveRepeatedTexCoordTiles = preserveRepeatedTexCoordTiles,
+-            IncludeDiagnostics = false,
+-            Minify = true,
+-            MetadataMode = GltfExportMetadataMode.RuntimeOnly,
+-        });
+-        return (export.GltfBytes, export.BinBytes);
+-    }
+-
+-    private static (byte[] Gltf, byte[] Buffer) ExportShrub(
+-        Stream input,
+-        IReadOnlyDictionary<int, string> uris,
+-        IReadOnlyDictionary<int, TextureSize> sizes,
+-        IReadOnlyDictionary<int, TextureAlphaInfo> alpha,
+-        TextureResource? billboard)
+-    {
+-        var export = ShrubGltfExporter.Export(input, "model.gltf", new()
+-        {
+-            BufferFileName = "model.buffer.bin",
+-            GameLabel = "UYA",
+-            ExternalTextureUris = uris,
+-            ExternalTextureSizes = sizes,
+-            ExternalTextureAlpha = alpha,
+-            ExternalBillboardTextureUri = billboard?.Path,
+-            ExternalBillboardTextureSize = billboard?.Size,
+-            ExternalBillboardTextureAlpha = billboard?.Alpha,
+-            IncludeDiagnostics = false,
+-            Minify = true,
+-            MetadataMode = GltfExportMetadataMode.RuntimeOnly,
+-        });
+-        return (export.GltfBytes, export.BinBytes);
+-    }
+-
+-    private sealed record TextureResource(string Path, TextureSize Size, TextureAlphaInfo Alpha);
++    public static PackedFilePackage Build(FrontendAssetKind kind, byte[] modelBytes,
++        IReadOnlyList<FrontendAssetTexture> textures, bool preserveTieRepeatedTexCoordTiles = false) =>
++        StandardFrontendAssetPackageBuilder.Build(GameId.UYA, kind, modelBytes, textures, preserveTieRepeatedTexCoordTiles);
+ }
+diff --git a/src/RatchetPs2.Games.UYA/Builders/UyaSoundRemapComposer.cs b/src/RatchetPs2.Games.UYA/Builders/UyaSoundRemapComposer.cs
+index 3456cd7..072af6a 100644
+--- a/src/RatchetPs2.Games.UYA/Builders/UyaSoundRemapComposer.cs
++++ b/src/RatchetPs2.Games.UYA/Builders/UyaSoundRemapComposer.cs
+@@ -85,7 +85,7 @@ public static class UyaSoundRemapComposer
+         var bytes = output.ToArray();
+         BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(0x70, 4), offset);
+ 
+-        var inspected = UyaSoundRemapReader.Inspect(bytes, composition.ProgramCount, cancellationToken);
++        var inspected = LevelSoundRemapReader.Inspect(bytes, composition.ProgramCount, cancellationToken);
+         if (!Equivalent(inspected, composition, definitions))
+             throw new InvalidDataException("UYA sound-remap composition failed semantic re-read validation.");
+         return bytes;
+diff --git a/src/RatchetPs2.Games.UYA/Gameplay/UyaStaticInstanceWriters.cs b/src/RatchetPs2.Games.UYA/Gameplay/UyaStaticInstanceWriters.cs
+index b21870f..1f8be00 100644
+--- a/src/RatchetPs2.Games.UYA/Gameplay/UyaStaticInstanceWriters.cs
++++ b/src/RatchetPs2.Games.UYA/Gameplay/UyaStaticInstanceWriters.cs
+@@ -63,6 +63,9 @@ public static class UyaClassIdListWriter
+ 
+ public static class UyaTieInstancesWriter
+ {
++    public static byte[] RebaseClass(ReadOnlySpan<byte> source, int expectedClassId, int targetClassId) =>
++        UyaStaticInstanceWriter.RebaseClass(source, expectedClassId, targetClassId, UyaTieInstancesReader.RecordSize);
++
+     public static byte[] Write(
+         UyaTieInstances source,
+         IReadOnlyList<UyaStaticInstanceEdit> instances) =>
+@@ -72,6 +75,9 @@ public static class UyaTieInstancesWriter
+ 
+ public static class UyaShrubInstancesWriter
+ {
++    public static byte[] RebaseClass(ReadOnlySpan<byte> source, int expectedClassId, int targetClassId) =>
++        UyaStaticInstanceWriter.RebaseClass(source, expectedClassId, targetClassId, UyaShrubInstancesReader.RecordSize);
++
+     public static byte[] Write(
+         UyaShrubInstances source,
+         IReadOnlyList<UyaStaticInstanceEdit> instances) =>
+@@ -90,6 +96,17 @@ public readonly record struct UyaQuaternion(float X, float Y, float Z, float W);
+ 
+ internal static class UyaStaticInstanceWriter
+ {
++    public static byte[] RebaseClass(ReadOnlySpan<byte> source, int expectedClassId, int targetClassId, int recordSize)
++    {
++        if (source.Length != recordSize || BinaryPrimitives.ReadInt32LittleEndian(source) != expectedClassId)
++            throw new InvalidDataException("UYA static instance does not match its expected class and record size.");
++        if (expectedClassId is < 0 or > ushort.MaxValue) throw new ArgumentOutOfRangeException(nameof(expectedClassId));
++        if (targetClassId is < 0 or > ushort.MaxValue) throw new ArgumentOutOfRangeException(nameof(targetClassId));
++        var result = source.ToArray();
++        BinaryPrimitives.WriteInt32LittleEndian(result, targetClassId);
++        return result;
++    }
++
+     public static byte[] Write(
+         IReadOnlyList<int> headerWords,
+         ReadOnlySpan<byte> trailingBytes,
+diff --git a/src/RatchetPs2.Games.UYA/Level/UyaLevelAssetExtractor.cs b/src/RatchetPs2.Games.UYA/Level/UyaLevelAssetExtractor.cs
+index 663b55c..07f90b9 100644
+--- a/src/RatchetPs2.Games.UYA/Level/UyaLevelAssetExtractor.cs
++++ b/src/RatchetPs2.Games.UYA/Level/UyaLevelAssetExtractor.cs
+@@ -18,79 +18,10 @@ internal static class UyaLevelAssetExtractor
+     public static LevelAssetExtractionResult Extract(IReadOnlyList<PackedFile> unpackedFiles)
+     {
+         var source = UyaLevelWadRenderPackageBuilder.ReadAssetSourceFiles(unpackedFiles);
+-        var header = LevelAssetReader.ReadHeader(source.HeaderBytes);
+-        var assetBytes = BinaryMagic.IsWad(source.AssetWadBytes)
+-            ? WadCompression.Decompress(source.AssetWadBytes)
+-            : source.AssetWadBytes;
+-        var mobys = LevelAssetReader.ReadModelDefinitions(source.HeaderBytes, header.MobyModelOffset, header.MobyModelCount);
+-        var ties = LevelAssetReader.ReadModelDefinitions(source.HeaderBytes, header.TieModelOffset, header.TieModelCount);
+-        var shrubs = LevelAssetReader.ReadShrubDefinitions(source.HeaderBytes, header.ShrubModelOffset, header.ShrubModelCount);
+-        var knownOffsets = LevelAssetReader.CollectKnownAssetOffsets(
+-            header, assetBytes.Length, mobys, ties, shrubs, [header.SceneViewSize]);
+-        var mipmaps = LevelAssetReader.ReadMipmapDefinitions(
+-            source.HeaderBytes, header.GsRamOffset, Math.Max(0, header.GsRamCount + header.ExtraMipmapCount));
+-        var gsStash = mipmaps.Skip(header.GsRamCount).ToArray();
+-        var mobyTextures = LevelAssetReader.ReadTextureDefinitions(
+-            source.HeaderBytes, header.MobyTextureOffset, header.MobyTextureCount);
+-        var tieTextures = LevelAssetReader.ReadTextureDefinitions(
+-            source.HeaderBytes, header.TieTextureOffset, header.TieTextureCount);
+-        var shrubTextures = LevelAssetReader.ReadTextureDefinitions(
+-            source.HeaderBytes, header.ShrubTextureOffset, header.ShrubTextureCount);
+-        var assets = new List<ExtractedLevelAsset>(mobys.Count + ties.Count + shrubs.Count);
+-        var failures = 0;
+-
+-        foreach (var definition in mobys)
+-        {
+-            try
+-            {
+-                Add(assets, FrontendAssetKind.Moby, definition.ModelId, definition.Index,
+-                    source.HeaderBytes.AsSpan(header.MobyModelOffset + definition.Index * 0x20, 0x20).ToArray(),
+-                    LevelAssetReader.ReadAssetSlice(assetBytes, definition.ModelOffset, knownOffsets),
+-                    LevelAssetTextureExtractor.Extract("moby", definition.TextureIds, mobyTextures, source.PaletteBytes, assetBytes,
+-                        header.TextureDataOffset, gsStash, isSwizzled: false));
+-            }
+-            catch (Exception exception) when (IsUnsupportedAsset(exception))
+-            {
+-                failures++;
+-            }
+-        }
+-        foreach (var definition in ties)
+-        {
+-            try
+-            {
+-                Add(assets, FrontendAssetKind.Tie, definition.ModelId, definition.Index,
+-                    source.HeaderBytes.AsSpan(header.TieModelOffset + definition.Index * 0x20, 0x20).ToArray(),
+-                    LevelAssetReader.ReadAssetSlice(assetBytes, definition.ModelOffset, knownOffsets),
+-                    LevelAssetTextureExtractor.Extract("tie", definition.TextureIds, tieTextures, source.PaletteBytes, assetBytes,
+-                        header.TextureDataOffset, null, isSwizzled: false));
+-            }
+-            catch (Exception exception) when (IsUnsupportedAsset(exception))
+-            {
+-                failures++;
+-            }
+-        }
+-        foreach (var definition in shrubs)
+-        {
+-            try
+-            {
+-                var textures = LevelAssetTextureExtractor.Extract("shrub", definition.TextureIds, shrubTextures, source.PaletteBytes,
+-                    assetBytes, header.TextureDataOffset, null, isSwizzled: false).ToList();
+-                if (definition.Width > 0 && definition.Height > 0 && definition.TextureId > 0)
+-                    textures.Add(new(1, LevelAssetReader.BuildShrubBillboardTexture(definition, source.PaletteBytes).PifBytes));
+-                Add(assets, FrontendAssetKind.Shrub, definition.ModelId, definition.Index,
+-                    source.HeaderBytes.AsSpan(header.ShrubModelOffset + definition.Index * 0x30, 0x30).ToArray(),
+-                    LevelAssetReader.ReadAssetSlice(assetBytes, definition.ModelOffset, knownOffsets), textures);
+-            }
+-            catch (Exception exception) when (IsUnsupportedAsset(exception))
+-            {
+-                failures++;
+-            }
+-        }
+-        var sky = LevelAssetReader.ReadAssetSlice(assetBytes, header.SkyOffset, knownOffsets);
+-        return new(assets, failures)
++        var result = LevelAssetInventoryReader.Extract(source.HeaderBytes, source.PaletteBytes, source.AssetWadBytes);
++        return result with
+         {
+-            SkyboxBytes = sky.Length == 0 ? null : sky,
+-            SoundBanks = ReadSounds(unpackedFiles, source.HeaderBytes, header.SoundRemapOffset),
++            SoundBanks = ReadSounds(unpackedFiles, source.HeaderBytes, LevelAssetReader.ReadHeader(source.HeaderBytes).SoundRemapOffset),
+         };
+     }
+ 
+@@ -101,25 +32,11 @@ internal static class UyaLevelAssetExtractor
+         var bytes = files.SingleOrDefault(file => file.Path == archive)?.Bytes;
+         if (bytes is not { Length: > 0 }) return [];
+         var bank = Snd989SoundBankReader.Inspect(bytes);
+-        var mobys = remapOffset == 0 ? [] : UyaSoundRemapReader.Inspect(headerBytes, bank.Programs.Count).Mobys
++        var mobys = remapOffset == 0 ? [] : LevelSoundRemapReader.Inspect(headerBytes, bank.Programs.Count).Mobys
+             .Select(map => new ExtractedLevelMobySounds(map.DefinitionIndex, map.ClassId,
+                 map.Slots.Select(slot => slot.NativeProgramIndex).ToArray(), "level_wad/assets/asset_wad.bin"))
+             .ToArray();
+         return [new(bytes, archive, bank, mobys)];
+     }
+ 
+-    private static void Add(
+-        ICollection<ExtractedLevelAsset> assets,
+-        FrontendAssetKind kind,
+-        int classId,
+-        int sourceIndex,
+-        byte[] definitionBytes,
+-        byte[] modelBytes,
+-        IReadOnlyList<ExtractedLevelAssetTexture> textures)
+-    {
+-        assets.Add(new(kind, classId, sourceIndex, definitionBytes, modelBytes, textures));
+-    }
+-
+-    private static bool IsUnsupportedAsset(Exception exception) => exception is
+-        ArgumentException or InvalidDataException or IOException or NotSupportedException or OverflowException;
+ }
+diff --git a/src/RatchetPs2.Games.UYA/UyaSoundRemapReader.cs b/src/RatchetPs2.Games.UYA/UyaSoundRemapReader.cs
+deleted file mode 100644
+index 20a18e9..0000000
+--- a/src/RatchetPs2.Games.UYA/UyaSoundRemapReader.cs
++++ /dev/null
+@@ -1,111 +0,0 @@
+-using RatchetPs2.Core.LevelAssets;
+-using RatchetPs2.Core.Sounds;
+-using static RatchetPs2.Core.IO.BinarySpanReader;
+-
+-namespace RatchetPs2.Games.UYA;
+-
+-internal static class UyaSoundRemapReader
+-{
+-    private const int HeaderSize = 8;
+-    private const int MobyConfigSize = 4;
+-    private const int OtherRecordSize = 0x20;
+-
+-    public static SoundRemapInventory Inspect(
+-        ReadOnlySpan<byte> headerBytes,
+-        int programCount,
+-        CancellationToken cancellationToken = default)
+-    {
+-        cancellationToken.ThrowIfCancellationRequested();
+-        if (programCount < 0) throw new ArgumentOutOfRangeException(nameof(programCount));
+-        var header = LevelAssetReader.ReadHeader(headerBytes);
+-        if (header.SoundRemapOffset <= 0 || header.SoundRemapOffset > headerBytes.Length - HeaderSize)
+-            throw new InvalidDataException("UYA asset header has no bounded sound-remap block.");
+-
+-        var source = headerBytes[header.SoundRemapOffset..];
+-        var otherOffset = ReadNonNegativeInt16(source, 0, "other-record offset");
+-        var otherCount = ReadNonNegativeInt16(source, 2, "other-record count");
+-        var globalOffset = ReadNonNegativeInt16(source, 4, "global-list offset");
+-        var globalCount = ReadNonNegativeInt16(source, 6, "global-list count");
+-        if (otherOffset < HeaderSize || (otherOffset - HeaderSize) % MobyConfigSize != 0)
+-            throw new InvalidDataException("UYA sound-remap moby configuration table is invalid.");
+-        var configCount = (otherOffset - HeaderSize) / MobyConfigSize;
+-        if (configCount > header.MobyModelCount)
+-            throw new InvalidDataException("UYA sound remap has more moby configs than model definitions.");
+-
+-        var definitions = LevelAssetReader.ReadModelDefinitions(
+-            headerBytes, header.MobyModelOffset, header.MobyModelCount);
+-        var mobys = new SoundMobyRemapInfo[configCount];
+-        var end = HeaderSize + configCount * MobyConfigSize;
+-        for (var index = 0; index < configCount; index++)
+-        {
+-            cancellationToken.ThrowIfCancellationRequested();
+-            var configOffset = HeaderSize + index * MobyConfigSize;
+-            var listOffset = ReadInt16LittleEndian(source, configOffset);
+-            var count = ReadInt16LittleEndian(source, configOffset + 2);
+-            if (count < 0 || count > 0 && listOffset <= 0)
+-                throw new InvalidDataException($"UYA sound-remap moby config {index} is invalid.");
+-            SoundSourceRange? slotRange = null;
+-            SoundRemapSlotInfo[] slots = [];
+-            if (count > 0)
+-            {
+-                var bytes = Slice(source, listOffset, checked(count * sizeof(int)), $"moby config {index} list");
+-                // The native loader adds one to the leading bank selector; -1 selects the primary bank.
+-                if (ReadInt32LittleEndian(bytes, 0) != -1)
+-                    throw new NotSupportedException("UYA moby sound remaps using secondary banks are not supported.");
+-                slots = ReadSlots(bytes[sizeof(int)..], header.SoundRemapOffset + listOffset + sizeof(int), programCount, nullable: true,
+-                    $"moby class 0x{definitions[index].ModelId:X4}");
+-                slotRange = new(header.SoundRemapOffset + listOffset + sizeof(int), bytes.Length - sizeof(int));
+-                end = Math.Max(end, checked(listOffset + bytes.Length));
+-            }
+-            mobys[index] = new(
+-                index,
+-                definitions[index].ModelId,
+-                listOffset,
+-                count,
+-                new(header.SoundRemapOffset + configOffset, MobyConfigSize),
+-                slotRange,
+-                slots);
+-        }
+-
+-        var otherBytes = Slice(source, otherOffset, checked(otherCount * OtherRecordSize), "other records");
+-        var globalBytes = Slice(source, globalOffset, checked(globalCount * sizeof(int)), "global list");
+-        var globals = ReadSlots(globalBytes, header.SoundRemapOffset + globalOffset,
+-            programCount, nullable: false, "global list");
+-        end = Math.Max(end, checked(otherOffset + otherBytes.Length));
+-        end = Math.Max(end, checked(globalOffset + globalBytes.Length));
+-        return new(
+-            new(header.SoundRemapOffset, end),
+-            mobys,
+-            otherCount,
+-            new(header.SoundRemapOffset + otherOffset, otherBytes.Length),
+-            globals,
+-            new(header.SoundRemapOffset + globalOffset, globalBytes.Length));
+-    }
+-
+-    private static SoundRemapSlotInfo[] ReadSlots(
+-        ReadOnlySpan<byte> bytes,
+-        int absoluteOffset,
+-        int programCount,
+-        bool nullable,
+-        string owner)
+-    {
+-        var result = new SoundRemapSlotInfo[bytes.Length / sizeof(int)];
+-        for (var index = 0; index < result.Length; index++)
+-        {
+-            var value = ReadInt32LittleEndian(bytes, index * sizeof(int));
+-            if (value >= programCount || value < 0 && !(nullable && value == -1))
+-                throw new InvalidDataException(
+-                    $"UYA sound-remap {owner} slot {index} references invalid program {value}.");
+-            result[index] = new(index, value, new(absoluteOffset + index * sizeof(int), sizeof(int)));
+-        }
+-        return result;
+-    }
+-
+-    private static short ReadNonNegativeInt16(ReadOnlySpan<byte> bytes, int offset, string name)
+-    {
+-        var value = ReadInt16LittleEndian(bytes, offset);
+-        if (value < 0) throw new InvalidDataException($"UYA sound-remap {name} is negative.");
+-        return value;
+-    }
+-
+-}
+diff --git a/src/RatchetPs2.Sdk/DiscImageInspector.cs b/src/RatchetPs2.Sdk/DiscImageInspector.cs
+index 7056297..3b0ff31 100644
+--- a/src/RatchetPs2.Sdk/DiscImageInspector.cs
++++ b/src/RatchetPs2.Sdk/DiscImageInspector.cs
+@@ -3,6 +3,8 @@ using RatchetPs2.Core.Games;
+ using RatchetPs2.Games.UYA.Disc;
+ using RatchetPs2.Games.DL.Disc;
+ 
++using RatchetPs2.Games.GC.Disc;
++
+ namespace RatchetPs2.Sdk;
+ 
+ public static class DiscImageInspector
+@@ -11,6 +13,7 @@ public static class DiscImageInspector
+     {
+         GameId.UYA => UyaDiscImageInspector.SupportedProfile,
+         GameId.DL => DlDiscImageInspector.SupportedProfile,
++        GameId.GC => GcDiscImageInspector.SupportedProfile,
+         _ => throw new NotSupportedException($"Disc profiles are not supported for {gameId}."),
+     };
+ 
+@@ -18,6 +21,7 @@ public static class DiscImageInspector
+     {
+         GameId.UYA => UyaDiscImageInspector.Inspect(source),
+         GameId.DL => DlDiscImageInspector.Inspect(source),
++        GameId.GC => GcDiscImageInspector.Inspect(source),
+         _ => throw new NotSupportedException($"Disc inspection is not supported for {gameId}."),
+     };
+ }
+diff --git a/src/RatchetPs2.Sdk/FrontendAssetPackageBuilder.cs b/src/RatchetPs2.Sdk/FrontendAssetPackageBuilder.cs
+index 5e0da78..ea1aee7 100644
+--- a/src/RatchetPs2.Sdk/FrontendAssetPackageBuilder.cs
++++ b/src/RatchetPs2.Sdk/FrontendAssetPackageBuilder.cs
+@@ -4,6 +4,8 @@ using RatchetPs2.Core.Wad.Models;
+ using RatchetPs2.Games.UYA.Builders;
+ using RatchetPs2.Games.DL.Builders;
+ 
++using RatchetPs2.Games.GC.Builders;
++
+ namespace RatchetPs2.Sdk;
+ 
+ public sealed record FrontendAssetPackageBuildOptions(
+@@ -18,6 +20,8 @@ public static class FrontendAssetPackageBuilder
+         IReadOnlyList<FrontendAssetTexture> textures,
+         FrontendAssetPackageBuildOptions? options = null) => gameId switch
+         {
++            GameId.GC => GcFrontendAssetPackageBuilder.Build(
++                kind, modelBytes, textures, options?.PreserveAuthoredRepeatedTexCoordTiles ?? false),
+             GameId.UYA => UyaFrontendAssetPackageBuilder.Build(
+                 kind,
+                 modelBytes,
+diff --git a/src/RatchetPs2.Sdk/GameplayInstanceConverter.cs b/src/RatchetPs2.Sdk/GameplayInstanceConverter.cs
+index ed34056..4c92827 100644
+--- a/src/RatchetPs2.Sdk/GameplayInstanceConverter.cs
++++ b/src/RatchetPs2.Sdk/GameplayInstanceConverter.cs
+@@ -1,10 +1,19 @@
+ using RatchetPs2.Core.Games;
++using RatchetPs2.Core.LevelAssets;
+ using RatchetPs2.Games.UYA.Gameplay;
+ 
+ namespace RatchetPs2.Sdk;
+ 
+ public static class GameplayInstanceConverter
+ {
++    public static byte[] RebaseStaticClass(GameId game, FrontendAssetKind kind, ReadOnlySpan<byte> source,
++        int expectedClassId, int targetClassId) => (game, kind) switch
++    {
++        (GameId.UYA, FrontendAssetKind.Tie) => UyaTieInstancesWriter.RebaseClass(source, expectedClassId, targetClassId),
++        (GameId.UYA, FrontendAssetKind.Shrub) => UyaShrubInstancesWriter.RebaseClass(source, expectedClassId, targetClassId),
++        _ => throw new NotSupportedException($"{kind} instance class rebasing is not supported for {game}."),
++    };
++
+     public static byte[] RebaseMobyClass(GameId game, ReadOnlySpan<byte> source, int expectedClassId, int targetClassId) => game switch
+     {
+         GameId.UYA => UyaMobyInstancesWriter.RebaseClass(source, expectedClassId, targetClassId),
+diff --git a/src/RatchetPs2.Sdk/LevelArchiveReader.cs b/src/RatchetPs2.Sdk/LevelArchiveReader.cs
+index 6aadbca..9b1f24a 100644
+--- a/src/RatchetPs2.Sdk/LevelArchiveReader.cs
++++ b/src/RatchetPs2.Sdk/LevelArchiveReader.cs
+@@ -2,6 +2,8 @@ using RatchetPs2.Core.Games;
+ using RatchetPs2.Games.UYA.Level;
+ using RatchetPs2.Games.DL.Level;
+ 
++using RatchetPs2.Games.GC.Level;
++
+ namespace RatchetPs2.Sdk;
+ 
+ public sealed record LevelAssetSourceFiles(
+@@ -16,6 +18,7 @@ public static class LevelArchiveReader
+     {
+         GameId.UYA => UyaLooseLevelWadExtractor.ExtractPrimary(iso, levelIndex).Bytes,
+         GameId.DL => DlLooseLevelWadExtractor.ExtractPrimary(iso, levelIndex).Bytes,
++        GameId.GC => GcLevelArchiveReader.ExtractPrimary(iso, levelIndex),
+         _ => throw new NotSupportedException($"Level archive extraction is not supported for {gameId}."),
+     };
+ 
+diff --git a/src/RatchetPs2.Sdk/LevelAssetCanonicalizer.cs b/src/RatchetPs2.Sdk/LevelAssetCanonicalizer.cs
+index 0135a68..f3ac90a 100644
+--- a/src/RatchetPs2.Sdk/LevelAssetCanonicalizer.cs
++++ b/src/RatchetPs2.Sdk/LevelAssetCanonicalizer.cs
+@@ -3,6 +3,8 @@ using RatchetPs2.Core.LevelAssets;
+ using RatchetPs2.Games.UYA.Level;
+ using RatchetPs2.Games.DL.Level;
+ 
++using RatchetPs2.Games.GC.Level;
++
+ namespace RatchetPs2.Sdk;
+ 
+ public static class LevelAssetCanonicalizer
+@@ -11,6 +13,7 @@ public static class LevelAssetCanonicalizer
+     {
+         GameId.UYA => UyaLevelAssetCanonicalizer.NormalizeDefinition(definition),
+         GameId.DL => DlLevelAssetCanonicalizer.NormalizeDefinition(definition),
++        GameId.GC => GcLevelAssetCanonicalizer.NormalizeDefinition(definition),
+         _ => throw new NotSupportedException($"Canonical assets are not supported for {game}."),
+     };
+ 
+@@ -21,6 +24,7 @@ public static class LevelAssetCanonicalizer
+         {
+             case GameId.UYA: UyaLevelAssetCanonicalizer.Validate(definition, model, textures); break;
+             case GameId.DL: DlLevelAssetCanonicalizer.Validate(definition, model, textures); break;
++            case GameId.GC: GcLevelAssetCanonicalizer.Validate(definition, model, textures); break;
+             default: throw new NotSupportedException($"Canonical assets are not supported for {game}.");
+         }
+     }
+diff --git a/src/RatchetPs2.Sdk/LevelAssetExtractor.cs b/src/RatchetPs2.Sdk/LevelAssetExtractor.cs
+index 2855499..8c77232 100644
+--- a/src/RatchetPs2.Sdk/LevelAssetExtractor.cs
++++ b/src/RatchetPs2.Sdk/LevelAssetExtractor.cs
+@@ -4,6 +4,8 @@ using RatchetPs2.Core.Wad.Models;
+ using RatchetPs2.Games.UYA.Level;
+ using RatchetPs2.Games.DL.Level;
+ 
++using RatchetPs2.Games.GC.Level;
++
+ namespace RatchetPs2.Sdk;
+ 
+ public static class LevelAssetExtractor
+@@ -12,6 +14,7 @@ public static class LevelAssetExtractor
+     {
+         GameId.UYA => UyaLevelAssetExtractor.Extract(levelWadBytes),
+         GameId.DL => DlLevelAssetExtractor.Extract(levelWadBytes),
++        GameId.GC => GcLevelAssetExtractor.Extract(levelWadBytes),
+         _ => throw new NotSupportedException($"Level asset extraction is not supported for {gameId}."),
+     };
+ 
+@@ -19,6 +22,7 @@ public static class LevelAssetExtractor
+     public static LevelAssetExtractionResult ExtractUnpacked(GameId gameId, IReadOnlyList<PackedFile> unpackedFiles) => gameId switch
+     {
+         GameId.UYA => UyaLevelAssetExtractor.Extract(unpackedFiles),
++        GameId.GC => GcLevelAssetExtractor.Extract(unpackedFiles),
+         _ => throw new NotSupportedException($"Unpacked level asset extraction is not supported for {gameId}."),
+     };
+ }
+diff --git a/src/RatchetPs2.Sdk/LevelAssetModelConverter.cs b/src/RatchetPs2.Sdk/LevelAssetModelConverter.cs
+index 5c9d0ec..8138d89 100644
+--- a/src/RatchetPs2.Sdk/LevelAssetModelConverter.cs
++++ b/src/RatchetPs2.Sdk/LevelAssetModelConverter.cs
+@@ -6,6 +6,8 @@ using RatchetPs2.Games.DL.Moby;
+ using RatchetPs2.Games.UYA.Level;
+ using RatchetPs2.Games.UYA.Moby;
+ 
++using RatchetPs2.Games.GC.Level;
++
+ namespace RatchetPs2.Sdk;
+ 
+ public static class LevelAssetModelConverter
+@@ -50,10 +52,28 @@ public static class LevelAssetModelConverter
+         return UyaLevelAssetModelConverter.RepairPreviousDlTie(sourceBytes, convertedBytes, targetClassId);
+     }
+ 
++    /// <summary>Returns the corrected model for a recognized conversion (including unchanged models), or null for independent edits.</summary>
++    public static byte[]? RepairPreviousStaticConversion(GameId sourceGame, GameId targetGame,
++        FrontendAssetKind kind, byte[] sourceBytes, byte[] convertedBytes, int previousClassId, int targetClassId,
++        CancellationToken cancellationToken = default)
++    {
++        ArgumentNullException.ThrowIfNull(sourceBytes);
++        ArgumentNullException.ThrowIfNull(convertedBytes);
++        if (previousClassId is < 0 or > ushort.MaxValue) throw new ArgumentOutOfRangeException(nameof(previousClassId));
++        if (targetClassId is < 0 or > ushort.MaxValue) throw new ArgumentOutOfRangeException(nameof(targetClassId));
++        cancellationToken.ThrowIfCancellationRequested();
++        if (sourceGame != GameId.GC || targetGame != GameId.UYA)
++            throw new NotSupportedException($"Static conversion repair from {sourceGame} to {targetGame} is not supported.");
++        return GcLevelAssetModelConverter.RepairPreviousStaticConversion(kind, sourceBytes, convertedBytes,
++            previousClassId, targetClassId, cancellationToken);
++    }
++
+     public static byte[] ConvertTexture(GameId sourceGame, GameId targetGame, byte[] pifBytes,
+         TextureRole role = TextureRole.Material)
+     {
+         ArgumentNullException.ThrowIfNull(pifBytes);
++        if (sourceGame == GameId.GC && targetGame == GameId.UYA)
++            return GcLevelAssetModelConverter.ConvertTexture(pifBytes, role);
+         if (sourceGame != GameId.DL || targetGame != GameId.UYA)
+             throw new NotSupportedException($"Texture conversion from {sourceGame} to {targetGame} is not supported.");
+         return UyaLevelAssetModelConverter.ConvertDlTexture(pifBytes, role);
+@@ -65,6 +85,8 @@ public static class LevelAssetModelConverter
+         ArgumentNullException.ThrowIfNull(modelBytes);
+         if (targetClassId is < 0 or > ushort.MaxValue) throw new ArgumentOutOfRangeException(nameof(targetClassId));
+         cancellationToken.ThrowIfCancellationRequested();
++        if (sourceGame == GameId.GC && targetGame == GameId.UYA)
++            return GcLevelAssetModelConverter.Convert(kind, modelBytes, targetClassId, cancellationToken);
+         if (sourceGame != GameId.DL || targetGame != GameId.UYA)
+             throw new NotSupportedException($"Model conversion from {sourceGame} to {targetGame} is not supported.");
+         return kind switch
+diff --git a/src/RatchetPs2.Sdk/LevelCatalogReader.cs b/src/RatchetPs2.Sdk/LevelCatalogReader.cs
+index e43e1be..7fc25e6 100644
+--- a/src/RatchetPs2.Sdk/LevelCatalogReader.cs
++++ b/src/RatchetPs2.Sdk/LevelCatalogReader.cs
+@@ -2,6 +2,8 @@ using RatchetPs2.Core.Games;
+ using RatchetPs2.Games.UYA.Level;
+ using RatchetPs2.Games.DL.Level;
+ 
++using RatchetPs2.Games.GC.Level;
++
+ namespace RatchetPs2.Sdk;
+ 
+ public static class LevelCatalogReader
+@@ -10,6 +12,7 @@ public static class LevelCatalogReader
+     {
+         GameId.UYA => UyaLevelCatalogReader.FindAvailable(iso),
+         GameId.DL => DlLevelCatalogReader.FindAvailable(iso),
++        GameId.GC => GcLevelArchiveReader.FindAvailable(iso),
+         _ => throw new NotSupportedException($"Level discovery is not supported for {gameId}."),
+     };
+ }
+diff --git a/src/RatchetPs2.Sdk/SkyboxComposer.cs b/src/RatchetPs2.Sdk/SkyboxComposer.cs
+index 444d485..f6f380a 100644
+--- a/src/RatchetPs2.Sdk/SkyboxComposer.cs
++++ b/src/RatchetPs2.Sdk/SkyboxComposer.cs
+@@ -2,6 +2,8 @@ using System.Numerics;
+ using RatchetPs2.Core.Games;
+ using RatchetPs2.Games.UYA.Builders;
+ 
++using RatchetPs2.Games.GC.Level;
++
+ namespace RatchetPs2.Sdk;
+ 
+ public sealed record SkyboxShellComposition(
+@@ -17,6 +19,7 @@ public static class SkyboxComposer
+     public static byte[] Convert(GameId sourceGame, GameId targetGame, byte[] bytes, int? sourceLevel = null,
+         CancellationToken cancellationToken = default) => (sourceGame, targetGame) switch
+     {
++        (GameId.GC, GameId.UYA) => GcLevelAssetModelConverter.ConvertSky(bytes, cancellationToken),
+         (GameId.DL, GameId.UYA) => UyaSkyboxConverter.ConvertFromDl(bytes, sourceLevel, cancellationToken),
+         _ => throw new NotSupportedException($"Skybox conversion from {sourceGame} to {targetGame} is not supported."),
+     };
+diff --git a/src/RatchetPs2.Sdk/SoundBankComposer.cs b/src/RatchetPs2.Sdk/SoundBankComposer.cs
+index af28a87..7808625 100644
+--- a/src/RatchetPs2.Sdk/SoundBankComposer.cs
++++ b/src/RatchetPs2.Sdk/SoundBankComposer.cs
+@@ -14,7 +14,7 @@ public static class SoundBankComposer
+         CancellationToken cancellationToken = default,
+         bool enforceSpuBudget = true) => gameId switch
+         {
+-            GameId.UYA or GameId.DL => Snd989SoundBankComposer.Compose(
++            GameId.UYA or GameId.DL or GameId.GC => Snd989SoundBankComposer.Compose(
+                 sourceBankBytes, programs, samples, cancellationToken, enforceSpuBudget),
+             _ => throw new NotSupportedException($"Sound-bank composition is not supported for {gameId}."),
+         };
+diff --git a/src/RatchetPs2.Sdk/SoundBankReader.cs b/src/RatchetPs2.Sdk/SoundBankReader.cs
+index b2750db..5c663d5 100644
+--- a/src/RatchetPs2.Sdk/SoundBankReader.cs
++++ b/src/RatchetPs2.Sdk/SoundBankReader.cs
+@@ -14,7 +14,7 @@ public static class SoundBankReader
+         ArgumentNullException.ThrowIfNull(bankBytes);
+         return gameId switch
+         {
+-            GameId.UYA or GameId.DL => Snd989SoundBankReader.Inspect(bankBytes, cancellationToken),
++            GameId.UYA or GameId.DL or GameId.GC => Snd989SoundBankReader.Inspect(bankBytes, cancellationToken),
+             _ => throw new NotSupportedException($"Sound-bank inventory is not supported for {gameId}."),
+         };
+     }
+@@ -30,7 +30,7 @@ public static class SoundBankReader
+         ArgumentNullException.ThrowIfNull(bankBytes);
+         return gameId switch
+         {
+-            GameId.UYA or GameId.DL => Snd989SoundBankReader.RenderPreview(
++            GameId.UYA or GameId.DL or GameId.GC => Snd989SoundBankReader.RenderPreview(
+                 bankBytes, programIndex, maximumFrames, preferAudible, cancellationToken),
+             _ => throw new NotSupportedException($"Sound preview is not supported for {gameId}."),
+         };
+@@ -40,14 +40,14 @@ public static class SoundBankReader
+     public static bool HasRandomTriggerGate(GameId gameId, IEnumerable<(byte Type, sbyte Argument0)> operations) =>
+         gameId switch
+         {
+-            GameId.UYA or GameId.DL => Snd989SoundBankReader.HasRandomTriggerGate(operations),
++            GameId.UYA or GameId.DL or GameId.GC => Snd989SoundBankReader.HasRandomTriggerGate(operations),
+             _ => throw new NotSupportedException($"Sound-program analysis is not supported for {gameId}."),
+         };
+ 
+     public static int PreviewSampleRate(GameId gameId, sbyte centerNote, sbyte centerFine) =>
+         gameId switch
+         {
+-            GameId.UYA or GameId.DL => Snd989SoundBankReader.PreviewSampleRate(centerNote, centerFine),
++            GameId.UYA or GameId.DL or GameId.GC => Snd989SoundBankReader.PreviewSampleRate(centerNote, centerFine),
+             _ => throw new NotSupportedException($"Sound preview is not supported for {gameId}."),
+         };
+ 
+@@ -60,7 +60,7 @@ public static class SoundBankReader
+         ArgumentNullException.ThrowIfNull(assetHeaderBytes);
+         return gameId switch
+         {
+-            GameId.UYA => UyaSoundRemapReader.Inspect(
++            GameId.UYA => LevelSoundRemapReader.Inspect(
+                 assetHeaderBytes, programCount, cancellationToken),
+             _ => throw new NotSupportedException($"Sound-remap inventory is not supported for {gameId}."),
+         };
+diff --git a/tests/RatchetPs2.LevelTests/LevelAssetModelConversionTests.cs b/tests/RatchetPs2.LevelTests/LevelAssetModelConversionTests.cs
+index 1bec20f..b372214 100644
+--- a/tests/RatchetPs2.LevelTests/LevelAssetModelConversionTests.cs
++++ b/tests/RatchetPs2.LevelTests/LevelAssetModelConversionTests.cs
+@@ -141,7 +141,7 @@ internal static class LevelAssetModelConversionTests
+         using var cancelled = new CancellationTokenSource(); cancelled.Cancel();
+         try { LevelAssetModelConverter.Convert(GameId.DL, GameId.UYA, FrontendAssetKind.Tie, tie, 0x9001, cancelled.Token); throw new Exception("Expected cancellation"); }
+         catch (OperationCanceledException) { }
+-        try { LevelAssetModelConverter.Convert(GameId.GC, GameId.UYA, FrontendAssetKind.Tie, tie, 0x9001); throw new Exception("Expected rejection"); }
++        try { LevelAssetModelConverter.Convert(GameId.RC1, GameId.UYA, FrontendAssetKind.Tie, tie, 0x9001); throw new Exception("Expected rejection"); }
+         catch (NotSupportedException) { }
+         Console.WriteLine("DL to UYA model conversion checks passed.");
+     }
+diff --git a/tests/RatchetPs2.LevelTests/Program.cs b/tests/RatchetPs2.LevelTests/Program.cs
+index 1592f0b..d4c02b9 100644
+--- a/tests/RatchetPs2.LevelTests/Program.cs
++++ b/tests/RatchetPs2.LevelTests/Program.cs
+@@ -42,6 +42,8 @@ using RatchetPs2.Games.UYA.Level;
+ using RatchetPs2.Sdk;
+ 
+ if (args is ["--sound-banks"]) { UyaSoundBankContractTests.Run(); SoundBankReaderTests.Run(); return; }
++if (args is ["--qualify-gc-tie-splits", var gcTieDirectory]) { GcTieSplitConversionTests.Qualify(gcTieDirectory); return; }
++if (args is ["--gc-to-uya-ties"]) { GcTieConversionTests.Run(); return; }
+ if (args is ["--dl-to-uya-models"]) { LevelAssetModelConversionTests.Run(); return; }
+ if (args is ["--dl-asset-extraction"]) { DlAssetExtractionTests.Run(); DlAssetResourceTests.Run(); return; }
+ if (args is ["--uya-occlusion-compaction"]) { UyaOcclusionCompactionTests.Run(); return; }
+@@ -321,6 +323,7 @@ ValidateOnlineArmorWadParsing();
+ DlAssetExtractionTests.Run();
+ DlAssetResourceTests.Run();
+ LevelAssetModelConversionTests.Run();
++GcTieConversionTests.Run();
+ ValidateLooseLevelWadExtraction();
+ ValidateLooseLevelWadUnpacking();
+ ValidateRc1IsoLevelExtraction();
+diff --git a/tests/RatchetPs2.LevelTests/SoundBankReaderTests.cs b/tests/RatchetPs2.LevelTests/SoundBankReaderTests.cs
+index df396ff..957ef55 100644
+--- a/tests/RatchetPs2.LevelTests/SoundBankReaderTests.cs
++++ b/tests/RatchetPs2.LevelTests/SoundBankReaderTests.cs
+@@ -42,6 +42,7 @@ internal static class SoundBankReaderTests
+             && SoundBankReader.PreviewSampleRate(GameId.DL, -116, 56) == 1_938,
+             "shared 989snd preview rate preserves center-fine direction");
+ 
++        VerifyLegacy(bank, inventory);
+         VerifyComposition(bank, inventory);
+         VerifyLevelExtraction(bank);
+         VerifyRandomTriggerGates();
+@@ -442,6 +443,38 @@ internal static class SoundBankReaderTests
+             Console.WriteLine($"Deadlocked 989snd reader: inventoried {checkedBanks} bank(s).");
+     }
+ 
++    private static void VerifyLegacy(byte[] packed, RatchetPs2.Core.Sounds.SoundBankInventory expected)
++    {
++        const int metadataLength = 0x3c + 3 * 12 + 3 * 40;
++        var legacy = new byte[2048];
++        WriteContainer(legacy, 24, metadataLength, 24 + metadataLength, 48);
++        packed.AsSpan(24, 0x3c).CopyTo(legacy.AsSpan(24));
++        var header = legacy.AsSpan(24);
++        BinaryPrimitives.WriteInt32LittleEndian(header[4..], 1);
++        BinaryPrimitives.WriteInt32LittleEndian(header[0x1c..], 0x3c);
++        BinaryPrimitives.WriteInt32LittleEndian(header[0x20..], 0x60);
++        BinaryPrimitives.WriteInt32LittleEndian(header[0x34..], 0);
++        packed.AsSpan(24 + 0x40, 36).CopyTo(header[0x3c..]);
++        for (var index = 0; index < 3; index++)
++        {
++            BinaryPrimitives.WriteInt32LittleEndian(header[(0x3c + index * 12 + 8)..], index * 40);
++            BinaryPrimitives.WriteInt32LittleEndian(header[(0x60 + index * 40)..], 1);
++            packed.AsSpan(24 + 0x7c + index * 24, 24).CopyTo(header[(0x60 + index * 40 + 8)..]);
++        }
++        packed.AsSpan(ReadInt32(packed, 16), 48).CopyTo(legacy.AsSpan(24 + metadataLength));
++        var actual = SoundBankReader.Inspect(GameId.GC, legacy);
++        Expect(actual.FormatVersion == 1 && actual.Programs.Select(value => value.ContentId)
++            .SequenceEqual(expected.Programs.Select(value => value.ContentId)), "GC v1 and UYA v3 program identities agree");
++        Expect(SoundBankReader.RenderPreview(GameId.GC, legacy, 0).Pcm16
++            .SequenceEqual(SoundBankReader.RenderPreview(GameId.UYA, packed, 0).Pcm16), "GC legacy PCM preview");
++        BinaryPrimitives.WriteInt32LittleEndian(header[0x28..], 64);
++        BinaryPrimitives.WriteInt32LittleEndian(header[0x2c..], 64);
++        Expect(SoundBankReader.Inspect(GameId.GC, legacy).Samples.Count == 2, "GC trimmed chunk-bank allocation");
++        legacy[24 + metadataLength + 32 + 1] = 5;
++        Expect(SoundBankReader.Inspect(GameId.GC, legacy).Samples[1] is { IsLooping: false, LoopStartFrame: null },
++            "a non-repeating sample ignores its unused loop-start marker");
++    }
++
+     internal static byte[] CreateDirectBank()
+     {
+         const int metadataOffset = 0x18;
+diff --git a/src/RatchetPs2.Core/LevelAssets/LevelAssetInventoryReader.cs b/src/RatchetPs2.Core/LevelAssets/LevelAssetInventoryReader.cs
+new file mode 100644
+index 0000000..dc25551
+--- /dev/null
++++ b/src/RatchetPs2.Core/LevelAssets/LevelAssetInventoryReader.cs
+@@ -0,0 +1,99 @@
++using RatchetPs2.Core.IO;
++using RatchetPs2.Core.Wad;
++
++namespace RatchetPs2.Core.LevelAssets;
++
++public static class LevelAssetInventoryReader
++{
++    public static LevelAssetExtractionResult Extract(byte[] headerBytes, byte[] paletteBytes, byte[] assetWadBytes)
++    {
++        var header = LevelAssetReader.ReadHeader(headerBytes);
++        var assetBytes = BinaryMagic.IsWad(assetWadBytes)
++            ? WadCompression.Decompress(assetWadBytes)
++            : assetWadBytes;
++        var mobys = LevelAssetReader.ReadModelDefinitions(headerBytes, header.MobyModelOffset, header.MobyModelCount);
++        var ties = LevelAssetReader.ReadModelDefinitions(headerBytes, header.TieModelOffset, header.TieModelCount);
++        var shrubs = LevelAssetReader.ReadShrubDefinitions(headerBytes, header.ShrubModelOffset, header.ShrubModelCount);
++        var knownOffsets = LevelAssetReader.CollectKnownAssetOffsets(
++            header, assetBytes.Length, mobys, ties, shrubs, [header.SceneViewSize]);
++        var mipmaps = LevelAssetReader.ReadMipmapDefinitions(
++            headerBytes, header.GsRamOffset, Math.Max(0, header.GsRamCount + header.ExtraMipmapCount));
++        var gsStash = mipmaps.Skip(header.GsRamCount).ToArray();
++        var mobyTextures = LevelAssetReader.ReadTextureDefinitions(
++            headerBytes, header.MobyTextureOffset, header.MobyTextureCount);
++        var tieTextures = LevelAssetReader.ReadTextureDefinitions(
++            headerBytes, header.TieTextureOffset, header.TieTextureCount);
++        var shrubTextures = LevelAssetReader.ReadTextureDefinitions(
++            headerBytes, header.ShrubTextureOffset, header.ShrubTextureCount);
++        var assets = new List<ExtractedLevelAsset>(mobys.Count + ties.Count + shrubs.Count);
++        var failures = 0;
++
++        foreach (var definition in mobys)
++        {
++            try
++            {
++                Add(assets, FrontendAssetKind.Moby, definition.ModelId, definition.Index,
++                    headerBytes.AsSpan(header.MobyModelOffset + definition.Index * 0x20, 0x20).ToArray(),
++                    LevelAssetReader.ReadAssetSlice(assetBytes, definition.ModelOffset, knownOffsets),
++                    LevelAssetTextureExtractor.Extract("moby", definition.TextureIds, mobyTextures, paletteBytes, assetBytes,
++                        header.TextureDataOffset, gsStash, isSwizzled: false));
++            }
++            catch (Exception exception) when (IsUnsupportedAsset(exception))
++            {
++                failures++;
++            }
++        }
++        foreach (var definition in ties)
++        {
++            try
++            {
++                Add(assets, FrontendAssetKind.Tie, definition.ModelId, definition.Index,
++                    headerBytes.AsSpan(header.TieModelOffset + definition.Index * 0x20, 0x20).ToArray(),
++                    LevelAssetReader.ReadAssetSlice(assetBytes, definition.ModelOffset, knownOffsets),
++                    LevelAssetTextureExtractor.Extract("tie", definition.TextureIds, tieTextures, paletteBytes, assetBytes,
++                        header.TextureDataOffset, null, isSwizzled: false));
++            }
++            catch (Exception exception) when (IsUnsupportedAsset(exception))
++            {
++                failures++;
++            }
++        }
++        foreach (var definition in shrubs)
++        {
++            try
++            {
++                var textures = LevelAssetTextureExtractor.Extract("shrub", definition.TextureIds, shrubTextures, paletteBytes,
++                    assetBytes, header.TextureDataOffset, null, isSwizzled: false).ToList();
++                if (definition.Width > 0 && definition.Height > 0 && definition.TextureId > 0)
++                    textures.Add(new(1, LevelAssetReader.BuildShrubBillboardTexture(definition, paletteBytes).PifBytes));
++                Add(assets, FrontendAssetKind.Shrub, definition.ModelId, definition.Index,
++                    headerBytes.AsSpan(header.ShrubModelOffset + definition.Index * 0x30, 0x30).ToArray(),
++                    LevelAssetReader.ReadAssetSlice(assetBytes, definition.ModelOffset, knownOffsets), textures);
++            }
++            catch (Exception exception) when (IsUnsupportedAsset(exception))
++            {
++                failures++;
++            }
++        }
++        var sky = LevelAssetReader.ReadAssetSlice(assetBytes, header.SkyOffset, knownOffsets);
++        return new(assets, failures)
++        {
++            SkyboxBytes = sky.Length == 0 ? null : sky,
++        };
++    }
++
++    private static void Add(
++        ICollection<ExtractedLevelAsset> assets,
++        FrontendAssetKind kind,
++        int classId,
++        int sourceIndex,
++        byte[] definitionBytes,
++        byte[] modelBytes,
++        IReadOnlyList<ExtractedLevelAssetTexture> textures)
++    {
++        assets.Add(new(kind, classId, sourceIndex, definitionBytes, modelBytes, textures));
++    }
++
++    private static bool IsUnsupportedAsset(Exception exception) => exception is
++        ArgumentException or InvalidDataException or IOException or NotSupportedException or OverflowException;
++}
+diff --git a/src/RatchetPs2.Core/LevelAssets/StandardFrontendAssetPackageBuilder.cs b/src/RatchetPs2.Core/LevelAssets/StandardFrontendAssetPackageBuilder.cs
+new file mode 100644
+index 0000000..850bae8
+--- /dev/null
++++ b/src/RatchetPs2.Core/LevelAssets/StandardFrontendAssetPackageBuilder.cs
+@@ -0,0 +1,137 @@
++using RatchetPs2.Core.Games;
++using RatchetPs2.Core.Gltf;
++using RatchetPs2.Core.LevelAssets;
++using RatchetPs2.Core.Moby;
++using RatchetPs2.Core.Shrubs;
++using RatchetPs2.Core.Textures;
++using RatchetPs2.Core.Textures.Pif;
++using RatchetPs2.Core.Textures.Png;
++using RatchetPs2.Core.Ties;
++using RatchetPs2.Core.Wad.Models;
++
++namespace RatchetPs2.Core.LevelAssets;
++
++public static class StandardFrontendAssetPackageBuilder
++{
++    public static PackedFilePackage Build(
++        GameId game,
++        FrontendAssetKind kind,
++        byte[] modelBytes,
++        IReadOnlyList<FrontendAssetTexture> textures,
++        bool preserveTieRepeatedTexCoordTiles = false)
++    {
++        ArgumentNullException.ThrowIfNull(modelBytes);
++        ArgumentNullException.ThrowIfNull(textures);
++        if (!Enum.IsDefined(kind)) throw new ArgumentOutOfRangeException(nameof(kind));
++        if (modelBytes.Length == 0) throw new ArgumentException("Asset model bytes cannot be empty.", nameof(modelBytes));
++        if (textures.Any(texture => texture is null || texture.Role > 1 || texture.PifBytes is null))
++            throw new ArgumentException("Asset textures contain an invalid entry.", nameof(textures));
++        if (textures.Count(texture => texture.Role == 1) > 1)
++            throw new ArgumentException("An asset can contain at most one billboard texture.", nameof(textures));
++
++        var files = new List<PackedFile>();
++        var uris = new Dictionary<int, string>();
++        var sizes = new Dictionary<int, TextureSize>();
++        var alpha = new Dictionary<int, TextureAlphaInfo>();
++        TextureResource? billboard = null;
++        var textureIndex = 0;
++        foreach (var texture in textures)
++        {
++            var exported = PifAssetExporter.Export(texture.PifBytes);
++            var resource = new TextureResource(
++                texture.Role == 1 ? "textures/billboard.png" : $"textures/tex.{textureIndex:0000}.png",
++                new(exported.Texture.Header.USize, exported.Texture.Header.VSize),
++                TextureConverter.AnalyzeAlpha(TextureConverter.Decode(exported.Texture)));
++            files.Add(new(resource.Path, exported.PngBytes, "image/png"));
++            if (texture.Role == 1)
++            {
++                billboard = resource;
++                continue;
++            }
++            uris[textureIndex] = resource.Path;
++            sizes[textureIndex] = resource.Size;
++            alpha[textureIndex] = resource.Alpha;
++            textureIndex++;
++        }
++
++        using var input = new MemoryStream(modelBytes, writable: false);
++        var (gltf, buffer) = kind switch
++        {
++            FrontendAssetKind.Moby => ExportMoby(input, uris, sizes, alpha),
++            FrontendAssetKind.Tie => ExportTie(game, input, uris, sizes, alpha, preserveTieRepeatedTexCoordTiles),
++            FrontendAssetKind.Shrub => ExportShrub(game, input, uris, sizes, alpha, billboard),
++            _ => throw new ArgumentOutOfRangeException(nameof(kind)),
++        };
++        files.Add(new("model.gltf", gltf, "model/gltf+json"));
++        files.Add(new("model.buffer.bin", buffer, "application/octet-stream"));
++        return PackedFilePackageBuilder.Pack(files);
++    }
++
++    private static (byte[] Gltf, byte[] Buffer) ExportMoby(
++        Stream input,
++        IReadOnlyDictionary<int, string> uris,
++        IReadOnlyDictionary<int, TextureSize> sizes,
++        IReadOnlyDictionary<int, TextureAlphaInfo> alpha)
++    {
++        var export = MobyGltfExporter.Export(input, "model.gltf", new()
++        {
++            BufferFileName = "model.buffer.bin",
++            LodIndex = 0,
++            SkipAnimationSequences = true,
++            ExternalTextureUris = uris,
++            ExternalTextureSizes = sizes,
++            ExternalTextureAlpha = alpha,
++        });
++        return (export.GltfBytes, export.BinBytes);
++    }
++
++    private static (byte[] Gltf, byte[] Buffer) ExportTie(
++        GameId game,
++        Stream input,
++        IReadOnlyDictionary<int, string> uris,
++        IReadOnlyDictionary<int, TextureSize> sizes,
++        IReadOnlyDictionary<int, TextureAlphaInfo> alpha,
++        bool preserveRepeatedTexCoordTiles)
++    {
++        var export = TieGltfExporter.Export(input, "model.gltf", new()
++        {
++            BufferFileName = "model.buffer.bin",
++            GameProfile = TieGameProfile.ForGame(game),
++            ExternalTextureUris = uris,
++            ExternalTextureSizes = sizes,
++            ExternalTextureAlpha = alpha,
++            PreserveRepeatedTexCoordTiles = preserveRepeatedTexCoordTiles,
++            IncludeDiagnostics = false,
++            Minify = true,
++            MetadataMode = GltfExportMetadataMode.RuntimeOnly,
++        });
++        return (export.GltfBytes, export.BinBytes);
++    }
++
++    private static (byte[] Gltf, byte[] Buffer) ExportShrub(
++        GameId game,
++        Stream input,
++        IReadOnlyDictionary<int, string> uris,
++        IReadOnlyDictionary<int, TextureSize> sizes,
++        IReadOnlyDictionary<int, TextureAlphaInfo> alpha,
++        TextureResource? billboard)
++    {
++        var export = ShrubGltfExporter.Export(input, "model.gltf", new()
++        {
++            BufferFileName = "model.buffer.bin",
++            GameLabel = game.ToString(),
++            ExternalTextureUris = uris,
++            ExternalTextureSizes = sizes,
++            ExternalTextureAlpha = alpha,
++            ExternalBillboardTextureUri = billboard?.Path,
++            ExternalBillboardTextureSize = billboard?.Size,
++            ExternalBillboardTextureAlpha = billboard?.Alpha,
++            IncludeDiagnostics = false,
++            Minify = true,
++            MetadataMode = GltfExportMetadataMode.RuntimeOnly,
++        });
++        return (export.GltfBytes, export.BinBytes);
++    }
++
++    private sealed record TextureResource(string Path, TextureSize Size, TextureAlphaInfo Alpha);
++}
+diff --git a/src/RatchetPs2.Core/Sounds/LevelSoundRemapReader.cs b/src/RatchetPs2.Core/Sounds/LevelSoundRemapReader.cs
+new file mode 100644
+index 0000000..c771d53
+--- /dev/null
++++ b/src/RatchetPs2.Core/Sounds/LevelSoundRemapReader.cs
+@@ -0,0 +1,120 @@
++using RatchetPs2.Core.LevelAssets;
++using static RatchetPs2.Core.IO.BinarySpanReader;
++
++namespace RatchetPs2.Core.Sounds;
++
++public static class LevelSoundRemapReader
++{
++    private const int HeaderSize = 8;
++    private const int MobyConfigSize = 4;
++    private const int OtherRecordSize = 0x20;
++
++    public static SoundRemapInventory Inspect(
++        ReadOnlySpan<byte> headerBytes,
++        int programCount,
++        CancellationToken cancellationToken = default,
++        IReadOnlyList<int>? secondaryProgramCounts = null)
++    {
++        cancellationToken.ThrowIfCancellationRequested();
++        if (programCount < 0) throw new ArgumentOutOfRangeException(nameof(programCount));
++        var header = LevelAssetReader.ReadHeader(headerBytes);
++        if (header.SoundRemapOffset <= 0 || header.SoundRemapOffset > headerBytes.Length - HeaderSize)
++            throw new InvalidDataException("Level asset header has no bounded sound-remap block.");
++
++        var source = headerBytes[header.SoundRemapOffset..];
++        var otherOffset = ReadNonNegativeInt16(source, 0, "other-record offset");
++        var otherCount = ReadNonNegativeInt16(source, 2, "other-record count");
++        var globalOffset = ReadNonNegativeInt16(source, 4, "global-list offset");
++        var globalCount = ReadNonNegativeInt16(source, 6, "global-list count");
++        if (otherOffset < HeaderSize || (otherOffset - HeaderSize) % MobyConfigSize != 0)
++            throw new InvalidDataException("Level sound-remap moby configuration table is invalid.");
++        var configCount = (otherOffset - HeaderSize) / MobyConfigSize;
++        if (configCount > header.MobyModelCount)
++            throw new InvalidDataException("Level sound remap has more moby configs than model definitions.");
++
++        var definitions = LevelAssetReader.ReadModelDefinitions(
++            headerBytes, header.MobyModelOffset, header.MobyModelCount);
++        var mobys = new SoundMobyRemapInfo[configCount];
++        var end = HeaderSize + configCount * MobyConfigSize;
++        for (var index = 0; index < configCount; index++)
++        {
++            cancellationToken.ThrowIfCancellationRequested();
++            var configOffset = HeaderSize + index * MobyConfigSize;
++            var listOffset = ReadInt16LittleEndian(source, configOffset);
++            var count = ReadInt16LittleEndian(source, configOffset + 2);
++            if (count < 0 || count > 0 && listOffset <= 0)
++                throw new InvalidDataException($"Level sound-remap moby config {index} is invalid.");
++            SoundSourceRange? slotRange = null;
++            SoundRemapSlotInfo[] slots = [];
++            var bankIndex = -1;
++            if (count > 0)
++            {
++                var bytes = Slice(source, listOffset, checked(count * sizeof(int)), $"moby config {index} list");
++                // The native loader adds one to the leading bank selector; -1 selects the primary bank.
++                bankIndex = ReadInt32LittleEndian(bytes, 0);
++                var selectedProgramCount = programCount;
++                if (bankIndex != -1)
++                {
++                    if (secondaryProgramCounts is null)
++                        throw new NotSupportedException("Level moby sound remaps using secondary banks are not supported.");
++                    if ((uint)bankIndex >= (uint)secondaryProgramCounts.Count || secondaryProgramCounts[bankIndex] < 0)
++                        throw new InvalidDataException("Level moby sound remap selects an unavailable bank.");
++                    selectedProgramCount = secondaryProgramCounts[bankIndex];
++                }
++                slots = ReadSlots(bytes[sizeof(int)..], header.SoundRemapOffset + listOffset + sizeof(int), selectedProgramCount, nullable: true,
++                    $"moby class 0x{definitions[index].ModelId:X4}");
++                slotRange = new(header.SoundRemapOffset + listOffset + sizeof(int), bytes.Length - sizeof(int));
++                end = Math.Max(end, checked(listOffset + bytes.Length));
++            }
++            mobys[index] = new(
++                index,
++                definitions[index].ModelId,
++                listOffset,
++                count,
++                new(header.SoundRemapOffset + configOffset, MobyConfigSize),
++                slotRange,
++                slots) { BankIndex = bankIndex };
++        }
++
++        var otherBytes = Slice(source, otherOffset, checked(otherCount * OtherRecordSize), "other records");
++        var globalBytes = Slice(source, globalOffset, checked(globalCount * sizeof(int)), "global list");
++        var globals = ReadSlots(globalBytes, header.SoundRemapOffset + globalOffset,
++            programCount, nullable: false, "global list");
++        end = Math.Max(end, checked(otherOffset + otherBytes.Length));
++        end = Math.Max(end, checked(globalOffset + globalBytes.Length));
++        return new(
++            new(header.SoundRemapOffset, end),
++            mobys,
++            otherCount,
++            new(header.SoundRemapOffset + otherOffset, otherBytes.Length),
++            globals,
++            new(header.SoundRemapOffset + globalOffset, globalBytes.Length));
++    }
++
++    private static SoundRemapSlotInfo[] ReadSlots(
++        ReadOnlySpan<byte> bytes,
++        int absoluteOffset,
++        int programCount,
++        bool nullable,
++        string owner)
++    {
++        var result = new SoundRemapSlotInfo[bytes.Length / sizeof(int)];
++        for (var index = 0; index < result.Length; index++)
++        {
++            var value = ReadInt32LittleEndian(bytes, index * sizeof(int));
++            if (value >= programCount || value < 0 && !(nullable && value == -1))
++                throw new InvalidDataException(
++                    $"Level sound-remap {owner} slot {index} references invalid program {value}.");
++            result[index] = new(index, value, new(absoluteOffset + index * sizeof(int), sizeof(int)));
++        }
++        return result;
++    }
++
++    private static short ReadNonNegativeInt16(ReadOnlySpan<byte> bytes, int offset, string name)
++    {
++        var value = ReadInt16LittleEndian(bytes, offset);
++        if (value < 0) throw new InvalidDataException($"Level sound-remap {name} is negative.");
++        return value;
++    }
++
++}
+diff --git a/src/RatchetPs2.Games.GC/Builders/GcFrontendAssetPackageBuilder.cs b/src/RatchetPs2.Games.GC/Builders/GcFrontendAssetPackageBuilder.cs
+new file mode 100644
+index 0000000..d0ebff9
+--- /dev/null
++++ b/src/RatchetPs2.Games.GC/Builders/GcFrontendAssetPackageBuilder.cs
+@@ -0,0 +1,12 @@
++using RatchetPs2.Core.Games;
++using RatchetPs2.Core.LevelAssets;
++using RatchetPs2.Core.Wad.Models;
++
++namespace RatchetPs2.Games.GC.Builders;
++
++internal static class GcFrontendAssetPackageBuilder
++{
++    public static PackedFilePackage Build(FrontendAssetKind kind, byte[] modelBytes,
++        IReadOnlyList<FrontendAssetTexture> textures, bool preserveTieRepeatedTexCoordTiles = false) =>
++        StandardFrontendAssetPackageBuilder.Build(GameId.GC, kind, modelBytes, textures, preserveTieRepeatedTexCoordTiles);
++}
+diff --git a/src/RatchetPs2.Games.GC/Disc/GcDiscImageInspector.cs b/src/RatchetPs2.Games.GC/Disc/GcDiscImageInspector.cs
+new file mode 100644
+index 0000000..a1e9e1e
+--- /dev/null
++++ b/src/RatchetPs2.Games.GC/Disc/GcDiscImageInspector.cs
+@@ -0,0 +1,28 @@
++using RatchetPs2.Core.Disc;
++using RatchetPs2.Core.Games;
++
++namespace RatchetPs2.Games.GC.Disc;
++
++internal static class GcDiscImageInspector
++{
++    private const string SupportedSerial = "SCUS-97268";
++
++    public static DiscImageProfile SupportedProfile { get; } = new(
++        GameId.GC,
++        "NTSC-U",
++        "1.01",
++        SupportedSerial,
++        3_828_350_976,
++        "3cbbb5127ee8a0be93ef0876f7781ee8");
++
++    public static DiscImageInfo Inspect(Stream source)
++    {
++        var metadata = PlayStation2DiscReader.Read(source);
++        return new(
++            metadata.Serial.Equals(SupportedSerial, StringComparison.OrdinalIgnoreCase) ? GameId.GC : null,
++            metadata.Region,
++            metadata.Revision,
++            metadata.Serial,
++            source.Length);
++    }
++}
+diff --git a/src/RatchetPs2.Games.GC/Level/GcLevelArchiveReader.cs b/src/RatchetPs2.Games.GC/Level/GcLevelArchiveReader.cs
+new file mode 100644
+index 0000000..00eb93d
+--- /dev/null
++++ b/src/RatchetPs2.Games.GC/Level/GcLevelArchiveReader.cs
+@@ -0,0 +1,30 @@
++using RatchetPs2.Games.UYA.Level;
++
++namespace RatchetPs2.Games.GC.Level;
++
++internal static class GcLevelArchiveReader
++{
++    public static IReadOnlyList<int> FindAvailable(Stream iso)
++    {
++        ArgumentNullException.ThrowIfNull(iso);
++        var levels = new List<int>();
++        foreach (var level in GcLevelCatalog.Levels)
++        {
++            var block = GcLevelInfoReader.ReadLevel(iso, level.Id).LevelWad;
++            if (block.Offset < 0 || block.Length < 0)
++                throw new InvalidDataException("GC level WAD contains negative sector values.");
++            if (block.Offset != 0 && block.Length != 0) levels.Add(level.Id);
++        }
++        return levels;
++    }
++
++    public static byte[] ExtractPrimary(Stream iso, int level)
++    {
++        var entry = GcLevelInfoReader.ReadLevel(iso, level);
++        return UyaLooseLevelWadExtractor.ExtractPrimary(iso, new UyaLevelInfoSet(
++            entry.Level.TableIndex, new UyaLevelInfoEntry(entry.Level.TableIndex,
++                new(entry.LevelAudioWad.Offset, entry.LevelAudioWad.Length),
++                new(entry.LevelWad.Offset, entry.LevelWad.Length),
++                new(entry.LevelSceneWad.Offset, entry.LevelSceneWad.Length)))).Bytes;
++    }
++}
+diff --git a/src/RatchetPs2.Games.GC/Level/GcLevelAssetCanonicalizer.cs b/src/RatchetPs2.Games.GC/Level/GcLevelAssetCanonicalizer.cs
+new file mode 100644
+index 0000000..3e2c93e
+--- /dev/null
++++ b/src/RatchetPs2.Games.GC/Level/GcLevelAssetCanonicalizer.cs
+@@ -0,0 +1,33 @@
++using RatchetPs2.Core.LevelAssets;
++
++namespace RatchetPs2.Games.GC.Level;
++
++public static class GcLevelAssetCanonicalizer
++{
++    public static byte[] NormalizeDefinition(ReadOnlySpan<byte> definitionBytes)
++    {
++        ValidateDefinition(definitionBytes);
++        var definition = definitionBytes.ToArray();
++        definition.AsSpan(0, 8).Clear();
++        definition.AsSpan(0x10).Fill(byte.MaxValue);
++        return definition;
++    }
++
++    public static void Validate(
++        ReadOnlySpan<byte> definitionBytes,
++        ReadOnlySpan<byte> modelBytes,
++        IReadOnlyList<FrontendAssetTexture> textures)
++    {
++        ValidateDefinition(definitionBytes);
++        if (modelBytes.IsEmpty) throw new InvalidDataException("Canonical GC model cannot be empty.");
++        ArgumentNullException.ThrowIfNull(textures);
++        if (textures.Count > 4_096 || textures.Any(value => value is null || value.Role > 1 || value.PifBytes.Length == 0))
++            throw new InvalidDataException("Canonical GC textures are invalid.");
++    }
++
++    private static void ValidateDefinition(ReadOnlySpan<byte> definitionBytes)
++    {
++        if (definitionBytes.Length is not 0x20 and not 0x30)
++            throw new InvalidDataException("Canonical GC definition must be 0x20 or 0x30 bytes.");
++    }
++}
+diff --git a/src/RatchetPs2.Games.GC/Level/GcLevelAssetExtractor.cs b/src/RatchetPs2.Games.GC/Level/GcLevelAssetExtractor.cs
+new file mode 100644
+index 0000000..4de75fe
+--- /dev/null
++++ b/src/RatchetPs2.Games.GC/Level/GcLevelAssetExtractor.cs
+@@ -0,0 +1,55 @@
++using RatchetPs2.Core.Games;
++using RatchetPs2.Core.IO;
++using RatchetPs2.Core.LevelAssets;
++using RatchetPs2.Core.Sounds;
++using RatchetPs2.Core.Wad;
++using RatchetPs2.Core.Wad.Models;
++
++using RatchetPs2.Games.UYA.Level;
++using RatchetPs2.Games.UYA;
++
++namespace RatchetPs2.Games.GC.Level;
++
++internal static class GcLevelAssetExtractor
++{
++    public static LevelAssetExtractionResult Extract(byte[] levelWadBytes)
++    {
++        ArgumentNullException.ThrowIfNull(levelWadBytes);
++        return Extract(UyaLevelWadUnpacker.Unpack(levelWadBytes).Files);
++    }
++
++    public static LevelAssetExtractionResult Extract(IReadOnlyList<PackedFile> unpackedFiles)
++    {
++        var source = UyaLevelWadRenderPackageBuilder.ReadAssetSourceFiles(unpackedFiles);
++        var result = LevelAssetInventoryReader.Extract(source.HeaderBytes, source.PaletteBytes, source.AssetWadBytes);
++        return result with
++        {
++            SoundBanks = ReadSounds(unpackedFiles, source.HeaderBytes, LevelAssetReader.ReadHeader(source.HeaderBytes).SoundRemapOffset),
++        };
++    }
++
++    private static IReadOnlyList<ExtractedLevelSoundBank> ReadSounds(
++        IReadOnlyList<PackedFile> files, byte[] headerBytes, int remapOffset)
++    {
++        var banks = new List<(int Index, string Archive, byte[] Bytes, SoundBankInventory Inventory)>();
++        Add(-1, "level_wad/sound.bnk");
++        for (var index = 0; index < 3; index++) Add(index, $"level_wad/chunks/chunk{index}_bank.wad");
++        if (banks.Count == 0) return [];
++        var secondaryCounts = Enumerable.Range(0, 3)
++            .Select(index => banks.Where(bank => bank.Index == index).Select(bank => bank.Inventory.Programs.Count).DefaultIfEmpty(-1).Single()).ToArray();
++        var remaps = remapOffset == 0 ? [] : LevelSoundRemapReader.Inspect(headerBytes,
++            banks.Where(bank => bank.Index == -1).Select(bank => bank.Inventory.Programs.Count).DefaultIfEmpty(0).Single(),
++            secondaryProgramCounts: secondaryCounts).Mobys;
++        return banks.Select(bank => new ExtractedLevelSoundBank(bank.Bytes, bank.Archive, bank.Inventory,
++            remaps.Where(map => map.BankIndex == bank.Index).Select(map => new ExtractedLevelMobySounds(
++                map.DefinitionIndex, map.ClassId, map.Slots.Select(slot => slot.NativeProgramIndex).ToArray(),
++                "level_wad/assets/asset_wad.bin")).ToArray())).ToArray();
++
++        void Add(int index, string archive)
++        {
++            var bytes = files.SingleOrDefault(file => file.Path == archive)?.Bytes;
++            if (bytes is { Length: > 0 }) banks.Add((index, archive, bytes, Snd989SoundBankReader.Inspect(bytes)));
++        }
++    }
++
++}
+diff --git a/src/RatchetPs2.Games.GC/Level/GcLevelAssetModelConverter.cs b/src/RatchetPs2.Games.GC/Level/GcLevelAssetModelConverter.cs
+new file mode 100644
+index 0000000..9418803
+--- /dev/null
++++ b/src/RatchetPs2.Games.GC/Level/GcLevelAssetModelConverter.cs
+@@ -0,0 +1,202 @@
++using System.Buffers.Binary;
++using RatchetPs2.Core.Games;
++using RatchetPs2.Core.LevelAssets;
++using RatchetPs2.Core.Moby;
++using RatchetPs2.Core.Shrubs;
++using RatchetPs2.Core.Skyboxes;
++using RatchetPs2.Core.Textures.Palettes;
++using RatchetPs2.Core.Textures.Pif;
++using RatchetPs2.Core.Ties;
++
++namespace RatchetPs2.Games.GC.Level;
++
++internal static class GcLevelAssetModelConverter
++{
++    public static byte[] Convert(FrontendAssetKind kind, byte[] bytes, int targetClassId, CancellationToken cancellationToken = default)
++    {
++        if (kind == FrontendAssetKind.Tie) return ConvertTie(bytes, targetClassId, cancellationToken);
++        using var stream = new MemoryStream(bytes, writable: false);
++        var result = bytes.ToArray();
++        switch (kind)
++        {
++            case FrontendAssetKind.Moby:
++                _ = MobyModelReader.Read(stream);
++                break;
++            case FrontendAssetKind.Shrub:
++                _ = ShrubClassReader.Read(stream);
++                BinaryPrimitives.WriteUInt16LittleEndian(result.AsSpan(0x24), checked((ushort)targetClassId));
++                break;
++            default: throw new ArgumentOutOfRangeException(nameof(kind));
++        }
++        return result;
++    }
++
++    private static byte[] ConvertTie(byte[] bytes, int targetClassId, CancellationToken token, TieAnalysis? analysis = null)
++    {
++        var result = PatchTiePackets(bytes, bytes.ToArray(), analysis ?? new(bytes), token);
++        BinaryPrimitives.WriteUInt16LittleEndian(result.AsSpan(0x44), checked((ushort)targetClassId));
++        _ = TieClassReader.Read(result, TieClassReadOptions.ForGameProfile(TieGameProfile.ForGame(GameId.UYA)));
++        return result;
++    }
++
++    private static byte[] PatchTiePackets(byte[] bytes, byte[] result, TieAnalysis analysis,
++        CancellationToken cancellationToken, GcTiePacketLayout layout = GcTiePacketLayout.Current)
++    {
++        var tie = analysis.Tie;
++        foreach (var block in tie.PacketDataBlocks)
++        {
++            cancellationToken.ThrowIfCancellationRequested();
++            var packet = tie.PacketTables[block.LodIndex].Packets[block.PacketIndex];
++            if (packet.ShaderCount is < 1 or > 4)
++                throw new InvalidDataException("GC tie packet shader count must be between one and four.");
++            // UYA locates strip controls after five uploaded rows per shader and four setup rows; GC leaves this word zero.
++            BinaryPrimitives.WriteInt32LittleEndian(result.AsSpan(packet.AbsoluteDataOffset + 0x0c),
++                -(4 + 5 * packet.ShaderCount));
++        }
++        var facingByLod = new Dictionary<int, IReadOnlyList<TieTriangle>>();
++        var partitionFacingByLod = new Dictionary<int, IReadOnlyList<TieTriangle>>();
++        var mixedPackets = new HashSet<(int Lod, int Packet)>();
++        foreach (var topology in tie.LodTopologies.Where(value => value.TriangleCount > 0))
++        {
++            cancellationToken.ThrowIfCancellationRequested();
++            // Keep established boundaries and add splits where corrected facing or odd strips require them.
++            var partitionFacing = analysis.Facing(topology.LodIndex, GcTiePacketLayout.PreviousFacing);
++            var facing = analysis.Facing(topology.LodIndex, layout);
++            facingByLod.Add(topology.LodIndex, facing);
++            partitionFacingByLod.Add(topology.LodIndex, partitionFacing);
++            foreach (var strip in topology.Strips)
++            {
++                cancellationToken.ThrowIfCancellationRequested();
++                var block = analysis.Blocks[(topology.LodIndex, strip.PacketIndex)];
++                var packet = tie.PacketTables[topology.LodIndex].Packets[strip.PacketIndex];
++                if (packet.BfcDistance == 0) continue;
++                var phases = ResolveStripFacing(topology, strip, facing).Where(value => value.HasValue)
++                    .Select(value => value!.Value).Distinct().ToArray();
++                if (layout == GcTiePacketLayout.Current && block.StripControls[strip.PacketStripIndex].TokenCount % 2 != 0
++                    || phases.Length > 1 || ResolveStripFacing(topology, strip, partitionFacing)
++                    .Where(value => value.HasValue).Distinct().Count() > 1)
++                {
++                    mixedPackets.Add((topology.LodIndex, strip.PacketIndex));
++                    continue;
++                }
++                var reverse = phases.FirstOrDefault() ^ ((strip.Flags & 0x20) != 0);
++                var control = block.StripControls[strip.PacketStripIndex];
++                // UYA's culling path compares the sign against strip-control .w bit 0x20; GC leaves it unused.
++                result[control.Offset + 3] = (byte)((control.Flags & ~0x20) | (reverse == true ? 0x20 : 0));
++            }
++        }
++        return mixedPackets.Count == 0 ? result : GcTiePacketRewriter.Rewrite(
++            bytes, result, tie, facingByLod, partitionFacingByLod, mixedPackets, cancellationToken, layout);
++    }
++
++    internal static bool?[] ResolveStripFacing(TieLodTopology topology, TieTriangleStrip strip,
++        IReadOnlyList<TieTriangle> facing)
++    {
++        var phases = new bool?[strip.TriangleCount];
++        for (var offset = 0; offset < strip.TriangleCount; offset++)
++        {
++            var index = strip.TriangleStartIndex + offset;
++            var original = topology.Triangles[index];
++            TiePacketDecodedVertex Vertex(int index) => topology.LogicalVertices[index].DecodedVertex
++                ?? throw new InvalidDataException("GC tie culling requires decoded vertex positions.");
++            var a = Vertex(original.A); var b = Vertex(original.B); var c = Vertex(original.C);
++            var ab = new System.Numerics.Vector3(b.X - a.X, b.Y - a.Y, b.Z - a.Z);
++            var ac = new System.Numerics.Vector3(c.X - a.X, c.Y - a.Y, c.Z - a.Z);
++            if (System.Numerics.Vector3.Cross(ab, ac).LengthSquared() != 0)
++                phases[offset] = facing[index].B == original.C;
++        }
++        return phases;
++    }
++
++    public static byte[]? RepairPreviousStaticConversion(FrontendAssetKind kind, byte[] source,
++        byte[] converted, int previousClassId, int targetClassId, CancellationToken cancellationToken)
++    {
++        var classOffset = kind switch
++        {
++            FrontendAssetKind.Tie => 0x44,
++            FrontendAssetKind.Shrub => 0x24,
++            _ => throw new ArgumentOutOfRangeException(nameof(kind)),
++        };
++        var analysis = kind == FrontendAssetKind.Tie ? new TieAnalysis(source) : null;
++        var corrected = analysis is null ? Convert(kind, source, targetClassId, cancellationToken)
++            : ConvertTie(source, targetClassId, cancellationToken, analysis);
++        if (corrected.AsSpan().SequenceEqual(converted)) return corrected;
++        if (!MatchesClass(source, converted, classOffset, previousClassId)
++            && !MatchesClass(corrected, converted, classOffset, previousClassId))
++        {
++            if (kind != FrontendAssetKind.Tie) return null;
++            // Recognize the earlier split conversion exactly, without replacing independently edited models.
++            var recognized = false;
++            foreach (var previousLayout in new[] { GcTiePacketLayout.OriginalSplit, GcTiePacketLayout.MissingFatPhase, GcTiePacketLayout.PreviousFacing, GcTiePacketLayout.CoincidentFacing, GcTiePacketLayout.UnpaddedStrips })
++            {
++                var split = PatchTiePackets(source, source.ToArray(), analysis!, cancellationToken, previousLayout);
++                if (MatchesClass(split, converted, classOffset, previousClassId)) { recognized = true; break; }
++            }
++            if (!recognized) return null;
++        }
++        return corrected;
++    }
++
++    private static bool MatchesClass(byte[] candidate, byte[] converted, int offset, int classId) =>
++        candidate.Length == converted.Length
++        && BinaryPrimitives.ReadUInt16LittleEndian(converted.AsSpan(offset)) == classId
++        && candidate.AsSpan(0, offset).SequenceEqual(converted.AsSpan(0, offset))
++        && candidate.AsSpan(offset + 2).SequenceEqual(converted.AsSpan(offset + 2));
++
++    // A repair may try several historical writers; parse and resolve each facing policy only once.
++    private sealed class TieAnalysis
++    {
++        private static readonly TieGameProfile Profile = TieGameProfile.ForGame(GameId.GC);
++        private readonly Dictionary<(int Lod, GcTiePacketLayout Facing), IReadOnlyList<TieTriangle>> _facing = [];
++        public TieClass Tie { get; }
++        public IReadOnlyDictionary<(int Lod, int Packet), TiePacketDataBlock> Blocks { get; }
++
++        public TieAnalysis(byte[] source)
++        {
++            Tie = TieClassReader.Read(source, TieClassReadOptions.ForGameProfile(Profile));
++            Blocks = Tie.PacketDataBlocks.ToDictionary(block => (block.LodIndex, block.PacketIndex));
++        }
++
++        public IReadOnlyList<TieTriangle> Facing(int lod, GcTiePacketLayout layout)
++        {
++            var policy = layout switch
++            {
++                GcTiePacketLayout.Current or GcTiePacketLayout.UnpaddedStrips => GcTiePacketLayout.Current,
++                GcTiePacketLayout.CoincidentFacing => GcTiePacketLayout.CoincidentFacing,
++                _ => GcTiePacketLayout.PreviousFacing,
++            };
++            var key = (lod, policy);
++            if (_facing.TryGetValue(key, out var value)) return value;
++            value = TieGltfExporter.ResolveTriangleFacing(Tie, lod, Profile,
++                includeCoincidentAdjacency: policy == GcTiePacketLayout.PreviousFacing,
++                includeOverlappingAdjacency: policy == GcTiePacketLayout.CoincidentFacing);
++            _facing.Add(key, value);
++            return value;
++        }
++    }
++
++    public static byte[] ConvertTexture(byte[] bytes, TextureRole role)
++    {
++        var source = PifReader.Read(bytes);
++        if (source.Encoding != PifTextureEncoding.Indexed8 || source.IsSwizzled)
++            throw new InvalidDataException("GC to UYA conversion requires linear indexed8 textures.");
++        var limit = role switch
++        {
++            TextureRole.Material => 2,
++            TextureRole.Billboard => 3,
++            _ => throw new ArgumentOutOfRangeException(nameof(role)),
++        };
++        return PifWriter.Write(new(source.Header, source.Encoding, source.PaletteData, source.PixelData,
++            source.MipPixelData.Take(limit).ToArray()));
++    }
++
++    public static byte[] ConvertSky(byte[] bytes, CancellationToken cancellationToken)
++    {
++        cancellationToken.ThrowIfCancellationRequested();
++        using var stream = new MemoryStream(bytes, writable: false);
++        _ = SkyboxReader.Read(stream, GameId.GC);
++        stream.Position = 0;
++        _ = SkyboxReader.Read(stream, GameId.UYA);
++        return bytes.ToArray();
++    }
++}
+diff --git a/src/RatchetPs2.Games.GC/Level/GcTieColorRemapWriter.cs b/src/RatchetPs2.Games.GC/Level/GcTieColorRemapWriter.cs
+new file mode 100644
+index 0000000..b2f6063
+--- /dev/null
++++ b/src/RatchetPs2.Games.GC/Level/GcTieColorRemapWriter.cs
+@@ -0,0 +1,114 @@
++using System.Buffers.Binary;
++using RatchetPs2.Core.Ties;
++
++namespace RatchetPs2.Games.GC.Level;
++
++internal static class GcTieColorRemapWriter
++{
++    public static byte[] Write(byte[] source, TieClass tie, int lod, IReadOnlyList<GcTieRebuiltPacket> packets)
++    {
++        var recipes = tie.RgbaRemapOperations.Where(operation => operation.LodIndex == lod)
++            .GroupBy(operation => operation.TargetCacheSlot).ToDictionary(group => group.Key,
++                group => group.OrderBy(operation => operation.Offset).Last());
++        var groups = new List<byte[]>();
++        var colors = new List<int>();
++        foreach (var packet in packets)
++        {
++            if (colors.Count > 0 && (colors.Count + packet.SourceColorSlots.Length > 256
++                || GroupSize(colors.Concat(packet.SourceColorSlots), recipes) > 0x400)) Flush();
++            colors.AddRange(packet.SourceColorSlots);
++            if (colors.Count > 256 || GroupSize(colors, recipes) > 0x400)
++                throw new InvalidDataException("GC tie color packet exceeds the UYA lighting scratch buffer.");
++        }
++        if (colors.Count > 0) Flush();
++        if (groups.Count > 31) throw new InvalidDataException("GC tie needs more than 31 lighting remap groups.");
++        var bytes = new byte[32 + groups.Sum(group => group.Length)];
++        var offset = 32;
++        for (var index = 0; index < groups.Count; index++)
++        {
++            bytes[index] = checked((byte)(groups[index].Length / 16));
++            groups[index].CopyTo(bytes, offset);
++            offset += groups[index].Length;
++        }
++        return bytes;
++
++        void Flush()
++        {
++            var group = new byte[GroupSize(colors, recipes)];
++            var cursor = 16;
++            for (var kind = 0; kind < 6; kind++)
++            {
++                var start = cursor;
++                for (var index = 0; index < colors.Count; index++)
++                {
++                    var color = colors[index];
++                    if (color < 0)
++                    {
++                        if (kind != 5) continue;
++                        BinaryPrimitives.WriteUInt16LittleEndian(group.AsSpan(cursor), checked((ushort)(index * 4)));
++                        cursor += 2;
++                        continue;
++                    }
++                    if (!recipes.TryGetValue(color, out var recipe))
++                        throw new InvalidDataException($"GC LOD {lod} color slot {color} has no lighting recipe.");
++                    if ((int)recipe.Kind != kind) continue;
++                    var size = RecordSize(recipe.Kind);
++                    source.AsSpan(recipe.Offset, size).CopyTo(group.AsSpan(cursor));
++                    if (recipe.Kind is TieRgbaRemapOperationKind.Average2 or TieRgbaRemapOperationKind.WeightedAverage3To1)
++                    {
++                        var packed = BinaryPrimitives.ReadUInt32LittleEndian(group.AsSpan(cursor));
++                        BinaryPrimitives.WriteUInt32LittleEndian(group.AsSpan(cursor), (packed & ~0x3ffcu) | (uint)(index * 4));
++                    }
++                    else
++                    {
++                        var target = BinaryPrimitives.ReadUInt16LittleEndian(group.AsSpan(cursor + size - 2));
++                        BinaryPrimitives.WriteUInt16LittleEndian(group.AsSpan(cursor + size - 2),
++                            checked((ushort)((target & ~0x3ffc) | index * 4)));
++                    }
++                    cursor += size;
++                }
++                BinaryPrimitives.WriteUInt16LittleEndian(group.AsSpan(kind * 2), checked((ushort)(cursor - start)));
++            }
++            BinaryPrimitives.WriteUInt16LittleEndian(group.AsSpan(12), checked((ushort)(colors.Count / 4)));
++            BinaryPrimitives.WriteUInt16LittleEndian(group.AsSpan(14), checked((ushort)group.Length));
++            groups.Add(group);
++            colors.Clear();
++        }
++    }
++
++    public static byte[]? WriteGlowTargets(byte[] source, TieClass tie, int lod, IReadOnlyList<GcTieRebuiltPacket> packets)
++    {
++        var relative = tie.Header.UnknownOffsets78[lod];
++        if (relative == 0) return null;
++        var offset = checked((int)tie.Header.VertexNormalsOffset + relative);
++        var count = BinaryPrimitives.ReadUInt16LittleEndian(source.AsSpan(offset));
++        var oldTargets = new HashSet<int>();
++        for (var index = 0; index < count; index++)
++        {
++            var target = BinaryPrimitives.ReadUInt16LittleEndian(source.AsSpan(offset + 2 + index * 2));
++            if (target % 4 != 0) throw new InvalidDataException("GC glow-cache target is not word aligned.");
++            oldTargets.Add(target / 4);
++        }
++        var targets = packets.SelectMany(packet => packet.SourceColorSlots)
++            .Select((old, index) => (old, index)).Where(value => oldTargets.Contains(value.old)).ToArray();
++        var bytes = new byte[Align16(2 + targets.Length * 2)];
++        BinaryPrimitives.WriteUInt16LittleEndian(bytes, checked((ushort)targets.Length));
++        for (var index = 0; index < targets.Length; index++)
++            BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(2 + index * 2), checked((ushort)(targets[index].index * 4)));
++        return bytes;
++    }
++
++    private static int GroupSize(IEnumerable<int> colors, IReadOnlyDictionary<int, TieRgbaRemapOperation> recipes) =>
++        Align16(16 + colors.Sum(color => color < 0 ? 2 : recipes.TryGetValue(color, out var recipe)
++            ? RecordSize(recipe.Kind) : throw new InvalidDataException($"GC color slot {color} has no lighting recipe.")));
++
++    private static int RecordSize(TieRgbaRemapOperationKind kind) => kind switch
++    {
++        TieRgbaRemapOperationKind.DirectCopy or TieRgbaRemapOperationKind.Average2
++            or TieRgbaRemapOperationKind.WeightedAverage3To1 => 4,
++        TieRgbaRemapOperationKind.WeightedAverage2To1To1 or TieRgbaRemapOperationKind.Average4 => 8,
++        _ => throw new ArgumentOutOfRangeException(nameof(kind)),
++    };
++
++    private static int Align16(int value) => checked((value + 15) & ~15);
++}
+diff --git a/src/RatchetPs2.Games.GC/Level/GcTiePacketRewriter.cs b/src/RatchetPs2.Games.GC/Level/GcTiePacketRewriter.cs
+new file mode 100644
+index 0000000..5e2ef65
+--- /dev/null
++++ b/src/RatchetPs2.Games.GC/Level/GcTiePacketRewriter.cs
+@@ -0,0 +1,160 @@
++using System.Buffers.Binary;
++using RatchetPs2.Core.Gltf;
++using RatchetPs2.Core.Ties;
++
++namespace RatchetPs2.Games.GC.Level;
++
++internal static class GcTiePacketRewriter
++{
++    public static byte[] Rewrite(byte[] source, byte[] patched, TieClass tie,
++        IReadOnlyDictionary<int, IReadOnlyList<TieTriangle>> facing,
++        IReadOnlyDictionary<int, IReadOnlyList<TieTriangle>> partitionFacing,
++        IReadOnlySet<(int Lod, int Packet)> mixedPackets, CancellationToken token, GcTiePacketLayout layout = GcTiePacketLayout.Current)
++    {
++        if (tie.Header.AmbientRgbaOffset != 0)
++            throw new NotSupportedException("GC tie splitting cannot relocate an inline ambient-color buffer.");
++        var packets = new List<GcTieRebuiltPacket>[3];
++        for (var lod = 0; lod < 3; lod++)
++        {
++            packets[lod] = [];
++            var colorBase = 0;
++            var topology = tie.LodTopologies[lod];
++            foreach (var packet in tie.PacketTables[lod].Packets)
++            {
++                token.ThrowIfCancellationRequested();
++                var block = tie.PacketDataBlocks.Single(value => value.LodIndex == lod && value.PacketIndex == packet.PacketIndex);
++                var strips = topology.Strips.Where(value => value.PacketIndex == packet.PacketIndex).ToArray();
++                if (!mixedPackets.Contains((lod, packet.PacketIndex)))
++                {
++                    var colors = new int[(packet.RgbaCount + 3) & ~3];
++                    Array.Fill(colors, -1);
++                    for (var index = 0; index < packet.RgbaCount; index++) colors[index] = colorBase + index;
++                    packets[lod].Add(new(source.AsSpan(checked((int)tie.PacketTables[lod].Offset) + packet.PacketIndex * 16, 16).ToArray(),
++                        patched.AsSpan(block.Offset, block.Length).ToArray(), colors,
++                        strips.Sum(strip => strip.LogicalVertexCount), strips.Sum(strip => strip.TriangleCount), strips.Length));
++                }
++                else
++                {
++                    if (block.DecodedVertices.Count != packet.RgbaCount)
++                        throw new InvalidDataException("GC tie upload vertices do not match its color-cache span.");
++                    var runs = strips.SelectMany(strip => Split(topology, strip,
++                        block.StripControls[strip.PacketStripIndex], facing[lod], partitionFacing[lod])).ToArray();
++                    packets[lod].AddRange(GcTiePacketWriter.Build(source, packet, block, colorBase, runs, layout));
++                }
++                colorBase += (packet.RgbaCount + 3) & ~3;
++            }
++            // UYA NTSC-U reads this with LBU (004c9794) and compares the 16-byte table end (004c98ac).
++            if (packets[lod].Count > byte.MaxValue)
++                throw new InvalidDataException($"GC tie LOD {lod} needs {packets[lod].Count} UYA packets, over the 255-packet limit.");
++        }
++        using var output = new MemoryStream();
++        var prefix = checked((int)tie.PacketTables.Where(table => table.Count > 0).Min(table => table.Offset));
++        if (prefix < 0x80) throw new InvalidDataException("GC tie packet table overlaps its header.");
++        output.Write(source.AsSpan(0, prefix));
++        var tables = new int[3];
++        for (var lod = 0; lod < 3; lod++)
++        {
++            tables[lod] = checked((int)output.Position);
++            output.Write(new byte[packets[lod].Count * 16]);
++        }
++        var dataOffsets = new List<int>[3];
++        for (var lod = 0; lod < 3; lod++)
++        {
++            dataOffsets[lod] = [];
++            foreach (var packet in packets[lod])
++            {
++                token.ThrowIfCancellationRequested();
++                dataOffsets[lod].Add(checked((int)output.Position));
++                output.Write(packet.Bytes);
++            }
++        }
++        var normalsOffset = checked((int)output.Position);
++        output.Write(source.AsSpan(checked((int)tie.Header.VertexNormalsOffset), tie.Header.VertexNormalsCount * 8));
++        Align(output);
++        var remaps = new int[3];
++        for (var lod = 0; lod < 3; lod++)
++        {
++            token.ThrowIfCancellationRequested();
++            if (packets[lod].Count == 0) continue;
++            remaps[lod] = checked((int)output.Position - normalsOffset);
++            output.Write(GcTieColorRemapWriter.Write(source, tie, lod, packets[lod]));
++        }
++        var glow = new int[3];
++        for (var lod = 0; lod < 3; lod++)
++        {
++            var bytes = GcTieColorRemapWriter.WriteGlowTargets(source, tie, lod, packets[lod]);
++            if (bytes is null) continue;
++            glow[lod] = checked((int)output.Position - normalsOffset);
++            output.Write(bytes);
++        }
++        var shadersOffset = checked((int)output.Position);
++        output.Write(source.AsSpan(checked((int)tie.Header.ShadersOffset)));
++        if (output.Length > StaticModelNativeLimits.MaximumModelBytes)
++            throw new InvalidDataException("GC tie conversion exceeds the UYA model size limit.");
++        var result = output.ToArray();
++        BinaryPrimitives.WriteInt32LittleEndian(result.AsSpan(0x34), normalsOffset);
++        BinaryPrimitives.WriteInt32LittleEndian(result.AsSpan(0x1c), shadersOffset);
++        for (var lod = 0; lod < 3; lod++)
++        {
++            BinaryPrimitives.WriteInt32LittleEndian(result.AsSpan(lod * 4), tables[lod]);
++            result[12 + lod] = checked((byte)packets[lod].Count);
++            BinaryPrimitives.WriteInt16LittleEndian(result.AsSpan(0x24 + lod * 2),
++                checked((short)(packets[lod].Sum(packet => packet.SourceColorSlots.Length) / 4)));
++            BinaryPrimitives.WriteUInt16LittleEndian(result.AsSpan(0x2a + lod * 2), checked((ushort)remaps[lod]));
++            BinaryPrimitives.WriteUInt16LittleEndian(result.AsSpan(0x78 + lod * 2), checked((ushort)glow[lod]));
++            BinaryPrimitives.WriteInt16LittleEndian(result.AsSpan(0x60 + lod * 8),
++                checked((short)packets[lod].Sum(packet => packet.LogicalVertices)));
++            BinaryPrimitives.WriteInt16LittleEndian(result.AsSpan(0x62 + lod * 8),
++                checked((short)packets[lod].Sum(packet => packet.Triangles)));
++            BinaryPrimitives.WriteInt16LittleEndian(result.AsSpan(0x64 + lod * 8),
++                checked((short)packets[lod].Sum(packet => packet.Strips)));
++            for (var index = 0; index < packets[lod].Count; index++)
++            {
++                var record = packets[lod][index].Record;
++                BinaryPrimitives.WriteInt32LittleEndian(record, dataOffsets[lod][index] - tables[lod]);
++                record.CopyTo(result, tables[lod] + index * 16);
++            }
++        }
++        return result;
++    }
++
++    private static IEnumerable<GcTieStripRun> Split(TieLodTopology topology, TieTriangleStrip strip,
++        TiePacketStripControl control, IReadOnlyList<TieTriangle> facing, IReadOnlyList<TieTriangle> partitionFacing)
++    {
++        var phases = GcLevelAssetModelConverter.ResolveStripFacing(topology, strip, facing);
++        var partitions = GcLevelAssetModelConverter.ResolveStripFacing(topology, strip, partitionFacing);
++        FillDegeneratePhases(phases);
++        FillDegeneratePhases(partitions);
++        var start = 0;
++        while (start < phases.Length)
++        {
++            var end = start + 1;
++            while (end < phases.Length && phases[end] == phases[start]
++                && partitions[end] == partitions[start] && end - start < 62) end++;
++            var vertices = strip.LogicalVertices.Skip(start).Take(end - start + 2).ToList();
++            // UYA's culling loop consumes two triangles per iteration, including degenerate padding.
++            if (vertices.Count % 2 != 0) vertices.Add(vertices[^1]);
++            var reverse = ((strip.Flags & 0x20) != 0) ^ phases[start]!.Value ^ ((start & 1) != 0);
++            yield return new(vertices.ToArray(), strip.ShaderIndex
++                ?? throw new InvalidDataException("GC strip has no resolved shader."),
++                (byte)((strip.Flags & ~0x20) | (reverse ? 0x20 : 0)), control.ControlData1);
++            start = end;
++        }
++    }
++
++    private static void FillDegeneratePhases(bool?[] phases)
++    {
++        var current = phases.FirstOrDefault(value => value.HasValue) ?? false;
++        for (var index = 0; index < phases.Length; index++)
++        {
++            if (phases[index] is { } phase) current = phase;
++            else phases[index] = current;
++        }
++    }
++
++    private static void Align(MemoryStream stream)
++    {
++        var size = checked((int)((16 - stream.Position % 16) % 16));
++        stream.Write(new byte[size]);
++    }
++}
+diff --git a/src/RatchetPs2.Games.GC/Level/GcTiePacketWriter.cs b/src/RatchetPs2.Games.GC/Level/GcTiePacketWriter.cs
+new file mode 100644
+index 0000000..6f69893
+--- /dev/null
++++ b/src/RatchetPs2.Games.GC/Level/GcTiePacketWriter.cs
+@@ -0,0 +1,227 @@
++using System.Buffers.Binary;
++using RatchetPs2.Core.Ties;
++
++namespace RatchetPs2.Games.GC.Level;
++
++internal sealed record GcTieStripRun(TieLogicalVertex[] Vertices, int Shader, byte Flags, byte ControlData1);
++internal sealed record GcTieRebuiltPacket(byte[] Record, byte[] Bytes, int[] SourceColorSlots,
++    int LogicalVertices, int Triangles, int Strips);
++
++internal enum GcTiePacketLayout { Current, OriginalSplit, MissingFatPhase, PreviousFacing, CoincidentFacing, UnpaddedStrips }
++
++internal static class GcTiePacketWriter
++{
++    public static IEnumerable<GcTieRebuiltPacket> Build(byte[] source, TiePacket packet,
++        TiePacketDataBlock block, int colorBase, IReadOnlyList<GcTieStripRun> runs, GcTiePacketLayout layout = GcTiePacketLayout.Current)
++    {
++        var batch = new List<GcTieStripRun>();
++        foreach (var run in runs)
++        {
++            if (batch.Count > 0 && !Fits(batch.Append(run)))
++            {
++                yield return Write(source, packet, block, colorBase, batch, layout);
++                batch.Clear();
++            }
++            batch.Add(run);
++            if (!Fits(batch)) throw new InvalidDataException("GC tie strip exceeds UYA packet limits.");
++        }
++        if (batch.Count > 0) yield return Write(source, packet, block, colorBase, batch, layout);
++    }
++
++    private static bool Fits(IEnumerable<GcTieStripRun> runs)
++    {
++        var end = 6;
++        var shaders = 0;
++        var strips = 0;
++        var previousShader = -1;
++        foreach (var run in runs)
++        {
++            if (run.Shader != previousShader)
++            {
++                if (shaders++ > 0) end += 6;
++                previousShader = run.Shader;
++            }
++            end += 1 + run.Vertices.Length * 3;
++            strips++;
++        }
++        return end <= 0xcc && shaders <= 4 && strips <= 15;
++    }
++
++    private static GcTieRebuiltPacket Write(byte[] source, TiePacket original, TiePacketDataBlock block,
++        int colorBase, IReadOnlyList<GcTieStripRun> runs, GcTiePacketLayout layout)
++    {
++        var uploads = new List<VertexUpload>();
++        var available = new Dictionary<int, int>();
++        var drawCount = 0;
++        foreach (var vertex in runs.SelectMany(run => run.Vertices))
++        {
++            var sourceIndex = vertex.DecodedVertex!.Index;
++            if (original.MultipassOffset == 0 && available.Remove(sourceIndex, out var previous))
++                uploads[previous] = uploads[previous] with { Secondary = drawCount };
++            else
++            {
++                available[sourceIndex] = uploads.Count;
++                uploads.Add(new(vertex.DecodedVertex!, drawCount, null));
++            }
++            drawCount++;
++        }
++        // Reproduce the old layout only when recognizing an earlier conversion for migration.
++        var vertices = layout == GcTiePacketLayout.OriginalSplit ? uploads.OrderBy(value => value.Vertex.Kind).ToArray()
++            : PrepareUploads(uploads, block, layout).ToArray();
++        var count = vertices.Length;
++        var dinky = vertices.Count(value => value.Vertex.Kind == TiePacketDecodedVertexKind.Dinky);
++        var fat = count - dinky;
++        var controlCount = 3 + runs.Count;
++        var controlSize = (controlCount + 3) / 4;
++        var vertexOffset = 2 + controlSize;
++        var vertexSize = (dinky * 16 + fat * 24 + 15) / 16;
++        var scissorOffset = vertexOffset + vertexSize;
++        var scissorSize = (drawCount + 1 + 15) / 16;
++        var multipassOffset = original.MultipassOffset > 0 ? scissorOffset + scissorSize : 0;
++        var multipassSize = multipassOffset > 0 ? (drawCount + 3) / 4 : 0;
++        if (multipassOffset > 0 && (original.PassFlags != 1 || original.MultipassUvSize * 4 <
++            block.StripControls.Sum(strip => strip.TokenCount)))
++            throw new NotSupportedException("GC tie strip splitting requires a complete texture-matrix UV stream.");
++        var bytes = new byte[(multipassOffset > 0 ? multipassOffset + 3 + multipassSize : scissorOffset + scissorSize) * 16];
++        var record = new byte[16];
++        record[5] = original.BfcDistance;
++        record[6] = checked((byte)controlCount);
++        record[7] = checked((byte)controlSize);
++        record[8] = checked((byte)vertexOffset);
++        record[9] = checked((byte)vertexSize);
++        record[10] = checked((byte)count);
++        record[11] = checked((byte)multipassOffset);
++        record[12] = checked((byte)scissorOffset);
++        record[13] = checked((byte)scissorSize);
++        record[14] = original.PassFlags;
++        record[15] = checked((byte)multipassSize);
++        source.AsSpan(original.AbsoluteDataOffset + 0x20, 12).CopyTo(bytes.AsSpan(0x20));
++        bytes[0x23] = checked((byte)runs.Count);
++        bytes[0x28] = checked((byte)(4 + 2 * dinky));
++        bytes[0x29] = checked((byte)(6 + 3 * fat));
++        bytes[0x2a] = checked((byte)dinky);
++        bytes[0x2b] = checked((byte)fat);
++        var destinations = new int[drawCount];
++        var cursor = 6;
++        var logical = 0;
++        var shaders = 0;
++        var previousShader = -1;
++        for (var index = 0; index < runs.Count; index++)
++        {
++            var run = runs[index];
++            var shaderSwitch = previousShader >= 0 && previousShader != run.Shader;
++            if (run.Shader != previousShader)
++            {
++                if (shaders > 0)
++                {
++                    BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan((shaders - 1) * 4), cursor);
++                    cursor += 6;
++                }
++                BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(0x10 + shaders * 4), run.Shader * 0x50);
++                shaders++;
++                previousShader = run.Shader;
++            }
++            var control = 0x2c + index * 4;
++            bytes[control] = checked((byte)run.Vertices.Length);
++            bytes[control + 1] = run.ControlData1;
++            bytes[control + 2] = checked((byte)cursor);
++            bytes[control + 3] = run.Flags;
++            for (var vertex = 0; vertex < run.Vertices.Length; vertex++, logical++)
++            {
++                destinations[logical] = cursor + 1 + vertex * 3;
++                bytes[scissorOffset * 16 + logical] = vertex > 0 ? (byte)3
++                    : index == 0 ? (byte)7 : shaderSwitch ? (byte)0xf6 : (byte)0xfc;
++            }
++            cursor += 1 + run.Vertices.Length * 3;
++        }
++        bytes[scissorOffset * 16 + drawCount] = 0xf6;
++        record[4] = checked((byte)shaders);
++        BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(12), -(4 + shaders * 5));
++        if (layout != GcTiePacketLayout.OriginalSplit)
++        {
++            for (var kind = 0; kind < 2; kind++)
++            {
++                var group = vertices.Where(value => (value.Vertex.Kind == TiePacketDecodedVertexKind.Dinky ? 0 : 1) == kind);
++                var singles = group.Where(value => value.Secondary is null).ToArray();
++                var shared = group.Where(value => value.Secondary is not null).ToArray();
++                // The second flag skips the entire fat phase, including single writes.
++                var skip = kind == 0 || layout == GcTiePacketLayout.MissingFatPhase
++                    ? shared.Length == 0 : fat == 0;
++                bytes[0x20 + kind] = skip ? (byte)1 : (byte)0;
++                bytes[0x24 + kind * 2] = singles.Length == 0 ? (byte)0
++                    : checked((byte)destinations[singles[^(kind == 0 ? 4 : 1)].Primary]);
++                bytes[0x25 + kind * 2] = shared.Length == 0 ? (byte)0
++                    : checked((byte)destinations[shared[^(kind == 0 ? 3 : 1)].Primary]);
++            }
++        }
++        var colors = new int[(count + 3) & ~3];
++        Array.Fill(colors, -1);
++        var vertexCursor = vertexOffset * 16;
++        for (var index = 0; index < vertices.Length; index++)
++        {
++            var upload = vertices[index];
++            var vertex = upload.Vertex;
++            vertex.Bytes.CopyTo(bytes, vertexCursor);
++            BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(vertexCursor + 6), checked((ushort)destinations[upload.Primary]));
++            BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(vertexCursor + vertex.Bytes.Length - 2),
++                upload.Secondary is { } secondary ? checked((ushort)destinations[secondary]) : (ushort)0);
++            colors[index] = colorBase + vertex.Index;
++            vertexCursor += vertex.Bytes.Length;
++        }
++        if (multipassOffset > 0)
++        {
++            source.AsSpan(original.AbsoluteDataOffset + original.MultipassOffset * 16, 48)
++                .CopyTo(bytes.AsSpan(multipassOffset * 16));
++            BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(multipassOffset * 16 + 32), drawCount);
++            // UV1 words follow physical strip order, independently of dinky/fat upload order.
++            var stripStarts = block.StripControls.Select(strip => strip.TokenCount).ToArray();
++            var uv = multipassOffset * 16 + 48;
++            foreach (var vertex in runs.SelectMany(run => run.Vertices))
++            {
++                var oldIndex = stripStarts.Take(vertex.PacketStripIndex).Sum(value => value) + vertex.IndexInStrip;
++                source.AsSpan(original.AbsoluteDataOffset + original.MultipassOffset * 16 + 48 + oldIndex * 4, 4)
++                    .CopyTo(bytes.AsSpan(uv));
++                uv += 4;
++            }
++        }
++        return new(record, bytes, colors, drawCount, drawCount - runs.Count * 2, runs.Count);
++    }
++
++    private static IEnumerable<VertexUpload> PrepareUploads(List<VertexUpload> uploads, TiePacketDataBlock block, GcTiePacketLayout layout)
++    {
++        if (uploads.All(value => value.Vertex.Kind != TiePacketDecodedVertexKind.Dinky))
++        {
++            // Fat-only batches still need the four prefetched dinky vertices; real fat writes replace these placeholders.
++            var padding = block.DecodedVertices.First(value => value.Kind == TiePacketDecodedVertexKind.Dinky);
++            uploads.Insert(0, new(padding, uploads[0].Primary, null));
++        }
++        foreach (var group in uploads.GroupBy(value => value.Vertex.Kind).OrderBy(group => group.Key))
++        {
++            var singles = group.Where(value => value.Secondary is null).ToList();
++            var shared = group.Where(value => value.Secondary is not null).ToList();
++            var dinky = group.Key == TiePacketDecodedVertexKind.Dinky;
++            var minimum = dinky ? 4 : 1;
++            while (shared.Count > 0 && (singles.Count < minimum || dinky && shared.Count < 3))
++            {
++                var vertex = shared[^1];
++                shared.RemoveAt(shared.Count - 1);
++                singles.Add(vertex with { Secondary = null });
++                singles.Add(vertex with { Primary = vertex.Secondary!.Value, Secondary = null });
++            }
++            if (layout != GcTiePacketLayout.MissingFatPhase && !dinky && shared.Count == 0)
++            {
++                // UYA always runs both fat phases; a self-write supplies the shared phase for an unshared tail.
++                var last = singles[^1];
++                if (singles.Count > 1) singles.RemoveAt(singles.Count - 1);
++                shared.Add(last with { Secondary = last.Primary });
++            }
++            // The dinky pipeline preloads four vertices; repeat a real write to drain a short group safely.
++            while (singles.Count < minimum) singles.Add(singles[^1]);
++            foreach (var vertex in singles) yield return vertex;
++            foreach (var vertex in shared) yield return vertex;
++        }
++    }
++
++    private sealed record VertexUpload(TiePacketDecodedVertex Vertex, int Primary, int? Secondary);
++
++}
+diff --git a/tests/RatchetPs2.LevelTests/GcTieConversionAssertions.cs b/tests/RatchetPs2.LevelTests/GcTieConversionAssertions.cs
+new file mode 100644
+index 0000000..279b3da
+--- /dev/null
++++ b/tests/RatchetPs2.LevelTests/GcTieConversionAssertions.cs
+@@ -0,0 +1,143 @@
++using System.Buffers.Binary;
++using RatchetPs2.Core.Games;
++using RatchetPs2.Core.Ties;
++
++internal static class GcTieConversionAssertions
++{
++    public static void Equivalent(byte[] sourceBytes, byte[] convertedBytes)
++    {
++        var source = Read(sourceBytes, GameId.GC);
++        var converted = Read(convertedBytes, GameId.UYA);
++        Expect(source.Header.OClass == converted.Header.OClass, "source class retained");
++        Expect(source.Header.Scale == converted.Header.Scale, "quantization scale retained");
++        Expect(source.Header.VertexNormalsCount == converted.Header.VertexNormalsCount
++            && sourceBytes.AsSpan((int)source.Header.VertexNormalsOffset, source.Header.VertexNormalsCount * 8)
++                .SequenceEqual(convertedBytes.AsSpan((int)converted.Header.VertexNormalsOffset, converted.Header.VertexNormalsCount * 8)),
++            "normal palette is byte-identical");
++        Expect(source.Header.TextureCount == converted.Header.TextureCount
++            && sourceBytes.AsSpan((int)source.Header.ShadersOffset, source.Header.TextureCount * 0x50)
++                .SequenceEqual(convertedBytes.AsSpan((int)converted.Header.ShadersOffset, converted.Header.TextureCount * 0x50)),
++            "shaders and texture bindings are byte-identical");
++        for (var lod = 0; lod < 3; lod++)
++        {
++            var wanted = Faces(sourceBytes, source, lod, resolveFacing: true);
++            var actual = Faces(convertedBytes, converted, lod, resolveFacing: false);
++            Expect(wanted.SequenceEqual(actual),
++                $"LOD {lod} preserves face order, oriented geometry, vertex attributes, lighting recipes, glow targets, BFC distances and UV passes"
++                + $" (faces {wanted.Count}/{actual.Count})");
++            Expect(converted.PacketTables[lod].Packets.Count <= byte.MaxValue, "unsigned packet count stays within UYA limits");
++            Expect(converted.Header.CacheSizes[lod] == converted.PacketTables[lod].Packets.Sum(packet => (packet.RgbaCount + 3) / 4),
++                "lighting cache fits every packet upload");
++            if (converted.PacketTables[lod].Count == 0) continue;
++            var remap = (int)converted.Header.VertexNormalsOffset + converted.Header.RgbaRemapOffsets[lod];
++            Expect(convertedBytes[remap + 31] == 0, "lighting remap group table has its runtime terminator");
++        }
++        foreach (var block in converted.PacketDataBlocks)
++        {
++            GcTieVuUploadAssertions.Validate(block);
++            var packet = converted.PacketTables[block.LodIndex].Packets[block.PacketIndex];
++            Expect(BinaryPrimitives.ReadInt32LittleEndian(block.Bytes.AsSpan(12)) == -(4 + 5 * packet.ShaderCount),
++                "VU culling setup locates the strip controls");
++            Expect(packet.RgbaCount == block.DecodedVertices.Count, "dinky/fat counts fit the RGBA upload");
++            Expect(block.StripControls.All(strip => strip.TokenCount % 2 == 0
++                && strip.VuAddress + 1 + strip.TokenCount * 3 <= 0xcc), "VU paired loops terminate inside the GS output buffer");
++        }
++    }
++
++    private static List<string> Faces(byte[] bytes, TieClass tie, int lod, bool resolveFacing)
++    {
++        var topology = tie.LodTopologies[lod];
++        var faces = new List<string>();
++        if (topology.TriangleCount == 0) return faces;
++        var triangles = resolveFacing
++            ? TieGltfExporter.ResolveTriangleFacing(tie, lod, TieGameProfile.ForGame(GameId.GC)) : topology.Triangles;
++        var bases = new Dictionary<int, int>();
++        var colorBase = 0;
++        foreach (var packet in tie.PacketTables[lod].Packets)
++        {
++            bases[packet.PacketIndex] = colorBase;
++            colorBase += (packet.RgbaCount + 3) & ~3;
++        }
++        var recipes = tie.RgbaRemapOperations.Where(value => value.LodIndex == lod).GroupBy(value => value.TargetCacheSlot)
++            .ToDictionary(group => group.Key, group => Recipe(bytes, group.OrderBy(value => value.Offset).Last()));
++        var glow = new HashSet<int>();
++        if (tie.Header.UnknownOffsets78[lod] != 0)
++        {
++            var offset = (int)tie.Header.VertexNormalsOffset + tie.Header.UnknownOffsets78[lod];
++            var count = BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(offset));
++            for (var index = 0; index < count; index++)
++                glow.Add(BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(offset + 2 + index * 2)) / 4);
++        }
++        var vertexKeys = new string[topology.LogicalVertexCount];
++        foreach (var strip in topology.Strips)
++        {
++            var packet = tie.PacketTables[lod].Packets[strip.PacketIndex];
++            var block = tie.PacketDataBlocks.Single(value => value.LodIndex == lod && value.PacketIndex == strip.PacketIndex);
++            var uvHeader = "";
++            if (packet.MultipassOffset > 0)
++            {
++                var header = bytes.AsSpan(packet.AbsoluteDataOffset + packet.MultipassOffset * 16, 48).ToArray();
++                header.AsSpan(32, 4).Clear();
++                uvHeader = Convert.ToHexString(header);
++            }
++            foreach (var logical in strip.LogicalVertices)
++            {
++                var vertex = logical.DecodedVertex ?? throw new Exception("unresolved converted vertex");
++                var attributes = vertex.Bytes.ToArray();
++                attributes.AsSpan(6, 2).Clear();
++                attributes.AsSpan(attributes.Length - 2, 2).Clear();
++                var color = bases[logical.PacketIndex] + vertex.Index;
++                Expect(recipes.ContainsKey(color), $"lighting recipe covers cache slot {color}");
++                var uv = "";
++                if (packet.MultipassOffset > 0)
++                {
++                    var oldIndex = block.StripControls.Take(strip.PacketStripIndex).Sum(value => value.TokenCount) + logical.IndexInStrip;
++                    var offset = packet.AbsoluteDataOffset + packet.MultipassOffset * 16 + 48 + oldIndex % (packet.MultipassUvSize * 4) * 4;
++                    uv = Convert.ToHexString(bytes.AsSpan(offset, 4));
++                }
++                vertexKeys[logical.LogicalVertexIndex] = $"{vertex.Kind}:{Convert.ToHexString(attributes)}:{recipes[color]}:{glow.Contains(color)}:{uvHeader}:{uv}";
++            }
++        }
++        for (var index = 0; index < triangles.Count; index++)
++        {
++            var triangle = triangles[index];
++            var original = topology.Triangles[index];
++            if (Degenerate(topology, original)) continue;
++            var strip = topology.Strips[triangle.StripIndex];
++            var packet = tie.PacketTables[lod].Packets[strip.PacketIndex];
++            if (packet.BfcDistance == 0) triangle = original;
++            var keys = new[] { vertexKeys[triangle.A], vertexKeys[triangle.B], vertexKeys[triangle.C] };
++            if (packet.BfcDistance == 0) Array.Sort(keys, StringComparer.Ordinal);
++            var rotations = Enumerable.Range(0, 3).Select(start => string.Join('/', Enumerable.Range(0, 3).Select(i => keys[(start + i) % 3])));
++            var key = $"{strip.ShaderIndex}:{packet.BfcDistance}:{packet.PassFlags}:" + rotations.Min(StringComparer.Ordinal);
++            faces.Add(key);
++        }
++        return faces;
++    }
++
++    private static string Recipe(byte[] source, TieRgbaRemapOperation operation)
++    {
++        var size = operation.Kind is TieRgbaRemapOperationKind.WeightedAverage2To1To1 or TieRgbaRemapOperationKind.Average4 ? 8 : 4;
++        var bytes = source.AsSpan(operation.Offset, size).ToArray();
++        if (operation.Kind is TieRgbaRemapOperationKind.Average2 or TieRgbaRemapOperationKind.WeightedAverage3To1)
++            BinaryPrimitives.WriteUInt32LittleEndian(bytes, BinaryPrimitives.ReadUInt32LittleEndian(bytes) & ~0x3ffcu);
++        else
++            BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(size - 2),
++                (ushort)(BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(size - 2)) & ~0x3ffc));
++        return $"{operation.Kind}:{Convert.ToHexString(bytes)}";
++    }
++
++    private static bool Degenerate(TieLodTopology topology, TieTriangle triangle)
++    {
++        var a = topology.LogicalVertices[triangle.A].DecodedVertex!;
++        var b = topology.LogicalVertices[triangle.B].DecodedVertex!;
++        var c = topology.LogicalVertices[triangle.C].DecodedVertex!;
++        long x1 = b.X - a.X, y1 = b.Y - a.Y, z1 = b.Z - a.Z;
++        long x2 = c.X - a.X, y2 = c.Y - a.Y, z2 = c.Z - a.Z;
++        return y1 * z2 == z1 * y2 && z1 * x2 == x1 * z2 && x1 * y2 == y1 * x2;
++    }
++
++    private static TieClass Read(byte[] bytes, GameId game) => TieClassReader.Read(bytes,
++        TieClassReadOptions.ForGameProfile(TieGameProfile.ForGame(game)));
++    private static void Expect(bool condition, string message) { if (!condition) throw new Exception(message); }
++}
+diff --git a/tests/RatchetPs2.LevelTests/GcTieConversionTests.cs b/tests/RatchetPs2.LevelTests/GcTieConversionTests.cs
+new file mode 100644
+index 0000000..18d8417
+--- /dev/null
++++ b/tests/RatchetPs2.LevelTests/GcTieConversionTests.cs
+@@ -0,0 +1,94 @@
++using System.Buffers.Binary;
++using RatchetPs2.Core.Games;
++using RatchetPs2.Core.Gltf;
++using RatchetPs2.Core.LevelAssets;
++using RatchetPs2.Core.Ties;
++using RatchetPs2.Sdk;
++
++internal static class GcTieConversionTests
++{
++    public static void Run()
++    {
++        var positions = new[] { 0f, 0f, 0f, 2f, 0f, 0f, 0f, 2f, 0f };
++        var normals = new[] { 0f, 0f, 1f, 0f, 0f, 1f, 0f, 0f, 1f };
++        var uv = new[] { 0f, 0f, 1f, 0f, 0f, 1f };
++        var asset = new StaticModelCanonicalAsset(StaticModelCanonicalFormat.Version,
++            [new(0, 0, "culled", 0, positions, normals, uv, null, [0u, 1u, 2u]),
++             new(1, 0, "two-sided", 1, [10f, 0f, 0f, 12f, 0f, 0f, 10f, 2f, 0f], normals, uv, null, [0u, 1u, 2u])],
++            [new(9729, 9729, 10497, 10497)], [new("texture", 0, 0)],
++            [new("culled", [1f, 1f, 1f, 1f], 0, 1, 1, "OPAQUE", 0.5f, false),
++             new("two-sided", [1f, 1f, 1f, 1f], 0, 1, 1, "OPAQUE", 0.5f, true)],
++            [new("white", 2, 2, Enumerable.Repeat((byte)255, 16).ToArray())], new(0, 0, 0, 12, 2, 0));
++        var native = StaticModelConverter.Convert(GameId.UYA, asset, 0xc6).ModelBytes;
++        var source = native.ToArray();
++        var tie = Read(native, GameId.UYA);
++        foreach (var block in tie.PacketDataBlocks)
++        {
++            source.AsSpan(tie.PacketTables[block.LodIndex].Packets[block.PacketIndex].AbsoluteDataOffset + 0x0c, 4).Clear();
++            foreach (var control in block.StripControls) source[control.Offset + 3] &= 0xdf;
++        }
++        var converted = LevelAssetModelConverter.Convert(GameId.GC, GameId.UYA, FrontendAssetKind.Tie, source, 0xc6);
++        var result = Read(converted, GameId.UYA);
++        var expectedBytes = native.ToArray();
++        var changed = 0;
++        foreach (var block in tie.PacketDataBlocks)
++        {
++            var culled = tie.PacketTables[block.LodIndex].Packets[block.PacketIndex].BfcDistance != 0;
++            foreach (var control in block.StripControls)
++            {
++                var expected = culled ? native[control.Offset + 3] : source[control.Offset + 3];
++                Expect(converted[control.Offset + 3] == expected, $"GC facing matches native UYA culling: expected {expected}, got {converted[control.Offset + 3]}");
++                if (converted[control.Offset + 3] != source[control.Offset + 3]) changed++;
++                expectedBytes[control.Offset + 3] = expected;
++            }
++        }
++        Expect(changed > 0, "fixture exercises a winding correction");
++        Expect(expectedBytes.AsSpan().SequenceEqual(converted), "only setup words and winding flags change, including preserved bfcDistance");
++        Expect(result.Header.OClass == 0xc6, "native class ID is retained");
++        Expect(tie.PacketTables.SelectMany(value => value.Packets).Any(value => value.BfcDistance == 0)
++            && tie.PacketTables.SelectMany(value => value.Packets).Any(value => value.BfcDistance != 0),
++            "fixture covers culled and two-sided packets");
++        var packet = tie.PacketTables[0].Packets[0];
++        for (byte shaders = 1; shaders <= 4; shaders++)
++        {
++            var multipleShaders = source.ToArray();
++            multipleShaders[checked((int)tie.Header.PacketTableOffsets[0]) + 4] = shaders;
++            for (var index = 0; index < 3; index++)
++                BinaryPrimitives.WriteInt32LittleEndian(multipleShaders.AsSpan(packet.AbsoluteDataOffset + index * 4),
++                    index < shaders - 1 ? 19 + 6 * index : 0);
++            var repairedSetup = LevelAssetModelConverter.Convert(GameId.GC, GameId.UYA,
++                FrontendAssetKind.Tie, multipleShaders, 0xc6);
++            Expect(BinaryPrimitives.ReadInt32LittleEndian(repairedSetup.AsSpan(packet.AbsoluteDataOffset + 0x0c))
++                == -(4 + 5 * shaders), "packet setup locates strip controls after every uploaded shader");
++        }
++        var previous = source.ToArray();
++        BinaryPrimitives.WriteUInt16LittleEndian(previous.AsSpan(0x44), 0x9009);
++        var repaired = LevelAssetModelConverter.RepairPreviousStaticConversion(GameId.GC, GameId.UYA,
++            FrontendAssetKind.Tie, source, previous, 0x9009, 0xc6);
++        Expect(repaired is not null && repaired.AsSpan().SequenceEqual(converted), "repair restores an old class allocation");
++        Expect(LevelAssetModelConverter.RepairPreviousStaticConversion(GameId.GC, GameId.UYA,
++            FrontendAssetKind.Tie, source, converted, 0xc6, 0xc6)!.AsSpan().SequenceEqual(converted), "repair is idempotent");
++        previous[^1] ^= 1;
++        Expect(LevelAssetModelConverter.RepairPreviousStaticConversion(GameId.GC, GameId.UYA,
++            FrontendAssetKind.Tie, source, previous, 0x9009, 0xc6) is null, "repair preserves independent model edits");
++        using var cancellation = new CancellationTokenSource();
++        cancellation.Cancel();
++        try
++        {
++            LevelAssetModelConverter.Convert(GameId.GC, GameId.UYA, FrontendAssetKind.Tie, source, 0xc6, cancellation.Token);
++            throw new Exception("Expected cancellation");
++        }
++        catch (OperationCanceledException) { }
++        GcTieSplitConversionTests.Run();
++        GcTieOverlapFacingTests.Run();
++        GcTieOddStripTests.Run();
++        Console.WriteLine("GC tie winding conversion tests passed.");
++    }
++
++    private static TieClass Read(byte[] bytes, GameId game) => TieClassReader.Read(bytes,
++        TieClassReadOptions.ForGameProfile(TieGameProfile.ForGame(game)));
++    private static void Expect(bool condition, string message)
++    {
++        if (!condition) throw new Exception(message);
++    }
++}
+diff --git a/tests/RatchetPs2.LevelTests/GcTieOddStripTests.cs b/tests/RatchetPs2.LevelTests/GcTieOddStripTests.cs
+new file mode 100644
+index 0000000..7361708
+--- /dev/null
++++ b/tests/RatchetPs2.LevelTests/GcTieOddStripTests.cs
+@@ -0,0 +1,52 @@
++using System.Buffers.Binary;
++using RatchetPs2.Core.Games;
++using RatchetPs2.Core.Gltf;
++using RatchetPs2.Core.LevelAssets;
++using RatchetPs2.Core.Ties;
++using RatchetPs2.Sdk;
++
++internal static class GcTieOddStripTests
++{
++    public static void Run()
++    {
++        var asset = new StaticModelCanonicalAsset(StaticModelCanonicalFormat.Version,
++            [new(0, 0, "triangle", 0, [0f, 0f, 0f, 4f, 0f, 0f, 0f, 0f, 4f],
++                [0f, -1f, 0f, 0f, -1f, 0f, 0f, -1f, 0f], [0f, 0f, 1f, 0f, 0f, 1f], null, [0u, 1u, 2u])],
++            [new(9729, 9729, 10497, 10497)], [new("texture", 0, 0)],
++            [new("triangle", [1f, 1f, 1f, 1f], 0, 1, 1, "OPAQUE", 0.5f, false)],
++            [new("white", 2, 2, Enumerable.Repeat((byte)255, 16).ToArray())], new(0, 0, 0, 4, 0, 4));
++        var native = StaticModelConverter.Convert(GameId.UYA, asset, 0x10b).ModelBytes;
++        var tie = Read(native);
++        var block = tie.PacketDataBlocks.Single();
++        var packet = tie.PacketTables[0].Packets.Single();
++        var control = block.StripControls.Single();
++        var source = native.ToArray();
++        source[control.Offset] = 3;
++        // Keep the four-upload pipeline but make its padding overwrite the final real vertex.
++        BinaryPrimitives.WriteUInt16LittleEndian(source.AsSpan(packet.AbsoluteDataOffset + packet.VertexOffset * 16 + 3 * 16 + 6), 13);
++        source[packet.AbsoluteDataOffset + packet.ScissorOffset * 16 + 3] = 0xf6;
++        source.AsSpan(packet.AbsoluteDataOffset + 12, 4).Clear();
++        source[control.Offset + 3] &= 0xdf;
++        BinaryPrimitives.WriteInt16LittleEndian(source.AsSpan(0x60), 3);
++        BinaryPrimitives.WriteInt16LittleEndian(source.AsSpan(0x62), 1);
++        var converted = LevelAssetModelConverter.Convert(GameId.GC, GameId.UYA, FrontendAssetKind.Tie, source, 0x10b);
++        GcTieConversionAssertions.Equivalent(source, converted);
++        if (Read(converted).PacketDataBlocks.Any(value => value.StripControls.Any(strip => strip.TokenCount % 2 != 0)))
++            throw new Exception("Uniform-facing odd strips must be padded for UYA's paired culling loop.");
++        var previous = source.ToArray();
++        BinaryPrimitives.WriteInt32LittleEndian(previous.AsSpan(packet.AbsoluteDataOffset + 12), -9);
++        previous[control.Offset + 3] = native[control.Offset + 3];
++        var repaired = LevelAssetModelConverter.RepairPreviousStaticConversion(GameId.GC, GameId.UYA,
++            FrontendAssetKind.Tie, source, previous, 0x10b, 0x10b);
++        if (repaired is null || !repaired.AsSpan().SequenceEqual(converted))
++            throw new Exception("Previously unpadded conversions must repair automatically.");
++        previous[0x4c] ^= 1;
++        if (LevelAssetModelConverter.RepairPreviousStaticConversion(GameId.GC, GameId.UYA,
++            FrontendAssetKind.Tie, source, previous, 0x10b, 0x10b) is not null)
++            throw new Exception("Odd-strip repair must preserve independent model edits.");
++        Console.WriteLine("GC uniform odd strips pad safely and previous conversions repair without replacing edits.");
++    }
++
++    private static TieClass Read(byte[] bytes) => TieClassReader.Read(bytes,
++        TieClassReadOptions.ForGameProfile(TieGameProfile.ForGame(GameId.UYA)));
++}
+diff --git a/tests/RatchetPs2.LevelTests/GcTieOverlapFacingTests.cs b/tests/RatchetPs2.LevelTests/GcTieOverlapFacingTests.cs
+new file mode 100644
+index 0000000..e0818b8
+--- /dev/null
++++ b/tests/RatchetPs2.LevelTests/GcTieOverlapFacingTests.cs
+@@ -0,0 +1,69 @@
++using System.Numerics;
++using RatchetPs2.Core.Games;
++using RatchetPs2.Core.Gltf;
++using RatchetPs2.Core.LevelAssets;
++using RatchetPs2.Core.Ties;
++using RatchetPs2.Sdk;
++
++internal static class GcTieOverlapFacingTests
++{
++    public static void Run()
++    {
++        var asset = new StaticModelCanonicalAsset(StaticModelCanonicalFormat.Version,
++            [new(0, 0, "overlapping", 0, [0f, 0f, 0f, 4f, 0f, 0f, 0f, 0f, 4f, 1f, 0f, 2f],
++                [0f, -1f, 0f, 0f, -1f, 0f, 0f, -1f, 0f, 0f, -1f, 0f],
++                [0f, 0f, 1f, 0f, 0f, 1f, 0.25f, 0.5f], null, [0u, 1u, 2u, 0u, 1u, 3u])],
++            [new(9729, 9729, 10497, 10497)], [new("texture", 0, 0)],
++            [new("overlapping", [1f, 1f, 1f, 1f], 0, 1, 1, "OPAQUE", 0.5f, false)],
++            [new("white", 2, 2, Enumerable.Repeat((byte)255, 16).ToArray())], new(0, 0, 0, 4, 0, 4));
++        var source = StaticModelConverter.Convert(GameId.UYA, asset, 0xbc).ModelBytes;
++        var native = Read(source, GameId.UYA);
++        foreach (var block in native.PacketDataBlocks)
++        {
++            source.AsSpan(block.Offset + 12, 4).Clear();
++            foreach (var control in block.StripControls) source[control.Offset + 3] &= 0xdf;
++        }
++        var preview = Read(source, GameId.GC);
++        var facing = TieGltfExporter.ResolveTriangleFacing(preview, 0, TieGameProfile.ForGame(GameId.GC));
++        Validate(preview.LodTopologies[0], facing);
++        var converted = LevelAssetModelConverter.Convert(GameId.GC, GameId.UYA, FrontendAssetKind.Tie, source, 0xbc);
++        GcTieConversionAssertions.Equivalent(source, converted);
++        var target = Read(converted, GameId.UYA);
++        Validate(target.LodTopologies[0], target.LodTopologies[0].Triangles);
++        var previous = converted.ToArray();
++        var second = target.LodTopologies[0].Strips.Where(strip => strip.TriangleCount > 0).Skip(1).First();
++        var block2 = target.PacketDataBlocks.Single(block => block.LodIndex == 0 && block.PacketIndex == second.PacketIndex);
++        previous[block2.StripControls[second.PacketStripIndex].Offset + 3] ^= 0x20;
++        var repaired = LevelAssetModelConverter.RepairPreviousStaticConversion(GameId.GC, GameId.UYA,
++            FrontendAssetKind.Tie, source, previous, 0xbc, 0xbc);
++        if (repaired is null || !repaired.AsSpan().SequenceEqual(converted))
++            throw new Exception("Earlier overlapping-face conversion must repair automatically.");
++        previous[0x4c] ^= 1;
++        if (LevelAssetModelConverter.RepairPreviousStaticConversion(GameId.GC, GameId.UYA,
++            FrontendAssetKind.Tie, source, previous, 0xbc, 0xbc) is not null)
++            throw new Exception("Overlap repair must preserve independently edited models.");
++        Console.WriteLine("GC overlapping coplanar faces retain their authored facing in preview, conversion and repair.");
++    }
++
++    private static void Validate(TieLodTopology topology, IReadOnlyList<TieTriangle> triangles)
++    {
++        var count = 0;
++        foreach (var triangle in triangles)
++        {
++            Vector3 Position(int index)
++            {
++                var vertex = topology.LogicalVertices[index].DecodedVertex!;
++                return GltfCoordinateBasis.FromPs2Position(vertex.X, vertex.Y, vertex.Z);
++            }
++            var normal = Vector3.Cross(Position(triangle.B) - Position(triangle.A),
++                Position(triangle.C) - Position(triangle.A));
++            if (normal.LengthSquared() == 0) continue;
++            if (normal.Y >= 0) throw new Exception("Overlapping faces must both point along their authored -Y normal.");
++            count++;
++        }
++        if (count != 2) throw new Exception("Overlap fixture must retain both rendered triangles.");
++    }
++
++    private static TieClass Read(byte[] bytes, GameId game) => TieClassReader.Read(bytes,
++        TieClassReadOptions.ForGameProfile(TieGameProfile.ForGame(game)));
++}
+diff --git a/tests/RatchetPs2.LevelTests/GcTieSplitConversionTests.cs b/tests/RatchetPs2.LevelTests/GcTieSplitConversionTests.cs
+new file mode 100644
+index 0000000..4c2e726
+--- /dev/null
++++ b/tests/RatchetPs2.LevelTests/GcTieSplitConversionTests.cs
+@@ -0,0 +1,331 @@
++using System.Buffers.Binary;
++using RatchetPs2.Core.Games;
++using RatchetPs2.Core.LevelAssets;
++using RatchetPs2.Core.Ties;
++using RatchetPs2.Sdk;
++
++internal static class GcTieSplitConversionTests
++{
++    public static void Run()
++    {
++        var legacy = Convert.FromBase64String("AAEAABABAAAQAQAAAQAAAQAAAAAAAAAAAAAAAIACAAAAAAAAAwAAAAAAEAAAAAAAAAAAAPABAAABAAgAAAAAAAAAgD9pAAAAAAAAABAgQIAAAAAAAAAAAAAAAAAAAAAADAAGAAMAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAABfwYCBAkJAA0BAAAAAAAAAAAAAAAAAAD3////AAAAAAAAAAAAAAAAAAAAAAEBBgMHAAAAFgYJAAQABgAEABMABAAgAAAAAAAAAAAAAAAAAAAABwAAAAAAABAAAOgDAAAAAAoAZADIAAAQFAAAAAAA6AMNAMgAkAEAEBAAAAAAAOgDFwDIAJABABAAAAAAAAD6ABoALAFYAgAQHQDoAwAAAAAhAJABIAMAEAAAAAAAAOgDJAD0AegDABAAANAHAADQBycAWAKwBAAQAADQBwAA0AcqALwCeAUAEAAABwMDA/wDAwP8AwMD9gAAAAB/AAAAf8AAAAAAAAAAAAAFAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAABAAIAAgACAAGAAMAUAAAAAAAAAAYAPwHHAAAACAABAAAAAgAAAAMAAAAAAAAAAAAEAAAAAAAAAAUACQAKAAsAAAAAAAAAAAAAAAAAAAAAgAEABwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
++        var legacyTie = Read(legacy);
++        try
++        {
++            GcTieVuUploadAssertions.Validate(legacyTie.PacketDataBlocks[0]);
++            throw new Exception("Expected the original corrupt split packet to fail VU validation.");
++        }
++        catch (Exception exception) when (exception.Message.Contains("VU loop")) { }
++        var repairedLegacy = LevelAssetModelConverter.RepairPreviousStaticConversion(GameId.GC, GameId.UYA,
++            FrontendAssetKind.Tie, Fixture(false), legacy, 0x69, 0x69);
++        Expect(repairedLegacy is not null, "earlier split packets are recognized for project repair");
++        GcTieConversionAssertions.Equivalent(Fixture(false), repairedLegacy!);
++        legacy[0x4c] ^= 1;
++        Expect(LevelAssetModelConverter.RepairPreviousStaticConversion(GameId.GC, GameId.UYA,
++            FrontendAssetKind.Tie, Fixture(false), legacy, 0x69, 0x69) is null,
++            "earlier split migration preserves independent edits");
++        var intermediateFat = Convert.FromBase64String("AAEAABABAAAQAQAAAQAAAQAAAAAAAAAAAAAAAJACAAAAAAAAAwAAAAAAEAAAAAAAAAAAAAACAAABAAgAAAAAAAAAgD9pAAAAAAAAABAgQIAAAAAAAAAAAAAAAAAAAAAADAAGAAMAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAABfwYCBAoJAA4BAAAAAAAAAAAAAAAAAAD3////AAAAAAAAAAAAAAAAAAAAAAABBgMXCioAFAkIAQQABgAEABMABAAgAAAAAAAAAAAAAAAAAAAABwAAAAAAABAAAAAAAADoAxcAyACQAQAQAADoAwAAAAAhAJABIAMAEAAAAAAAAOgDJAD0AegDABAAANAHAADQBycAWAKwBAAQAADoAwAAAAAKAGQAyAAAEBQAAAAAAOgDDQDIAJABABAQAAAAAAD6ABoALAFYAgAQHQAAAAAAAAAqANAHAADQBwAAvAJ4BQAQAAAAAAAAAAAAAAcDAwP8AwMD/AMDA/YAAAAAfwAAAH/AAAAAAAAAAAAABQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAQACAAIAAgABgADAFAAAAAAAAAADAD8BxAAAAAgABQAAAAEAAAAGAAAAAAAAAAAABwAAAAAAAAACAAkACgALAAAAAAAAAAAAAAAAAAAAAIAEAAUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==");
++        var repairedFat = LevelAssetModelConverter.RepairPreviousStaticConversion(GameId.GC, GameId.UYA,
++            FrontendAssetKind.Tie, SmallFatFixture(1), intermediateFat, 0x69, 0x69);
++        Expect(repairedFat is not null, "intermediate upload-group conversions are recognized for project repair");
++        GcTieConversionAssertions.Equivalent(SmallFatFixture(1), repairedFat!);
++        foreach (var multipass in new[] { false, true })
++        {
++            var source = Fixture(multipass);
++            var converted = LevelAssetModelConverter.Convert(GameId.GC, GameId.UYA, FrontendAssetKind.Tie, source, 0x69);
++            GcTieConversionAssertions.Equivalent(source, converted);
++            var target = Read(converted);
++            Expect(target.LodTopologies[0].StripCount == 3 && target.LodTopologies[0].LogicalVertexCount == 12,
++                "folded quad splits into two culled strips with even padding");
++            Expect(target.RgbaRemapOperations.Select(value => value.Kind).Distinct().Count() == 5,
++                "all five lighting recipe operations survive splitting");
++            Expect(target.PacketDataBlocks[0].DecodedVertices.Any(vertex => vertex.SecondaryGsPacketWriteOffset != 0) == !multipass,
++                "base-pass duplicate vertices retain shared GS writes when the groups fit the VU pipeline");
++            var glow = (int)target.Header.VertexNormalsOffset + target.Header.UnknownOffsets78[0];
++            Expect(BinaryPrimitives.ReadUInt16LittleEndian(converted.AsSpan(glow)) == (multipass ? 3 : 2),
++                "glow-cache targets follow duplicated or shared source vertices");
++            var previous = source.ToArray();
++            BinaryPrimitives.WriteUInt16LittleEndian(previous.AsSpan(0x44), 0x9009);
++            var repaired = LevelAssetModelConverter.RepairPreviousStaticConversion(GameId.GC, GameId.UYA,
++                FrontendAssetKind.Tie, source, previous, 0x9009, 0x69);
++            Expect(repaired is not null && repaired.AsSpan().SequenceEqual(converted),
++                "previously copied mixed-facing models can be repaired with their source class");
++            previous[0x4c] ^= 1;
++            Expect(LevelAssetModelConverter.RepairPreviousStaticConversion(GameId.GC, GameId.UYA,
++                FrontendAssetKind.Tie, source, previous, 0x9009, 0x69) is null,
++                "repair preserves independently edited mixed-facing models");
++            Expect(LevelAssetModelConverter.Convert(GameId.GC, GameId.UYA, FrontendAssetKind.Tie, source, 0x69)
++                .AsSpan().SequenceEqual(converted), "split conversion is deterministic");
++        }
++        foreach (var fatCount in new[] { 1, 4 })
++        {
++            var source = SmallFatFixture(fatCount);
++            var converted = LevelAssetModelConverter.Convert(GameId.GC, GameId.UYA, FrontendAssetKind.Tie, source, 0x69);
++            GcTieConversionAssertions.Equivalent(source, converted);
++            var target = Read(converted);
++            Expect(target.PacketDataBlocks.SelectMany(block => block.DecodedVertices).Any(vertex =>
++                vertex.Kind == TiePacketDecodedVertexKind.Fat
++                && vertex.SecondaryGsPacketWriteOffset == vertex.GsPacketWriteOffset),
++                "single-write fat tails still execute both VU fat phases");
++            var fatBlock = target.PacketDataBlocks.First(block => block.UnpackHeader!.Unknown11 > 0);
++            converted[fatBlock.Offset + 0x21] = 1;
++            try
++            {
++                GcTieVuUploadAssertions.Validate(Read(converted).PacketDataBlocks[fatBlock.PacketIndex]);
++                throw new Exception("Expected a skipped fat phase to fail VU validation.");
++            }
++            catch (Exception exception) when (exception.Message.Contains("fat loop")) { }
++        }
++        var coincident = Fixture(false);
++        var coincidentPoints = new[] { (0, 0), (1000, 0), (0, 1000), (1000, 1000) };
++        for (var index = 0; index < 8; index++)
++        {
++            BinaryPrimitives.WriteInt16LittleEndian(coincident.AsSpan(0x150 + index * 16),
++                (short)coincidentPoints[index % 4].Item1);
++            BinaryPrimitives.WriteInt16LittleEndian(coincident.AsSpan(0x154 + index * 16),
++                (short)coincidentPoints[index % 4].Item2);
++        }
++        coincident[0x134] = 20;
++        var previousFacing = Convert.FromBase64String("AAEAAAAAAAAAAAAAAQAAAQAAAAAAAAAAAAAAAGACAAAAAAAAAgAAAAAAEAAAAAAAAAAAAOABAAABAAgAAAAAAAAAgD9pAAAAAAAAABAgQIAAAAAAAAAAAAAAAAAAAAAACAAEAAIAAAAAAAAAAAAAAAAAAAAAAAAAcAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAABfwUCBAgIAAwBAAAAAAAAAAAAAAAAAAD3////AAAAAAAAAAAAAAAAAAAAAAEBBgIUAAAAFAYIAAQABgAEABMgAAAAAAAAAAAAAAAAAAAAAAAABwAAAAAAABAAAOgDAAAAAAoAZADIAAAQAAAAAAAA6AMNAMgAkAEAEAAA6AMAAOgDEAAsAVgCABAAAAAAAAAAABQAkAEgAwAQAADoAwAAAAAXAPQB6AMAEAAAAAAAAOgDGgBYArAEABAAAOgDAADoAx0AvAJ4BQAQAAAHAwMD/AMDA/YAAAAAAAAAAH8AAAB/wAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAEAAQACAAIAAAAAgBAAAAAAAAAABQA/AcYAAAAHAAEAAAACAAAAAAAAAAAAAwAAAAAAAAAEAAAAAAAAAAAAAIABAAYAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==");
++        var correctedFacing = LevelAssetModelConverter.Convert(GameId.GC, GameId.UYA,
++            FrontendAssetKind.Tie, coincident, 0x69);
++        GcTieConversionAssertions.Equivalent(coincident, correctedFacing);
++        Expect(previousFacing.Length == correctedFacing.Length,
++            "coincident facing repair retains the established packet layout");
++        var differences = previousFacing.Zip(correctedFacing).Where(pair => pair.First != pair.Second).ToArray();
++        Expect(differences.Length > 0 && differences.All(pair => (pair.First ^ pair.Second) == 0x20),
++            "coincident facing repair changes only strip facing flags");
++        var coincidentTie = Read(correctedFacing);
++        var coincidentTopology = coincidentTie.LodTopologies[0];
++        var normals = coincidentTopology.Triangles.Select(triangle =>
++        {
++            System.Numerics.Vector3 Position(int index)
++            {
++                var vertex = coincidentTopology.LogicalVertices[index].DecodedVertex!;
++                return new(vertex.X, vertex.Y, vertex.Z);
++            }
++            return System.Numerics.Vector3.Cross(Position(triangle.B) - Position(triangle.A),
++                Position(triangle.C) - Position(triangle.A));
++        }).Where(normal => normal.LengthSquared() > 0).ToArray();
++        Expect(normals.Length == 4 && normals.All(normal => System.Numerics.Vector3.Dot(normal, normals[0]) > 0),
++            "overlapping flat faces retain the same facing instead of opposing boundary adjacency");
++        var repairedFacing = LevelAssetModelConverter.RepairPreviousStaticConversion(GameId.GC, GameId.UYA,
++            FrontendAssetKind.Tie, coincident, previousFacing, 0x69, 0x69);
++        Expect(repairedFacing is not null && repairedFacing.AsSpan().SequenceEqual(correctedFacing),
++            "previous facing conversions repair automatically");
++        previousFacing[0x4c] ^= 1;
++        Expect(LevelAssetModelConverter.RepairPreviousStaticConversion(GameId.GC, GameId.UYA,
++            FrontendAssetKind.Tie, coincident, previousFacing, 0x69, 0x69) is null,
++            "coincident facing migration preserves independent edits");
++        var fatSource = FatSplitFixture();
++        var fatConverted = LevelAssetModelConverter.Convert(GameId.GC, GameId.UYA, FrontendAssetKind.Tie, fatSource, 0x69);
++        GcTieConversionAssertions.Equivalent(fatSource, fatConverted);
++        Expect(Read(fatConverted).PacketDataBlocks.Any(block =>
++            block.DecodedVertices.Count(vertex => vertex.Kind == TiePacketDecodedVertexKind.Dinky) == 4
++            && block.DecodedVertices.Where(vertex => vertex.Kind == TiePacketDecodedVertexKind.Dinky)
++                .Select(vertex => vertex.GsPacketWriteOffset).Distinct().Count() == 1),
++            "fat-only split batches preload four harmless dinky writes");
++        foreach (var count in new[] { 128, 255 })
++        {
++            var source = RepeatedFixture(count);
++            var converted = LevelAssetModelConverter.Convert(GameId.GC, GameId.UYA, FrontendAssetKind.Tie, source, 0x69);
++            Expect(Read(converted).PacketTables[0].Count == count, "packet counts use all eight unsigned bits");
++            GcTieConversionAssertions.Equivalent(source, converted);
++        }
++        Console.WriteLine("GC folded strips, weighted lighting, glow, UV passes and unsigned packet counts passed.");
++    }
++
++    public static void Qualify(string directory)
++    {
++        var count = 0;
++        foreach (var file in Directory.EnumerateFiles(directory, "*.bin").Order(StringComparer.Ordinal))
++        {
++            var source = File.ReadAllBytes(file);
++            var tie = Read(source);
++            var converted = LevelAssetModelConverter.Convert(GameId.GC, GameId.UYA, FrontendAssetKind.Tie,
++                source, (ushort)tie.Header.OClass);
++            try { GcTieConversionAssertions.Equivalent(source, converted); }
++            catch (Exception exception) { throw new Exception($"{Path.GetFileName(file)}: {exception.Message}", exception); }
++            var result = Read(converted);
++            Console.WriteLine($"0x{(ushort)tie.Header.OClass:X4}: packets {string.Join('/', tie.Header.PacketCounts)}"
++                + $" -> {string.Join('/', result.Header.PacketCounts)}, bytes {source.Length} -> {converted.Length}");
++            count++;
++        }
++        Expect(count > 0, "retail qualification directory contains TIE models");
++        Console.WriteLine($"Qualified exact geometry/material/lighting/glow/UV preservation and VU limits for {count} retail GC models.");
++    }
++
++    private static byte[] Fixture(bool multipass)
++    {
++        const int packet = 0x110;
++        var packetQwords = multipass ? 18 : 13;
++        var normal = packet + packetQwords * 16;
++        var remap = normal + 16;
++        var glow = remap + 96;
++        var shader = glow + 16;
++        var bytes = new byte[shader + 80];
++        I32(0, 0x100); bytes[12] = 1; bytes[15] = 1;
++        I32(0x1c, shader); I16(0x24, 2); I16(0x2a, remap - normal);
++        I32(0x34, normal); I16(0x38, 1); I16(0x3a, 8);
++        BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(0x40), 1);
++        I16(0x44, 0x69); I32(0x4c, unchecked((int)0x80402010));
++        I16(0x60, 8); I16(0x62, 4); I16(0x64, 2); I16(0x78, glow - normal);
++        I32(0x100, 16); bytes[0x104] = 1; bytes[0x105] = 127;
++        bytes[0x106] = 5; bytes[0x107] = 2; bytes[0x108] = 4;
++        bytes[0x109] = 8; bytes[0x10a] = 8; bytes[0x10c] = 12; bytes[0x10d] = 1;
++        bytes[packet + 0x20] = 1; bytes[packet + 0x21] = 1; bytes[packet + 0x22] = 6;
++        bytes[packet + 0x23] = 2; bytes[packet + 0x24] = 7;
++        bytes[packet + 0x28] = 20; bytes[packet + 0x29] = 6; bytes[packet + 0x2a] = 8;
++        bytes[packet + 0x2c] = 4; bytes[packet + 0x2e] = 6;
++        bytes[packet + 0x30] = 4; bytes[packet + 0x32] = 19;
++        var points = new[] { (0, 0), (1000, 0), (0, 1000), (0, 250),
++            (1000, 0), (0, 1000), (2000, 2000), (2000, 2000) };
++        for (var index = 0; index < points.Length; index++)
++        {
++            var offset = packet + 64 + index * 16;
++            I16(offset, points[index].Item1); I16(offset + 4, points[index].Item2);
++            I16(offset + 6, 7 + index * 3 + (index >= 4 ? 1 : 0));
++            I16(offset + 8, index * 100); I16(offset + 10, index * 200); I16(offset + 12, 4096);
++            bytes[packet + 192 + index] = index == 0 ? (byte)7 : index == 4 ? (byte)0xfc : (byte)3;
++        }
++        bytes[packet + 200] = 0xf6;
++        if (multipass)
++        {
++            bytes[0x10b] = 13; bytes[0x10e] = 1; bytes[0x10f] = 2;
++            I32(packet + 13 * 16, 80); I32(packet + 13 * 16 + 32, 8);
++            for (var index = 0; index < 8; index++) I32(packet + 16 * 16 + index * 4, 0x32100000 + index);
++        }
++        bytes[normal + 1] = 127; bytes[normal + 5] = 127; I16(normal + 6, 0xc0);
++        bytes[remap] = 4;
++        var group = remap + 32;
++        I16(group, 16); I16(group + 2, 4); I16(group + 4, 4); I16(group + 6, 8); I16(group + 8, 8);
++        I16(group + 12, 2); I16(group + 14, 64);
++        var cursor = group + 16;
++        foreach (var index in new[] { 0, 5, 6, 7 })
++        {
++            I16(cursor, index == 6 ? 0x7fc : 0); I16(cursor + 2, index * 4); cursor += 4;
++        }
++        I32(cursor, 4); cursor += 4;
++        I32(cursor, 8); cursor += 4;
++        I16(cursor + 6, 12); cursor += 8;
++        I16(cursor + 6, 16);
++        I16(glow, 2); I16(glow + 2, 4); I16(glow + 4, 24);
++        return bytes;
++
++        void I32(int offset, int value) => BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(offset), value);
++        void I16(int offset, int value) => BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(offset), checked((ushort)value));
++    }
++
++    private static byte[] SmallFatFixture(int fatCount)
++    {
++        const int packet = 0x110, vertices = packet + 64, oldScissor = packet + 192;
++        var source = Fixture(false);
++        var dinky = 8 - fatCount;
++        var vertexSize = (128 + fatCount * 8 + 15) / 16;
++        var extra = vertexSize * 16 - 128;
++        var bytes = new byte[source.Length + extra];
++        source.AsSpan(0, vertices).CopyTo(bytes);
++        source.AsSpan(oldScissor).CopyTo(bytes.AsSpan(oldScissor + extra));
++        BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(0x1c), BitConverter.ToInt32(source, 0x1c) + extra);
++        BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(0x34), BitConverter.ToInt32(source, 0x34) + extra);
++        bytes[0x109] = checked((byte)vertexSize); bytes[0x10c] = checked((byte)(4 + vertexSize));
++        bytes[packet + 0x28] = checked((byte)(4 + 2 * dinky));
++        bytes[packet + 0x29] = checked((byte)(6 + 3 * fatCount));
++        bytes[packet + 0x2a] = checked((byte)dinky); bytes[packet + 0x2b] = checked((byte)fatCount);
++        var cursor = vertices;
++        for (var index = 0; index < 8; index++)
++        {
++            var vertex = source.AsSpan(vertices + index * 16, 16);
++            if (index < dinky) { vertex.CopyTo(bytes.AsSpan(cursor)); cursor += 16; }
++            else
++            {
++                vertex[..6].CopyTo(bytes.AsSpan(cursor + 8));
++                vertex.Slice(6, 2).CopyTo(bytes.AsSpan(cursor + 6));
++                vertex[8..].CopyTo(bytes.AsSpan(cursor + 16));
++                cursor += 24;
++            }
++        }
++        return bytes;
++    }
++
++    private static byte[] FatSplitFixture()
++    {
++        const int packet = 0x110, vertex = packet + 64, scissor = packet + 98 * 16;
++        const int normal = packet + 103 * 16, remap = normal + 16, shader = remap + 32 + 272;
++        var bytes = new byte[shader + 80];
++        var template = Fixture(false);
++        template.AsSpan(0, 0x110).CopyTo(bytes);
++        I32(0x1c, shader); I32(0x34, normal); I16(0x24, 16); I16(0x2a, 16); I16(0x78, 0);
++        I16(0x60, 64); I16(0x62, 60); I16(0x64, 2);
++        bytes[0x109] = 94; bytes[0x10a] = 64; bytes[0x10c] = 98; bytes[0x10d] = 5;
++        bytes[packet + 0x20] = 1; bytes[packet + 0x21] = 1; bytes[packet + 0x22] = 6;
++        bytes[packet + 0x23] = 2; bytes[packet + 0x24] = 7; bytes[packet + 0x26] = 197;
++        bytes[packet + 0x28] = 12; bytes[packet + 0x29] = 186;
++        bytes[packet + 0x2a] = 4; bytes[packet + 0x2b] = 60;
++        bytes[packet + 0x2c] = 4; bytes[packet + 0x2e] = 6;
++        bytes[packet + 0x30] = 60; bytes[packet + 0x32] = 19;
++        var points = new[] { (0, 0), (1000, 0), (0, 1000), (0, 250) };
++        for (var index = 0; index < 64; index++)
++        {
++            var offset = index < 4 ? vertex + index * 16 : vertex + 64 + (index - 4) * 24;
++            var position = offset + (index < 4 ? 0 : 8);
++            var uv = offset + (index < 4 ? 8 : 16);
++            I16(position, points[index % 4].Item1); I16(position + 4, points[index % 4].Item2);
++            I16(offset + 6, 7 + index * 3 + (index >= 4 ? 1 : 0));
++            I16(uv, index * 100); I16(uv + 2, index * 200); I16(uv + 4, 4096);
++            bytes[scissor + index] = index == 0 ? (byte)7 : index == 4 ? (byte)0xfc : (byte)3;
++        }
++        bytes[scissor + 64] = 0xf6;
++        template.AsSpan((int)Read(template).Header.VertexNormalsOffset, 8).CopyTo(bytes.AsSpan(normal));
++        bytes[remap] = 17; I16(remap + 32, 256); I16(remap + 44, 16); I16(remap + 46, 272);
++        for (var index = 0; index < 64; index++) I16(remap + 50 + index * 4, index * 4);
++        return bytes;
++        void I32(int offset, int value) => BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(offset), value);
++        void I16(int offset, int value) => BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(offset), checked((ushort)value));
++    }
++
++    private static byte[] RepeatedFixture(int count)
++    {
++        var template = Fixture(false);
++        var original = Read(template);
++        var packet = original.PacketDataBlocks.Single();
++        var data = 0x100 + count * 16;
++        var normal = data + packet.Length;
++        var remap = normal + 16;
++        var groups = (count + 15) / 16;
++        var remapSize = 32 + Enumerable.Range(0, groups).Sum(index => 16 + Math.Min(16, count - index * 16) * 8 * 4);
++        var shader = remap + remapSize;
++        var bytes = new byte[shader + 80];
++        template.AsSpan(0, 0x100).CopyTo(bytes);
++        bytes[12] = checked((byte)count);
++        I32(0x1c, shader); I32(0x34, normal); I16(0x24, count * 2);
++        I16(0x2a, 16); I16(0x78, 0);
++        I16(0x60, count * 8); I16(0x62, count * 4); I16(0x64, count * 2);
++        for (var index = 0; index < count; index++)
++        {
++            template.AsSpan(0x100, 16).CopyTo(bytes.AsSpan(0x100 + index * 16));
++            I32(0x100 + index * 16, data - 0x100);
++        }
++        packet.Bytes.CopyTo(bytes, data);
++        template.AsSpan((int)original.Header.VertexNormalsOffset, 8).CopyTo(bytes.AsSpan(normal));
++        var cursor = remap + 32;
++        for (var group = 0; group < groups; group++)
++        {
++            var slots = Math.Min(16, count - group * 16) * 8;
++            var length = 16 + slots * 4;
++            bytes[remap + group] = checked((byte)(length / 16));
++            I16(cursor, slots * 4); I16(cursor + 12, slots / 4); I16(cursor + 14, length);
++            for (var slot = 0; slot < slots; slot++) I16(cursor + 16 + slot * 4 + 2, slot * 4);
++            cursor += length;
++        }
++        template.AsSpan((int)original.Header.ShadersOffset, 80).CopyTo(bytes.AsSpan(shader));
++        return bytes;
++
++        void I32(int offset, int value) => BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(offset), value);
++        void I16(int offset, int value) => BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(offset), checked((ushort)value));
++    }
++
++    private static TieClass Read(byte[] bytes) => TieClassReader.Read(bytes,
++        TieClassReadOptions.ForGameProfile(TieGameProfile.ForGame(GameId.GC)));
++    private static void Expect(bool condition, string message) { if (!condition) throw new Exception(message); }
++}
+diff --git a/tests/RatchetPs2.LevelTests/GcTieVuUploadAssertions.cs b/tests/RatchetPs2.LevelTests/GcTieVuUploadAssertions.cs
+new file mode 100644
+index 0000000..2078f77
+--- /dev/null
++++ b/tests/RatchetPs2.LevelTests/GcTieVuUploadAssertions.cs
+@@ -0,0 +1,44 @@
++using RatchetPs2.Core.Ties;
++
++internal static class GcTieVuUploadAssertions
++{
++    public static void Validate(TiePacketDataBlock block)
++    {
++        var header = block.Bytes.AsSpan(0x20, 12);
++        var vertices = block.DecodedVertices;
++        var cursor = 0;
++        // Fast VU 0b40/0fc0 leave three/two prefetched dinky vertices after their stop markers.
++        Group(TiePacketDecodedVertexKind.Dinky, header[4], 3, shared: false);
++        if (header[0] == 0) Group(TiePacketDecodedVertexKind.Dinky, header[5], 2, shared: true);
++        if (cursor != header[10]) Fail("dinky loop reads past its upload group");
++        // Fast VU 1ab0/1c40 stop on the last single/shared fat vertex.
++        if (header[1] == 0)
++        {
++            Group(TiePacketDecodedVertexKind.Fat, header[6], 0, shared: false);
++            Group(TiePacketDecodedVertexKind.Fat, header[7], 0, shared: true);
++        }
++        if (cursor != vertices.Count) Fail("fat loop reads past its upload group");
++
++        void Group(TiePacketDecodedVertexKind kind, int stop, int tail, bool shared)
++        {
++            var found = false;
++            while (!found)
++            {
++                var vertex = Next();
++                found = vertex.GsPacketWriteOffset == stop;
++            }
++            for (var index = 0; index < tail; index++) Next();
++
++            TiePacketDecodedVertex Next()
++            {
++                if (cursor >= vertices.Count) Fail("VU loop does not reach its stop marker");
++                var vertex = vertices[cursor++];
++                if (vertex.Kind != kind || (vertex.SecondaryGsPacketWriteOffset != 0) != shared)
++                    Fail("VU loop consumes the wrong vertex kind or write mode");
++                return vertex;
++            }
++        }
++
++        void Fail(string message) => throw new Exception($"LOD {block.LodIndex} packet {block.PacketIndex}: {message}");
++    }
++}

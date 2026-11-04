@@ -79,7 +79,7 @@ export function SettingsModal({
       const channel = snapshot.entries.find((entry) => entry.key === 'updates.channel');
       const storedBindings = snapshot.entries.find((entry) => entry.key === 'keybindings.overrides')?.value;
       const overrides = parseKeybindingOverrides(storedBindings);
-      setSourceIsos(Object.fromEntries((['UYA', 'DL'] as const).map((game) => [game,
+      setSourceIsos(Object.fromEntries((['UYA', 'DL', 'GC'] as const).map((game) => [game,
         String(snapshot.entries.find((entry) => entry.key === `sources.${game.toLowerCase()}.iso`)?.value ?? ''),
       ])));
       setForceOversizedInPlace(forcedInPlace?.value === true);
@@ -136,10 +136,10 @@ export function SettingsModal({
         </Tabs.List>
         <Tabs.Panel value="general" pt="sm">
           <Stack>
-            {(['UYA', 'DL'] as const).map((game) => <TextInput
+            {(['UYA', 'DL', 'GC'] as const).map((game) => <TextInput
               key={game}
               label={`Clean ${game} ISO`}
-              description={game === 'UYA' ? 'Source for UYA map projects and asset imports.' : 'Source for optional Deadlocked asset imports.'}
+              description={game === 'UYA' ? 'Source for UYA map projects and asset imports.' : `Source for optional ${game === 'DL' ? 'Deadlocked' : 'Going Commando'} asset imports.`}
               placeholder="Not configured"
               value={sourceIsos[game] ?? ''}
               readOnly

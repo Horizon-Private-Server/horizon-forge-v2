@@ -33,7 +33,7 @@ catalog. DL imports support progress, cancellation, resume, and re-import. They
 require no DL development ISO or map project. UYA remains the supported map target.
 Setup has separate source and import controls for each game. Optional DL imports
 can be resumed independently and do not block finishing UYA setup or using Forge.
-Settings shows both source paths and links to Setup for source and import management.
+Settings shows the configured source paths and links to Setup for source and import management.
 
 DL ties, shrubs, and mobys can be dragged into UYA NTSC-U 1.00 projects. Placement
 converts a project-local copy to UYA and retains the DL source. Ties and shrubs
@@ -71,10 +71,36 @@ and repairs the original silent conversions. Save and rebuild the map afterward.
 Opening a project also restores DL moby oClass IDs assigned to the old custom
 range, updating their instances and sound maps together while retaining model edits.
 
-The companion Ratchet SDK changes must be released and `ratchet-sdk.version`
-updated before this feature can be built from a fresh pinned dependency checkout.
-Local development can use the modified sibling SDK through the existing
-`.dependencies/ratchet-sdk-root` configuration.
+Going Commando follows the same setup, catalog, preview, and UYA placement flow.
+The supported source is clean GC NTSC-U revision 1.01 (`SCUS-97268`, MD5
+`3cbbb5127ee8a0be93ef0876f7781ee8`). Import includes all 27 levels, including the
+museum, model textures, skies, and primary/chunk sound banks. GC assets retain their
+source class IDs; mobys retain their animations and supported
+sound programs. Unsupported legacy sound arguments remain unavailable with a
+specific diagnostic. UYA remains the map target; game behavior code is not ported.
+GC tie conversion sets the packet setup offsets required by UYA's VU program and
+uses the SDK's source-facing analysis to populate strip winding flags, retaining
+each packet's `bfcDistance`. Strips with conflicting triangle facing are split
+into consistently oriented runs with even vertex counts for UYA's paired VU loop.
+Uniform-facing culled strips with odd vertex counts also use that padding path.
+Rebuilt packets also regenerate the VU upload groups and their address-based stop
+markers, including the prefetched vertices needed by short groups. Coincident
+and coplanar overlapping faces do not form adjacency edges that reverse their
+facing. Conversion retains established upload boundaries and adds splits when
+corrected facing requires them.
+Conversion preserves every rendered face, lighting recipe, glow target, material,
+and texture-matrix UV pass, rebuilding packet and color-cache tables as needed.
+Reopening a project repairs known earlier GC conversions and restores source class
+IDs together with their instances. Independent model edits and class conflicts are
+preserved and reported. Save and rebuild occlusion and the map after a repair.
+
+Bootstrap applies `build/ratchet-sdk-gc-assets.patch` to the pinned SDK until its GC
+asset support is released upstream. Bootstrap records the applied patch in the
+SDK checkout's Git metadata so later patch revisions can replace it safely.
+Repeated runs accept the current or recorded patch and refuse unrelated SDK edits.
+The focused SDK GC regressions run as part of `npm test` and CI.
+Remove the patch and its bootstrap handling
+when updating `ratchet-sdk.version` to the SDK release containing these changes.
 
 ## Project planning
 
