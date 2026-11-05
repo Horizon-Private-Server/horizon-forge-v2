@@ -24,7 +24,7 @@ try {
   ({ registerIpcHandlers } = await import('../dist-electron/main/IpcHandlers.js'));
 } finally { hooks.deregister(); }
 
-for (const game of ['DL', 'GC']) {
+for (const game of ['DL', 'GC', 'RC1']) {
   const revision = game === 'GC' ? '1.01' : '1.00';
   test(`setup keeps ${game} source/import state separate and publishes completion only after success`, async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'forge-setup-ipc-'));
@@ -49,7 +49,7 @@ for (const game of ['DL', 'GC']) {
         validateSourceIso: async (game, file, report) => {
           assert.equal(game, game); assert.equal(file, source); report({ completed: 1, total: 1 });
           return { requestId: 11, result: Promise.resolve({ isSupported: true, game, region: 'NTSC-U', revision,
-            serial: game === 'GC' ? 'SCUS-97268' : 'SCUS-97465', size: 123, fingerprint: 'b'.repeat(32), diagnostic: 'verified' }) };
+            serial: game === 'GC' ? 'SCUS-97268' : game === 'RC1' ? 'SCUS-97199' : 'SCUS-97465', size: 123, fingerprint: 'b'.repeat(32), diagnostic: 'verified' }) };
         },
         importAssets: async (game, file, catalog, fingerprint, revision, report, force) => {
           assert.deepEqual([game, file, catalog, fingerprint, revision, force],
@@ -64,7 +64,7 @@ for (const game of ['DL', 'GC']) {
       const event = { sender: { id: 7, send: (channel, value) => progress.push({ channel, ...value }) } };
       const invoke = (channel, ...args) => handlers.get(channel)(event, ...args);
       assert.equal((await invoke('forge:setup-state')).required, false);
-      await assert.rejects(() => invoke('forge:setup-choose-source', 'RC1'), /Unsupported/);
+      await assert.rejects(() => invoke('forge:setup-choose-source', 'Unknown'), /Unsupported/);
       await assert.rejects(() => handlers.get('forge:setup-choose-source')({ sender: { id: 8 } }, game), /Untrusted/);
       await invoke('forge:setup-choose-source', game);
       assert.equal(values['targets.uya.developmentIso'], source);
@@ -83,6 +83,12 @@ for (const game of ['DL', 'GC']) {
       assert.equal(complete.sources[game].importComplete, true);
       assert.equal(complete.required, false);
       assert.equal(complete.sources.UYA.importComplete, true);
+      if (game === 'RC1') {
+        assert.equal(values['imports.rc1.completedVersion'], 2);
+        values['imports.rc1.completedVersion'] = 1;
+        assert.equal((await invoke('forge:setup-state')).sources.RC1.importComplete, false,
+          'RC1 imports before the authored mipmap fix require reimport');
+      }
       assert.ok(progress.some(value => value.operation === 'import' && value.game === game));
       values[`sources.${game.toLowerCase()}.iso`] = path.join(root, `unavailable-${game}.iso`);
       assert.equal((await invoke('forge:setup-state')).required, false, `an unavailable ${game} source is optional`);

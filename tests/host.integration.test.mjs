@@ -32,7 +32,7 @@ test('host handshake, echo, progress, cancellation, crash recovery, and concurre
   const expectedRevision = (await readFile(path.join(projectRoot, 'ratchet-sdk.version'), 'utf8')).trim();
   const handshake = await client.start();
   assert.equal(handshake.sdkRevision, expectedRevision);
-  assert.deepEqual(handshake.supportedGames, ['UYA', 'DL', 'GC']);
+  assert.deepEqual(handshake.supportedGames, ['UYA', 'DL', 'GC', 'RC1']);
   assert.ok(handshake.capabilities.includes('dl.assets.import'));
   assert.ok(handshake.capabilities.includes('gc.assets.import'));
   assert.ok(handshake.capabilities.includes('dl.iso.validate'));
@@ -91,7 +91,7 @@ test('host handshake, echo, progress, cancellation, crash recovery, and concurre
   assert.equal(await realpath((await copy.result).path), await realpath(copyTarget));
   assert.deepEqual(await readFile(copyTarget), copyBytes);
   assert.ok(copyProgress.length > 0);
-  const invalidGame = await client.validateSourceIso('RC1', copySource);
+  const invalidGame = await client.validateSourceIso('Unknown', copySource);
   await assert.rejects(invalidGame.result, error => error.code === BridgeErrorCode.InvalidInput);
   const dlImport = await client.importAssets('DL', copySource, path.join(copyDirectory, 'assets'), '0'.repeat(32), '1.00');
   await assert.rejects(dlImport.result, error => error instanceof HostOperationError && error.code === BridgeErrorCode.Conflict);

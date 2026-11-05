@@ -96,7 +96,32 @@ preserved and reported. Save and rebuild occlusion and the map after a repair.
 
 GC asset support is included in the pinned SDK release. Bootstrap uses the clean
 SDK checkout directly and refuses local SDK edits.
-The focused SDK GC regressions run as part of `npm test` and CI.
+The focused SDK GC, RC1, sound-bank, and DL conversion regressions run as part of `npm test` and CI.
+
+
+Ratchet & Clank (RC1) follows the same optional setup, catalog, preview, and UYA
+placement flow. The supported source is clean NTSC-U revision 1.00 (`SCUS-97199`,
+MD5 `a62a8ae0e44c2580be38c82f48b7d181`). Import covers all 19 levels, including
+model textures, sky shells, embedded sound banks, and moby sound mappings. RC1
+models retain their source class IDs. Moby vertex headers are repacked for UYA;
+TIE conversion rebuilds all LOD packets, lighting palettes and remaps, winding,
+and VU upload groups while retaining backface culling. Sky shell headers are
+translated to UYA's layout. Game behavior code is not ported.
+RC1 TIE materials using transparent pixels render both sides; mixed packets split
+to retain culling on opaque geometry. Existing placements update when the project
+opens; save and rebuild occlusion and the map to apply the correction in-game.
+
+RC1 textures retain their authored mip chain (RC1 stores an explicit level count,
+with the smallest levels in GS palette memory). UYA materials keep the base,
+half-size and quarter-size images. After upgrading an earlier RC1 import,
+re-import RC1 in Setup, reopen and save existing projects, and rebuild the map.
+Existing placements recover the missing mips while preserving model and texture edits.
+
+Models exceeding UYA's packet or lighting limits report a conversion error before
+changing the project. Retail RC1 TIE `0x05DE` exceeds the lighting-group limit;
+it can be browsed but cannot currently be placed as a single UYA TIE.
+Publish and tag the matching RC1 SDK changes and update `ratchet-sdk.version`
+before publishing Forge; development builds can use the sibling SDK checkout.
 
 ## Project planning
 

@@ -18,6 +18,7 @@ internal static class CatalogModelCodec
         GameId.UYA => "HFUYA1"u8,
         GameId.DL => "HFDL01"u8,
         GameId.GC => "HFGC01"u8,
+        GameId.RC1 => "HFRC11"u8,
         _ => throw new NotSupportedException($"Canonical assets are not supported for {game}."),
     };
     private static ReadOnlySpan<byte> LegacyMagic => "HFUYA\0"u8;
@@ -49,7 +50,8 @@ internal static class CatalogModelCodec
     public static CatalogModel Decode(ReadOnlySpan<byte> bytes)
     {
         var game = bytes.StartsWith(Magic(GameId.DL)) ? GameId.DL
-            : bytes.StartsWith(Magic(GameId.GC)) ? GameId.GC : GameId.UYA;
+            : bytes.StartsWith(Magic(GameId.GC)) ? GameId.GC
+            : bytes.StartsWith(Magic(GameId.RC1)) ? GameId.RC1 : GameId.UYA;
         var magic = Magic(game);
         if (bytes.Length < 14
             || (!bytes[..magic.Length].SequenceEqual(magic)

@@ -15,7 +15,7 @@ internal static class UyaConvertedAssetPlacementService
             || entry.Tags.Contains("texture:placeholder", StringComparer.Ordinal))
             throw new InvalidDataException("The catalog asset has no complete supported source.");
         var reference = new ProjectAssetReference(entry.Id, entry.Kind);
-        var preserveSourceClassId = entry.Kind == AssetKind.Moby || entry.Sources.Any(value => value.Game == "GC");
+        var preserveSourceClassId = entry.Kind == AssetKind.Moby || entry.Sources.Any(value => value.Game is "GC" or "RC1");
         var previous = workspace.Content.CustomClasses.Allocations.SingleOrDefault(value => value.Asset == reference);
         if (previous is not null)
         {
@@ -58,6 +58,7 @@ internal static class UyaConvertedAssetPlacementService
         var bytes = await AssetCatalogBlobReader.ReadVerifiedAsync(entry.Id, entry.Kind, entry.CanonicalFormatVersion,
             entry.Size, path, ForgeProjectWorkspace.MaxAttachedAssetBytes, cancellationToken);
         var source = CatalogModelCodec.Decode(bytes);
+        source = await UyaConvertedRc1TextureRepairService.FindUpdatedSourceAsync(catalog, entry, source, sourceClassId, cancellationToken) ?? source;
         if (!entry.Sources.Any(value => value.Game == source.Game.ToString() && UyaAssetSourceCompatibility.CanConvert(value)))
             throw new InvalidDataException("The source model blob does not match a supported catalog source.");
         if (source.DefinitionBytes.Length != (entry.Kind == AssetKind.Shrub ? 0x30 : 0x20))
@@ -72,7 +73,7 @@ internal static class UyaConvertedAssetPlacementService
         var nativeBytes = await Task.Run(() =>
         {
             var converted = LevelAssetModelConverter.Convert(
-                source.Game, GameId.UYA, kind, source.ModelBytes, targetClassId, cancellationToken);
+                source.Game, GameId.UYA, kind, source.ModelBytes, targetClassId, cancellationToken, source.Textures);
             var textures = source.Textures.Select(texture =>
             {
                 cancellationToken.ThrowIfCancellationRequested();

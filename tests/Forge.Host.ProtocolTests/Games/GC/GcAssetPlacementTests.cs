@@ -215,7 +215,7 @@ internal static class GcAssetPlacementTests
         cancellation.Cancel();
         try
         {
-            await UyaConvertedGcAssetRepairService.HydrateAsync(workspace, cancellation.Token);
+            await UyaConvertedStaticAssetRepairService.HydrateAsync(workspace, cancellation.Token);
             throw new Exception("Expected repair cancellation");
         }
         catch (OperationCanceledException) { }
@@ -231,10 +231,10 @@ internal static class GcAssetPlacementTests
             }).ToArray();
         await workspace.CommitAssetsAsync(allocated with { Entities = allocated.Entities.Concat(conflicts).ToArray() }, [], default);
         var conflictingFingerprint = workspace.CurrentFingerprint;
-        Check((await UyaConvertedGcAssetRepairService.HydrateAsync(workspace, default))?.Severity == EditorDiagnosticSeverity.Warning
+        Check((await UyaConvertedStaticAssetRepairService.HydrateAsync(workspace, default))?.Severity == EditorDiagnosticSeverity.Warning
             && workspace.CurrentFingerprint == conflictingFingerprint, "class conflicts warn and preserve existing state");
         await workspace.CommitAssetsAsync(allocated, [], default);
-        var diagnostic = await UyaConvertedGcAssetRepairService.HydrateAsync(workspace, default);
+        var diagnostic = await UyaConvertedStaticAssetRepairService.HydrateAsync(workspace, default);
         Check(diagnostic?.Severity == EditorDiagnosticSeverity.Info, "previous GC conversions are repaired");
         Check(workspace.Content.CustomClasses.Allocations.All(value => value.ClassId == 0x1234)
             && workspace.Content.Entities.All(value => value.Source?.ClassId == 0x1234),
@@ -252,7 +252,7 @@ internal static class GcAssetPlacementTests
             Check(BinaryPrimitives.ReadInt32LittleEndian(entity.Source.RawRecord) == 0x1234,
                 "native instance class is restored");
         }
-        Check(await UyaConvertedGcAssetRepairService.HydrateAsync(workspace, default) is null,
+        Check(await UyaConvertedStaticAssetRepairService.HydrateAsync(workspace, default) is null,
             "conversion repair is idempotent");
         await workspace.SaveAsync();
         var reopened = await ForgeProjectWorkspace.OpenAsync(workspace.RootPath);

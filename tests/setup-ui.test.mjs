@@ -32,7 +32,7 @@ function setupState() {
   });
   return {
     projectsDirectory: '/projects', developmentIsoDirectory: '/development', developmentIso: '/development/UYA.iso',
-    developmentIsoReady: true, availableBytes: 200, sources: { UYA: source('UYA'), DL: source('DL'), GC: source('GC') },
+    developmentIsoReady: true, availableBytes: 200, sources: { UYA: source('UYA'), DL: source('DL'), GC: source('GC'), RC1: source('RC1') },
   };
 }
 
@@ -51,7 +51,7 @@ async function mountSetup(state, forge = {}) {
   return { runtime, render, get closed() { return closed; } };
 }
 
-for (const game of ['DL', 'GC']) {
+for (const game of ['DL', 'GC', 'RC1']) {
   test(`${game} controls select, enable, cancel, resume, and re-import independently of UYA`, async () => {
     const state = setupState();
     state.sources[game].importEnabled = false;
@@ -162,7 +162,7 @@ test('Settings displays all source paths and opens Setup after closing Settings'
   const calls = [];
   const runtime = createRendererHarness({ dependencies, forge: {
     getSettings: async () => ({ entries: [
-      { key: 'sources.uya.iso', value: '/UYA.iso' }, { key: 'sources.dl.iso', value: '/DL.iso' }, { key: 'sources.gc.iso', value: '/GC.iso' },
+      { key: 'sources.uya.iso', value: '/UYA.iso' }, { key: 'sources.dl.iso', value: '/DL.iso' }, { key: 'sources.gc.iso', value: '/GC.iso' }, { key: 'sources.rc1.iso', value: '/RC1.iso' },
     ] }),
   } });
   const component = runtime.load('settings/SettingsModal');
@@ -177,7 +177,7 @@ test('Settings displays all source paths and opens Setup after closing Settings'
   runtime.render(component, props);
   await settle();
   const tree = runtime.render(component, props);
-  for (const game of ['UYA', 'DL', 'GC']) {
+  for (const game of ['UYA', 'DL', 'GC', 'RC1']) {
     const input = find(tree, node => node.type === 'TextInput' && node.props.label === `Clean ${game} ISO`);
     assert.equal(input.props.value, `/${game}.iso`);
     assert.equal(input.props.readOnly, true);

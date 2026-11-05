@@ -35,3 +35,9 @@ GC provenance; preview dispatches to GC and UYA placement attaches a converted
 native copy through the existing undo/redo and bake flow. GC skies and legacy
 primary/chunk sound banks use the shared catalog models. Framing and payload
 layouts are unchanged.
+
+RC1 sources use these same setup opcodes with game `RC1`, advertised by
+`rc1.iso.validate` and `rc1.assets.import` with the supported model families.
+RC1 NTSC-U 1.00 models use the `HFRC11` canonical header. Their source provenance
+and class IDs survive conversion into project-local UYA assets. Extraction,
+preview, placement, sound mapping, history, and baking use the existing payloads.

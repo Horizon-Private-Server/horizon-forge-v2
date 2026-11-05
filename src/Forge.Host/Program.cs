@@ -24,9 +24,10 @@ return await BridgeHost.RunAsync(
     new(
         hostVersion,
         revision,
-        ["UYA", "DL", "GC"],
+        ["UYA", "DL", "GC", "RC1"],
         [
             "bridge.echo", "bridge.progress", "bridge.cancellation", "uya.iso.validate", "uya.iso.copy",
+            "rc1.iso.validate", "rc1.assets.import", "rc1.assets.import.mobys", "rc1.assets.import.ties", "rc1.assets.import.shrubs",
             "gc.iso.validate", "gc.assets.import", "gc.assets.import.mobys", "gc.assets.import.ties", "gc.assets.import.shrubs",
             "dl.iso.validate", "dl.assets.import", "dl.assets.import.mobys", "dl.assets.import.ties", "dl.assets.import.shrubs",
             "uya.assets.import", "uya.assets.import.mobys", "uya.assets.import.ties", "uya.assets.import.shrubs",

@@ -2,6 +2,7 @@ using Forge.Host.Games.UYA;
 using Forge.Host.ProtocolTests.Games.UYA;
 using Forge.Host.ProtocolTests.Games.DL;
 using Forge.Host.ProtocolTests.Games.GC;
+using Forge.Host.ProtocolTests.Games.RC1;
 using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -44,6 +45,23 @@ internal static class Program
             if (args is ["--qualify-gc-assets", var gcIso, var gcCatalog])
             {
                 await GcAssetImportTests.QualifyAsync(gcIso, gcCatalog);
+                return 0;
+            }
+            if (args is ["--qualify-rc1-assets", var rc1Iso, var rc1Catalog])
+            {
+                await Rc1AssetImportTests.QualifyAsync(rc1Iso, rc1Catalog);
+                return 0;
+            }
+            if (args is ["--qualify-rc1-placement", var rc1PlacementCatalog, var rc1PlacementIso, var rc1PlacementProject])
+            {
+                await UyaConvertedAssetPlacementTests.QualifyAsync(rc1PlacementCatalog, rc1PlacementIso, rc1PlacementProject, "RC1");
+                return 0;
+            }
+            if (args is ["--rc1-assets"])
+            {
+                await Rc1AssetImportTests.RunAsync();
+                await Rc1AssetPlacementTests.RunAsync();
+                await Rc1MipmapRepairTests.RunAsync();
                 return 0;
             }
             if (args is ["--gc-assets"])
@@ -114,6 +132,9 @@ internal static class Program
             await AssetMaintenanceTests.RunAsync();
             await UyaAssetImportTests.RunAsync();
             await DlAssetImportTests.RunAsync();
+            await Rc1AssetImportTests.RunAsync();
+            await Rc1AssetPlacementTests.RunAsync();
+            await Rc1MipmapRepairTests.RunAsync();
             await GcAssetImportTests.RunAsync();
             await GcAssetPlacementTests.RunAsync();
             UyaAssetPlacementCompatibilityTests.Run();

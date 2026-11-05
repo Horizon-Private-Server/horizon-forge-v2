@@ -5,7 +5,7 @@ using RatchetPs2.Sdk;
 
 namespace Forge.Host.Games.UYA;
 
-internal static class UyaConvertedGcAssetRepairService
+internal static class UyaConvertedStaticAssetRepairService
 {
     public static async Task<EditorDiagnostic?> HydrateAsync(ForgeProjectWorkspace workspace, CancellationToken token)
     {
@@ -22,9 +22,9 @@ internal static class UyaConvertedGcAssetRepairService
             token.ThrowIfCancellationRequested();
             var source = CatalogModelCodec.Decode(await workspace.ReadAttachedAssetVerifiedAsync(
                 allocation.Asset, ForgeProjectWorkspace.MaxAttachedAssetBytes, token));
-            if (source.Game != GameId.GC) continue;
+            if (source.Game != GameId.GC && !(source.Game == GameId.RC1 && allocation.Asset.Kind == AssetKind.Tie)) continue;
             var sourceClass = allocation.Provenance.SourceClassId!.Value;
-            var description = $"GC {allocation.Asset.Kind} 0x{sourceClass:X4}";
+            var description = $"{source.Game} {allocation.Asset.Kind} 0x{sourceClass:X4}";
             var instances = content.Entities.Where(value => value.Asset == allocation.Asset).ToArray();
             var layer = allocation.Asset.Kind == AssetKind.Tie ? "ties" : "shrubs";
             if (content.Entities.Any(value => value.Layer == layer && value.Source?.ClassId == sourceClass
@@ -38,8 +38,7 @@ internal static class UyaConvertedGcAssetRepairService
                 continue;
             }
             var binding = content.AssetOverrides.SingleOrDefault(value => value.Source == allocation.Asset);
-            if (binding is null || content.Assets.Single(value => value.Id == binding.Replacement.Id).ParentId != allocation.Asset.Id
-                || instances.Any(value => value.Source?.ClassId != allocation.ClassId))
+            if (binding is null || instances.Any(value => value.Source?.ClassId != allocation.ClassId))
             {
                 warnings.Add($"{description} has independently changed models or instance classes; its existing state was preserved.");
                 continue;
@@ -50,9 +49,10 @@ internal static class UyaConvertedGcAssetRepairService
             byte[]? model;
             try
             {
+                // Identical conversions can share a blob parent; verify the actual model against its source.
                 model = await Task.Run(() => LevelAssetModelConverter.RepairPreviousStaticConversion(
-                    GameId.GC, GameId.UYA, kind, source.ModelBytes, native.ModelBytes,
-                    allocation.ClassId, sourceClass, token), token);
+                    source.Game, GameId.UYA, kind, source.ModelBytes, native.ModelBytes,
+                    allocation.ClassId, sourceClass, token, source.Textures), token);
             }
             catch (NotSupportedException exception)
             {
@@ -88,9 +88,9 @@ internal static class UyaConvertedGcAssetRepairService
             repaired++;
         }
         if (repaired > 0) await workspace.CommitAssetsAsync(content, attachments.Attachments, token);
-        return repaired == 0 && warnings.Count == 0 ? null : new("gc-assets.conversion-repaired",
+        return repaired == 0 && warnings.Count == 0 ? null : new("converted-assets.conversion-repaired",
             warnings.Count == 0 ? EditorDiagnosticSeverity.Info : EditorDiagnosticSeverity.Warning,
-            $"Repaired conversion and source class IDs for {repaired} GC asset(s). Save the project and rebuild occlusion and the map. "
+            $"Repaired conversion and source class IDs for {repaired} converted asset(s). Save the project and rebuild occlusion and the map. "
             + string.Join(' ', warnings));
     }
 }

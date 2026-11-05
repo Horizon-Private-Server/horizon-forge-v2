@@ -199,7 +199,7 @@ public static class AssetImportService
     internal static void ValidateRequest(AssetImportRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        if (request.Game is not (GameId.UYA or GameId.DL or GameId.GC)) throw new ArgumentException("Unsupported asset source game.");
+        if (request.Game is not (GameId.UYA or GameId.DL or GameId.GC or GameId.RC1)) throw new ArgumentException("Unsupported asset source game.");
         ArgumentException.ThrowIfNullOrWhiteSpace(request.SourceIsoPath);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.CatalogRootPath);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.Revision);

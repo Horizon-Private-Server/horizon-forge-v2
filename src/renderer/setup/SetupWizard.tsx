@@ -8,6 +8,8 @@ import { formatBytes } from '../../utils/Format.ts';
 import { forgeLog } from '../log/LogStore.ts';
 import { useLoggedMessage } from '../log/UseLog.ts';
 
+const sourceNames: Record<AssetSourceGame, string> = { UYA: 'Up Your Arsenal', DL: 'Deadlocked', GC: 'Going Commando', RC1: 'Ratchet & Clank' };
+
 interface SetupWizardProps {
   opened: boolean;
   onClose(): void;
@@ -113,19 +115,19 @@ export function SetupWizard({ opened, onClose }: SetupWizardProps) {
         <PathRow label="Projects directory" value={state?.projectsDirectory ?? ''} disabled={busy || !state}
           onChoose={() => void runOperation(async () => { await window.forge.chooseSetupDirectory('projects'); })} />
 
-        {(['UYA', 'DL', 'GC'] as const).map((game) => {
+        {(['UYA', 'DL', 'GC', 'RC1'] as const).map((game) => {
           const source = state?.sources[game];
           const status = !source?.iso ? 'Not configured' : !source.identity ? 'Source unavailable or unverified'
             : source.importComplete ? 'Assets imported' : 'Ready to import / resume';
           return <Paper withBorder p="sm" key={game}>
             <Stack gap="xs">
               <Group justify="space-between">
-                <Title order={5}>{game === 'UYA' ? 'Up Your Arsenal (UYA)' : game === 'DL' ? 'Deadlocked (DL)' : 'Going Commando (GC)'}</Title>
+                <Title order={5}>{sourceNames[game]} ({game})</Title>
                 <Badge variant="light" color={source?.importComplete ? 'teal' : 'gray'}>{status}</Badge>
               </Group>
               <Text size="sm" c="dimmed">{game === 'UYA'
                 ? 'Source for UYA map projects and reusable assets.'
-                : `Optional ${game === 'DL' ? 'Deadlocked' : 'Going Commando'} assets for the shared catalog.`}</Text>
+                : `Optional ${sourceNames[game]} assets for the shared catalog.`}</Text>
               <PathRow label={`Clean ${game} NTSC-U ISO`} value={source?.iso ?? ''}
                 onChoose={() => void chooseSource(game)} disabled={busy || !state} />
               {source?.identity && <Text size="xs">
