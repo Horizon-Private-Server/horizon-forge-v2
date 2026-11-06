@@ -1,5 +1,7 @@
 # M5 — Vanilla texture optimization
 
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
+
 Priority: P0  
 Depends on: M3; integrates with M4  
 Task register: [M5 tasks](../tasks/M5-tasks.md)

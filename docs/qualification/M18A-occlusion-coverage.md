@@ -1,11 +1,30 @@
 # M18A occlusion coverage qualification
 
 Date: 2026-10-31  
-Status: Development coverage/visibility builds connected; user-reported custom-cylinder in-game check passes; SDK release and broader runtime qualification remain  
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
+
 Milestone: [M18A coverage authoring](../planning/milestones/M18A-occlusion-coverage.md)  
 Task: [M18A-001 native contract](../planning/tasks/M18A-tasks.md#m18a-001--freeze-the-native-coverage-contract)
 
+## Maintainer sign-off
+
+The maintainer marked M18A-001 and M18A-003 through M18A-008 complete on 2026-11-06.
+This closes the task acceptance gates by maintainer sign-off. Earlier pending
+rows and open-gate statements below are retained as historical checkpoints,
+not current task status. No additional run metadata, measurements, hashes,
+or capture references were supplied. Documented support limits still apply.
+See the [planning sign-off record](../planning/README.md#maintainer-sign-off).
+
 ## Evidence scope
+
+Inventory update (2026-11-06): Forge now pins SDK `v0.11.0`, which declares preview,
+generation, and graph-shape API version 1. The clean pinned build enables the coverage
+adapters through `build/RatchetSdk.props`; host regression tests exercise generation,
+native publication, inspection, packing, and invalidation. SDK release/pin integration
+is complete. The development sections below retain the implementation history at
+their recorded revisions; references to unreleased APIs or a `v0.10.0` pin describe
+that earlier state. No new packaged, PCSX2, hardware, allocation, or route sign-off
+is inferred from the dependency update or passing synthetic tests.
 
 On 2026-10-31 the user confirmed that octant qualification and building for a custom
 cylinder works in-game. Record this as user-reported end-to-end evidence for that
@@ -80,7 +99,7 @@ be modeled by flooring into signed cells. The current authoring profile continue
 rejecting negative coordinates; its broader structural range is not a gameplay
 qualification. Scripted cameras and auxiliary overrides still require route tests.
 
-## Runtime gates still open
+## Runtime gates at the earlier checkpoint
 
 1. Probe actual camera routes in PCSX2 at cell boundaries, sparse gaps and outside
    coverage, including transitions that retain prior masks. Static inspection fixes
@@ -112,10 +131,10 @@ unsupported-game rejection. The API remains a low-level encoding capability;
 authored grid publication is not enabled. The later runtime inspection above
 establishes the new-cell reserved-bit policy without changing this explicit-mask API.
 
-The SDK change is unreleased. Forge's `ratchet-sdk.version` remains `v0.10.0` and
-the new API is not referenced by Forge production code. Consumer compatibility
-testing uses an explicit `RatchetSdkRoot` override against the development snapshot.
-Release/pin integration remains M18A-004 work.
+At this development checkpoint the change was unreleased, Forge pinned `v0.10.0`,
+and compatibility testing used an explicit `RatchetSdkRoot` override. The 2026-11-06
+inventory above records the subsequent release/pin integration; the native runtime
+and allocation qualification gates remain open.
 
 ## Box coverage preview development
 

@@ -455,7 +455,7 @@ the compact ribbon and billboard pass keyboard/high-DPI checks.
 
 ### M8 — HUD and FX texture authoring
 
-Status: implementation complete; packaged Linux/Windows and PCSX2 qualification pending
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
 Deliver SDK read/write contracts, lazy main viewports, exact texture overrides, append
 flows, per-game labels/IDs, incremental rebuilds, and target-limit diagnostics.
@@ -489,7 +489,7 @@ not silently overwrite manual membership.
 
 ### M11 — Scene semantics and level settings
 
-Status: implementation complete; packaged Linux/Windows and PCSX2 qualification pending
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
 Deliver remaining verified level settings, typed ship references, death-height plane,
 ship/sphere billboards, and map-owned area groups.

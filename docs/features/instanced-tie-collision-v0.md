@@ -1,6 +1,6 @@
 # Instanced TIE Collision v0
 
-Status: Proposed
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
 Milestone: M2 — Editor core
 
@@ -12,6 +12,11 @@ FR-UI-005, FR-UI-007, FR-SCENE-002, FR-SCENE-004, FR-SCENE-011,
 FR-EDIT-001, FR-BAKE-001 through FR-BAKE-004, NFR-PERF-004,
 NFR-REL-001 through NFR-REL-003, NFR-SEC-003, NFR-UX-001 through
 NFR-UX-003
+
+Completion update (2026-11-06): M2-036 through M2-040 closed by
+[maintainer sign-off](../planning/README.md#maintainer-sign-off). Earlier progress and pending
+checklists within those tasks are historical; no new run metadata or captures
+were supplied. Unlisted tasks and documented support limits retain their scope.
 
 ## Outcome
 
@@ -254,6 +259,8 @@ output.
 
 ### M2-036 — Expose collision additions and exact octant budgets in the SDK
 
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
+
 Requirements: FR-COLL-003, FR-COLL-004, FR-SDK-002, FR-BAKE-003,
 FR-BAKE-004, NFR-REL-001, NFR-SEC-003
 
@@ -293,6 +300,8 @@ one octant). The versioned runtime-safe profile and focused PCSX2 evidence remai
 open and no soft threshold is inferred from these retail observations.
 
 ### M2-037 — Generate deterministic TIE collision candidates
+
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
 Requirements: FR-COLL-002, FR-COLL-003, FR-SDK-002, FR-ASSET-001,
 NFR-PERF-004, NFR-SEC-003
@@ -358,6 +367,8 @@ Further simplification is deferred until qualification finds actual octant press
 
 ### M2-038 — Persist reusable project proxy bindings
 
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
+
 Requirements: FR-COLL-001, FR-ASSET-004, FR-ASSET-006, FR-PROJ-004,
 FR-EDIT-001, NFR-REL-001 through NFR-REL-003
 
@@ -412,6 +423,8 @@ reports actionable missing or corrupt diagnostics, and retains the binding and p
 project state for repair or regeneration.
 
 ### M2-039 — Build collision candidate preview and selection
+
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
 Requirements: FR-COLL-002, FR-COLL-003, FR-UI-004, FR-UI-005,
 FR-UI-007, FR-SCENE-002, FR-EDIT-001, NFR-PERF-003 through NFR-PERF-005,
@@ -475,6 +488,8 @@ render preparation reuses one cache entry. Interaction captures and runtime-qual
 soft pressure remain open.
 
 ### M2-040 — Bake and qualify transformed proxy instances
+
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
 Requirements: FR-COLL-001, FR-COLL-003, FR-COLL-004, FR-BAKE-001 through
 FR-BAKE-004, NFR-PERF-004, NFR-REL-001 through NFR-REL-003

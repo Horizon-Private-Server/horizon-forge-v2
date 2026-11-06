@@ -2,6 +2,11 @@
 
 Milestone: [M0 — Foundations](../milestones/M0-foundations.md)
 
+Completion update (2026-11-06): M0-009 closed by
+[maintainer sign-off](../README.md#maintainer-sign-off). Earlier progress and pending
+checklists within those tasks are historical; no new run metadata or captures
+were supplied. Unlisted tasks and documented support limits retain their scope.
+
 ## M0-001 — Scaffold the application boundaries
 
 Status: ✅ Complete
@@ -173,6 +178,8 @@ diagnostic terrain path was later removed when the editor scene was rebuilt arou
 authoritative project entities; its production replacement is M2-010.
 
 ## M0-009 — Establish continuous integration
+
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
 Requirements: FR-RELENG-001, NFR-SEC-005, NFR-MAINT-003  
 Depends on: M0-002, M0-003, M0-008

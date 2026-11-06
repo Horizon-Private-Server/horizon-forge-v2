@@ -432,6 +432,8 @@ the acceptance authority.
 
 ## M2-014 — Inventory remaining UYA data and freeze import ownership
 
+Status: In progress — readers and source stores implemented; complete field-level ownership/corpus evidence remains
+
 Requirements: FR-PROJ-001, FR-BAKE-005, FR-XLT-003, NFR-REL-002
 Depends on: M1-006, M2-011
 
@@ -457,6 +459,8 @@ Verification: authored one-block and malformed fixtures plus a retained, byte-fr
 coverage report for every populated level in the clean NTSC-U UYA corpus.
 
 ## M2-015 — Import UYA volumes, paths, grind paths, and areas
+
+Status: In progress — import and supported native composition implemented; full acceptance/corpus qualification remains
 
 Requirements: FR-PROJ-001, FR-PROJ-002, FR-SCENE-002, FR-SCENE-005,
 FR-SCENE-006, FR-SCENE-007, FR-XLT-003
@@ -487,10 +491,9 @@ Progress: the source-backed geometry slice imports cuboids, spheres, cylinders,
 pills, ordinary splines, grind paths, and areas through the pinned SDK readers.
 Project schema v2 preserves exact shape matrices, inverse rotations, Euler values,
 path point `w` values, grind metadata, area bounds, and stable area membership links.
-The editor renders read-only volume, path, and area overlays while the original
-opaque sections remain bake authority. The camera-collision grid is now bounds-checked
-and its flags/scalars attach to the referenced native volumes; grid regeneration and
-native writing remain open.
+The editor renders selectable volume/path overlays and presents areas as map-owned
+groups. Retained source records preserve unsupported fields. Camera-collision flags
+and scalars attach to native volumes; supported edits regenerate the grid and bounds.
 
 Transform-only native writers now cover cuboids, spheres, cylinders, and pills that
 are not linked to camera collision. Ordinary splines support editing, inserting,
@@ -498,9 +501,14 @@ deleting, and reordering all four point components; their writer rebuilds variab
 point arrays while retaining record padding. Grind paths now share the point/node and
 transform editing flow, regenerate their bounds, and preserve gameplay metadata.
 Camera-collision-linked volumes support transform editing and deterministically regenerate
-their spatial grid and bounds. Path-instance structural edits remain open.
+their spatial grid and bounds. M16 additionally composes structural cuboid/sphere,
+spline/grind-path, and area changes with stable-reference remapping. This does not
+enable arbitrary structural editing for every geometry family. All-family ownership,
+malformed-input, migration, and retained corpus evidence remain under M2-014/M2-020.
 
 ## M2-016 — Import cameras, sound emitters, groups, and shared references
+
+Status: In progress — camera/sound records, native groups and Moby PVar links implemented; general shared-PVar handling and qualification remain
 
 Requirements: FR-PROJ-001, FR-PROJ-002, FR-SCENE-002, FR-SCENE-005,
 FR-EDIT-002, FR-XLT-003
@@ -529,14 +537,21 @@ shared-data/Pvar boundary cases, broken-reference diagnostics, and save/reopen c
 
 Progress: UYA camera and ambient-sound records now have bounded SDK readers and typed
 Forge entities. Camera type/transform/Pvar data and sound class/range/matrix/Pvar data
-survive save/reopen and appear as distinct, selectable, fog-free read-only markers.
-The source blocks remain opaque bake authority. Groups, shared-data ownership, Pvar
-link resolution, and their mutation diagnostics remain open.
+survive save/reopen and appear as distinct, selectable, fog-free markers with supported
+transform editing.
+Retained source records remain authority for unsupported fields. Native Moby/TIE/shrub
+group readers and stable membership/composition now exist, including M16 replacement.
+M9/M16 persist raw Moby PVars, native Moby links, relative relocations, and typed
+references with diagnostics; those are no longer wholly unimplemented work.
 
-Camera and ambient-sound transforms now have patch-in-place native writers backed by
-retained source records. Structural edits and shared Pvar/reference mutation remain open.
+Camera and ambient-sound transforms have patch-in-place native writers backed by
+retained source records. General camera/sound PVar and shared-data mutation, unsupported
+structural changes, complete byte-ownership documentation, and retained qualification
+remain open; Moby support does not establish those other ownership contracts.
 
 ## M2-017 — Import UYA lighting, environment, and per-tie ambient data
+
+Status: In progress — import, ambient association and supported native writers implemented; parity/corpus qualification remains
 
 Requirements: FR-PROJ-001, FR-SCENE-002, FR-SCENE-005, FR-LIGHT-001,
 FR-LIGHT-002, FR-LIGHT-003, FR-XLT-003
@@ -571,10 +586,11 @@ Progress: SDK readers now validate and decode directional lights, quantized poin
 lights and their 128-slot masks, environment samples, environment transitions, and
 the variable-length tie ambient stream. Forge project schema v2 attaches ambient
 words and the directional selector directly to each stable tie and
-imports the other records as typed, read-only entities with fog-free selectable
-markers. Target-native lighting assets remain bake authority. Accurate model-lighting
-preview, native writers/regeneration, mutation coverage, and Map-o-Matic parity
-screenshots remain open.
+imports the other records as typed entities with fog-free selectable
+markers. Supported native writers now regenerate point-light masks, directional-light
+transforms/arrays, and per-TIE ambient streams from stable entity ownership. Retained
+source bytes preserve unsupported fields. Complete mutation/corpus qualification and
+Map-o-Matic parity evidence remain open.
 
 Point-light position and radius now support transform editing. The native writer
 requantizes those fields to 1/64 units and regenerates the derived X/Y masks while
@@ -586,6 +602,8 @@ environment-transition volumes now support full transform editing with regenerat
 inverse matrices and bounds. Their remaining fields and other lighting records remain read-only.
 
 ## M2-018 — Import UYA level settings with stable entity references
+
+Status: In progress — supported settings and stable ship references implemented; fields beyond the verified prefix remain opaque and full qualification remains
 
 Requirements: FR-PROJ-001, FR-PROJ-002, FR-SCENE-001, FR-XLT-003
 Depends on: M2-014, M2-015, M2-016
@@ -611,12 +629,20 @@ Acceptance:
 Verification: settings boundary fixtures, stable-reference migration tests, chunk-plane
 count/terminator cases, and render-environment snapshot parity.
 
-Progress: project schema v3 persists background/fog colors, distances, and intensities;
-the editor updates them through the typed command/history path and the World bake layer
-patches only those native fields while preserving unsupported bytes. World/ship fields,
-stable path/cuboid references, chunk planes, and remaining diagnostics/writers stay open.
+Progress (2026-11-06 inventory): M11 implements background/fog, death height,
+spherical-world state/center, ship position/rotation, and stable ship-path/camera-cuboid
+references through typed commands, history, UI, and native World composition. Missing
+links are diagnosed; final native ordering resolves stable IDs. M16 replacement uses
+the same supported settings and explicit external-reference choices. See the
+[level-settings contract](../../features/uya-level-settings.md) for the verified prefix.
+Bytes from `0x58` onward, including chunk planes, counts, padding, and trailing data,
+remain source-preserved rather than promoted to typed settings. The original full
+record acceptance and M2-020 corpus/migration gate are not claimed complete;
+M11-005 separately owns packaged/runtime qualification for the supported prefix.
 
 ## M2-019 — Decode UYA occlusion octants and instance mappings safely
+
+Status: In progress — grids, masks, mappings and stable viewport links implemented; complete native/corpus qualification remains
 
 Requirements: FR-PROJ-001, FR-SCENE-005, FR-BAKE-005, FR-XLT-003,
 NFR-REL-001, NFR-REL-002
@@ -646,12 +672,19 @@ Acceptance:
 Verification: sparse/shared-mask fixtures, invalid tree/mapping corpus, stable-link
 tests, unchanged opaque hashes, and local multi-level octant/mapping statistics.
 
-Progress: a bounded UYA SDK reader now locates the grid through the level asset header,
-decodes the sparse octant tree, and validates shared mask indices. Forge transports the coordinates through its render cache and
-can display all 4x4x4 cells as one optional fog-free instanced overlay. Visibility
-mask bytes, gameplay mappings, stable links, diagnostics, and regeneration remain open.
+Progress (2026-11-06 inventory): bounded SDK readers expose sparse grid coordinates,
+full masks, and gameplay mappings. Forge links native TIE/Moby mappings and primary
+terrain groups to stable entities and supports mask-driven viewport visibility,
+octant freeze, and sample inspection. M18 adds GPU rebuilding/native publication;
+M18A adds authored coverage through pinned SDK APIs. Source mode retains the original
+authority unless an explicit import/generated path replaces it. Complete native
+semantics/corpus evidence, broader mapping coverage, streamed-terrain rebuilding,
+and runtime qualification remain owned by M18/M18A and M2-020; regeneration is no
+longer wholly absent.
 
 ## M2-020 — Qualify complete UYA base-data import and migration
+
+Status: In progress — creation, persistence and supported-family tests exist; all-level byte-ownership/migration and packaged portability evidence remain
 
 Requirements: FR-PROJ-001 through FR-PROJ-004, FR-BAKE-005, FR-XLT-003,
 NFR-REL-001, NFR-REL-004, NFR-PERF-004

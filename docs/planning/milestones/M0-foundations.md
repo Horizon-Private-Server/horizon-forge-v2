@@ -1,5 +1,7 @@
 # M0 — Foundations and walking skeleton
 
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
+
 Priority: P0  
 Task register: [M0 tasks](../tasks/M0-tasks.md)
 

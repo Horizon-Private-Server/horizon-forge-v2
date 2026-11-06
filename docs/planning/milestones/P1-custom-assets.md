@@ -1,7 +1,7 @@
 # P1 — Custom asset pipeline
 
-Status: In progress — the automated custom-TIE pipeline and project-local custom-tfrag
-extension are implemented; their packaged cross-platform and PCSX2 qualification remains
+Status: In progress — custom-TIE qualification closed with M14 maintainer sign-off
+(2026-11-06); custom-tfrag qualification remains M12-008 and broader model scope is deferred
 Priority: P1  
 Depends on: stable M3-M5 contracts  
 Task register: [P1 tasks](../tasks/P1-tasks.md)

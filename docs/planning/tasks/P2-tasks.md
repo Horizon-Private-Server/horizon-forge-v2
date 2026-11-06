@@ -6,15 +6,20 @@ Tasks are ordered by dependency within each milestone. The phase plan's graph al
 independent milestone lanes to run in parallel. Discovery tasks freeze their contracts
 before downstream project schemas or UI are implemented.
 
+Completion update (2026-11-06): M8-005, M8-008, and M11-005 closed by
+[maintainer sign-off](../README.md#maintainer-sign-off). Earlier progress and pending
+checklists within those tasks are historical; no new run metadata or captures
+were supplied. Unlisted tasks and documented support limits retain their scope.
+
 ## Current milestone status
 
 | Milestone | Status | Remaining gate |
 | --- | --- | --- |
 | M7 — Authoring foundations | 🚧 Implementation complete | Remaining packaged Linux/Windows accessibility qualification in M7-007 |
-| M8 — HUD and FX | 🚧 Implementation complete | Combined packaged Linux/Windows and PCSX2 qualification in M8-005/M8-008 |
+| M8 — HUD and FX | ✅ Complete | Maintainer sign-off, 2026-11-06 |
 | M9 — MobyDex and mobys | 🚧 Implementation complete | Real-level pack/patch, packaged Linux/Windows, and PCSX2 qualification in M9-009 |
 | M10 — Groups | ✅ Complete | None |
-| M11 — Scene semantics | 🚧 Implementation complete | Packaged Linux/Windows and PCSX2 qualification in M11-005 |
+| M11 — Scene semantics | ✅ Complete | Maintainer sign-off, 2026-11-06 |
 | M12 — Editable tfrags | 🚧 Implementation complete | Packaged Linux/Windows and streamed-piece PCSX2 qualification in M12-008 |
 | M13 — Full-package updater | 🚧 In progress | M13-001/M13-006 Windows, rollback, interruption, and unsupported-layout evidence, then M13-007 |
 
@@ -307,7 +312,7 @@ integrity plus corrupt PIF diagnostics.
 
 ### M8-005 — Rebuild, bake, and qualify HUD changes
 
-Status: 🚧 In progress — implementation complete; packaged Linux/Windows and PCSX2 evidence remain
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
 Requirements: FR-HUD-003, FR-BAKE-002, NFR-REL-002
 Depends on: M8-003, M8-004, M4-005
@@ -394,7 +399,7 @@ round trip with a custom FX texture.
 
 ### M8-008 — Bake/qualify FX changes and close M8
 
-Status: 🚧 In progress — implementation complete; packaged Linux/Windows and PCSX2 evidence remain
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
 Requirements: FR-FX-003, M8 exit gate, NFR-REL-002
 Depends on: M8-005, M8-007, M4-005
@@ -1044,7 +1049,7 @@ toggle, and scene projection omits area identity geometry entirely.
 
 ### M11-005 — Qualify level settings and scene semantics
 
-Status: 🚧 In progress — automated gate passes; packaged Linux/Windows and PCSX2 evidence remain
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
 Requirements: M11 exit gate, NFR-P2-002, NFR-P2-005
 Depends on: M11-002, M11-003, M11-004

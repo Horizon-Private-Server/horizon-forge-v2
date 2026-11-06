@@ -19,8 +19,69 @@ before further expansion.
   generated occlusion.
 - **Intermediate stabilization:** MPERF improves existing workflows before further
   feature expansion; it does not renumber P0-P3 or waive their release gates.
-- **Future:** cross-game expansion, collaboration, plugins, macOS, and other work
-  explicitly deferred by the specification.
+- **Delivered donor expansion:** RC1, GC, and DL asset placement and map-content
+  replacement into UYA; M16 owns donor-import qualification.
+- **Future:** additional writable game targets, gameplay translation, collaboration,
+  plugins, macOS, and other work explicitly deferred by the specification.
+
+## Current backlog inventory
+
+Updated 2026-11-06 after source review and maintainer sign-off. Of 210 task IDs,
+168 are marked complete and 42 remain unclosed. Historical P1 scope and explicit
+future work are included in the unclosed count. Automated inventory checks passed;
+completion of the tasks below is recorded from the maintainer's sign-off.
+
+### Maintainer sign-off
+
+The maintainer marked these 44 task IDs complete on 2026-11-06. No new test-run
+metadata, measured budgets, hashes, or capture references accompanied the sign-off;
+earlier qualification checklists are retained as historical evidence. Existing task
+IDs, acceptance criteria, and supported feature limits remain in place.
+
+| Area | Tasks closed |
+| --- | --- |
+| CI and editor features | M0-009; M2-021–026; M2-033–040; M2-044 |
+| Build and textures | M4-006; M5-005 |
+| HUD/FX and scene semantics | M8-005; M8-008; M11-005 |
+| Custom TIEs, sounds and imports | M14-007; M15-006; M16-009, including delivered RC1/GC/DL donor replacement |
+| Ocean simulation | M17-003; M17-005 |
+| Authored occlusion coverage | M18A-001; M18A-003–008 |
+| Performance | MPERF-001–011 |
+
+M18-009 also closes under its existing rule: it tracks M18A's exit gate rather than
+another implementation. M0, M4, M5, M8, M11, M14, M15, M16, M17, M18A, and MPERF
+now have all their tasks complete. M3, M3A, M10, and the skybox tasks were already
+complete. Broader M18 and combined release gates remain open.
+
+### Implementation and acceptance gaps
+
+| Owner | Remaining work |
+| --- | --- |
+| [M2-014–020](tasks/M2-tasks.md#remaining-uya-data-baseline) | Reconcile all 39 core-slot byte owners and retain all-level import/migration evidence. Geometry composition, native groups, Moby PVars, ship references, and occlusion mappings are implemented; general camera/sound shared-PVar handling and settings beyond the verified prefix remain limited. |
+| [M6-006](tasks/M6-tasks.md#m6-006--complete-accessibility-diagnostics-and-support-documentation) | Redacted support-bundle preview/export, support/recovery documentation, and accessibility completion. Structured logging already exists. |
+| [M18-001–008/010](tasks/P3-tasks.md#m18--occlusion-generation-and-analysis) | Native contract/baselines, automatic camera-route coverage, conservative reference guarantees, production qualification, integrated diff/POV tooling, visibility-cost graph/heatmap, broader native-group coverage, and streamed-terrain rebuilding remain. Manual coverage authoring is complete through M18A/M18-009. |
+
+### Qualification and release work
+
+| Owner | Remaining gate |
+| --- | --- |
+| [M6-001–005/007](tasks/M6-tasks.md) | Clean-machine packaging/publishing matrices, release rehearsals, performance captures, and P0 sign-off remain unclosed. MPERF completion does not automatically close these separate release tasks. |
+| [M7-001–003/005/007](tasks/P2-tasks.md#m7--authoring-foundations-and-workspace-chrome) | Packaged authoring/accessibility qualification. |
+| [M9-009](tasks/P2-tasks.md#m9-009--integrate-mobypvar-reference-enrichment-and-qualify-m9) | Real-level Moby/PVar, packaged Linux/Windows, and PCSX2 evidence. |
+| [M12-008](tasks/P2-tasks.md#m12-008--qualify-editable-tfrags-end-to-end) | Editable/custom-tfrag qualification, including streamed pieces, portability, recovery, and PCSX2. Custom-TIE sign-off does not close custom terrain. |
+| [M13-001/006/007](tasks/P2-tasks.md#m13--full-package-updater-and-p2-qualification) | Windows updater activation, rollback/interruption, unsupported layouts, and the combined P2 release gate. |
+| [M19-001–003](tasks/P3-tasks.md#m19--p3-integration-and-release-qualification) | Combined portable qualification project, regression matrix, and P3 release sign-off remain unstarted. |
+
+### Explicitly deferred scope
+
+- [M1-009–011](tasks/M1-tasks.md#m1-009--publish-global-vanilla-asset-lookup-manifests):
+  checked-in global lookup manifests, lookup-based recovery, and optional common names.
+- [P1-002/005/006](tasks/P1-tasks.md): historical broad model requirements remain
+  tracked separately. Custom TIEs are delivered and qualified through M14; custom-tfrag
+  qualification remains M12-008. Custom shrub/Moby authoring, skins, and animation are deferred.
+- [P3 deferred work](P3-content-expansion.md#deferred-work): additional writable games,
+  gameplay translation, DL mission-instance merging, general audio authoring, and other
+  explicitly excluded features. RC1/GC/DL donor replacement is complete under M16.
 
 ## Delivery order
 
@@ -111,6 +172,11 @@ Recommended task states are `not-started`, `in-progress`, `blocked`, `review`, a
 `done`. In-progress state belongs in the issue tracker once tasks are imported;
 this baseline marks only acceptance-complete tasks with `Status: ✅ Complete`.
 Unmarked tasks are not complete.
+
+When reconciling a task, identify remaining work as **implementation**,
+**qualification**, or **deferred scope**. Link later owning tasks for historical or
+scoped deliverables. Reserve `✅ Complete` for the stated acceptance scope and retain
+manual gates even when all automated checks pass.
 
 ## Definition of ready
 

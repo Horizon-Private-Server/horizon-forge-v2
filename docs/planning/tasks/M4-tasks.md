@@ -2,6 +2,11 @@
 
 Milestone: [M4 — Build, patch, and test](../milestones/M4-build-patch.md)
 
+Completion update (2026-11-06): M4-006 closed by
+[maintainer sign-off](../README.md#maintainer-sign-off). Earlier progress and pending
+checklists within those tasks are historical; no new run metadata or captures
+were supplied. Unlisted tasks and documented support limits retain their scope.
+
 ## M4-001 — Pack staged output into a UYA level WAD
 
 Status: ✅ Complete
@@ -163,6 +168,8 @@ state-machine coverage proves successful patching, clean-layer skipping, clean-s
 immutability, safe cancellation state reporting, and bridge payload round trips.
 
 ## M4-006 — Qualify the external PCSX2 test loop
+
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
 Requirements: section 8.7, FR-PATCH-001 through FR-PATCH-005, DR-007
 Depends on: M4-005

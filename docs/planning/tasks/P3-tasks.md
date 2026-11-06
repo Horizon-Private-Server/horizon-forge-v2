@@ -4,18 +4,24 @@ Plan and requirements: [P3 — Content expansion and runtime fidelity](../P3-con
 
 Tasks are ordered by dependency within each milestone. Discovery tasks freeze binary,
 identity, ownership, and performance contracts before project schemas or UI depend on
-them. Unless marked complete, every task is `not-started`.
+them. Unclosed tasks may contain implemented work; their status and remaining
+acceptance evidence distinguish implementation, qualification, and deferred scope.
+
+Completion update (2026-11-06): M14-007, M15-006, M16-009, M17-003, and M17-005 closed by
+[maintainer sign-off](../README.md#maintainer-sign-off). Earlier progress and pending
+checklists within those tasks are historical; no new run metadata or captures
+were supplied. Unlisted tasks and documented support limits retain their scope.
 
 ## Current milestone status
 
 | Milestone | Status | Gate |
 | --- | --- | --- |
-| M14 — Custom TIE pipeline | 🚧 In progress | M14-007 |
-| M15 — Sound banks | 🚧 In progress | M15-006 |
-| M16 — Cross-map import | 🚧 In progress | M16-009 |
-| M17 — Moby simulations | 🚧 In progress | M17-003 visual validation |
-| M18 — Occlusion rebuild | 🚧 Existing-grid GPU builder + viewport inspection | M18-001 through M18-010 |
-| M18A — Occlusion coverage authoring | 🚧 Native contract + project-state foundation | [M18A-001 through M18A-008](M18A-tasks.md) |
+| M14 — Custom TIE pipeline | ✅ Complete | Maintainer sign-off, 2026-11-06; custom-tfrag qualification remains M12-008 |
+| M15 — Sound banks | ✅ Complete | Maintainer sign-off, 2026-11-06 |
+| M16 — Cross-map import | ✅ Complete | Maintainer sign-off, 2026-11-06 |
+| M17 — Moby simulations | ✅ Complete | Maintainer sign-off, 2026-11-06 |
+| M18 — Occlusion rebuild | 🚧 GPU builder/native publication implemented; coverage/analysis gaps remain | M18-001–008 and M18-010; automatic coverage, conservative reference, diff/POV, heatmap, streamed terrain and qualification |
+| M18A — Occlusion coverage authoring | ✅ Complete | Maintainer sign-off, 2026-11-06 |
 | M19 — P3 qualification | ⏳ Not started | M19-001 through M19-003 |
 
 ## M14 — Custom TIE asset pipeline
@@ -255,6 +261,8 @@ packaged-app and PCSX2 evidence is tracked by M12-008.
 
 ### M14-007 — Qualify the custom TIE pipeline end to end
 
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
+
 Requirements: FR-CUSTOM-004 through FR-CUSTOM-007, NFR-P3-001 through NFR-P3-006
 Depends on: M14-006
 
@@ -472,8 +480,7 @@ capacity/conflict rejection, alignment, determinism, cancellation, and semantic 
 
 ### M15-006 — Qualify sound import and playback end to end
 
-Status: 🚧 In progress — automated and packaged-Linux startup gates pass;
-packaged sound, Windows parity, and PCSX2 playback evidence remain
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
 Requirements: FR-SOUND-001 through FR-SOUND-005, NFR-P3-001 through NFR-P3-006
 Depends on: M15-004, M15-005
@@ -503,6 +510,15 @@ workflow and may proceed on the completed M15-005 writer boundary; M15-006 remai
 qualification gate for M16-009 and the P3 release.
 
 ## M16 — Cross-map content import
+
+Delivered extension (2026-11-06 inventory): the UI, bridge, SDK conversion, planning,
+and atomic commit paths support RC1/GC/DL donors into UYA. Converted donors expose
+replacement only; UYA donors retain the family modes below. Raw PVars/native links
+and source provenance travel with the project without gameplay translation.
+RC1 oversized TIEs can expand into native UYA parts within target limits. DL uses
+resident core/world content rather than merging mission-specific Moby instances.
+M16-009 owns qualification for all delivered donor profiles; this adds no competing
+implementation register. See the [capability contract](../../features/uya-content-import-contract-v1.md).
 
 ### M16-001 — Freeze per-family import and dependency contracts
 
@@ -870,6 +886,8 @@ plan profile, shared dependency retention, remove/undo/redo, and stale-plan reje
 
 ### M16-009 — Qualify cross-map import end to end
 
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
+
 Requirements: FR-IMPORT-001 through FR-IMPORT-006, NFR-P3-001 through NFR-P3-006
 Depends on: M16-008
 
@@ -894,6 +912,10 @@ Acceptance:
 - A level 41 project dry-runs then adds/replaces selected level 40 TIE/tfrag/shrub
   content with the documented defaults and accurate retained-item report.
 - A separate selection imports one moby and its PVar/reference/model/sound closure.
+- RC1 NTSC-U 1.00, GC NTSC-U 1.01, and DL NTSC-U 1.00 donor replacements record
+  inventory/conversion diagnostics, raw PVars/links, scene-setting/reference behavior,
+  and portable deterministic builds in packaged Linux/Windows and PCSX2. RC1 split
+  TIEs and DL resident-versus-mission scope are included where applicable.
 - After donor files are unavailable, the project moves Linux↔Windows, reopens, builds
   deterministically, patches, and renders/plays intended content in PCSX2.
 - Remove batch, undo/redo, cancellation, capacity failure, and interrupted save/build
@@ -974,7 +996,7 @@ resolution, resource counters, and composed proxy visibility.
 
 ### M17-003 — Implement UYA ocean-plane simulation for class `0x0B37`
 
-Status: 🚧 In progress — corrected renderer awaiting visual validation
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
 Requirements: FR-SIM-002, FR-SIM-001
 Depends on: M17-002, M8-008, M9-009
@@ -1047,6 +1069,8 @@ counts and focused lifecycle tests return them to baseline across toggle, invali
 context loss, project switch, failure, and disposal.
 
 ### M17-005 — Qualify ocean simulation fidelity
+
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
 Requirements: FR-SIM-001 through FR-SIM-003, NFR-P3-001 through NFR-P3-006
 Depends on: M17-004
@@ -1298,14 +1322,15 @@ capacity/alignment, determinism, semantic re-read, cancellation, and fingerprint
 
 ### M18-009 — Deliver manual coverage authoring through M18A
 
+Status: ✅ Complete — M18A-008 exit gate closed by maintainer sign-off (2026-11-06)
+
 Requirements: FR-OCC-002, NFR-P3-001, NFR-P3-006
 Depends on: M18A-008
 
 Manual coverage authoring is an adopted custom-map workflow, owned by the
 [M18A milestone](../milestones/M18A-occlusion-coverage.md) and its
 [task register](M18A-tasks.md). M18A supersedes the former conditional fallback and
-does not depend on M18-002 automatic navigation coverage. This parent task closes
-when M18A's exit gate is satisfied; it is not a second implementation register.
+does not depend on M18-002 automatic navigation coverage. This parent task closed with M18A's maintainer sign-off on 2026-11-06; it is not a second implementation register.
 
 Acceptance:
 

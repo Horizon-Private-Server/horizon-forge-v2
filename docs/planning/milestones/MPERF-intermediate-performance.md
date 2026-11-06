@@ -1,6 +1,6 @@
 # MPERF — Intermediate performance improvements
 
-Status: Implementation checkpoint accepted; full matrix and budgets pending MPERF-001  
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 Priority: Intermediate stabilization before further feature expansion  
 Depends on: Existing implemented project, catalog, editor, and build workflows  
 Task register: [MPERF tasks](../tasks/MPERF-tasks.md)

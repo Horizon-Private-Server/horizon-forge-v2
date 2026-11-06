@@ -2,8 +2,16 @@
 
 Target: UYA NTSC-U 1.00 (`uya-ntsc-u`)  
 Date: 2026-10-20  
-Status: automated and packaged-Linux startup gates passed; packaged sound walkthrough,
-Windows parity, and PCSX2 playback evidence pending
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
+
+## Maintainer sign-off
+
+The maintainer marked M15-006 complete on 2026-11-06.
+This closes the task acceptance gates by maintainer sign-off. Earlier pending
+rows and open-gate statements below are retained as historical checkpoints,
+not current task status. No additional run metadata, measurements, hashes,
+or capture references were supplied. Documented support limits still apply.
+See the [planning sign-off record](../planning/README.md#maintainer-sign-off).
 
 ## Automated gate
 

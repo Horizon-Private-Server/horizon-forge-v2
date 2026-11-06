@@ -1,22 +1,10 @@
 # P3 — Content expansion and runtime fidelity
 
-Status: In progress — M14-001 through M14-006, M15-001 through M15-005,
-M16-001 through M16-008, and M17-001, M17-002, and M17-004 are complete; the corrected
-M17-003 ocean renderer awaits visual validation. Safe whole-family Moby model, PVar,
-stable-reference, native-group, sound-closure, and explicit cross-family reference
-import are implemented. The import workflow now has the apply UI, explicit external Moby-reference
-mapping, and entity, group, property, asset-use, and sound origin projection; singleton
-replacement now supports atomic whole-composition skybox swaps, target-native level-
-settings replacement with explicit reference rebinding, and selector-safe whole-array
-directional-light replacement. Whole-bank HUD replacement now attaches the donor source
-and preview textures for portable deterministic baking. Whole-bank FX replacement now
-attaches every donor texture and rebuilds the exact donor index count while relocating
-unrelated target assets. The Imports panel now provides batch-report filtering,
-live-content selection, entity focus, Scene filtering from origin links, and dependency-
-safe removal previews with stale-plan-guarded atomic apply and undo/redo. Collision now
-supports portable whole-family add/replace for solid pieces and player barriers while
-preserving native face types and explicit static-instance links. Final packaged/PCSX2
-qualification remains.
+Status: In progress — M14, M15, M16 (including RC1/GC/DL donor replacement),
+M17, and M18A are complete by maintainer sign-off (2026-11-06). M18 automatic
+coverage, conservative-reference and analysis work and M19 integration/release
+qualification remain open. UYA remains the writable target; documented conversion
+and runtime support limits still apply.
 Priority: P3
 Depends on: P2 authoring contracts by task; P2 release qualification before P3 release
 Task register: [P3 tasks](tasks/P3-tasks.md)
@@ -57,6 +45,12 @@ mutating the vanilla catalog or source maps.
   remain immutable. Imported definitions, textures, sounds, and other required bytes
   are copied into project-attached assets, so reopening or sharing the project never
   requires the donor map.
+- **Donor support includes UYA, RC1, GC, and DL.** UYA donors retain per-family
+  add/replace modes. Converted RC1 NTSC-U 1.00, GC NTSC-U 1.01, and DL NTSC-U 1.00
+  donors support replacement only into UYA NTSC-U 1.00. Raw PVars and native links
+  are retained; gameplay behavior is not translated. DL imports resident core/world
+  content, including streamed terrain/collision, without merging mission-specific
+  Moby instances. Importing streamed content does not enable streamed occlusion rebuilding.
 - **Import capabilities are explicit per family.** TIEs, shrubs, and tfrags are the
   default-selected core. Skybox, level settings, directional lights, HUD, and FX are
   replace-only. Opaque/unsupported payloads cannot be imported over the base.
@@ -431,6 +425,8 @@ creating one DOM component per source item/octant.
 
 ### M14 — Custom TIE asset pipeline
 
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
+
 Deliver project-local custom identities and class allocation, bounded GLB/glTF import,
 UYA TIE conversion, shared texture assets, diagnostic native-to-GLB round trip, preview
 comparison, placement, and native bake.
@@ -449,6 +445,8 @@ M16; its packaged-app and PCSX2 evidence is tracked by M12-008.
 
 ### M15 — Sound banks and moby sound dependencies
 
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
+
 Deliver the UYA 989snd inventory, playable-entry/sample identities, remap/dependency
 graph, sound workspace and preview, volume preferences, and deterministic merge/write.
 
@@ -458,9 +456,18 @@ plays the intended sound without changing untouched entries.
 
 ### M16 — Cross-map content import
 
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
+
 Deliver per-family capabilities, dry-run planning, provenance, custom-ID/index remap,
 atomic add/replace batches, dependency-complete static/terrain/moby import, protected
 survivors, origin-aware UI, and safe batch removal.
+
+Delivered extension: RC1, GC, and DL donors use SDK inventory/conversion and the same
+atomic project transaction for replace-only imports. Unsupported model conversions
+block the affected family before apply. GC replaces background/fog while retaining
+target scene settings; RC1/DL also replace supported scene settings with explicit
+reference mapping where required. M16-009 retains both the original UYA scenario
+and the added donor-profile qualification matrix.
 
 Exit: a level 41 project imports selected level 40 TIE/tfrag/shrub content, then an
 optional moby with sounds, remains self-contained, builds deterministically, and can
@@ -470,6 +477,8 @@ Qualification status and the retained packaged/runtime matrix are tracked in the
 [M16 cross-map import record](../qualification/M16-cross-map-import.md).
 
 ### M17 — Moby simulation framework and ocean plane
+
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
 Deliver the shared fixed-step simulation lifecycle and the UYA `0x0B37` ocean plane
 using authoritative PVars, FX overrides, references, transforms, and hidden cuboids.
@@ -519,7 +528,9 @@ hardware checks while failures retain the last known-good project and staging ou
 - Custom shrub/moby conversion beyond reuse of the proven canonical/native pipeline.
 - Skinning, animation, morph targets, arbitrary shader graphs, and a model editor.
 - A global custom-asset repository or publishing marketplace.
-- Cross-game donor import or automatic semantic translation between incompatible games.
+- Additional writable game targets, automatic gameplay translation, and DL
+  mission-specific Moby-instance/behavior merging. RC1/GC/DL donor replacement into
+  UYA is implemented and remains subject to M16 qualification.
 - General WAV/VAG authoring, music/stream editing, external 989snd plug-ins/cross-bank
   named dispatch, and hardware-exact SPU envelope/reverb emulation.
 - Gameplay-accurate moby simulation, physics, scripts, networking, or simulation bake.
@@ -549,8 +560,9 @@ hardware checks while failures retain the last known-good project and staging ou
   locations, and found no `0x9000+` use across the hashed 45-level NTSC-U corpus. The
   versioned project registry and deterministic donor conflict rules are recorded in
   [`uya-custom-tie-class-contract-v1.md`](../features/uya-custom-tie-class-contract-v1.md).
-- M16-001 must freeze each family closure and native append/remove capability. A family
-  remains disabled when Forge can display it but cannot reconstruct it safely.
+- M16-001 froze each family closure and native append/remove capability. Converted
+  donors restrict supported families to replacement, with unavailable or malformed
+  dependencies remaining disabled. M16-009 closed by maintainer sign-off on 2026-11-06.
 - M18-001 must freeze native visibility semantics and performance baselines before a
   GPU backend or production budget is selected. The reported Forge v1 observation of
   ten-plus-minute generation on an RTX 5090 and level 45 multiplayer's roughly 8 ms GS

@@ -1,13 +1,19 @@
 # MPERF task register
 
-Status: implementation checkpoint accepted; full milestone qualification pending.
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
-The existing workflow improvements are ready for commit. Temporary performance
+All MPERF tasks closed by maintainer sign-off on 2026-11-06. Temporary performance
 instrumentation, probes and raw captures have been retired. The
 [measurement summary](../../qualification/MPERF-workflow-baselines.md) retains the
 observed results and limitations; the [milestone](../milestones/MPERF-intermediate-performance.md)
-retains functional requirements and proposed budgets. No task below claims that
-packaged acceptance budgets have passed.
+retains functional requirements and proposed budgets. Earlier pending checklists
+below record the pre-sign-off checkpoint; no new numeric budget values or captures
+were supplied with the sign-off.
+
+Completion update (2026-11-06): MPERF-001 through MPERF-011 closed by
+[maintainer sign-off](../README.md#maintainer-sign-off). Earlier progress and pending
+checklists within those tasks are historical; no new run metadata or captures
+were supplied. Unlisted tasks and documented support limits retain their scope.
 
 ## Delivery order
 
@@ -19,7 +25,7 @@ builds can progress independently. MPERF-011 closes the platform/resource matrix
 
 ## MPERF-001 — Measure existing workflows and freeze budgets
 
-Status: Development comparisons captured; release matrix and budgets pending.
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
 Requirements: FR-PERF-001, NFR-PERF-001 through NFR-PERF-006.
 
@@ -40,7 +46,7 @@ Remaining:
 
 ## MPERF-002 — Reuse catalog snapshots and reduce scaling costs
 
-Status: Snapshot reuse, indexes and coordinated publication implemented.
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
 Requirements: FR-PERF-002, NFR-PERF-005, NFR-REL-002, NFR-SEC-003. Depends on MPERF-001.
 
@@ -56,7 +62,7 @@ scaling measurements and packaged retention/resource budgets.
 
 ## MPERF-003 — Reduce UYA extraction and persistence work
 
-Status: Buffered durable publication, bounded blob I/O and metadata comparisons implemented.
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
 Requirements: FR-PERF-003, FR-PERF-002, NFR-PERF-004 through NFR-PERF-006.
 Depends on MPERF-001 and MPERF-002.
@@ -75,7 +81,7 @@ The latest peak sample increased despite reduced cumulative allocation.
 
 ## MPERF-004 — Shorten preflight and verified creation
 
-Status: Creation-only hydration deferred, bounded base summaries reused and creation overlapped.
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
 Requirements: FR-PERF-004, NFR-REL-001 through NFR-REL-003, NFR-UX-001.
 Depends on MPERF-001 and MPERF-002.
@@ -95,7 +101,7 @@ cancellation and packaged resource qualification.
 
 ## MPERF-005 — Shorten cold scene preparation
 
-Status: Native preparation overlaps full source verification.
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
 Requirements: FR-PERF-005, NFR-PERF-003 through NFR-PERF-005, NFR-REL-002.
 Depends on MPERF-001, MPERF-002 and MPERF-004.
@@ -111,7 +117,7 @@ invalidation coverage and ten-cycle open/close resource soaks.
 
 ## MPERF-006 — Make picking and selection responsive
 
-Status: Compact selection patches, coalesced hover and static instance indexes implemented.
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
 Requirements: FR-PERF-006, NFR-PERF-001 through NFR-PERF-003.
 Depends on MPERF-001 and MPERF-002.
@@ -127,7 +133,7 @@ through visible highlight/properties, dense-map latency and index memory budgets
 
 ## MPERF-007 — Reduce viewport CPU work and draw calls
 
-Status: Static matrix reuse, editor geometry batching and stable material passes implemented.
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
 Requirements: FR-PERF-007, NFR-PERF-001 through NFR-PERF-003.
 Depends on MPERF-001 and MPERF-006.
@@ -143,7 +149,7 @@ target, feature-rich views and sustained renderer resource soaks.
 
 ## MPERF-008 — Populate the explorer and visible previews promptly
 
-Status: Moby paging, visibility priority, worker PNG encoding and resource cleanup implemented.
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
 Requirements: FR-PERF-008, NFR-PERF-003 through NFR-PERF-006, NFR-UX-001.
 Depends on MPERF-001 and MPERF-002.
@@ -160,7 +166,7 @@ activation-to-visible-preview budgets, rapid category/search/scroll soaks and me
 
 ## MPERF-009 — Reduce map iteration work
 
-Status: Unchanged patch writes eliminated, SDK codec improved and palette comparison allocations reduced.
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
 Requirements: FR-PERF-009, NFR-PERF-004 through NFR-PERF-006, NFR-REL-001 through NFR-REL-003.
 Depends on MPERF-001 and MPERF-002.
@@ -171,14 +177,16 @@ WAD bulk copy/common-prefix work preserves encoded bytes and limits. Palette rep
 equality compares typed fields and ordered data without whole-report serialization.
 
 Verification: unchanged/corrupt/stale targets, recovery guards, output hashes, palette
-field mutations, frozen codec vectors and native/browser parity. Remaining: SDK
-commit/release/pin, broader incremental/full/forced-full matrix, PCSX2, Windows and
-packaged allocation/GC soaks. The broader SDK suite has a pre-existing archive-replacement
-assertion in both baseline and candidate; its full qualification remains open.
+field mutations, frozen codec vectors and native/browser parity. Inventory update
+(2026-11-06): the SDK codec changes are committed and included in Forge's pinned
+`v0.11.0`; release/pin integration is complete. Remaining: broader incremental/full/
+forced-full matrix, PCSX2, Windows and packaged allocation/GC soaks. The historical
+baseline/candidate comparison stopped at an archive-replacement assertion in both
+versions; the broader SDK suite was not requalified by this inventory.
 
 ## MPERF-010 — Keep application builds efficient
 
-Status: Incremental renderer/test checks implemented.
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
 Requirements: FR-PERF-010, NFR-PERF-006, NFR-MAINT-001 through NFR-MAINT-003.
 Depends on MPERF-001.
@@ -192,7 +200,9 @@ publication and pin validation remain mandatory.
 
 ## MPERF-011 — Qualify the checkpoint and close the milestone
 
-Status: Pending packaged acceptance evidence. Depends on MPERF-001 through MPERF-010.
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
+
+Depends on: MPERF-001 through MPERF-010.
 
 Run the milestone's declared capture counts and hardware/platform matrix. Verify
 output equivalence, invalidation, cancellation, interrupted publication, accessibility,

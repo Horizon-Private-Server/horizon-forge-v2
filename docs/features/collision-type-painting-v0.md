@@ -1,6 +1,6 @@
 # Collision Type Painting v0
 
-Status: 🚧 In progress
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
 Milestone: M2 — Editor core
 
@@ -11,6 +11,11 @@ FR-UI-004, FR-UI-005, FR-SCENE-002, FR-SCENE-004, FR-EDIT-001,
 FR-BAKE-001 through FR-BAKE-004, NFR-PERF-003 through NFR-PERF-005,
 NFR-REL-001 through NFR-REL-003, NFR-SEC-003, NFR-UX-001 through
 NFR-UX-003
+
+Completion update (2026-11-06): M2-044 closed by
+[maintainer sign-off](../planning/README.md#maintainer-sign-off). Earlier progress and pending
+checklists within those tasks are historical; no new run metadata or captures
+were supplied. Unlisted tasks and documented support limits retain their scope.
 
 ## Outcome
 
@@ -273,7 +278,7 @@ content-addressed render cache with generated previews.
 
 ### M2-044 — Bake and qualify painted shared proxies
 
-Status: 🚧 In progress
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
 Requirements: FR-COLL-003 through FR-COLL-005, FR-BAKE-001 through
 FR-BAKE-004, NFR-PERF-004, NFR-REL-001 through NFR-REL-003

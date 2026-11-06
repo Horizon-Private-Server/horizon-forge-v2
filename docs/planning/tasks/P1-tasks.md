@@ -17,6 +17,13 @@ native terrain writer for project-local authored terrain. It broadens the delive
 workflow without completing shrubs, mobys, skins, animation, or M16 donor-map import;
 M12-008 owns its packaged-app and PCSX2 evidence.
 
+Current checkpoint (2026-11-06): P1-002's bounded importer and the custom-TIE slice
+of P1-005/006 are implemented through M14; authored tfrags reuse that importer and
+M12's terrain writer. M14-007 closed by maintainer sign-off on 2026-11-06;
+M12-008 retains custom-tfrag qualification.
+Custom shrub/Moby authoring, skins, and animation remain deferred. Historical P1
+acceptance below is retained without creating duplicate implementation issues.
+
 ## P1-001 — Add project-local custom asset lifecycle
 
 Status: ✅ Complete for the M14 custom-TIE scope
@@ -44,6 +51,8 @@ recovery-aware cleanup without introducing a global custom repository.
 
 ## P1-002 — Inspect and canonicalize custom GLBs
 
+Status: Implementation complete for the constrained M14 static-model scope; broader model features deferred
+
 Requirements: FR-CUSTOM-001, NFR-SEC-003
 Depends on: P1-001
 
@@ -58,6 +67,10 @@ Acceptance:
 - Invalid GLBs cannot partially mutate the project asset set.
 
 Verification: valid feature matrix, malformed corpus, and deterministic import snapshots.
+
+Evidence: M14-002 supplies bounded GLB/glTF canonical import, malformed/unsupported
+feature diagnostics, deterministic output, and source provenance. M14-007/M12-008
+own packaged/runtime qualification for custom TIEs/tfrags respectively.
 
 ## P1-003 — Port the alpha-aware K-means baseline into the SDK
 
@@ -129,6 +142,8 @@ the packaged PCSX2 qualification gate rather than an implementation prerequisite
 
 ## P1-005 — Convert supported GLBs to UYA PS2 model structures
 
+Status: Custom-TIE and custom-tfrag conversion implemented; custom shrub/Moby authoring deferred
+
 Requirements: FR-CUSTOM-002, FR-XLT-001, FR-XLT-003
 Depends on: P1-002, P1-004
 
@@ -145,6 +160,8 @@ Acceptance:
 Verification: minimal and boundary GLB fixtures with SDK semantic re-read checks.
 
 ## P1-006 — Complete custom-asset preview and end-to-end qualification
+
+Status: Custom-TIE qualification complete through M14-007 maintainer sign-off (2026-11-06); custom-tfrag qualification remains M12-008 and broader model scope is deferred
 
 Requirements: FR-CUSTOM-003, FR-TEX-003, FR-TEX-008
 Depends on: P1-005

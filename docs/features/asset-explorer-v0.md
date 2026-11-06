@@ -1,6 +1,6 @@
 # Asset Explorer v0
 
-Status: In progress
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
 Milestone: M2 — Editor core
 
@@ -9,6 +9,11 @@ Tasks: M2-021 through M2-026
 Primary requirements: FR-ASSET-003, FR-ASSET-004, FR-UI-001, FR-UI-002,
 FR-UI-007, FR-SCENE-002, FR-SCENE-007, FR-EDIT-001, NFR-PERF-002 through
 NFR-PERF-005, NFR-SEC-003
+
+Completion update (2026-11-06): M2-021 through M2-026 closed by
+[maintainer sign-off](../planning/README.md#maintainer-sign-off). Earlier progress and pending
+checklists within those tasks are historical; no new run metadata or captures
+were supplied. Unlisted tasks and documented support limits retain their scope.
 
 ## Outcome
 
@@ -23,8 +28,12 @@ One family card may contain several immutable Asset ID variants from different
 source levels. The exact hashes remain available for source-faithful preview,
 placement, bake, repair, and cache validation.
 
-Here, **import into the scene** means creating a project entity that references an
-immutable global Asset ID. It does not copy or mutate the catalog blob.
+Here, **import into the scene** creates an entity backed by an immutable Asset ID.
+Native UYA assets reference the global catalog; supported RC1/GC/DL placements attach
+a converted project-local copy while retaining the source identity. Neither path
+mutates the catalog blob. Cross-game placement retains supported animations and
+sound dependencies without porting gameplay behavior; conversion failures leave the
+project unchanged. M16 separately owns whole-family donor-map imports.
 
 ## Scope
 
@@ -293,7 +302,7 @@ assignment requires a future dedicated command.
 
 ### M2-021 — Add cursor-backed Asset Explorer catalog queries
 
-Status: 🚧 In progress
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
 Requirements: FR-ASSET-003, FR-ASSET-004, FR-UI-007, NFR-PERF-002,
 NFR-PERF-004, NFR-SEC-003
@@ -329,7 +338,7 @@ returns each shell as a preview-only subresource without creating a second bake 
 
 ### M2-022 — Build lazy asset preview and thumbnail infrastructure
 
-Status: 🚧 In progress
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
 Requirements: FR-UI-007, FR-SCENE-001, FR-SCENE-002, NFR-PERF-003 through
 NFR-PERF-005, NFR-REL-002
@@ -371,6 +380,8 @@ both grid and detail views.
 
 ### M2-023 — Implement the Asset Explorer dock
 
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
+
 Requirements: FR-UI-001, FR-UI-002, FR-UI-007, NFR-UX-001, NFR-UX-002
 
 Depends on: M2-002, M2-009, M2-021, M2-022
@@ -392,8 +403,9 @@ Acceptance:
   current base level's variant. Exact variant count, aggregated source levels, and
   other exact variants remain in the Properties-grouped Asset Preview dock so card
   metadata does not reduce thumbnail space.
-- Cross-game and preview-only assets remain inspectable while their scene-drag
-  affordance is absent or disabled with a reason.
+- Unsupported cross-game conversions and preview-only assets remain inspectable while
+  their scene-drag affordance is absent or disabled with a reason. Supported RC1/GC/DL
+  models can be dragged into the UYA target through validated project-local conversion.
 
 Verification: layout round trip, keyboard/focus checks, query-state tests, virtual
 grid profile, infinite-scroll boundary tests, empty/missing/error states, and
@@ -405,7 +417,7 @@ Properties-grouped interactive detail surface are wired.
 
 ### M2-024 — Place catalog assets with target-native defaults
 
-Status: 🚧 In progress
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
 Requirements: FR-ASSET-004, FR-UI-007, FR-SCENE-002, FR-SCENE-007,
 FR-EDIT-001, NFR-REL-001, NFR-SEC-003
@@ -428,7 +440,7 @@ Acceptance:
 - UYA shrubs receive fresh neutral native records and shade values. UYA mobys
   receive fresh neutral records with Pvar index `-1` plus a visible diagnostic that
   class-specific Pvar behavior is not generated.
-- Sky shells, textures, incompatible games, ambiguous classes, missing blobs, and
+- Sky shells, textures, unsupported game conversions, ambiguous classes, missing blobs, and
   invalid supplemental data cannot mutate the project.
 - Created entities survive save/reopen and complete static bake, WAD pack, and
   semantic re-read. One tie, shrub, and safe model-only moby are checked in PCSX2.
@@ -494,6 +506,8 @@ non-empty level-data blocks at remainder zero and stays inside the retail alloca
 
 ### M2-025 — Group exact source variants by class family
 
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
+
 Requirements: FR-ASSET-003, FR-UI-007, NFR-REL-001, NFR-UX-001
 
 Depends on: M2-021, M2-022, M2-023
@@ -523,7 +537,7 @@ preview switching.
 
 ### M2-026 — Persist grid thumbnails across sessions
 
-Status: 🚧 In progress
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
 Requirements: FR-UI-007, NFR-PERF-003, NFR-PERF-005, NFR-REL-002,
 NFR-SEC-003

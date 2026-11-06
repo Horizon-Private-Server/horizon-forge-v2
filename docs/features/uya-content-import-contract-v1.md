@@ -1,7 +1,6 @@
 # UYA content-import capability contract v1
 
-Status: M16-001 through M16-008 implemented; M16-009 packaged and runtime qualification
-in progress (2026-10-21)
+Status: ✅ Complete — M16 maintainer sign-off (2026-11-06), including UYA/RC1/GC/DL donor support
 
 This contract freezes how the UYA adapter describes donor-map import families before
 any UI enables them. It separates the family's intended import mode from implementation
@@ -15,6 +14,16 @@ are all complete.
 `ContentImportCapabilityMatrix` for target `(game, region, revision)` and one stable
 entry for each family below. Electron and React consume the serialized matrix; they do
 not infer support from visible entities, catalog rows, or renderer code.
+
+The table describes UYA donors. Converted RC1 NTSC-U 1.00, GC NTSC-U 1.01, and
+DL NTSC-U 1.00 donors restrict every supported family to `replace`; actual availability
+still comes from verified inventory and conversion diagnostics. The target remains
+UYA NTSC-U 1.00. Models, raw PVars, and native links are converted/preserved without
+translating gameplay behavior. DL imports resident core/world content, including
+streamed terrain/collision, but does not merge mission-specific Moby instances.
+GC level settings replace background/fog while retaining the target scene. RC1/DL
+also replace supported scene settings; selected geometry maps references automatically,
+and remaining nullable ship-path/camera links require an explicit Map/Clear choice.
 
 | Family ID | Intended mode | Default when ready | Current state | Owning task/blocker |
 | --- | --- | --- | --- | --- |
@@ -125,9 +134,12 @@ important boundaries are:
   requires an existing target FX bank. Opaque content remains unavailable because its
   dependencies cannot be classified or safely remapped.
 - Occlusion replacement attaches the donor gameplay mappings, asset-WAD spatial grid,
-  and level-WAD payload as one portable source. It is replace-only and requires complete
-  TIE, Moby, and tfrag replacement so visibility-bit meanings cannot cross maps.
-  Project schema 26 persists the attached source authority.
+  and level-WAD payload as one portable source. It is replace-only and selectable
+  independently of instance or terrain imports. Retained entities and their protection
+  remain unchanged; native composition rebinds imported terrain to final mapping slots
+  and uses the existing conservative reference/fallback paths for retained content.
+  This does not qualify arbitrary donor masks as correct for unrelated target geometry.
+  Project schema 26 persists the attached source authority; M16-009 owns runtime evidence.
 
 ## Bridge/UI contract
 

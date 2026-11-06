@@ -1,10 +1,19 @@
 # M4 external PCSX2 loop qualification
 
 Target: UYA NTSC-U 1.00 (`uya-ntsc-u`)  
-Status: in progress — Windows and full-image manual checks remain
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
 Forge owns the development ISO through final verification. PCSX2 remains externally
 configured and is never launched, paused, or reloaded by Forge.
+
+## Maintainer sign-off
+
+The maintainer marked M4-006 complete on 2026-11-06.
+This closes the task acceptance gates by maintainer sign-off. Earlier pending
+rows and open-gate statements below are retained as historical checkpoints,
+not current task status. No additional run metadata, measurements, hashes,
+or capture references were supplied. Documented support limits still apply.
+See the [planning sign-off record](../planning/README.md#maintainer-sign-off).
 
 ## Automated gate
 

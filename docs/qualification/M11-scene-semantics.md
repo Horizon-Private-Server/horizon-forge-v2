@@ -4,7 +4,16 @@ Target: UYA NTSC-U 1.00 (`uya-ntsc-u`)
 
 Date: 2026-10-11
 
-Status: automated gate passed; packaged Linux/Windows and PCSX2 evidence pending
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
+
+## Maintainer sign-off
+
+The maintainer marked M11-005 complete on 2026-11-06.
+This closes the task acceptance gates by maintainer sign-off. Earlier pending
+rows and open-gate statements below are retained as historical checkpoints,
+not current task status. No additional run metadata, measurements, hashes,
+or capture references were supplied. Documented support limits still apply.
+See the [planning sign-off record](../planning/README.md#maintainer-sign-off).
 
 ## Automated gate
 

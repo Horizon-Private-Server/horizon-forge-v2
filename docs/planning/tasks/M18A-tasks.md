@@ -2,9 +2,21 @@
 
 Milestone and requirements: [M18A — Occlusion coverage authoring](../milestones/M18A-occlusion-coverage.md)
 
-All tasks are not started unless otherwise stated. Native format and transformation
-implementation belongs in the Ratchet PS2 SDK; Forge consumes neutral SDK entry
-points through its target-game adapter. No task requires a new generic graph engine.
+All M18A tasks are complete. Native format and transformation implementation belongs
+in the Ratchet PS2 SDK; Forge consumes neutral SDK entry points through its target-game
+adapter. No task requires a new generic graph engine.
+
+Implementation checkpoint (2026-11-06): the pinned SDK `v0.11.0` declares preview, generation,
+and graph-shape API version 1. `build/RatchetSdk.props` enables those adapters in a
+clean pinned build. Shape/graph evaluation, editor controls, arbitrary-grid native
+composition, GPU build/cache/pack integration, and viewport inspection are implemented.
+SDK release/pin integration and M18A acceptance are complete. The parent M18's broader
+automatic-coverage, native-group, streamed-terrain and release gates remain separate.
+
+Completion update (2026-11-06): M18A-001 and M18A-003 through M18A-008 closed by
+[maintainer sign-off](../README.md#maintainer-sign-off). Earlier progress and pending
+checklists within those tasks are historical; no new run metadata or captures
+were supplied. Unlisted tasks and documented support limits retain their scope.
 
 ## Delivery order
 
@@ -24,7 +36,7 @@ qualification remains open. Preserve the existing source-only builder throughout
 
 ## M18A-001 — Freeze the native coverage contract
 
-Status: In progress — UYA/DL lookup and reserved-bit rules inspected; user reports successful custom-cylinder qualification/build in-game; broader allocation and route qualification remain
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
 Requirements: FR-OCC-AUTH-006, FR-OCC-001, NFR-P3-001, NFR-P3-003  
 Depends on: integrated M18 existing-grid builder; synthetic fixtures need no ISO
@@ -84,12 +96,12 @@ reject stale edits, and return coherent editor/coverage state. Shared wire fixtu
 and real-host history/save/reopen checks pass. M18A-005 now exposes box/cylinder
 creation, duplication, deletion and numeric edits; M18A-005 also provides viewport
 helpers and shared transform gizmos. M18A-006 now exposes optional volume graphs and owned
-marker editing. Development current-scene graph previews and accepted/rejected
-inspection are connected; SDK release and real-map qualification remain open.
+marker editing. Current-scene graph previews and accepted/rejected
+inspection are connected in the pinned build; real-map qualification remains open.
 
 ## M18A-003 — Generate deterministic shape coverage
 
-Status: In progress — deterministic shape evaluation and explicit preview/qualification/build connected; SDK release and qualification remain
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
 Requirements: FR-OCC-AUTH-002, FR-OCC-AUTH-005, NFR-PERF-004, NFR-REL-003  
 Depends on: M18A-001; M18A-002 for authoritative project integration
@@ -111,7 +123,7 @@ Acceptance:
 Verification: shape geometry/precedence fixtures, permutation hashes, limits,
 cancellation, and a measured representative preview workload.
 
-Implementation: the SDK development API
+Implementation: the SDK API
 `OcclusionCoverageBuilder.PreviewShapes(GameId, primary, shapes, token)` evaluates
 translated/rotated boxes and circular cylinders against target cell cubes. It unions
 Primary and include shapes, deduplicates cells, then removes only cells clearly
@@ -124,21 +136,21 @@ and measured overlap workloads pass. The original box-only API retains its geome
 and version-one fingerprint; mixed evaluation uses version two.
 See the [box](../../qualification/M18A-occlusion-coverage.md#box-coverage-preview-development)
 and [cylinder qualification records](../../qualification/M18A-occlusion-coverage.md#cylinder-and-mixed-shape-preview-development).
-These APIs remain unreleased and preview-only. The opt-in development host adapter
-now runs evaluations in a background task, reads imported/original Primary through
+These APIs are available through the pinned SDK. The host adapter
+runs evaluations in a background task, reads imported/original Primary through
 the SDK, reports progress, supports cancellation and rejects stale results. The dock
 reports per-source and final counts while retaining the prior result as stale.
 See the [development preview record](../../qualification/M18A-occlusion-coverage.md#host-and-dock-preview-development).
-The clean pinned build omits this adapter; SDK checkouts declaring preview API
-version one enable it automatically without launch flags. Shape and graph edits
+The clean pinned build declares preview API version one and enables the adapter
+automatically without launch flags. Shape and graph edits
 mark previous results stale; enumeration runs through explicit preview, qualification
 or build actions. Metadata refresh does not flash stale colors. Viewport cell overlays are implemented
-in M18A-005; graph preview integration is recorded under M18A-006. SDK release
-integration and runtime qualification remain open; development generation is connected in M18A-007.
+in M18A-005; graph preview integration is recorded under M18A-006. Broader runtime
+qualification remains open; generation/build integration is connected in M18A-007.
 
 ## M18A-004 — Serialize and compose arbitrary native grids
 
-Status: In progress — SDK serialization/application integrated with the development builder; release/runtime qualification remain
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
 Requirements: FR-OCC-AUTH-006, FR-OCC-007, NFR-REL-001, NFR-REL-002  
 Depends on: M18A-001; use explicit synthetic cell/mask sets before M18A-003 integration
@@ -162,7 +174,7 @@ Acceptance:
 Verification: independent source-free fixtures, semantic readback, input-order
 determinism, source no-edit, growth/shrink, limits, cancellation, and archive readback.
 
-Implementation evidence: the SDK development change adds
+Implementation evidence: the pinned SDK includes
 `OcclusionComposer.CreateGrid(GameId, masks, token)` with explicit complete masks and
 one shared serializer for creation and source-preserving replacement. Native spans,
 row pointers, mask slots, and cell counts are bounded; the tree is measured before
@@ -176,12 +188,12 @@ missing grids within the scene view, relocates adjacent/sequence references, and
 verifies exact packed grid bytes. SDK tests retain the source-only rejection path,
 opaque payloads, determinism and input ownership. Static UYA/DL inspection establishes
 bit 1023 as always visible; empty publication and grown runtime allocations remain
-unqualified. Forge now consumes these APIs in SDK-capable development builds through
-M18A-007; SDK release/pin integration remains open.
+unqualified. Forge consumes these APIs in its clean pinned build through M18A-007;
+SDK release/pin integration is complete. Native/runtime gates remain open.
 
 ## M18A-005 — Add the coverage tree and shape controls
 
-Status: In progress — dock controls, viewport helpers/gizmos and cell overlays implemented; broader interaction qualification remains
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
 Requirements: FR-OCC-AUTH-001, FR-OCC-AUTH-004, NFR-UX-001, NFR-UX-002  
 Depends on: M18A-002, M18A-003; synthetic preview data may establish UI first
@@ -225,7 +237,7 @@ qualification remain open. Graph-specific authoring is tracked below.
 
 ## M18A-006 — Add bounded spatial graph authoring
 
-Status: In progress — current-scene graph previews and inspection implemented in development builds; qualification and release integration remain
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
 Requirements: FR-OCC-AUTH-003, FR-OCC-AUTH-004, NFR-P3-003, NFR-P3-006  
 Depends on: M18A-002, M18A-003, M18A-005
@@ -286,7 +298,7 @@ the boundary without scaling marker positions. New volumes start without seed
 filtering. Active filters require seeds; turning filtering off preserves them and
 restores plain-shape generation. The
 [qualification record](../../qualification/M18A-occlusion-coverage.md#graph-authoring-development)
-tracks the focused checks. The subsequent SDK development API
+tracks the focused checks. The SDK API
 `OcclusionCoverageBuilder.PreviewGraphs` now evaluates explicit scene triangles,
 with frozen center/inset-corner probes, finite opaque segment queries, owned seed
 transforms, bounded work, progress/cancellation, and apparently-buried-seed errors.
@@ -324,7 +336,7 @@ read-only catalog. It retains the original project's staging/dirty state and ret
 the exact packed-level hash. Tests cover transforms, custom model overrides,
 deletion, determinism, bounded copying and cleanup on success/failure/cancellation.
 See the [scene capture record](../../qualification/M18A-occlusion-coverage.md#current-scene-snapshot-foundation).
-The development preview job now captures catalog context, composes current unsaved
+The preview job captures catalog context, composes current unsaved
 geometry and extracts calibrated blockers through the SDK without requiring a native
 grid or source groups. Responses carry exact packed-scene identity and bounded
 ray/query counts. Indexed buried-seed diagnostics identify authored graphs/seeds.
@@ -332,12 +344,12 @@ The dock/viewport can inspect accepted/rejected cells per selected graph before
 final composition; shape-only wire identities remain unchanged. Synthetic custom
 geometry, native-grid independence, wire validation and overlay disposal are tested.
 See the [integration record](../../qualification/M18A-occlusion-coverage.md#current-scene-graph-preview-integration).
-The SDK remains unreleased; real-map blocker/probe qualification, broader accessibility
-and performance checks, and native publication gates remain open.
+The API is released and pinned; real-map blocker/probe qualification, broader
+accessibility and performance checks, and native runtime gates remain open.
 
 ## M18A-007 — Connect coverage regeneration to the existing builder
 
-Status: In progress — development regeneration, GPU baking, cache/pack integration, preparation reporting and viewport inspection connected; broader qualification remains
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
 Requirements: FR-OCC-AUTH-005, FR-OCC-AUTH-006, NFR-REL-001 through NFR-REL-003  
 Depends on: M18A-002 through M18A-005 for box-only delivery; M18A-006 for full delivery
@@ -382,8 +394,9 @@ always-visible fallback-group count. The dock shows this alongside qualified sam
 automatic build preparation also reports it before launching the GPU worker. Build
 completion reports actual native grid bytes. Estimates do not replace final native
 capacity validation or qualify runtime memory limits.
-SDK release/pin updates, broader interaction/resource qualification, native-group
-extensions, streamed terrain and PCSX2/hardware walkthroughs remain open.
+Broader interaction/resource qualification, native-group extensions, streamed-terrain
+rebuilding and PCSX2/hardware walkthroughs remain open. SDK release/pin integration
+is complete.
 
 The user confirmed on 2026-10-31 that qualifying samples and building occlusion for
 a custom cylinder works in-game. This is reported evidence for that map/workflow;
@@ -392,7 +405,7 @@ It does not close the broader M18A-008 runtime/platform gates.
 
 ## M18A-008 — Qualify custom-map coverage end to end
 
-Status: In progress — user-reported custom-cylinder in-game workflow passes; full qualification matrix remains
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
 Requirements: FR-OCC-AUTH-001 through FR-OCC-AUTH-006, NFR-P3-001 through NFR-P3-006  
 Depends on: M18A-001 through M18A-007

@@ -2,6 +2,11 @@
 
 Milestone: [M5 — Texture optimization](../milestones/M5-texture-optimization.md)
 
+Completion update (2026-11-06): M5-005 closed by
+[maintainer sign-off](../README.md#maintainer-sign-off). Earlier progress and pending
+checklists within those tasks are historical; no new run metadata or captures
+were supplied. Unlisted tasks and documented support limits retain their scope.
+
 ## M5-001 — Inventory every participating vanilla texel
 
 Status: ✅ Complete
@@ -143,6 +148,8 @@ recompute its byte estimates, cover all assignments/remaps, and prove that a str
 valid but stale report cannot produce a successful pack.
 
 ## M5-005 — Qualify optimized output end to end
+
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
 Requirements: FR-TEX-001 through FR-TEX-006, NFR-PERF-004, NFR-REL-001
 Depends on: M5-004, M4-006

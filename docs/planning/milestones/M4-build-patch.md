@@ -1,5 +1,7 @@
 # M4 — Build and rapid patch loop
 
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
+
 Priority: P0  
 Depends on: M3, M3A
 

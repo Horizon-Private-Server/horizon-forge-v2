@@ -1,6 +1,6 @@
 # MPERF performance checkpoint
 
-Status: implementation checkpoint accepted; packaged qualification and frozen budgets pending.
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
 This summarizes the October 23–24, 2026 development measurements that guided the
 [MPERF milestone](../planning/milestones/MPERF-intermediate-performance.md).
@@ -8,6 +8,15 @@ Temporary tracing, capture commands, diagnostic probes and raw reports were remo
 when preparing the checkpoint for commit. Production keeps the optimizations and
 behavioral regression tests. These summaries do not establish packaged release
 budgets or replace the [M6 qualification procedure](M6-performance-baseline.md).
+
+## Maintainer sign-off
+
+The maintainer marked MPERF-001 through MPERF-011 complete on 2026-11-06.
+This closes the task acceptance gates by maintainer sign-off. Earlier pending
+rows and open-gate statements below are retained as historical checkpoints,
+not current task status. No additional run metadata, measurements, hashes,
+or capture references were supplied. Documented support limits still apply.
+See the [planning sign-off record](../planning/README.md#maintainer-sign-off).
 
 ## Measurement conditions
 
@@ -131,7 +140,7 @@ Focused SDK codec tests, 520 native/browser buffer parity cases and the generate
 UYA frontend build pass. The broader SDK suite previously stopped at the same
 archive-replacement assertion in baseline and candidate; it is not qualified here.
 
-## Remaining qualification
+## Historical qualification checklist
 
 Packaged Linux/Windows, recommended/low-end hardware, source-storage variation,
 end-to-end readiness/highlight/presentation, full/resumed extraction matrices,

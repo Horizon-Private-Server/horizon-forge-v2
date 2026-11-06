@@ -1,6 +1,6 @@
 # UYA ocean simulation v1
 
-Status: corrected implementation candidate; awaiting M17-003 visual validation  
+Status: ✅ Complete — M17-003/M17-005 maintainer sign-off (2026-11-06)
 Class: UYA `0x0B37` (`2871`)
 
 ## Authoritative inputs

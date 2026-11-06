@@ -1,7 +1,16 @@
 # M2 collision editor qualification
 
 Target: UYA NTSC-U 1.00 (`uya-ntsc-u`)  
-Status: automated gate passed; manual PCSX2 gate partially passed
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
+
+## Maintainer sign-off
+
+The maintainer marked M2-033 through M2-035 complete on 2026-11-06.
+This closes the task acceptance gates by maintainer sign-off. Earlier pending
+rows and open-gate statements below are retained as historical checkpoints,
+not current task status. No additional run metadata, measurements, hashes,
+or capture references were supplied. Documented support limits still apply.
+See the [planning sign-off record](../planning/README.md#maintainer-sign-off).
 
 ## Automated gate
 

@@ -2,6 +2,12 @@
   "schemaVersion": 1,
   "date": "2026-10-29",
   "status": "integrated; broader qualification remains open",
+  "inventoryUpdate": {
+    "date": "2026-11-06",
+    "authoredCoverageStatus": "M18A and its parent tracking task M18-009 complete by maintainer sign-off on 2026-11-06; broader M18 qualification remains open.",
+    "authoredCoverage": "Pinned SDK v0.11.0 enables shape/seed-graph evaluation, arbitrary-grid publication and the integrated visibility builder; see docs/qualification/M18A-occlusion-coverage.md.",
+    "evidenceBoundary": "Measurements below retain their original existing-grid profiles and dates. The dependency update and passing automated suite add no packaged, camera-route, GPU-vendor or hardware sign-off."
+  },
   "profile": "raster1024-lod0-uniform-samples-no-feather-v21",
   "scope": "Rebuild existing native UYA octants and group mappings using the current packed scene; shared host planning, mask combination and GPU worker.",
   "algorithm": {
@@ -117,7 +123,7 @@
   ],
   "remainingWork": [
     "Finite samples are not a proof of continuous visibility; vanilla masks are a similarity reference, not pixel ground truth.",
-    "Existing fully resolved native mappings and primary terrain are required; custom groups/new octants, streamed terrain and other game adapters remain unsupported.",
+    "The existing-grid path requires resolved native mappings and primary terrain. M18A now supports authored new octants; automatic coverage, broader native-group assignment, streamed-terrain rebuilding and other target-game adapters remain open.",
     "Cross-vendor, weaker-GPU, Windows and broader emulator/real-hardware route qualification remain open.",
     "Counts are octant/group memberships; group aliases may include objects not visible individually."
   ],

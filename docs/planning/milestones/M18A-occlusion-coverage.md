@@ -1,6 +1,6 @@
 # M18A — Occlusion coverage authoring
 
-Status: In progress — development coverage/visibility builds connected; SDK release and runtime qualification remain
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
 Priority: P3  
 Depends on: the integrated M18 existing-grid visibility builder and M7 authoring/history foundation  

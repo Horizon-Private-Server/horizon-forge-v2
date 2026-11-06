@@ -1,30 +1,34 @@
 # UYA content-import planning v1
 
-Status: M16-002 implemented (2026-10-18); atomic import batches start in M16-003
+Status: Planning and atomic batches implemented; UYA/RC1/GC/DL donor support reconciled 2026-11-06
 
-The planning operation inventories one donor level from the verified clean UYA NTSC-U
-1.00 source and compares it with an existing target project. It is deliberately
+The planning operation inventories one donor level from a verified clean UYA, RC1,
+GC, or DL source and compares it with an existing UYA target project. It is deliberately
 read-only: the source ISO is opened with read access, the global asset catalog uses its
 non-mutating open path, and the target workspace is never saved.
 
 ## Request and verification
 
 Bridge opcode `PlanContentImport` accepts the target project path, catalog path,
-verified source ISO path and MD5, donor level, and zero or more explicit `add` or
-`replace` family selections. Before family enumeration, the host verifies:
+verified source ISO path and MD5, donor game/level, and zero or more explicit `add` or
+`replace` family selections. Converted donors allow replacement only. Before family
+enumeration, the host verifies:
 
 - the target is a UYA NTSC-U revision 1.00 project;
-- the disc profile is the supported clean UYA image;
-- the requested MD5 matches the disc and the target project's source fingerprint; and
+- the disc profile is supported: UYA/RC1/DL NTSC-U 1.00 or GC NTSC-U 1.01;
+- the requested MD5 matches the selected donor disc; UYA donors must also match the
+  target project's source fingerprint; and
 - the requested donor level is present and structurally readable.
 
 The plan records both the verified disc MD5 and the extracted donor level-WAD SHA-256.
-Parsing reuses the base-project reader, so project creation and donor planning interpret
-the same native structures. Progress covers hashing, inventory, and plan construction;
+UYA parsing reuses the base-project reader. Converted donors use the SDK's
+`LevelContentInventoryReader` and `LevelContentConverter`, followed by UYA project
+materialization and a bounded transient catalog. Conversion failures disable the
+affected family before apply. Progress covers hashing, inventory, and plan construction;
 bridge cancellation is checked during hashing, tfrag extraction, family planning, and
 before returning the result.
 
-Forge keeps one verified disc identity and one extracted donor snapshot in memory. Both
+For UYA donors, Forge keeps one verified disc identity and one extracted donor snapshot in memory. Both
 are keyed by file versions, with the extracted snapshot additionally keyed by catalog
 version and donor level. Changing selections and applying the reviewed plan reuse the
 snapshot; changing levels reuses disc verification while extracting the new level. Plan
@@ -32,12 +36,18 @@ construction still runs against the live editor projection. A changed ISO or cat
 invalidates the corresponding cache, and a change during verification or extraction
 fails without caching the mixed result.
 
+Converted-donor caching retains verified identities per source game and one bounded
+extracted/conversion snapshot keyed by disc version, source/target game, and donor level.
+Model/sound preparation reads the current catalog; plans bind its revision so changes
+cannot authorize a stale apply. Neither path publishes converted data to the global catalog.
+
 ## Deterministic plan
 
-Plan schema version 2 returns:
+Plan schema version 3 returns:
 
-- a stable batch ID derived from the schema, target project/fingerprint, donor hashes
-  and level, and sorted selections;
+- a stable batch ID derived from the schema, target project/fingerprint, donor
+  game/region/revision, hashes and level, source catalog revision and inventory
+  identities, and sorted selections;
 - the capability schema and target/source identity;
 - every contract family in stable matrix order with its source state, selected mode,
   selectability, default state, and estimated source bytes;

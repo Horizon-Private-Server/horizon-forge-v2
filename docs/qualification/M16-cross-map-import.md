@@ -2,9 +2,21 @@
 
 Target: UYA NTSC-U 1.00 (`uya-ntsc-u`)  
 Date: 2026-10-21  
-Status: automated contract gate passed; development-Linux gameplay walkthrough partially
-passed; exact level 40 scenario, packaged Linux/Windows portability, retained hashes,
-and PCSX2 capture pending
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
+
+Inventory checkpoint before maintainer sign-off (2026-11-06): the UYA and converted-
+donor matrices below record the earlier qualification checklist. The subsequent
+maintainer sign-off closes M16-009, including the delivered donor profiles.
+
+## Maintainer sign-off
+
+The maintainer marked M16-009 complete on 2026-11-06, including the delivered
+RC1/GC/DL donor scope.
+This closes the task acceptance gates by maintainer sign-off. Earlier pending
+rows and open-gate statements below are retained as historical checkpoints,
+not current task status. No additional run metadata, measurements, hashes,
+or capture references were supplied. Documented support limits still apply.
+See the [planning sign-off record](../planning/README.md#maintainer-sign-off).
 
 ## Automated gate
 
@@ -29,16 +41,54 @@ Run `npm test` from the Forge repository. The current suite verifies:
 - save/reopen, directory move, recovery, and ZIP transfer with project-relative attached
   assets after the source catalog is unavailable.
 
+The current host suites additionally exercise GC, RC1, and DL inventory/preview and
+replacement, raw PVars/native links, undo/redo, and persistence. GC includes native
+bake and target-scene retention during background/fog replacement; RC1/DL include
+scene-setting/reference conversion. The focused SDK suite covers level-content
+conversion, RC1 split TIE geometry/LODs, and model/sound conversion regressions.
+`npm test` passed during the 2026-11-06 inventory.
+
+## Converted-donor qualification
+
+UYA NTSC-U 1.00 remains the target. All converted-donor selections use replacement;
+unsupported model/dependency conversion blocks the affected family. Raw PVars and
+native links are retained without translating gameplay behavior. Each profile needs
+retained evidence independently of the original level 40 to level 41 UYA workflow.
+
+| Donor profile | Cases to retain | Retail corpus report | Packaged Linux/Windows and PCSX2 |
+| --- | --- | --- | --- |
+| RC1 NTSC-U 1.00 | Native model conversion, split TIE counts/LODs, terrain/collision, sky, sounds, raw PVars, scene links and explicit mappings | Pending retained report | Pending retained evidence |
+| GC NTSC-U 1.01 | Native conversion, terrain/collision, sounds/PVars, and background/fog replacement retaining the target scene | Pending retained report | Pending retained evidence |
+| DL NTSC-U 1.00 | Resident core/world instances, streamed terrain/collision, sounds/PVars and scene links; mission-specific Moby instances are excluded | Pending retained report | Pending retained evidence |
+
+Run the protocol test runner with `--qualify-rc1-content <iso> <catalog-root>`,
+`--qualify-gc-content <iso> <catalog-root>`, or
+`--qualify-dl-content <iso> <catalog-root>` to compare retail donor inventory with
+converted availability in a temporary workspace. These checks do not qualify
+packaged apply/build/patch or runtime behavior. Retain sanitized counts, diagnostics,
+versions, and hashes locally; no retail payloads belong in the repository.
+
+For each profile, use the hash manifest below with the actual donor identity/level,
+then exercise preview/apply, undo/redo, save/reopen without donor media, cross-platform
+transfer, repeated clean build/patch, PCSX2, and cancellation/recovery. Replace-mode
+batch removal retains results because the ledger has no displaced-target snapshot;
+undo/redo is the transactional reversal. Do not apply the UYA Add-mode removal
+expectation to converted donors. Record scene links and unsupported conversion cases
+explicitly. Streamed-terrain import does not imply streamed occlusion rebuild support.
+
 The fixed adapter capability payload snapshot uses the UYA NTSC-U 1.00 request with
 `ties=present` and every other inventory state unknown:
 
 ```text
 schema: 1
-sha256: 6a41d0c192f263e2d8281e7eefc9c07c522927fe4022af8ff9f037b1da4f0c16
+sha256: e401b7e4a5ed0bedd0ae9fadfe1aeb4d29167e0b75f996c321cb9d71e720a35e
 ```
 
 The protocol test fails if the ordered matrix, modes, readiness, ownership, dependency,
 limit, or evidence text changes without an intentional snapshot update.
+This is the current UYA-donor capability snapshot from
+`UyaContentImportCapabilityTests`; converted donors restrict supported modes to
+replacement and still require source inventory. It does not certify a retail run.
 
 ## Adapter capability snapshot
 
@@ -89,12 +139,14 @@ paths. In the authoritative import preview, choose **Copy record** after
 completing any reference mappings. Forge copies a deterministic, path-free JSON record
 containing a self-checking record SHA-256 plus the identities, hashes, selected-family
 counts, and explicit reference choices below. The host-generated batch ID remains the
-authoritative deterministic plan identity. Record:
+authoritative deterministic plan identity. Record package/SDK and source-catalog
+versions separately; they are not all fields in the copied JSON. Record:
 
 | Field | Linux | Windows |
 | --- | --- | --- |
 | Forge commit and package-manifest SHA-256 | Pending | Pending |
-| Adapter snapshot SHA-256 | `6a41d0c192f263e2d8281e7eefc9c07c522927fe4022af8ff9f037b1da4f0c16` | Same required |
+| UYA adapter snapshot SHA-256 | `e401b7e4a5ed0bedd0ae9fadfe1aeb4d29167e0b75f996c321cb9d71e720a35e` | Same required |
+| Donor game, region/revision and source catalog revision | Pending | Same required |
 | Source disc fingerprint | Pending | Same required |
 | Donor level and level-WAD SHA-256 | Level 40 / pending | Same required |
 | Target pre-import project fingerprint | Pending | Same required |
@@ -107,7 +159,8 @@ authoritative deterministic plan identity. Record:
 | `build-patch.log` reference | Pending | Pending |
 
 The deterministic batch ID binds the plan schema, target project/fingerprint, donor disc
-and level hashes, donor level, and sorted selections. The record SHA-256 detects changes
+and level hashes, donor level/profile, source catalog revision and inventory identities,
+and sorted selections. The record SHA-256 detects changes
 to the copied evidence, while the saved project fingerprint binds the committed batch
 ledger and project content. Record all three rather than treating a screenshot of the
 summary as hash evidence.
@@ -136,6 +189,7 @@ summary as hash evidence.
 | Interrupt packaged save/build process | Reopen the last saved project and retain the last known-good stage/image | Pending packaged walkthrough |
 | Remove/undo/redo after reopen | Preserve base/shared content and rebuild deterministically at every state | Automated domain pass; packaged walkthrough pending |
 
-M16-009 remains open until the exact level 40 to level 41 packaged workflow, retained
-Linux/Windows hash manifest, and PCSX2 capture complete the pending rows. The existing
+M16-009 remains open until the exact level 40 to level 41 packaged workflow, converted-
+donor profile matrix, retained Linux/Windows hash manifests, and PCSX2 captures complete
+the pending rows. The existing
 development observations reduce runtime risk but do not meet those evidence requirements.

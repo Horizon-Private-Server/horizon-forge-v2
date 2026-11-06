@@ -1,6 +1,6 @@
 # Collision Editor v0
 
-Status: 🚧 In progress
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
 Milestone: M2 — Editor core
 
@@ -11,6 +11,11 @@ FR-SCENE-002 through FR-SCENE-004, FR-SCENE-007, FR-SCENE-008, FR-SCENE-011,
 FR-EDIT-001, FR-EDIT-002, FR-BAKE-001 through FR-BAKE-004, FR-SET-001,
 FR-SET-002, NFR-PERF-004, NFR-REL-001 through NFR-REL-003, NFR-SEC-003,
 NFR-UX-001 through NFR-UX-003
+
+Completion update (2026-11-06): M2-033 through M2-035 closed by
+[maintainer sign-off](../planning/README.md#maintainer-sign-off). Earlier progress and pending
+checklists within those tasks are historical; no new run metadata or captures
+were supplied. Unlisted tasks and documented support limits retain their scope.
 
 ## Outcome
 
@@ -380,7 +385,7 @@ local all-level round-trip report.
 
 ### M2-033 — Promote collision pieces into project entities
 
-Status: 🚧 In progress
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
 Requirements: FR-PROJ-004, FR-SCENE-002, FR-SCENE-004, FR-EDIT-001, FR-EDIT-002,
 NFR-REL-001, NFR-REL-003
@@ -410,7 +415,7 @@ payload, fingerprint isolation, asset collection, recovery, and portability test
 
 ### M2-034 — Render and edit collision in the Forge scene
 
-Status: 🚧 In progress
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
 Requirements: FR-UI-003, FR-UI-004, FR-SCENE-003, FR-SCENE-007,
 FR-SCENE-008, FR-SET-001, FR-SET-002, NFR-PERF-003, NFR-PERF-005,
@@ -455,7 +460,7 @@ interactive failure/resource qualification remain open.
 
 ### M2-035 — Bake, pack, and qualify collision edits
 
-Status: 🚧 In progress
+Status: ✅ Complete — maintainer sign-off (2026-11-06)
 
 Requirements: FR-BAKE-001 through FR-BAKE-004, FR-BUILD-001 through
 FR-BUILD-004, NFR-PERF-004, NFR-REL-001 through NFR-REL-003
