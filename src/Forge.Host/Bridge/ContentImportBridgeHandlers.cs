@@ -1,5 +1,6 @@
 using Forge.Host.Domain;
 using Forge.Host.Games.UYA;
+using RatchetPs2.Core.Games;
 
 namespace Forge.Host.Bridge;
 
@@ -53,6 +54,17 @@ internal static class ContentImportBridgeHandlers
         EditorRuntime? runtime = null)
     {
         var request = BridgePayloadCodec.DecodeContentImportPlanRequest(payload);
+        if (request.SourceGame != "UYA")
+        {
+            var converted = new UyaConvertedContentImportPlanRequest(Enum.Parse<GameId>(request.SourceGame), request.ProjectPath,
+                request.CatalogRootPath, request.SourceIsoPath, request.SourceFingerprint, checked((int)request.SourceLevel), Selections(request.Selections));
+            var convertedPlan = runtime is null
+                ? await UyaConvertedContentImportService.PlanAsync(converted,
+                    await ForgeProjectWorkspace.OpenAsync(request.ProjectPath, cancellationToken), progress, cancellationToken)
+                : await runtime.ReadWorkspaceAsync(request.ProjectPath, (active, token) =>
+                    UyaConvertedContentImportService.PlanAsync(converted, active.CreateProjection(), progress, token), cancellationToken);
+            return EncodePlan(convertedPlan);
+        }
         var planRequest = new UyaContentImportPlanRequest(
             request.ProjectPath,
             request.CatalogRootPath,
@@ -76,6 +88,19 @@ internal static class ContentImportBridgeHandlers
         CancellationToken cancellationToken)
     {
         var request = BridgePayloadCodec.DecodeContentImportApplyRequest(payload);
+        if (request.SourceGame != "UYA")
+        {
+            var choices = request.ReferenceChoices.Select(value => new ContentImportReferenceChoice(
+                value.OwnerSourceIndex, value.FieldKey, value.SourceValue,
+                value.Action is 1 or 2 ? (ContentImportReferenceAction)value.Action
+                    : throw new ArgumentException("An import reference choice has an invalid action."),
+                value.TargetEntityId is null ? null : EntityId.Parse(value.TargetEntityId))).ToArray();
+            var result = await UyaConvertedContentImportService.ApplyAsync(runtime,
+                new(Enum.Parse<GameId>(request.SourceGame), request.ProjectPath, request.CatalogRootPath, request.SourceIsoPath, request.SourceFingerprint,
+                    checked((int)request.SourceLevel), Selections(request.Selections)),
+                request.BatchId, choices, mobyDex, progress, cancellationToken);
+            return EditorPayloadCodec.EncodeSnapshot(result);
+        }
         var snapshot = await UyaContentImportApplyService.ApplyAsync(runtime, new(
             request.ProjectPath,
             request.CatalogRootPath,
@@ -84,13 +109,13 @@ internal static class ContentImportBridgeHandlers
             checked((int)request.SourceLevel),
             request.BatchId,
             Selections(request.Selections),
-            request.ReferenceChoices.Select(value => new UyaMobyExternalReferenceChoice(
+            request.ReferenceChoices.Select(value => new ContentImportReferenceChoice(
                 value.OwnerSourceIndex,
                 value.FieldKey,
                 value.SourceValue,
                 value.Action <= byte.MaxValue
-                    && Enum.IsDefined(typeof(UyaMobyExternalReferenceAction), (byte)value.Action)
-                        ? (UyaMobyExternalReferenceAction)value.Action
+                    && Enum.IsDefined(typeof(ContentImportReferenceAction), (byte)value.Action)
+                        ? (ContentImportReferenceAction)value.Action
                         : throw new ArgumentException("An import reference choice has an invalid action."),
                 value.TargetEntityId is null ? null : EntityId.Parse(value.TargetEntityId))).ToArray()),
             mobyDex, progress, cancellationToken);

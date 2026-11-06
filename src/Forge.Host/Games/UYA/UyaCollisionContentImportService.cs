@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using Forge.Host.Domain;
 
 namespace Forge.Host.Games.UYA;
@@ -72,7 +70,7 @@ internal static class UyaCollisionContentImportService
             var collision = entity.Collision!;
             imported.Add(entity with
             {
-                EntityId = new(StableGuid($"{plan.BatchId}\nentity\ncollision\n"
+                EntityId = new(ContentImportIdentity.EntityGuid($"{plan.BatchId}\nentity\ncollision\n"
                     + $"{collision.SourcePayloadIndex}\n{collision.Kind}\n{collision.SourcePieceIndex}\n{entity.Asset!.Id}")),
                 Name = $"Imported {entity.Name}",
                 State = null,
@@ -150,12 +148,4 @@ internal static class UyaCollisionContentImportService
 
     private static (AssetId AssetId, ProjectCollisionPieceKind Kind, int SourcePieceIndex) CollisionKey(
         ProjectEntity entity) => (entity.Asset!.Id, entity.Collision!.Kind, entity.Collision.SourcePieceIndex);
-
-    private static Guid StableGuid(string value)
-    {
-        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(value))[..16];
-        bytes[7] = (byte)((bytes[7] & 0x0f) | 0x50);
-        bytes[8] = (byte)((bytes[8] & 0x3f) | 0x80);
-        return new(bytes);
-    }
 }

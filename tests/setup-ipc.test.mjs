@@ -12,17 +12,93 @@ const electronUrl = `data:text/javascript,${encodeURIComponent(`
   export const dialog = { showOpenDialog: async () => ({ canceled: false, filePaths: [globalThis.setupSourcePath] }) };
   export const shell = {};
   export const BrowserWindow = {};
-  export const Menu = {};
+  export const Menu = { getApplicationMenu: () => undefined };
 `)}`;
 const hooks = registerHooks({ resolve(specifier, context, next) {
   return specifier === 'electron' ? { url: electronUrl, shortCircuit: true } : next(specifier, context);
 } });
 let registerIpcHandlers;
+let registerEditorIpcHandlers;
 let handlers;
 try {
   ({ handlers } = await import(electronUrl));
   ({ registerIpcHandlers } = await import('../dist-electron/main/IpcHandlers.js'));
+  ({ registerEditorIpcHandlers } = await import('../dist-electron/main/EditorIpcHandlers.js'));
 } finally { hooks.deregister(); }
+
+test('content import options use the selected game source and reject invalid games and senders', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'forge-content-options-'));
+  try {
+    const values = {};
+    for (const game of ['RC1', 'GC', 'UYA', 'DL']) {
+      const source = path.join(root, `${game}.iso`);
+      await writeFile(source, 'synthetic ISO');
+      values[`sources.${game.toLowerCase()}.iso`] = source;
+      values[`sources.${game.toLowerCase()}.fingerprint`] = 'a'.repeat(32);
+    }
+    const calls = [];
+    const previews = [];
+    const imports = [];
+    registerEditorIpcHandlers({
+      host: {
+        openEditorProject: async () => ({ result: { projectPath: root, target: { game: 'UYA' }, entities: [] } }),
+        listSourceLevels: async (game, source) => {
+          calls.push([game, source]);
+          return { result: [1, ...(game === 'GC' ? [30] : [])] };
+        },
+        planContentImport: async request => { previews.push(request); return { requestId: 99, result: { game: request.sourceGame } }; },
+        applyContentImport: async request => {
+          imports.push(request);
+          return { requestId: 100, result: { projectPath: root, target: { game: 'UYA' }, entities: [] } };
+        },
+      },
+      settings: { paths: { assets: root } },
+      getSettingValues: async () => values,
+      assertSender: id => { if (id !== 7) throw new Error('Untrusted sender'); },
+      resolveProjectPath: async value => value,
+      cancelBuild: async () => {},
+    });
+    const event = { sender: { id: 7 } };
+    const invoke = (channel, ...args) => handlers.get(channel)(event, ...args);
+    await assert.rejects(invoke('forge:content-import-options', 'GC'), /Open a project/);
+    await invoke('forge:editor-open', root);
+    for (const [game, name] of [['RC1', 'Novalis'], ['GC', 'Oozla'], ['UYA', 'Veldin'], ['DL', 'DreadZone Station']]) {
+      const options = await invoke('forge:content-import-options', game);
+      assert.equal(options.levels[0].label, `01 - ${name}`);
+      assert.deepEqual(calls.at(-1), [game, path.join(root, `${game}.iso`)]);
+      if (game === 'GC') assert.deepEqual(options.levels[1], { value: 30, label: '30 - Insomniac Museum' });
+    }
+    await assert.rejects(invoke('forge:content-import-options', '../gc'), /Unsupported/);
+    assert.equal((await invoke('forge:content-import-plan', 30, [], 'GC')).game, 'GC');
+    assert.equal(previews[0].sourceIsoPath, path.join(root, 'GC.iso'));
+    assert.equal(previews[0].sourceFingerprint, values['sources.gc.fingerprint']);
+    assert.equal(previews[0].sourceGame, 'GC');
+    assert.equal((await invoke('forge:content-import-plan', 1, [], 'RC1')).game, 'RC1');
+    assert.equal(previews[1].sourceIsoPath, path.join(root, 'RC1.iso'));
+    assert.equal(previews[1].sourceFingerprint, values['sources.rc1.fingerprint']);
+    assert.equal((await invoke('forge:content-import-plan', 1, [], 'DL')).game, 'DL');
+    assert.equal(previews[2].sourceIsoPath, path.join(root, 'DL.iso'));
+    assert.equal(previews[2].sourceFingerprint, values['sources.dl.fingerprint']);
+    await assert.rejects(invoke('forge:content-import-plan', -1, [], 'GC'), /Donor level/);
+    await invoke('forge:content-import-apply', 30, 'import-fixture', [{ family: 'ties', mode: 'replace' }], [], 'GC');
+    assert.equal(imports[0].sourceGame, 'GC');
+    assert.equal(imports[0].sourceIsoPath, path.join(root, 'GC.iso'));
+    await assert.rejects(invoke('forge:content-import-apply', 30, 'import-fixture', [{ family: 'ties', mode: 'add' }], [], 'GC'), /replacement/);
+    await assert.rejects(invoke('forge:content-import-apply', 42, 'import-fixture', [{ family: 'ties', mode: 'add' }], [], 'DL'), /replacement/);
+    await invoke('forge:content-import-apply', 1, 'import-fixture', [{ family: 'ties', mode: 'replace' }], [], 'RC1');
+    assert.equal(imports[1].sourceGame, 'RC1');
+    assert.equal(imports[1].sourceIsoPath, path.join(root, 'RC1.iso'));
+    await invoke('forge:content-import-apply', 42, 'import-fixture', [{ family: 'ties', mode: 'replace' }], [], 'DL');
+    assert.equal(imports[2].sourceGame, 'DL');
+    assert.equal(imports[2].sourceIsoPath, path.join(root, 'DL.iso'));
+    await assert.rejects(invoke('forge:content-import-apply', 1, 'import-fixture', [{ family: 'ties', mode: 'add' }], [], 'RC1'), /replacement/);
+    assert.equal(imports.length, 3);
+    await assert.rejects(handlers.get('forge:content-import-options')({ sender: { id: 8 } }, 'GC'), /Untrusted/);
+    values['sources.gc.iso'] = path.join(root, 'missing.iso');
+    await assert.rejects(invoke('forge:content-import-options', 'GC'), /GC source ISO/);
+    assert.equal(calls.length, 4);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
 
 for (const game of ['DL', 'GC', 'RC1']) {
   const revision = game === 'GC' ? '1.01' : '1.00';

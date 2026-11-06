@@ -43,11 +43,18 @@ internal static class UyaTfragPackService
         if (importedOcclusion is not null)
         {
             var sourceLevel = workspace.Content.Occlusion!.SourceLevel;
+            var firstOwnerId = workspace.Content.Entities.FirstOrDefault(entity => entity.Tfrag is
+                { SourceKind: ProjectTfragSourceKind.Primary, SourceIndex: 0, GroupIndex: 0 })
+                ?.Tfrag?.ImportedOwnerId;
             var owner = state.ImportedOwners.SingleOrDefault(value => value.SourceLevel == sourceLevel
                 && value.SourceKind == ProjectTfragSourceKind.Primary && value.SourceIndex == 0
-                && value.TargetKind == ProjectTfragSourceKind.Primary && value.TargetIndex == 0)
-                ?? throw new InvalidDataException(
-                    "Imported occlusion has no matching donor primary tfrag owner.");
+                && value.TargetKind == ProjectTfragSourceKind.Primary && value.TargetIndex == 0
+                && value.OwnerId == firstOwnerId);
+            // Keep donor slots unless primary terrain starts with the matching donor owner.
+            if (owner is null)
+                return new(TfragTerrainComposer.FinalizeTerrain(
+                    GameId.UYA, terrainBytes, textureAssetIdsByGroup, terrainTextures,
+                    firstOcclusionMappingIndex: null, cancellationToken), null, visibilityBit);
             sourceTerrainBytes = await workspace.ReadAttachedAssetVerifiedAsync(
                 owner.NativePayload, ForgeProjectWorkspace.MaxAttachedAssetBytes, cancellationToken);
             retainedNativeCount = UyaBaseLayerService.ReadPrimaryTerrain(sourceTerrainBytes)?.TfragCount
@@ -58,6 +65,13 @@ internal static class UyaTfragPackService
             ? await File.ReadAllBytesAsync(stagedOcclusionPath, cancellationToken)
             : importedOcclusion?.GameplayMappings
                 ?? sourcePackage.Files.Single(value => value.Path == "gameplay/core/occlusion.bin").Bytes;
+        var donorOwners = state.ImportedOwners.Where(owner => owner.SourceLevel == workspace.Content.Occlusion?.SourceLevel)
+            .Select(owner => owner.OwnerId).ToHashSet(StringComparer.Ordinal);
+        var appendedMappings = importedOcclusion is null ? null : workspace.Content.Entities
+            .Where(entity => entity.Tfrag is { SourceKind: ProjectTfragSourceKind.Primary, SourceIndex: 0 })
+            .OrderBy(entity => entity.Tfrag!.GroupIndex).Skip(retainedNativeCount)
+            .Select(entity => entity.Tfrag is { ImportedOwnerId: { } ownerId, OcclusionIndexStash: 0 } piece
+                && donorOwners.Contains(ownerId) ? (int?)piece.OcclusionIndex : null).ToArray();
         var occlusion = TfragTerrainComposer.ComposeOcclusionMappings(
             GameId.UYA,
             terrainBytes,
@@ -65,14 +79,16 @@ internal static class UyaTfragPackService
             occlusionBytes,
             retainedNativeCount,
             visibilityBit,
-            cancellationToken);
+            cancellationToken,
+            appendedSourceMappingIndices: appendedMappings);
         terrainBytes = TfragTerrainComposer.FinalizeTerrain(
             GameId.UYA,
             terrainBytes,
             textureAssetIdsByGroup,
             terrainTextures,
             occlusion.FirstCustomMappingIndex,
-            cancellationToken);
+            cancellationToken,
+            firstGeneratedGroupIndex: occlusion.FirstCustomGroupIndex);
         return new(
             terrainBytes,
             occlusion.Changed ? occlusion.OcclusionBytes : null,

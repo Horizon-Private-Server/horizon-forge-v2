@@ -116,15 +116,15 @@ internal static class UyaMobyContentImportTests
             var dex = new MobyDexCatalog(new("tests.empty", 1, []));
             var choices = new[]
             {
-                new UyaMobyExternalReferenceChoice(
-                    0, "trigger.cuboid", 3, UyaMobyExternalReferenceAction.Map, targetCuboid.EntityId),
+                new ContentImportReferenceChoice(
+                    0, "trigger.cuboid", 3, ContentImportReferenceAction.Map, targetCuboid.EntityId),
             };
             await ThrowsAsync<InvalidDataException>(() => UyaMobyContentImportService.PrepareCommitAsync(
                 workspace, catalog, source, plan, 1234, dex),
                 "external PVar references require an explicit choice");
             var cleared = await UyaMobyContentImportService.PrepareCommitAsync(
                 workspace, catalog, source, plan, 1234, dex,
-                [new(0, "trigger.cuboid", 3, UyaMobyExternalReferenceAction.Clear)]);
+                [new(0, "trigger.cuboid", 3, ContentImportReferenceAction.Clear)]);
             var clearedTables = UyaMobyPVarService.Rebuild(
                 cleared.Content, GameplayPvarTableWriter.Write([]), new List<string>());
             Equal(-1, BinaryPrimitives.ReadInt32LittleEndian(clearedTables.Entries.Single().Data.AsSpan(4)),

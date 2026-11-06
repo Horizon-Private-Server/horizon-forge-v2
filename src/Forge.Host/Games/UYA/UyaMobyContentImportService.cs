@@ -1,6 +1,3 @@
-using System.Buffers.Binary;
-using System.Security.Cryptography;
-using System.Text;
 using Forge.Host.Domain;
 using RatchetPs2.Core.Games;
 using RatchetPs2.Core.Sounds;
@@ -17,20 +14,7 @@ public sealed record UyaMobyContentImportRequest(
     int SourceLevel,
     string BatchId,
     ContentImportMode Mode,
-    IReadOnlyList<UyaMobyExternalReferenceChoice>? ReferenceChoices = null);
-
-public enum UyaMobyExternalReferenceAction : byte
-{
-    Map = 1,
-    Clear = 2,
-}
-
-public sealed record UyaMobyExternalReferenceChoice(
-    int OwnerSourceIndex,
-    string FieldKey,
-    int SourceValue,
-    UyaMobyExternalReferenceAction Action,
-    EntityId? TargetEntityId = null);
+    IReadOnlyList<ContentImportReferenceChoice>? ReferenceChoices = null);
 
 public sealed record UyaMobyExternalReferenceRequirement(
     int OwnerSourceIndex,
@@ -91,7 +75,7 @@ internal static partial class UyaMobyContentImportService
         ContentImportPlan plan,
         long? importedUnixMilliseconds = null,
         MobyDexCatalog? mobyDex = null,
-        IReadOnlyList<UyaMobyExternalReferenceChoice>? referenceChoices = null,
+        IReadOnlyList<ContentImportReferenceChoice>? referenceChoices = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(workspace);
@@ -108,7 +92,7 @@ internal static partial class UyaMobyContentImportService
         var donorById = donor.ToDictionary(value => value.EntityId);
         var targetIds = donor.ToDictionary(
             value => value.EntityId,
-            value => new EntityId(StableGuid(
+            value => new EntityId(ContentImportIdentity.EntityGuid(
                 $"{plan.BatchId}\nentity\nmobys\n{value.Provenance!.SourceIndex}\n{value.Asset?.Id}")));
         var groupImport = ImportGroups(source, plan, donor, retained, targetIds);
 
@@ -141,10 +125,8 @@ internal static partial class UyaMobyContentImportService
             var uid = instance.Uid >= 0 && usedUids.Add(instance.Uid)
                 ? instance.Uid
                 : NextUid(usedUids);
-            BinaryPrimitives.WriteInt32LittleEndian(raw.AsSpan(0x10), uid);
-            BinaryPrimitives.WriteInt32LittleEndian(raw.AsSpan(0x28), targetClass);
-            BinaryPrimitives.WriteInt32LittleEndian(raw.AsSpan(0x58),
-                instance.Group < 0 ? -1 : groupImport.TargetIds[instance.Group]);
+            raw = GameplayInstanceConverter.RemapMobyForImport(GameId.UYA, raw, sourceRecord.ClassId,
+                uid, targetClass, instance.Group < 0 ? -1 : groupImport.TargetIds[instance.Group]);
             imported.Add(entity with
             {
                 EntityId = targetIds[entity.EntityId],
@@ -167,8 +149,10 @@ internal static partial class UyaMobyContentImportService
         var entities = retained.Concat(imported).ToArray();
         var pvars = ImportPVars(workspace.Content.MobyPVars, source.MobyPVars,
             donorById, targetIds, retained, removed, referenceChoices ?? []);
-        var dex = ImportMobyDex(workspace.Content.MobyDex, rebase.Remaps,
-            mobyDex ?? new MobyDexCatalog(UyaMobyDexDataset.Create()));
+        var dex = plan.Game == "UYA"
+            ? ImportMobyDex(workspace.Content.MobyDex, rebase.Remaps,
+                mobyDex ?? new MobyDexCatalog(UyaMobyDexDataset.Create()))
+            : workspace.Content.MobyDex;
         var existingSoundPrograms = workspace.Content.Sounds.Programs.Where(value => value.Asset is not null)
             .Select(value => value.Asset!.Id).ToHashSet();
         var sounds = await ImportSoundsAsync(
@@ -255,10 +239,8 @@ internal static partial class UyaMobyContentImportService
                 && value.Revision == "1.00" && value.Level == $"level{plan.SourceLevel:00}"
                 && value.Fingerprint.Equals(plan.SourceFingerprint, StringComparison.OrdinalIgnoreCase)))
             throw new InvalidDataException($"Donor Moby asset {id} has no matching source identity.");
-        var path = catalog.ResolveBlobPath(id)
-            ?? throw new FileNotFoundException($"Donor Moby asset blob {id} is missing.");
         var bytes = await AssetCatalogBlobReader.ReadVerifiedAsync(
-            entry, path, ForgeProjectWorkspace.MaxAttachedAssetBytes, cancellationToken);
+            catalog, entry, ForgeProjectWorkspace.MaxAttachedAssetBytes, cancellationToken);
         if (UyaCanonicalAssetCodec.Decode(bytes).DefinitionBytes.Length != 0x20)
             throw new InvalidDataException($"Donor Moby asset {id} has an incompatible definition.");
         return new(AssetKind.Moby, entry.CanonicalFormatVersion, bytes);
@@ -344,12 +326,4 @@ internal static partial class UyaMobyContentImportService
     private sealed record MobyGroupImport(
         IReadOnlyDictionary<int, int> TargetIds,
         IReadOnlyList<ProjectGroup> Groups);
-
-    private static Guid StableGuid(string value)
-    {
-        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(value))[..16];
-        bytes[7] = (byte)((bytes[7] & 0x0f) | 0x50);
-        bytes[8] = (byte)((bytes[8] & 0x3f) | 0x80);
-        return new(bytes);
-    }
 }

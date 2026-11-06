@@ -10,7 +10,7 @@ public sealed record UyaContentImportApplyRequest(
     int SourceLevel,
     string BatchId,
     IReadOnlyList<ContentImportSelection> Selections,
-    IReadOnlyList<UyaMobyExternalReferenceChoice>? ReferenceChoices = null);
+    IReadOnlyList<ContentImportReferenceChoice>? ReferenceChoices = null);
 
 internal static class UyaContentImportApplyService
 {
@@ -49,11 +49,22 @@ internal static class UyaContentImportApplyService
         var context = await runtime.ReadWorkspaceAsync(request.ProjectPath, async (active, token) =>
             await UyaContentImportPlanningService.PrepareAsync(
                 planningRequest, active.CreateProjection(), progress, token), cancellationToken);
-        if (!string.Equals(context.Plan.BatchId, request.BatchId, StringComparison.Ordinal))
+        var command = await PrepareCommitAsync(context, request.BatchId, mobyDex,
+            request.ReferenceChoices ?? [], cancellationToken);
+        return await runtime.CommitContentImportAsync(command, cancellationToken);
+    }
+
+    internal static async Task<ContentImportBatchCommit> PrepareCommitAsync(
+        UyaContentImportPlanningContext context,
+        string batchId,
+        MobyDexCatalog mobyDex,
+        IReadOnlyList<ContentImportReferenceChoice> referenceChoices,
+        CancellationToken cancellationToken = default)
+    {
+        if (!string.Equals(context.Plan.BatchId, batchId, StringComparison.Ordinal))
             throw new InvalidOperationException("The import plan changed; review the refreshed preview before importing.");
         if (context.Plan.Blockers.Count > 0)
             throw new InvalidOperationException($"The import plan is blocked: {string.Join(' ', context.Plan.Blockers)}");
-        var referenceChoices = request.ReferenceChoices ?? [];
         ValidateReferenceChoices(context.Plan, referenceChoices);
         var selected = context.Plan.Families.Where(value => value.Selected).ToArray();
         if (selected.Length == 0 || selected.Any(value => !SupportedFamilies.Contains(value.Family)))
@@ -151,8 +162,7 @@ internal static class UyaContentImportApplyService
         await AddAsync(OcclusionFamily);
         await AddAsync(MapGroupsFamily);
 
-        return await runtime.CommitContentImportAsync(
-            Compose(context.Plan, projectedContent, commands, importedAt), cancellationToken);
+        return Compose(context.Plan, projectedContent, commands, importedAt);
     }
 
     internal static ContentImportBatchCommit Compose(
@@ -228,7 +238,7 @@ internal static class UyaContentImportApplyService
 
     private static void ValidateReferenceChoices(
         ContentImportPlan plan,
-        IReadOnlyList<UyaMobyExternalReferenceChoice> choices)
+        IReadOnlyList<ContentImportReferenceChoice> choices)
     {
         var requirements = plan.ReferenceRequirements ?? [];
         var requirementKeys = requirements.Select(Key).ToArray();
@@ -239,9 +249,9 @@ internal static class UyaContentImportApplyService
             throw new InvalidDataException("Import reference choices do not match the approved plan.");
     }
 
-    private static UyaMobyExternalReferenceChoice[] ReferenceChoices(
+    private static ContentImportReferenceChoice[] ReferenceChoices(
         ContentImportPlan plan,
-        IReadOnlyList<UyaMobyExternalReferenceChoice> choices,
+        IReadOnlyList<ContentImportReferenceChoice> choices,
         string family)
     {
         var keys = (plan.ReferenceRequirements ?? []).Where(value => value.Family == family)
@@ -254,6 +264,6 @@ internal static class UyaContentImportApplyService
         (value.OwnerSourceIndex, value.FieldKey, value.SourceValue);
 
     private static (int OwnerSourceIndex, string FieldKey, int SourceValue) Key(
-        UyaMobyExternalReferenceChoice value) =>
+        ContentImportReferenceChoice value) =>
         (value.OwnerSourceIndex, value.FieldKey, value.SourceValue);
 }

@@ -20,11 +20,19 @@ internal static class UyaMobyPropertyService
     internal const string Color = "instance.color";
     internal const string Light = "instance.light";
 
+    public static IEnumerable<EditorDiagnostic> PlacementDiagnostics(ForgeProjectWorkspace workspace) =>
+        workspace.Content.Entities
+            .Where(entity => entity.Asset?.Kind == AssetKind.Moby && entity.Provenance is null
+                && entity.Source?.RawRecord.Length == UyaMobyInstancesReader.RecordSize
+                && UyaMobyInstancesReader.ReadInstance(entity.Source.RawRecord).PvarIndex == -1)
+            .Select(entity => new EditorDiagnostic("moby.pvar-not-generated", EditorDiagnosticSeverity.Warning,
+                $"{entity.Name}: No generated Pvar data; class-specific behavior may be unavailable."));
+
     public static IReadOnlyList<EditorMobyPropertyDescriptor>? Describe(ProjectEntity entity)
     {
         if (entity.Layer != "mobys" || entity.Asset is { Kind: not AssetKind.Moby }
-            || entity.Provenance is not null
-                and not { Game: "UYA", Section: "gameplay/core/moby_instances" }
+            || entity.Provenance is { } provenance && (!UyaNativeContentCompatibility.Supports(provenance)
+                || provenance.Section != "gameplay/core/moby_instances")
             || entity.Source?.RawRecord.Length != UyaMobyInstancesReader.RecordSize)
             return null;
         var value = UyaMobyInstancesReader.ReadInstance(entity.Source.RawRecord);

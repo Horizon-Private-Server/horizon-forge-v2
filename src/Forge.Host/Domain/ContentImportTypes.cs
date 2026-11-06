@@ -141,7 +141,9 @@ public sealed record ContentImportBatch(
     IReadOnlyList<string> Added,
     IReadOnlyList<string> Reused,
     IReadOnlyList<string> Replaced,
-    IReadOnlyList<string> Protected);
+    IReadOnlyList<string> Protected,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    ProjectAssetReference? SourcePayload = null);
 
 public sealed record ContentImportRemovalSurvivor(string StableId, string Reason);
 
@@ -174,3 +176,16 @@ internal sealed record ContentImportRemovalCommit(
     string ExpectedTargetFingerprint,
     string BatchId,
     ForgeProjectContent Content);
+
+public enum ContentImportReferenceAction : byte
+{
+    Map = 1,
+    Clear = 2,
+}
+
+public sealed record ContentImportReferenceChoice(
+    int OwnerSourceIndex,
+    string FieldKey,
+    int SourceValue,
+    ContentImportReferenceAction Action,
+    EntityId? TargetEntityId = null);

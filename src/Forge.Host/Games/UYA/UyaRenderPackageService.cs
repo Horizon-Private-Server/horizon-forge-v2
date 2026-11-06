@@ -36,6 +36,8 @@ public static partial class UyaRenderPackageService
         var assetKeys = assets.Select(asset => $"{asset.Id}:{asset.BlobId}").ToList();
         if (UyaCustomTfragRenderService.CreateRevision(project.Workspace) is { } tfragRevision)
             assetKeys.Add($"tfrags:{tfragRevision}");
+        if (project.Workspace.Content.Occlusion is { } occlusion)
+            assetKeys.Add($"occlusion:{occlusion.SourcePayload.Id}");
         var cacheKey = CreateCacheKey(request, sdkRevision, assetKeys);
         var target = Path.Combine(Path.GetFullPath(request.CacheRootPath), cacheKey);
         var cached = await TryOpenAsync(target, request, sdkRevision, cancellationToken);

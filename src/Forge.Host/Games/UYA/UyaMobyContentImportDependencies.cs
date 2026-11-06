@@ -113,7 +113,7 @@ internal static partial class UyaMobyContentImportService
 
         var bySourceIndex = donor.ToDictionary(value => value.Provenance!.SourceIndex);
         var imported = used.Select(sourceId => new ProjectGroup(
-            new(StableGuid($"{plan.BatchId}\ngroup\nmobys\n{sourceId}")),
+            new(ContentImportIdentity.EntityGuid($"{plan.BatchId}\ngroup\nmobys\n{sourceId}")),
             $"Imported level {plan.SourceLevel} mobys group {sourceId + 1}",
             groups[sourceId].Select(sourceIndex =>
                 targetEntityIds[bySourceIndex[sourceIndex].EntityId]).ToArray())).ToArray();
@@ -169,7 +169,7 @@ internal static partial class UyaMobyContentImportService
         IReadOnlyDictionary<EntityId, EntityId> targetIds,
         IReadOnlyList<ProjectEntity> retainedEntities,
         IReadOnlySet<EntityId> removed,
-        IReadOnlyList<UyaMobyExternalReferenceChoice> referenceChoices)
+        IReadOnlyList<ContentImportReferenceChoice> referenceChoices)
     {
         var retained = (target?.Entries ?? []).Where(value => !removed.Contains(value.EntityId)).ToArray();
         foreach (var pvar in retained)
@@ -222,7 +222,7 @@ internal static partial class UyaMobyContentImportService
                 usedChoices.Add(key);
                 if (!Enum.IsDefined(choice.Action))
                     throw new InvalidDataException("A Moby external-reference choice has an invalid action.");
-                if (choice.Action == UyaMobyExternalReferenceAction.Clear)
+                if (choice.Action == ContentImportReferenceAction.Clear)
                 {
                     if (!value.Reference.Nullable || choice.TargetEntityId is not null)
                         throw new InvalidDataException(
@@ -308,7 +308,7 @@ internal static partial class UyaMobyContentImportService
         };
         var targetBySource = remaps.ToDictionary(
             value => (value.SourceClassId, value.AssetId), value => value.TargetClassId);
-        var banks = new Dictionary<AssetId, (byte[] Bytes, SoundBankInventory Inventory)>();
+        var banks = new Dictionary<AssetId, (byte[] Bytes, SoundBankInventory Inventory, ProjectSoundState Donor)>();
         foreach (var pair in donor.Zip(imported).Where(value => value.First.Asset is not null)
                      .DistinctBy(value => (value.First.Source!.ClassId, value.First.Asset!.Id)))
         {
@@ -335,12 +335,15 @@ internal static partial class UyaMobyContentImportService
             {
                 var bytes = await UyaInstancedCollisionCompositionService.ReadAssetAsync(
                     workspace, catalog, use.Bank, AssetKind.SoundBank, cancellationToken);
-                bank = (bytes, SoundBankReader.Inspect(GameId.UYA, bytes, cancellationToken));
+                var game = Enum.Parse<GameId>(plan.Game);
+                var inventory = SoundBankReader.Inspect(game, bytes, cancellationToken);
+                bank = (bytes, inventory, game == GameId.UYA ? source.Sounds
+                    : SoundProjectService.CreateBank(game, plan.SourceLevel, bytes, inventory));
                 banks.Add(use.Bank, bank);
             }
             var soundPlan = UyaMobySoundImportService.Prepare(
                 state,
-                source.Sounds,
+                bank.Donor,
                 bank.Bytes,
                 bank.Inventory,
                 use,

@@ -53,7 +53,7 @@ internal static partial class ForgeProjectValidation
             || content.CustomClasses is null
             || content.CustomModels is null || content.ImportBatches is null || content.Sounds is null)
             throw new InvalidDataException("Project content lists are required.");
-        ValidateImportBatches(content.ImportBatches);
+        ValidateImportBatches(content.ImportBatches, content.Assets);
         if (content.OcclusionCoverage is null) throw new InvalidDataException("Project occlusion coverage is required.");
         Occlusion.OcclusionCoverageRecipe.Validate(content.OcclusionCoverage);
         if (content.Occlusion is not null) ValidateOcclusion(rootPath, content.Occlusion, content.Assets);
@@ -470,7 +470,7 @@ internal static partial class ForgeProjectValidation
             || collision.Types is null || collision.Types.Any(value => value is null || value.Count <= 0)
             || collision.Types.Select(value => value.RawType).Distinct().Count() != collision.Types.Count)
             throw new InvalidDataException($"Entity {entity.EntityId} collision metadata is invalid.");
-        if (entity.Asset?.Kind != AssetKind.Collision || entity.Provenance is not { Game: "UYA" })
+        if (entity.Asset?.Kind != AssetKind.Collision || entity.Provenance is null)
             throw new InvalidDataException($"Entity {entity.EntityId} collision source is invalid.");
         if (collision.Kind == ProjectCollisionPieceKind.Solid
             && collision.Types.Sum(value => value.Count) != collision.FaceCount

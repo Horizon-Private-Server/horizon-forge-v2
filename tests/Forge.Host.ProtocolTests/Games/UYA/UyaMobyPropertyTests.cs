@@ -159,6 +159,7 @@ internal static class UyaMobyPropertyTests
         var entities = new[] { 0x2079, 0x209a }.Select((classId, index) => Moby(index) with
         {
             Provenance = null,
+            Asset = new(AssetId.Compute(AssetKind.Moby, 1, new byte[] { 7 }), AssetKind.Moby),
             Source = new(classId, UyaGameplayInstanceTemplates.CreateMoby(classId, index + 1)),
         }).ToArray();
         Equal<IReadOnlyList<EditorMobyPropertyDescriptor>?>(null,
@@ -167,17 +168,25 @@ internal static class UyaMobyPropertyTests
         Equal<IReadOnlyList<EditorMobyPropertyDescriptor>?>(null,
             UyaMobyPropertyService.Describe(entities[0] with
             {
-                Provenance = new("DL", 1, "gameplay/core/moby_instances", 0),
-            }), "foreign instance provenance does not expose UYA properties");
+                Provenance = new("unknown", 1, "gameplay/core/moby_instances", 0),
+            }), "unsupported instance provenance does not expose UYA properties");
+        foreach (var game in new[] { "GC", "RC1", "DL" })
+            Equal(14, UyaMobyPropertyService.Describe(entities[0] with
+            {
+                Provenance = new(game, 1, "gameplay/core/moby_instances", 0),
+            })!.Count, $"{game} converted instances expose native properties");
         await ForgeProjectWorkspace.CreateAsync(path, "Placed moby properties",
             new("UYA", "NTSC-U", "1.00", "uya-ntsc-u"),
             new("UYA", "NTSC-U", "1.00", 3, new string('e', 32)), entities);
         await using var runtime = new EditorRuntime(
             mobyPropertyResolver: UyaMobyPropertyService.Describe,
-            mobyPropertyCommandExecutor: UyaMobyPropertyService.ExecuteAsync);
+            mobyPropertyCommandExecutor: UyaMobyPropertyService.ExecuteAsync,
+            placementDiagnosticResolver: UyaMobyPropertyService.PlacementDiagnostics);
         var snapshot = await runtime.OpenAsync(path, TimeSpan.Zero);
         Equal(true, snapshot.Entities.All(entity => entity.MobyProperties?.Count == 14),
             "newly placed mobys expose all native instance properties without source provenance");
+        Equal(2, snapshot.Diagnostics.Count(diagnostic => diagnostic.Code == "moby.pvar-not-generated"),
+            "the UYA adapter supplies PVar placement diagnostics to the neutral runtime");
         var original = snapshot.Entities[0].MobyProperties!.Single(value => value.Key == UyaMobyPropertyService.DrawDistance).Value.Integer;
         snapshot = await runtime.ExecuteAsync(new(Guid.NewGuid().ToString("D"),
             EditorCommandKind.SetMobyInstanceProperty, [entities[0].EntityId],

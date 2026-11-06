@@ -4,6 +4,7 @@ using Forge.Host.Games.GC;
 using Forge.Host.Games.RC1;
 using Forge.Host.Games.UYA;
 using RatchetPs2.Core.Games;
+using RatchetPs2.Sdk;
 
 namespace Forge.Host.Bridge;
 
@@ -17,6 +18,18 @@ internal static class SetupBridgeHandlers
     {
         // PayloadReader is stack-only; finish boundary decoding before awaiting any work.
         var request = Decode(frame);
+        if (frame.Opcode == BridgeOpcode.ListSourceLevels)
+        {
+            await using var iso = new FileStream(
+                request.SourcePath, FileMode.Open, FileAccess.Read, FileShare.Read,
+                64 * 1024, FileOptions.Asynchronous | FileOptions.RandomAccess);
+            cancellationToken.ThrowIfCancellationRequested();
+            var levels = LevelCatalogReader.FindAvailable(request.Game, iso);
+            cancellationToken.ThrowIfCancellationRequested();
+            var writer = new PayloadWriter();
+            writer.WriteUInt32s(levels.Select(level => checked((uint)level)).ToArray());
+            return writer.ToArray();
+        }
         if (frame.Opcode == BridgeOpcode.ValidateSourceIso)
         {
             var identity = await IsoSourceService.ValidateAsync(request.Game, request.SourcePath, progress, cancellationToken);
@@ -58,7 +71,7 @@ internal static class SetupBridgeHandlers
             _ => throw new ArgumentException("Unsupported asset source game."),
         };
         var source = reader.ReadString();
-        var request = frame.Opcode == BridgeOpcode.ValidateSourceIso
+        var request = frame.Opcode is BridgeOpcode.ValidateSourceIso or BridgeOpcode.ListSourceLevels
             ? new SetupRequest(game, source, "", "", "", false)
             : new SetupRequest(game, source, reader.ReadString(), reader.ReadString(), reader.ReadString(), reader.ReadBoolean());
         reader.Complete();

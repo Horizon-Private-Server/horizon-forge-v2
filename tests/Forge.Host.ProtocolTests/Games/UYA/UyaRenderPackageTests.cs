@@ -6,6 +6,7 @@ using RatchetPs2.Core.Games;
 using RatchetPs2.Core.Textures.Pif;
 using RatchetPs2.Core.Textures.Png;
 using RatchetPs2.Core.Wad.Models;
+using RatchetPs2.Sdk;
 
 namespace Forge.Host.ProtocolTests.Games.UYA;
 
@@ -58,6 +59,32 @@ internal static class UyaRenderPackageTests
             Equal(true, cached.CacheHit, "terrain cache hit without source ISO");
             Equal(written.CacheKey, cached.CacheKey, "stable terrain cache key");
             Equal(0, cached.Assets.Count, "sky entities bypass the model render-asset list");
+
+            var occlusionWorkspace = await ForgeProjectWorkspace.OpenAsync(projectPath);
+            var beforeOcclusion = occlusionWorkspace.CaptureState();
+            var importedGrid = OcclusionComposer.CreateGrid(GameId.UYA,
+                new Dictionary<(int, int, int), byte[]> { [(2, 4, 6)] = new byte[128] });
+            var occlusionAsset = await occlusionWorkspace.AttachAssetAsync(AssetKind.World,
+                ProjectOcclusionSchema.SourcePayloadCanonicalFormatVersion,
+                UyaOcclusionImportPayload.Encode(new(new byte[0x10], importedGrid, [1])));
+            occlusionWorkspace.RestoreState(occlusionWorkspace.CaptureState() with
+            {
+                Content = occlusionWorkspace.Content with
+                {
+                    Occlusion = new(ProjectOcclusionSchema.CurrentVersion, 5, new(occlusionAsset.Id, AssetKind.World)),
+                },
+            });
+            await occlusionWorkspace.SaveAsync();
+            await ThrowsAsync<IOException>(() => UyaRenderPackageService.PrepareAsync(request, sdkRevision));
+            var importedOctants = await UyaRenderPackageService.ReadOcclusionOctantsAsync(
+                occlusionWorkspace, [], CancellationToken.None);
+            Equal(1, importedOctants.Count, "imported octants render without reading the base level grid");
+            Equal((2, 4, 6), (importedOctants[0].X, importedOctants[0].Y, importedOctants[0].Z),
+                "scene octants use the imported coordinates");
+            occlusionWorkspace.RestoreState(beforeOcclusion);
+            await occlusionWorkspace.SaveAsync();
+            Equal(true, (await UyaRenderPackageService.PrepareAsync(request, sdkRevision)).CacheHit,
+                "undoing imported occlusion restores the original render cache");
 
             var rejectedSource = Path.Combine(root, "unsupported.iso");
             await File.WriteAllBytesAsync(rejectedSource, UyaIsoSetupTests.CreateSyntheticIso("SCUS_973.53", "NTSC"));
@@ -237,6 +264,43 @@ internal static class UyaRenderPackageTests
             Equal(true, File.Exists(Path.Combine(fullSkyPreview.RootPath, "textures", "tex.0000.png"))
                 && File.Exists(Path.Combine(fullSkyPreview.RootPath, "textures", "tex.0001.png")),
                 "full sky thumbnail source textures");
+
+            var projectSky = await workspace.AttachAssetAsync(
+                AssetKind.Sky, UyaBaseLayerSchema.CanonicalFormatVersion, BuildUyaSkyboxFixture(3));
+            Equal(0, catalog.Query(new(Id: projectSky.Id)).Count, "imported sky is absent from the global catalog");
+            var projectSkyRequest = firstSkyRequest with { AssetId = projectSky.Id, ProjectPath = projectPath, ShellIndex = 2 };
+            var projectSkyPreview = await UyaAssetPreviewService.PrepareAsync(
+                projectSkyRequest, sdkRevision, projectWorkspace: workspace);
+            Equal(true, File.Exists(Path.Combine(projectSkyPreview.RootPath, "textures", "tex.0002.png"))
+                && !File.Exists(Path.Combine(projectSkyPreview.RootPath, "textures", "tex.0000.png")),
+                "project sky preview includes only the selected shell texture");
+            Equal(true, (await UyaAssetPreviewService.PrepareAsync(
+                projectSkyRequest, sdkRevision, projectWorkspace: workspace)).CacheHit, "project sky preview cache hit");
+            var projectFullSkyPreview = await UyaAssetPreviewService.PrepareAsync(
+                projectSkyRequest with { ShellIndex = null }, sdkRevision, projectWorkspace: workspace);
+            using (var projectSkyGltf = JsonDocument.Parse(await File.ReadAllBytesAsync(
+                Path.Combine(projectFullSkyPreview.RootPath, projectFullSkyPreview.ModelPath))))
+                Equal(3, projectSkyGltf.RootElement.GetProperty("meshes").GetArrayLength(), "full project sky preview shells");
+            await ThrowsAsync<InvalidDataException>(() => UyaAssetPreviewService.PrepareAsync(
+                projectSkyRequest with { ShellIndex = 3 }, sdkRevision, projectWorkspace: workspace));
+            await workspace.SaveAsync();
+            var reopenedSkyPreview = await UyaAssetPreviewService.PrepareAsync(
+                projectSkyRequest with { ShellIndex = 1 }, sdkRevision);
+            Equal(true, File.Exists(Path.Combine(reopenedSkyPreview.RootPath, "textures", "tex.0001.png")),
+                "project sky preview resolves the saved project without an active workspace");
+            var replacementSky = await workspace.AttachAssetAsync(
+                AssetKind.Sky, UyaBaseLayerSchema.CanonicalFormatVersion, BuildUyaSkyboxFixture(4), projectSky.Id);
+            await workspace.CommitAssetsAsync(workspace.Content with
+            {
+                AssetOverrides = [new(ProjectAssetOverrideSchema.CurrentVersion,
+                    new(projectSky.Id, AssetKind.Sky), new(replacementSky.Id, AssetKind.Sky))],
+            }, []);
+            var overriddenSkyPreview = await UyaAssetPreviewService.PrepareAsync(
+                projectSkyRequest with { ShellIndex = null }, sdkRevision, projectWorkspace: workspace);
+            Equal(false, overriddenSkyPreview.CacheKey == projectFullSkyPreview.CacheKey, "sky override invalidates the preview cache");
+            using (var overriddenSkyGltf = JsonDocument.Parse(await File.ReadAllBytesAsync(
+                Path.Combine(overriddenSkyPreview.RootPath, overriddenSkyPreview.ModelPath))))
+                Equal(4, overriddenSkyGltf.RootElement.GetProperty("meshes").GetArrayLength(), "sky preview uses the effective project asset");
 
             var emptyShellSkyBytes = BuildUyaSkyboxFixture(2);
             BinaryPrimitives.WriteInt16LittleEndian(emptyShellSkyBytes.AsSpan(0x30), 0);

@@ -94,10 +94,8 @@ internal static class UyaFxContentImportService
                 && value.Revision == "1.00" && value.Level == level
                 && value.Fingerprint.Equals(sourceFingerprint, StringComparison.OrdinalIgnoreCase)))
             throw new InvalidDataException($"Donor FX texture {reference.Id} has no matching {level} source identity.");
-        var path = catalog.ResolveBlobPath(reference.Id)
-            ?? throw new FileNotFoundException($"Donor FX texture blob {reference.Id} is missing.");
         var bytes = await AssetCatalogBlobReader.ReadVerifiedAsync(
-            entry, path, ProjectTextureAssetSchema.MaximumCanonicalBytes, cancellationToken);
+            catalog, entry, ProjectTextureAssetSchema.MaximumCanonicalBytes, cancellationToken);
         var attachedReference = attachments.Attach(
             AssetKind.Texture, ProjectTextureAssetSchema.CanonicalFormatVersion, bytes);
         if (attachedReference != reference)

@@ -1,6 +1,6 @@
 import { Accordion, Button, Checkbox, Group, Slider, Stack, Text } from '@mantine/core';
 import { formatBytes } from '../../utils/Format.ts';
-import { hasOcclusionSeedGraph, needsOcclusionCoverageGeneration } from '../../utils/OcclusionCoverage.ts';
+import { hasOcclusionSeedGraph, isOcclusionCoverageDisabled, needsOcclusionCoverageGeneration } from '../../utils/OcclusionCoverage.ts';
 import { useEditor } from './EditorContext.ts';
 
 export function OcclusionBuildControls() {
@@ -8,8 +8,9 @@ export function OcclusionBuildControls() {
     rebuildOcclusion, previewOcclusionSamples, occlusionSamples, occlusionSamplesStale,
     occlusionSamplePullIn, setOcclusionSamplePullIn, occlusionPixelEdgeAllowance, setOcclusionPixelEdgeAllowance } = useEditor();
   const authored = needsOcclusionCoverageGeneration(coverage.snapshot?.state);
+  const occlusionDisabled = isOcclusionCoverageDisabled(coverage.snapshot?.state);
   const canBuild = !authored || project.capabilities.includes('editor.occlusion-coverage.build');
-  const disabled = busy || coverage.loading || coverage.previewing || occlusionVisibilityLoading || !hostAvailable || project.target.game !== 'UYA';
+  const disabled = occlusionDisabled || busy || coverage.loading || coverage.previewing || occlusionVisibilityLoading || !hostAvailable || project.target.game !== 'UYA';
   const { preview } = coverage;
   const incompleteGraphs = coverage.snapshot?.state.sources.filter(s => s.enabled && hasOcclusionSeedGraph(s) && !s.graph!.markers.length) ?? [];
   return <Stack gap="sm">
@@ -40,7 +41,9 @@ export function OcclusionBuildControls() {
     </Stack>
     <Button fullWidth disabled={disabled || !canBuild || incompleteGraphs.length > 0}
       onClick={() => void rebuildOcclusion()}>Build occlusion</Button>
-    <Text size="xs" c="dimmed">{authored ? 'Build regenerates octants from your volumes.' : 'Build uses the existing Primary octants.'} Generation and qualification are optional checks before building.</Text>
+    <Text size="xs" c="dimmed">{occlusionDisabled
+      ? 'All occlusion is off. Map builds write an empty template without an occlusion bake.'
+      : `${authored ? 'Build regenerates octants from your volumes.' : 'Build uses the existing Primary octants.'} Generation and qualification are optional checks before building.`}</Text>
     {preview && <Text size="xs" role="status">
       {coverage.previewStale ? 'Previous generation (out of date)' : 'Generated coverage'}: {preview.cells.length.toLocaleString()} octants.
       {' '}Inspect the result in the Viewport tab.

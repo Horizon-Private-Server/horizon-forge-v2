@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using Forge.Host.Domain;
 using RatchetPs2.Core.Games;
 using RatchetPs2.Core.Skyboxes;
@@ -64,7 +62,7 @@ internal static class UyaSkyboxContentImportService
 
         var imported = donorShells.Select(value => value with
         {
-            EntityId = new EntityId(StableGuid(
+            EntityId = new EntityId(ContentImportIdentity.SkyOrLightGuid(
                 $"{plan.BatchId}\nentity\nskybox\n{value.SkyShell!.SourceShellIndex}\n{assetId}")),
             Name = $"Imported {value.Name}",
             State = null,
@@ -100,15 +98,5 @@ internal static class UyaSkyboxContentImportService
             removed.Select(value => $"entity:{value}").Order(StringComparer.Ordinal).ToArray(),
             []);
         return new(plan.TargetFingerprint, batch, content, attachment is null ? [] : [attachment]);
-    }
-
-    private static Guid StableGuid(string value)
-    {
-        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(value));
-        Span<byte> guid = stackalloc byte[16];
-        bytes.AsSpan(0, guid.Length).CopyTo(guid);
-        guid[7] = (byte)((guid[7] & 0x0f) | 0x40);
-        guid[8] = (byte)((guid[8] & 0x3f) | 0x80);
-        return new(guid, bigEndian: true);
     }
 }

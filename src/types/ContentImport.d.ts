@@ -1,4 +1,5 @@
 import type { EditorEntityKind } from './EditorRuntime.js';
+import type { AssetSourceGame } from './ForgeApi.js';
 
 export type ContentImportMode = 'unsupported' | 'add' | 'replace' | 'addAndReplace';
 export type ContentImportSourceState = 'unknown' | 'absent' | 'empty' | 'present' | 'malformed';
@@ -61,6 +62,7 @@ export interface ContentImportPlanRequest {
   sourceFingerprint: string;
   sourceLevel: number;
   selections: ContentImportSelection[];
+  sourceGame?: AssetSourceGame;
 }
 
 export interface ContentImportApplyRequest extends ContentImportPlanRequest {

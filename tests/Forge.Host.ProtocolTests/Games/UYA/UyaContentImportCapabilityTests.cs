@@ -168,7 +168,7 @@ internal static class UyaContentImportCapabilityTests
             "bridge enables implemented TIE family");
         Equal(response, BridgePayloadCodec.EncodeContentImportCapabilityMatrix(decoded),
             "bridge matrix bytes are deterministic");
-        Equal("6a41d0c192f263e2d8281e7eefc9c07c522927fe4022af8ff9f037b1da4f0c16",
+        Equal("e401b7e4a5ed0bedd0ae9fadfe1aeb4d29167e0b75f996c321cb9d71e720a35e",
             Convert.ToHexString(SHA256.HashData(response)).ToLowerInvariant(),
             "adapter capability snapshot hash");
 
@@ -176,7 +176,7 @@ internal static class UyaContentImportCapabilityTests
             "/project", "/assets", "/source.iso", new string('a', 32), 40,
             "import-11111111111111111111111111111111",
             [new("ties", (uint)ContentImportMode.Add)],
-            [new(4, "trigger.cuboid", 7, (uint)UyaMobyExternalReferenceAction.Clear, null)]);
+            [new(4, "trigger.cuboid", 7, (uint)ContentImportReferenceAction.Clear, null)]);
         var applyBytes = BridgePayloadCodec.EncodeContentImportApplyRequest(applyRequest);
         var decodedApply = BridgePayloadCodec.DecodeContentImportApplyRequest(applyBytes);
         Equal(applyRequest.BatchId, decodedApply.BatchId, "apply request batch ID");
@@ -207,6 +207,10 @@ internal static class UyaContentImportCapabilityTests
         Equal(removalPlanBytes, BridgePayloadCodec.EncodeContentImportRemovalPlan(decodedRemovalPlan),
             "removal plan bridge bytes");
 
+        Equal(Guid.Parse("fdd8c3eb-21f7-5678-9ef7-1c0540a321c4"), ContentImportIdentity.EntityGuid("import-identity-regression"),
+            "static, Moby, collision, terrain and geometry IDs retain their historical bytes");
+        Equal(Guid.Parse("ebc3d8fd-f721-7846-9ef7-1c0540a321c4"), ContentImportIdentity.SkyOrLightGuid("import-identity-regression"),
+            "sky and light IDs retain their historical bytes");
         await VerifyReadOnlyCatalogAsync();
         VerifyPlanning();
     }
@@ -319,11 +323,42 @@ internal static class UyaContentImportCapabilityTests
             sources, target,
             [new("ties", ContentImportMode.Add), new("cuboids", ContentImportMode.Replace)]);
         var plan = UyaContentImportPlanningService.CreatePlan(input);
+        var mobyInput = input with
+        {
+            Selections = [new("mobys", ContentImportMode.Replace)],
+            SourceFamilies = sources.Select(family => family.Family == "mobys"
+                ? new UyaContentImportSourceFamily("mobys", ContentImportSourceState.Present,
+                    [new("source:mobys:0")], 16) : family).ToArray(),
+            Target = target with
+            {
+                Entities = target.Entities.Select(entity => entity.EntityId == mobyAId
+                    ? entity with { State = new(Locked: true) } : entity).ToArray(),
+            },
+        };
+        var protectedMobys = PlanFamily(UyaContentImportPlanningService.CreatePlan(mobyInput), "mobys");
+        Equal(2, protectedMobys.Protect.Count, "protected Moby retains its PVar reference target through cycles");
+        Equal(0, protectedMobys.Remove.Count, "protected Moby dependencies cannot be removed");
+        Equal(2, PlanFamily(UyaContentImportPlanningService.CreatePlan(mobyInput with { Target = target }), "mobys").Remove.Count,
+            "an unprotected Moby cycle can still be replaced together");
         var repeated = UyaContentImportPlanningService.CreatePlan(input with
         {
             Selections = input.Selections.Reverse().ToArray(),
         });
         Equal(plan.BatchId, repeated.BatchId, "selection order does not change stable batch ID");
+        var reordered = UyaContentImportPlanningService.CreatePlan(input with
+        {
+            SourceFamilies = input.SourceFamilies.Select(family => family with
+                { Items = family.Items.Reverse().ToArray() }).ToArray(),
+        });
+        Equal(plan.BatchId, reordered.BatchId, "source item order does not change the batch ID");
+        var changedAssets = UyaContentImportPlanningService.CreatePlan(input with
+        {
+            SourceFamilies = input.SourceFamilies.Select(family => family.Family == "ties" ? family with
+                { Items = family.Items.Select(item => item with { AssetId = new string('e', 64) }).ToArray() } : family).ToArray(),
+        });
+        Equal(false, plan.BatchId == changedAssets.BatchId, "resolved donor asset changes invalidate approval");
+        var changedCatalog = UyaContentImportPlanningService.CreatePlan(input with { SourceCatalogRevision = "updated" });
+        Equal(false, plan.BatchId == changedCatalog.BatchId, "catalog metadata changes invalidate approval");
         Equal(40, plan.SourceLevel, "level40 donor fixture");
         Equal(41, plan.TargetLevel, "level41 target fixture");
         Equal(448L, plan.EstimatedBytes, "selected family byte estimate");
@@ -667,9 +702,21 @@ internal static class UyaContentImportCapabilityTests
             SourceFamilies = occlusionFamilies,
             Selections = [new("occlusion", ContentImportMode.Replace)],
         });
-        Equal(3, PlanFamily(occlusionOnly, "occlusion").Blockers.Count(value =>
-                value.Contains("selected in replace mode", StringComparison.Ordinal)),
-            "occlusion requires complete TIE, Moby, and tfrag replacement");
+        Equal(Array.Empty<string>(), PlanFamily(occlusionOnly, "occlusion").Blockers.ToArray(),
+            "occlusion can be replaced without importing any other family");
+        Equal(true, occlusionOnly.Families.Where(value => value.Family != "occlusion")
+            .All(value => !value.Selected), "occlusion does not automatically select other families");
+        foreach (var mode in new[] { ContentImportMode.Add, ContentImportMode.Replace })
+        {
+            var independent = UyaContentImportPlanningService.CreatePlan(input with
+            {
+                SourceFamilies = sources.Select(value => value.Family == "occlusion"
+                    ? occlusionFamilies.Single(family => family.Family == "occlusion") : value).ToArray(),
+                Selections = [new("ties", mode), new("occlusion", ContentImportMode.Replace)],
+            });
+            Equal(Array.Empty<string>(), PlanFamily(independent, "occlusion").Blockers.ToArray(),
+                "occlusion accepts partial imports and protected target TIEs");
+        }
 
         var request = new ContentImportPlanRequestPayload(
             "project", "catalog", "source.iso", new string('a', 32), 40,

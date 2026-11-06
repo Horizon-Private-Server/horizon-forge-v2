@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron';
 
 import type {
-  EditorCommand, EditorSnapshot, EditorInstancedCollisionGenerationSettings,
+  AssetSourceGame, EditorCommand, EditorSnapshot, EditorInstancedCollisionGenerationSettings,
 } from '../types/ForgeApi.js';
 import type { ContentImportSelection } from '../types/ContentImport.js';
 import {
@@ -10,7 +10,7 @@ import {
 import { applyEditorCommandResult } from '../utils/EditorCommandResult.js';
 import { isOcclusionCoverageFingerprint, isOcclusionCoverageState } from '../utils/OcclusionCoverage.js';
 import { fileExists } from '../utils/FileSystem.js';
-import { formatUyaLevelLabel } from '../utils/UyaLevels.js';
+import { formatSourceLevelLabel } from '../utils/SourceLevels.js';
 import { setEditorMenuState, setEditorTextInputActive } from './ApplicationMenu.js';
 import type { SettingsStore } from './Settings.js';
 import type { HostClient } from './bridge/HostClient.js';
@@ -129,22 +129,26 @@ export function registerEditorIpcHandlers(
     updateSnapshot(result.project);
     return result;
   });
-  ipcMain.handle('forge:content-import-options', async (event) => {
+  ipcMain.handle('forge:content-import-options', async (event, game: unknown) => {
     assertSender(event.sender.id);
     requireContentImportSnapshot(activeSnapshot);
-    const { sourceIsoPath } = await contentImportSource(getSettingValues);
-    const options = await (await host.listUyaProjectLevels(sourceIsoPath)).result;
+    if (game !== 'RC1' && game !== 'GC' && game !== 'UYA' && game !== 'DL')
+      throw new TypeError('Unsupported content import source game.');
+    const { sourceIsoPath } = await contentImportSource(getSettingValues, game);
+    const levels = await (await host.listSourceLevels(game, sourceIsoPath)).result;
     return {
-      levels: options.levels.map((level) => ({ value: level, label: formatUyaLevelLabel(level) })),
-      warnings: options.warnings,
+      levels: levels.map((level) => ({ value: level, label: formatSourceLevelLabel(game, level) })),
+      warnings: [],
     };
   });
-  ipcMain.handle('forge:content-import-plan', async (event, sourceLevel: unknown, selections: unknown) => {
+  ipcMain.handle('forge:content-import-plan', async (event, sourceLevel: unknown, selections: unknown, sourceGame: unknown = 'UYA') => {
     assertSender(event.sender.id);
     const snapshot = requireContentImportSnapshot(activeSnapshot);
     assertContentImportLevel(sourceLevel);
     assertContentImportSelections(selections);
-    const source = await contentImportSource(getSettingValues);
+    if (sourceGame !== 'UYA' && sourceGame !== 'GC' && sourceGame !== 'RC1' && sourceGame !== 'DL')
+      throw new TypeError('Unsupported content preview source game.');
+    const source = await contentImportSource(getSettingValues, sourceGame);
     if (activeContentImportRequestId !== undefined) await host.cancel(activeContentImportRequestId);
     const request = await host.planContentImport({
       projectPath: snapshot.projectPath,
@@ -152,6 +156,7 @@ export function registerEditorIpcHandlers(
       ...source,
       sourceLevel: Number(sourceLevel),
       selections,
+      sourceGame,
     }, (progress) => event.sender.send('forge:content-import-progress', progress));
     activeContentImportRequestId = request.requestId;
     try { return await request.result; }
@@ -165,6 +170,7 @@ export function registerEditorIpcHandlers(
     batchId: unknown,
     selections: unknown,
     referenceChoices: unknown,
+    sourceGame: unknown = 'UYA',
   ) => {
     assertSender(event.sender.id);
     const snapshot = requireContentImportSnapshot(activeSnapshot);
@@ -173,7 +179,11 @@ export function registerEditorIpcHandlers(
       throw new TypeError('Import batch ID is invalid.');
     assertContentImportSelections(selections);
     assertContentImportReferenceChoices(referenceChoices);
-    const source = await contentImportSource(getSettingValues);
+    if (sourceGame !== 'UYA' && sourceGame !== 'GC' && sourceGame !== 'RC1' && sourceGame !== 'DL')
+      throw new TypeError('Unsupported content import source game.');
+    if ((sourceGame === 'GC' || sourceGame === 'RC1' || sourceGame === 'DL') && selections.some(selection => selection.mode !== 'replace'))
+      throw new TypeError(`${sourceGame} content importing supports replacement selections only.`);
+    const source = await contentImportSource(getSettingValues, sourceGame);
     if (activeContentImportRequestId !== undefined) await host.cancel(activeContentImportRequestId);
     const request = await host.applyContentImport({
       projectPath: snapshot.projectPath,
@@ -183,6 +193,7 @@ export function registerEditorIpcHandlers(
       batchId,
       selections,
       referenceChoices,
+      sourceGame,
     }, (progress) => event.sender.send('forge:content-import-progress', progress));
     activeContentImportRequestId = request.requestId;
     try { return updateSnapshot(await request.result); }
@@ -382,12 +393,14 @@ function assertContentImportReferenceChoices(
 
 async function contentImportSource(
   getSettingValues: () => Promise<Record<string, string | number | boolean>>,
+  game: AssetSourceGame = 'UYA',
 ): Promise<{ sourceIsoPath: string; sourceFingerprint: string }> {
   const values = await getSettingValues();
-  const sourceIsoPath = String(values['sources.uya.iso'] ?? '');
-  const sourceFingerprint = String(values['sources.uya.fingerprint'] ?? '');
+  const key = game.toLowerCase();
+  const sourceIsoPath = String(values[`sources.${key}.iso`] ?? '');
+  const sourceFingerprint = String(values[`sources.${key}.fingerprint`] ?? '');
   if (!sourceIsoPath || !sourceFingerprint || !await fileExists(sourceIsoPath))
-    throw new Error('Select and validate the UYA source ISO in Setup first.');
+    throw new Error(`Select and validate the ${game} source ISO in Setup first.`);
   return { sourceIsoPath, sourceFingerprint };
 }
 

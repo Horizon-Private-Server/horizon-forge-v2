@@ -17,6 +17,41 @@ internal static class Program
     {
         try
         {
+            if (args is ["--tie-instance-capacity"])
+            {
+                UyaTieInstanceCapacityTests.Run();
+                return 0;
+            }
+            if (args is ["--dl-content"])
+            {
+                await DlContentImportTests.RunAsync();
+                return 0;
+            }
+            if (args is ["--qualify-dl-content", var dlContentIso, var dlContentCatalog])
+            {
+                await DlContentImportQualificationTests.QualifyAsync(dlContentIso, dlContentCatalog);
+                return 0;
+            }
+            if (args is ["--qualify-dl-content", var dlLevelIso, var dlLevelCatalog, var dlLevel])
+            {
+                await DlContentImportQualificationTests.QualifyAsync(dlLevelIso, dlLevelCatalog, int.Parse(dlLevel));
+                return 0;
+            }
+            if (args is ["--qualify-rc1-content", var rc1ContentIso, var rc1ContentCatalog])
+            {
+                await Rc1ContentImportQualificationTests.QualifyAsync(rc1ContentIso, rc1ContentCatalog);
+                return 0;
+            }
+            if (args is ["--qualify-gc-content", var contentIso, var contentCatalog])
+            {
+                await GcContentImportQualificationTests.QualifyAsync(contentIso, contentCatalog);
+                return 0;
+            }
+            if (args is ["--qualify-gc-content", var contentLevelIso, var contentLevelCatalog, var contentLevel])
+            {
+                await GcContentImportQualificationTests.QualifyAsync(contentLevelIso, contentLevelCatalog, int.Parse(contentLevel));
+                return 0;
+            }
             if (args is ["--qualify-uya-moby-lookups", var lookupIso])
             {
                 await UyaMobyClassLookupTests.QualifyAsync(lookupIso);
@@ -62,12 +97,16 @@ internal static class Program
                 await Rc1AssetImportTests.RunAsync();
                 await Rc1AssetPlacementTests.RunAsync();
                 await Rc1MipmapRepairTests.RunAsync();
+                await Rc1ContentImportTests.RunAsync();
                 return 0;
             }
             if (args is ["--gc-assets"])
             {
                 await GcAssetImportTests.RunAsync();
                 await GcAssetPlacementTests.RunAsync();
+                await GcContentImportPreviewTests.RunAsync();
+                await GcContentImportReplacementTests.RunAsync();
+                await GcLevelSettingsContentImportTests.RunAsync();
                 return 0;
             }
             if (args is ["--qualify-dl-assets", var dlIso, var dlCatalog])
@@ -142,6 +181,7 @@ internal static class Program
             await UyaDlAssetResourceTests.RunAsync();
             await UyaConvertedMobyClassTests.RunAsync();
             UyaMobyClassLookupTests.Run();
+            UyaTieInstanceCapacityTests.Run();
             UyaMobyLodTests.Run();
             await ForgeProjectTests.RunAsync();
             await ForgeProjectSnapshotTests.RunAsync();
@@ -188,6 +228,11 @@ internal static class Program
             await UyaCustomTieClassTests.RunAsync();
             await UyaCustomTieProjectTests.RunAsync();
             await UyaContentImportCapabilityTests.RunAsync();
+            await GcContentImportPreviewTests.RunAsync();
+            await GcContentImportReplacementTests.RunAsync();
+            await GcLevelSettingsContentImportTests.RunAsync();
+            await Rc1ContentImportTests.RunAsync();
+            await DlContentImportTests.RunAsync();
             await UyaStaticContentImportTests.RunAsync();
             await UyaMobyContentImportTests.RunAsync();
             await UyaCollisionContentImportTests.RunAsync();

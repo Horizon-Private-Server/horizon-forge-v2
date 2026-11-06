@@ -313,6 +313,19 @@ export class HostClient {
     return { requestId: request.requestId, result: request.result.then(decodeAssetImportResult) };
   }
 
+  async listSourceLevels(game: AssetSourceGame, sourceIsoPath: string): Promise<HostRequest<number[]>> {
+    const writer = new PayloadWriter();
+    writer.writeString(game);
+    writer.writeString(sourceIsoPath);
+    const request = await this.#request(BridgeOpcode.ListSourceLevels, writer.toBuffer());
+    return { requestId: request.requestId, result: request.result.then((payload) => {
+      const reader = new PayloadReader(payload);
+      const levels = reader.readUInt32s();
+      reader.complete();
+      return levels;
+    }) };
+  }
+
   async listUyaProjectLevels(sourceIsoPath: string): Promise<HostRequest<UyaProjectOptions>> {
     const request = await this.#request(BridgeOpcode.ListUyaProjectLevels, encodeText(sourceIsoPath));
     return { requestId: request.requestId, result: request.result.then(decodeUyaProjectOptions) };

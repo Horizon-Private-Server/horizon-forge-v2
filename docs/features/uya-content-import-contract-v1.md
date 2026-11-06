@@ -34,7 +34,7 @@ not infer support from visible entities, catalog rows, or renderer code.
 | `directionalLights` | replace | No | Ready | M16-008 whole-array replacement/tie selector validation |
 | `hud` | replace | No | Ready | Whole header/bank attachment and deterministic HUD composition |
 | `fx` | replace | No | Ready | Whole-bank attached textures and SDK asset-WAD relocation |
-| `occlusion` | replace | No | Ready | Whole donor mapping/grid/level payload; requires complete TIE/Moby/tfrag replacement |
+| `occlusion` | replace | No | Ready | Whole donor mapping/grid/level payload; selectable independently of other content families |
 | `opaqueContent` | unsupported | No | Hidden | Dependency-safe remap is unprovable |
 
 The runtime entry carries `implementationReady`, `selectable`,
@@ -81,6 +81,9 @@ important boundaries are:
   own transforms, attached collision, groups, occlusion/ambient state, and typed links.
   Replacing an instance removes exclusively attached collision and detaches it from shared
   collision pieces. Class conflicts are resolved only after content identity is known.
+  UYA retains its native limit of 4,095 TIE instances across the entire map. Packing
+  rejects maps above that count rather than patching the runtime or silently losing
+  instances. Occlusion does not increase this limit.
 - A tfrag selection carries complete native primary or streamed owner groups, all
   three LODs, texture/material records, and occlusion mappings. The project-local
   custom-tfrag path proves primary-group generation but is not donor-owner import.

@@ -49,6 +49,14 @@ internal static partial class UyaBaseLevelService
 
         var package = UyaLevelWadUnpacker.Unpack(levelWad);
 
+        return Prepare(levelWad, package, catalog, level, cancellationToken);
+    }
+
+    private static PreparedBase Prepare(
+        byte[] levelWad, UyaLevelWadPackage package, AssetCatalogStore catalog,
+        int level, CancellationToken cancellationToken)
+    {
+
         cancellationToken.ThrowIfCancellationRequested();
 
         var files = package.Files.ToDictionary(file => file.Path, StringComparer.Ordinal);

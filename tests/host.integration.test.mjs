@@ -93,6 +93,16 @@ test('host handshake, echo, progress, cancellation, crash recovery, and concurre
   assert.ok(copyProgress.length > 0);
   const invalidGame = await client.validateSourceIso('Unknown', copySource);
   await assert.rejects(invalidGame.result, error => error.code === BridgeErrorCode.InvalidInput);
+  const gcLevelsPath = path.join(copyDirectory, 'gc-levels.iso');
+  const gcLevels = Buffer.alloc(0x1F97F8 + 27 * 0x18);
+  for (const tableIndex of [1, 21]) {
+    gcLevels.writeInt32LE(0x100, 0x1F97F8 + tableIndex * 0x18);
+    gcLevels.writeInt32LE(1, 0x1F97F8 + tableIndex * 0x18 + 4);
+  }
+  await writeFile(gcLevelsPath, gcLevels);
+  assert.deepEqual(await (await client.listSourceLevels('GC', gcLevelsPath)).result, [1, 30]);
+  const invalidLevelGame = await client.listSourceLevels('Unknown', gcLevelsPath);
+  await assert.rejects(invalidLevelGame.result, error => error.code === BridgeErrorCode.InvalidInput);
   const dlImport = await client.importAssets('DL', copySource, path.join(copyDirectory, 'assets'), '0'.repeat(32), '1.00');
   await assert.rejects(dlImport.result, error => error instanceof HostOperationError && error.code === BridgeErrorCode.Conflict);
 

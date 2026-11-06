@@ -118,10 +118,25 @@ re-import RC1 in Setup, reopen and save existing projects, and rebuild the map.
 Existing placements recover the missing mips while preserving model and texture edits.
 
 Models exceeding UYA's packet or lighting limits report a conversion error before
-changing the project. Retail RC1 TIE `0x05DE` exceeds the lighting-group limit;
-it can be browsed but cannot currently be placed as a single UYA TIE.
-Publish and tag the matching RC1 SDK changes and update `ratchet-sdk.version`
+changing the project. Oversized RC1 models such as TIE `0x05DE` are split into native UYA Ties during map-content importing,
+retaining all three LODs, lighting, map groups, and occlusion. Preview counts the resulting
+placements and reports the split. Individual asset placement still requires one native TIE.
+Publish and tag the matching SDK changes and update `ratchet-sdk.version`
 before publishing Forge; development builds can use the sibling SDK checkout.
+GC, RC1, and DL map-content importing also require the SDK's `LevelContentInventoryReader`
+and `LevelContentConverter` entry points. Select a donor game in Import map content,
+preview the selected replacement families, and apply them to the active UYA project
+through one undoable transaction. Mobys retain raw PVars and native link data;
+donor gameplay behavior is not translated into UYA. GC imports background/fog
+settings while retaining the target scene. RC1 and DL also import their scene settings;
+ship paths and camera cuboids map automatically when their geometry is selected,
+otherwise preview requires an explicit target or clear choice.
+Retail map-content availability can be checked without editing existing projects
+with the protocol test runner's `--qualify-gc-content <gc-iso> <catalog-root>` option.
+Use `--qualify-rc1-content <rc1-iso> <catalog-root>` for RC1 or
+`--qualify-dl-content <dl-iso> <catalog-root>` for DL. DL imports the resident core
+gameplay and world instances, including streamed terrain and collision; mission-specific
+Moby instances and mission behavior are not merged into the target. Unconvertible model data blocks the affected family with a diagnostic before import.
 
 ## Project planning
 

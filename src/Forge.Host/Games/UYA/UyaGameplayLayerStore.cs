@@ -1,5 +1,4 @@
 using Forge.Host.Domain;
-using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text.Json;
 using RatchetPs2.Core.Gameplay;
@@ -455,8 +454,8 @@ public static class UyaGameplayLayerStore
             .Select(value =>
             {
                 var collision = Shape(value)!.CameraCollision!;
-                var provenance = value.Provenance is { Game: "UYA" } source
-                    ? source
+                var provenance = UyaNativeContentCompatibility.Supports(value.Provenance)
+                    ? value.Provenance!
                     : throw new InvalidDataException($"{value.Name} has camera-collision metadata without UYA provenance.");
                 return new UyaCameraCollisionPrimitiveEdit(
                     CameraCollisionType(value),
@@ -664,9 +663,9 @@ public static class UyaGameplayLayerStore
         if (link.Reference?.EntityId is not { } id) return link.SourceIndex;
         var target = workspace.Content.Entities.SingleOrDefault(value => value.EntityId == id);
         if (target is null || ProjectReferences.KindOf(target) != kind
-            || target.Provenance is not { Game: "UYA", SourceIndex: >= 0 } provenance)
+            || !UyaNativeContentCompatibility.Supports(target.Provenance) || target.Provenance!.SourceIndex < 0)
             throw new InvalidDataException($"Area reference {link.Reference.FieldKey} cannot resolve {id}.");
-        return provenance.SourceIndex;
+        return target.Provenance!.SourceIndex;
     }).ToArray();
 
     private static bool EquivalentArea(
@@ -689,14 +688,9 @@ public static class UyaGameplayLayerStore
                 .SequenceEqual(source.NegativeCuboidIndices);
     }
 
-    private static byte[] GrindPathRecord(ProjectGrindPathGeometry geometry)
-    {
-        var result = new byte[0x20];
-        BinaryPrimitives.WriteInt32LittleEndian(result.AsSpan(0x10), geometry.Unknown4);
-        BinaryPrimitives.WriteInt32LittleEndian(result.AsSpan(0x14), geometry.Wrap);
-        BinaryPrimitives.WriteInt32LittleEndian(result.AsSpan(0x18), geometry.Inactive);
-        return result;
-    }
+    private static byte[] GrindPathRecord(ProjectGrindPathGeometry geometry) =>
+        RatchetPs2.Sdk.GameplayInstanceConverter.CreateGrindPathRecord(RatchetPs2.Core.Games.GameId.UYA,
+            geometry.Unknown4, geometry.Wrap, geometry.Inactive);
 
     private static UyaVector4 Vector(ProjectVector4 value) =>
         new(value.X, value.Y, value.Z, value.W);

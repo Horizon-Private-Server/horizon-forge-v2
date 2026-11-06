@@ -117,7 +117,8 @@ public sealed record ContentImportPlanRequestPayload(
     string SourceIsoPath,
     string SourceFingerprint,
     uint SourceLevel,
-    IReadOnlyList<ContentImportSelectionPayload> Selections);
+    IReadOnlyList<ContentImportSelectionPayload> Selections,
+    string SourceGame = "UYA");
 public sealed record ContentImportApplyRequestPayload(
     string ProjectPath,
     string CatalogRootPath,
@@ -126,7 +127,8 @@ public sealed record ContentImportApplyRequestPayload(
     uint SourceLevel,
     string BatchId,
     IReadOnlyList<ContentImportSelectionPayload> Selections,
-    IReadOnlyList<ContentImportReferenceChoicePayload> ReferenceChoices);
+    IReadOnlyList<ContentImportReferenceChoicePayload> ReferenceChoices,
+    string SourceGame = "UYA");
 public sealed record ContentImportFamilyPlanPayload(
     string Family,
     string Label,

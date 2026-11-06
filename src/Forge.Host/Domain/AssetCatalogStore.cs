@@ -17,17 +17,16 @@ public sealed partial class AssetCatalogStore
     private readonly ConcurrentDictionary<string, byte> _verifiedBlobs = new(StringComparer.Ordinal);
     private volatile AssetCatalogSnapshot _snapshot;
 
-    private AssetCatalogStore(string rootPath, AssetCatalogSnapshot snapshot)
+    private AssetCatalogStore(string? rootPath, AssetCatalogSnapshot snapshot)
     {
-        RootPath = rootPath;
-        BlobRootPath = Path.Combine(rootPath, "blobs");
-        CatalogPath = Path.Combine(rootPath, "catalog-v0.json");
+        _rootPath = rootPath;
         _snapshot = snapshot;
     }
 
-    public string RootPath { get; }
-    public string BlobRootPath { get; }
-    public string CatalogPath { get; }
+    private readonly string? _rootPath;
+    public string RootPath => _rootPath ?? throw new InvalidOperationException("Transient catalogs have no filesystem path.");
+    public string BlobRootPath => Path.Combine(RootPath, "blobs");
+    public string CatalogPath => Path.Combine(RootPath, "catalog-v0.json");
     internal string Revision => _snapshot.Revision;
 
     public async Task<AssetCatalogEntry> PutAsync(
@@ -45,6 +44,7 @@ public sealed partial class AssetCatalogStore
         ArgumentNullException.ThrowIfNull(assets);
         if (assets.Count == 0) return [];
         foreach (var asset in assets) ValidateMetadata(asset.Kind, asset.Metadata);
+        if (_transientBlobs is not null) return await PutTransientAsync(assets, cancellationToken);
 
         await _writes.WaitAsync(cancellationToken);
         try
@@ -155,6 +155,7 @@ public sealed partial class AssetCatalogStore
     public string? ResolveBlobPath(AssetId id)
     {
         if (!_snapshot.Entries.ContainsKey(id.ToString())) return null;
+        if (_transientBlobs is not null) return _fallback!.ResolveBlobPath(id);
         var path = BlobPath(id);
         return File.Exists(path) ? path : null;
     }

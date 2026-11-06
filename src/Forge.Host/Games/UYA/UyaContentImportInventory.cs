@@ -94,13 +94,13 @@ internal static partial class UyaContentImportPlanningService
             ?? throw new InvalidDataException("The donor occlusion payload is absent.");
         var mappings = UyaOcclusionMappingsReader.Read(occlusion.GameplayMappings);
         var tieCount = source.Entities.Count(value => value.Layer == "ties");
-        var mobyCount = source.Entities.Count(value => value.Layer == "mobys");
-        var tfragCount = source.Tfrags.State.Sources.SingleOrDefault(value =>
-            value.SourceKind == ProjectTfragSourceKind.Primary && value.SourceIndex == 0)?.GroupCount ?? 0;
-        if (mappings.Ties.Count != tieCount || mappings.Mobys.Count != mobyCount
-            || mappings.Tfrags.Count != tfragCount)
-            throw new InvalidDataException(
-                "Gameplay mappings do not match the donor TIE, Moby, and primary tfrag inventories.");
+        if (mappings.Ties.Count != tieCount)
+            throw new InvalidDataException($"Gameplay has {mappings.Ties.Count} TIE mappings for {tieCount} instances.");
+        if (mappings.Tfrags.Concat(mappings.Ties).Concat(mappings.Mobys).Any(value => value.BitIndex is < -1 or >= 1024))
+            throw new InvalidDataException("Gameplay mapping visibility bits are outside the 1024-bit grid.");
+        if (source.Tfrags.Entities.FirstOrDefault(entity => entity.Tfrag is { OcclusionIndexStash: 0 } piece
+                && (piece.OcclusionIndex < -1 || piece.OcclusionIndex >= mappings.Tfrags.Count)) is { } missingTerrain)
+            throw new InvalidDataException($"Terrain group {missingTerrain.Name} references missing mapping {missingTerrain.Tfrag!.OcclusionIndex}.");
     }
 
     private static UyaContentImportSourceItem[] MapGroups(

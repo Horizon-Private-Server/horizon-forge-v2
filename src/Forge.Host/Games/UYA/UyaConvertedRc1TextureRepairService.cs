@@ -1,8 +1,6 @@
 using Forge.Host.Domain;
 using Forge.Host.Games.RC1;
 using RatchetPs2.Core.Games;
-using RatchetPs2.Core.Textures.Palettes;
-using RatchetPs2.Core.Textures.Pif;
 using RatchetPs2.Sdk;
 
 namespace Forge.Host.Games.UYA;
@@ -47,17 +45,7 @@ internal static class UyaConvertedRc1TextureRepairService
     {
         if (updated.Game != original.Game || !updated.DefinitionBytes.AsSpan().SequenceEqual(original.DefinitionBytes)
             || !updated.ModelBytes.AsSpan().SequenceEqual(original.ModelBytes) || updated.Textures.Count != original.Textures.Count) return false;
-        for (var index = 0; index < original.Textures.Count; index++)
-        {
-            if (original.Textures[index].Role != updated.Textures[index].Role) return false;
-            var before = PifReader.Read(original.Textures[index].PifBytes);
-            var after = PifReader.Read(updated.Textures[index].PifBytes);
-            if (before.Encoding != after.Encoding || before.IsSwizzled != after.IsSwizzled
-                || before.Header.USize != after.Header.USize || before.Header.VSize != after.Header.VSize
-                || !before.PaletteData.AsSpan().SequenceEqual(after.PaletteData)
-                || !before.PixelData.AsSpan().SequenceEqual(after.PixelData)) return false;
-        }
-        return true;
+        return LevelAssetModelConverter.MatchesTextureBaseUpdate(original.Game, original.Textures, updated.Textures);
     }
 
     public static async Task<EditorDiagnostic?> HydrateAsync(ForgeProjectWorkspace workspace, AssetCatalogStore catalog, CancellationToken token)
@@ -111,21 +99,8 @@ internal static class UyaConvertedRc1TextureRepairService
 
     private static byte[]? RepairTextures(CatalogModel source, CatalogModel updated, CatalogModel native, CancellationToken token)
     {
-        if (native.Textures.Count != source.Textures.Count) return null;
-        var textures = native.Textures.ToArray();
-        var changed = false;
-        for (var index = 0; index < textures.Length; index++)
-        {
-            token.ThrowIfCancellationRequested();
-            var previous = source.Textures[index];
-            if (previous.Role != textures[index].Role) continue;
-            var expected = LevelAssetModelConverter.ConvertTexture(GameId.RC1, GameId.UYA, previous.PifBytes, (TextureRole)previous.Role);
-            if (!expected.AsSpan().SequenceEqual(textures[index].PifBytes)) continue;
-            var corrected = LevelAssetModelConverter.ConvertTexture(GameId.RC1, GameId.UYA, updated.Textures[index].PifBytes, (TextureRole)previous.Role);
-            if (corrected.AsSpan().SequenceEqual(expected)) continue;
-            textures[index] = textures[index] with { PifBytes = corrected };
-            changed = true;
-        }
-        return changed ? UyaCanonicalAssetCodec.Encode(native.DefinitionBytes, native.ModelBytes, textures) : null;
+        var textures = LevelAssetModelConverter.RepairTextureUpdate(GameId.RC1, GameId.UYA,
+            source.Textures, updated.Textures, native.Textures, token);
+        return textures is null ? null : UyaCanonicalAssetCodec.Encode(native.DefinitionBytes, native.ModelBytes, textures);
     }
 }

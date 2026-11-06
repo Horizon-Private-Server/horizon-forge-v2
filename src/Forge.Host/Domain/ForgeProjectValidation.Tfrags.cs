@@ -147,7 +147,7 @@ internal static partial class ForgeProjectValidation
                 || attachedAsset.Kind != AssetKind.Tfrag
                 || attachedAsset.CanonicalFormatVersion != ProjectTfragSchema.CanonicalFormatVersion)
                 throw new InvalidDataException($"Tfrag entity {entity.EntityId} has an invalid canonical asset.");
-            if (entity.Provenance is not { Game: "UYA" } provenance
+            if (entity.Provenance is not { } provenance
                 || provenance.Section != piece.SourceArchive
                 || provenance.SourceIndex != piece.GroupIndex)
                 throw new InvalidDataException($"Tfrag entity {entity.EntityId} provenance is inconsistent.");

@@ -124,7 +124,7 @@ internal static class UyaTfragContentImportService
                 var canonical = sourceAttachments[donor.Asset!.Id];
                 attachments.TryAdd(donor.Asset.Id, canonical);
                 var groupIndex = nextGroup++;
-                var entityId = new EntityId(StableGuid($"{ownerId}\npiece\n{donor.Tfrag!.GroupIndex}\n{donor.Asset.Id}"));
+                var entityId = new EntityId(ContentImportIdentity.EntityGuid($"{ownerId}\npiece\n{donor.Tfrag!.GroupIndex}\n{donor.Asset.Id}"));
                 pieceIds.Add(entityId);
                 var occurrenceKey = Hash($"{ownerId}\noccurrence\n{donor.Tfrag.GroupIndex}");
                 var importedPiece = donor with
@@ -185,6 +185,9 @@ internal static class UyaTfragContentImportService
                 Members = value.Members.Where(retainedIds.Contains).ToArray(),
             }).ToArray(),
             Tfrags = tfrags,
+            InstancedCollisionBindings = workspace.Content.InstancedCollisionBindings
+                .Where(value => value.InstanceEntityId is null || !removed.Contains(value.InstanceEntityId.Value))
+                .ToArray(),
         };
         var newAttachments = attachments.Where(value => !existingAssets.Contains(value.Key)).ToArray();
         var added = imported.Select(value => $"entity:{value.EntityId}")
@@ -229,12 +232,4 @@ internal static class UyaTfragContentImportService
 
     private static string Hash(string value) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
-
-    private static Guid StableGuid(string value)
-    {
-        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(value))[..16];
-        bytes[7] = (byte)((bytes[7] & 0x0f) | 0x50);
-        bytes[8] = (byte)((bytes[8] & 0x3f) | 0x80);
-        return new(bytes);
-    }
 }

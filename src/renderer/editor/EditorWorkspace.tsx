@@ -162,6 +162,9 @@ export function EditorWorkspace({
     .map((entity) => `${entity.id}:${entity.asset!.id}:${entity.tfrag!.sourceIndex}:${entity.tfrag!.groupIndex}:`
       + `${entity.tfrag!.sourcePosition?.x}:${entity.tfrag!.sourcePosition?.y}:${entity.tfrag!.sourcePosition?.z}`)
     .join('|'), [project.entities]);
+  const occlusionImportRevision = project.importBatches
+    .filter(batch => batch.families.some(family => family.family === 'occlusion'))
+    .map(batch => batch.id).join('|');
 
   useEffect(() => {
     try {
@@ -218,7 +221,7 @@ export function EditorWorkspace({
       stopProgress();
       void window.forge.cancelEditorTerrain();
     };
-  }, [customTfragRevision, project.projectId, renderRevision]);
+  }, [customTfragRevision, occlusionImportRevision, project.projectId, renderRevision]);
 
 
   useEffect(() => {
@@ -376,7 +379,7 @@ export function EditorWorkspace({
   coverageIdentity.current = coverage.snapshot;
   const { visibility: occlusionVisibility, loading: occlusionVisibilityLoading, warning: occlusionVisibilityWarning,
     error: occlusionVisibilityError, reload: reloadOcclusionVisibility } = useOcclusionVisibility(
-      project, coverage, Boolean(hostStatus), busy, occlusionBakeRevision);
+      project, coverage, Boolean(hostStatus), busy, occlusionBakeRevision, occlusionImportRevision);
   const sampleSceneKey = useMemo(() => occlusionSampleSceneKey(project, renderRevision, occlusionSamplePullIn, coverage.snapshot?.recipeFingerprint),
     [project.projectId, project.entities, project.target, project.customModels, renderRevision, occlusionSamplePullIn, coverage.snapshot?.recipeFingerprint]);
   const occlusionSamplesStale = Boolean(samplePreview && samplePreview.sceneKey !== sampleSceneKey);

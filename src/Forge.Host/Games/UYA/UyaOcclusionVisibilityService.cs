@@ -15,6 +15,12 @@ internal static class UyaOcclusionVisibilityService
     {
         var workspace = await ForgeProjectWorkspace.OpenAsync(projectRoot, token);
         if (workspace.Manifest.Target.Game != "UYA") throw new NotSupportedException("Occlusion preview currently supports UYA.");
+        if (workspace.Content.OcclusionCoverage.IsDisabled)
+        {
+            await WriteAsync(OcclusionComposer.CreateEmptyGrid(GameId.UYA, token), [], "generated", directory, token,
+                workspace.OcclusionCoverageRecipeFingerprint, workspace.OcclusionVisibilityFingerprint);
+            return;
+        }
         if (workspace.Content.OcclusionCoverage.RequiresGeneration)
         {
 #if FORGE_OCCLUSION_COVERAGE_GENERATION

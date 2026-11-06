@@ -11,6 +11,7 @@ internal static class AssetCatalogTests
         Directory.CreateDirectory(directory);
         try
         {
+            await VerifyTransientAsync(Path.Combine(directory, "transient-base"));
             await VerifyCatalogAsync(Path.Combine(directory, "catalog"));
             await VerifyExplorerBridgeAsync(Path.Combine(directory, "explorer"));
             await VerifyTransactionalFailureAsync(Path.Combine(directory, "failure"));
@@ -20,6 +21,41 @@ internal static class AssetCatalogTests
         {
             Directory.Delete(directory, recursive: true);
         }
+    }
+
+    private static async Task VerifyTransientAsync(string root)
+    {
+        var disk = await AssetCatalogStore.OpenAsync(root);
+        var retained = await disk.PutAsync(AssetKind.World, 1, "base"u8.ToArray(), Metadata("level03", 0, [], []));
+        var manifest = await File.ReadAllBytesAsync(disk.CatalogPath);
+        var files = Directory.GetFiles(root, "*", SearchOption.AllDirectories).Order().ToArray();
+        var catalog = await AssetCatalogStore.CreateTransientAsync(disk, [retained.Id], 100, default);
+        var input = "converted"u8.ToArray();
+        var converted = await catalog.PutAsync(AssetKind.Tie, 1, input, Metadata("level03", 1, ["tie:100"], []));
+        input[0] = 0;
+        var bytes = await AssetCatalogBlobReader.ReadVerifiedAsync(catalog, converted, 100, default);
+        Equal(true, bytes.SequenceEqual("converted"u8.ToArray()), "transient blobs own their input bytes");
+        bytes[0] = 0;
+        Equal(true, (await AssetCatalogBlobReader.ReadVerifiedAsync(catalog, converted, 100, default))
+            .SequenceEqual("converted"u8.ToArray()), "transient reads cannot mutate later reads");
+        Equal(true, (await AssetCatalogBlobReader.ReadVerifiedAsync(catalog, retained, 100, default)).SequenceEqual("base"u8.ToArray()),
+            "transient catalogs retain verified base assets through the original catalog");
+        Equal(disk.ResolveBlobPath(retained.Id), catalog.ResolveBlobPath(retained.Id), "base-layer path consumers retain their real source path");
+        Equal<string?>(null, catalog.ResolveBlobPath(converted.Id), "transient blobs never invent filesystem paths");
+        await ExpectAsync<InvalidDataException>(() => AssetCatalogBlobReader.ReadVerifiedAsync(catalog, converted, 1, default));
+        await ExpectAsync<InvalidDataException>(() => AssetCatalogBlobReader.ReadVerifiedAsync(catalog, converted with { Kind = AssetKind.Shrub }, 100, default));
+        var revision = catalog.Revision;
+        await ExpectAsync<OperationCanceledException>(() => catalog.PutAsync(AssetKind.Tie, 1, new byte[] { 4 },
+            Metadata("level03", 2, [], []), new CancellationToken(true)));
+        Equal(revision, catalog.Revision, "cancelled transient writes preserve the last snapshot");
+        await ExpectAsync<ArgumentException>(() => catalog.PutManyAsync([
+            new(AssetKind.Tie, 1, new byte[] { 5 }, Metadata("level03", 3, [], [])),
+            new(AssetKind.Tie, 1, new byte[] { 6 }, Metadata("", 4, [], [])),
+        ]));
+        Equal(revision, catalog.Revision, "failed transient batches preserve the last snapshot");
+        var finalManifest = await File.ReadAllBytesAsync(disk.CatalogPath);
+        Equal(true, manifest.SequenceEqual(finalManifest), "transient writes preserve the real catalog");
+        Equal(true, files.SequenceEqual(Directory.GetFiles(root, "*", SearchOption.AllDirectories).Order()), "transient preparation creates no files");
     }
 
     private static async Task VerifyExplorerBridgeAsync(string root)

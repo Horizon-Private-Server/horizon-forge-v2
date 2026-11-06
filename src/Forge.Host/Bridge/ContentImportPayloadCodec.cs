@@ -126,6 +126,7 @@ public static partial class BridgePayloadCodec
             writer.WriteString(selection.Family);
             writer.WriteUInt32(selection.Mode);
         }
+        if (value.SourceGame != "UYA") writer.WriteString(value.SourceGame);
         return writer.ToArray();
     }
 
@@ -142,8 +143,10 @@ public static partial class BridgePayloadCodec
         var selections = new ContentImportSelectionPayload[count];
         for (var index = 0; index < selections.Length; index++)
             selections[index] = new(reader.ReadString(), reader.ReadUInt32());
+        var sourceGame = reader.RemainingBytes > 0 ? reader.ReadString() : "UYA";
+        if (sourceGame is not ("UYA" or "GC" or "RC1" or "DL")) Malformed("Unsupported content preview source game");
         reader.Complete();
-        return new(projectPath, catalogRootPath, sourceIsoPath, sourceFingerprint, sourceLevel, selections);
+        return new(projectPath, catalogRootPath, sourceIsoPath, sourceFingerprint, sourceLevel, selections, sourceGame);
     }
 
     public static byte[] EncodeContentImportApplyRequest(ContentImportApplyRequestPayload value)
@@ -174,6 +177,7 @@ public static partial class BridgePayloadCodec
             writer.WriteBoolean(choice.TargetEntityId is not null);
             if (choice.TargetEntityId is not null) writer.WriteString(choice.TargetEntityId);
         }
+        if (value.SourceGame != "UYA") writer.WriteString(value.SourceGame);
         return writer.ToArray();
     }
 
@@ -202,9 +206,11 @@ public static partial class BridgePayloadCodec
                 reader.ReadInt32(),
                 reader.ReadUInt32(),
                 reader.ReadBoolean() ? reader.ReadString() : null);
+        var sourceGame = reader.RemainingBytes > 0 ? reader.ReadString() : "UYA";
+        if (sourceGame is not ("UYA" or "GC" or "RC1" or "DL")) Malformed("Unsupported content import source game");
         reader.Complete();
         return new(projectPath, catalogRootPath, sourceIsoPath, sourceFingerprint,
-            sourceLevel, batchId, selections, referenceChoices);
+            sourceLevel, batchId, selections, referenceChoices, sourceGame);
     }
 
     public static byte[] EncodeContentImportPlan(ContentImportPlanPayload value)

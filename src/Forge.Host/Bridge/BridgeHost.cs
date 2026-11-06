@@ -47,7 +47,8 @@ public static class BridgeHost
 #if FORGE_OCCLUSION_COVERAGE_GENERATION
             occlusionCoverageBuildAvailable: true,
 #endif
-            customAssetCommandExecutor: UyaCustomAssetProjectService.ExecuteAsync);
+            customAssetCommandExecutor: UyaCustomAssetProjectService.ExecuteAsync,
+            placementDiagnosticResolver: UyaMobyPropertyService.PlacementDiagnostics);
         var requests = new ConcurrentDictionary<uint, CancellationTokenSource>();
         var tasks = new ConcurrentDictionary<uint, Task>();
 
@@ -147,6 +148,7 @@ public static class BridgeHost
                     break;
                 case BridgeOpcode.ValidateSourceIso:
                 case BridgeOpcode.ImportAssets:
+                case BridgeOpcode.ListSourceLevels:
                     await writer.WriteAsync(new(
                         BridgeMessageKind.Result, frame.Opcode, BridgeErrorCode.None, frame.RequestId,
                         await SetupBridgeHandlers.HandleAsync(

@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using Forge.Host.Domain;
 
 namespace Forge.Host.Games.UYA;
@@ -12,7 +10,7 @@ public sealed record UyaGeometryContentImportRequest(
     int SourceLevel,
     string BatchId,
     IReadOnlyList<ContentImportSelection> Selections,
-    IReadOnlyList<UyaMobyExternalReferenceChoice>? ReferenceChoices = null);
+    IReadOnlyList<ContentImportReferenceChoice>? ReferenceChoices = null);
 
 internal static class UyaGeometryContentImportService
 {
@@ -47,7 +45,7 @@ internal static class UyaGeometryContentImportService
         ContentImportPlan plan,
         long? importedUnixMilliseconds = null,
         CancellationToken cancellationToken = default,
-        IReadOnlyList<UyaMobyExternalReferenceChoice>? referenceChoices = null)
+        IReadOnlyList<ContentImportReferenceChoice>? referenceChoices = null)
     {
         ArgumentNullException.ThrowIfNull(workspace);
         ArgumentNullException.ThrowIfNull(donorEntities);
@@ -173,7 +171,7 @@ internal static class UyaGeometryContentImportService
         IReadOnlyList<ProjectEntity> donorEntities,
         ContentImportPlan plan,
         IReadOnlyList<ContentImportFamilyPlan> selected,
-        IReadOnlyList<UyaMobyExternalReferenceChoice> choices)
+        IReadOnlyList<ContentImportReferenceChoice> choices)
     {
         if (selected.All(value => value.Family != "areas"))
         {
@@ -243,7 +241,7 @@ internal static class UyaGeometryContentImportService
                 var choice = choiceByKey[key];
                 if (!Enum.IsDefined(choice.Action))
                     throw new InvalidDataException("An area reference choice has an invalid action.");
-                if (choice.Action == UyaMobyExternalReferenceAction.Clear)
+                if (choice.Action == ContentImportReferenceAction.Clear)
                 {
                     if (choice.TargetEntityId is not null)
                         throw new InvalidDataException("An area clear choice cannot contain a target entity.");
@@ -271,7 +269,7 @@ internal static class UyaGeometryContentImportService
     };
 
     private static (int OwnerSourceIndex, string FieldKey, int SourceValue) Key(
-        UyaMobyExternalReferenceChoice value) =>
+        ContentImportReferenceChoice value) =>
         (value.OwnerSourceIndex, value.FieldKey, value.SourceValue);
 
     private static (int OwnerSourceIndex, string FieldKey, int SourceValue) Key(
@@ -279,13 +277,5 @@ internal static class UyaGeometryContentImportService
         (value.OwnerSourceIndex, value.FieldKey, value.SourceValue);
 
     internal static EntityId ImportedEntityId(string batchId, string family, int sourceIndex) =>
-        new(StableGuid($"{batchId}\nentity\n{family}\n{sourceIndex}"));
-
-    private static Guid StableGuid(string value)
-    {
-        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(value))[..16];
-        bytes[7] = (byte)((bytes[7] & 0x0f) | 0x50);
-        bytes[8] = (byte)((bytes[8] & 0x3f) | 0x80);
-        return new(bytes);
-    }
+        new(ContentImportIdentity.EntityGuid($"{batchId}\nentity\n{family}\n{sourceIndex}"));
 }

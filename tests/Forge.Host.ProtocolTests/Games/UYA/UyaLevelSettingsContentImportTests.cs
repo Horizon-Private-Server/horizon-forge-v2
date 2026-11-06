@@ -84,14 +84,21 @@ internal static class UyaLevelSettingsContentImportTests
                 [requirement]);
             var source = new UyaLevelSettingsContentImportSource(
                 donorSettings, [donorSpline, donorCuboid]);
+            var referencePlan = UyaContentImportPlanningService.AddLevelSettingsReferenceRequirements(
+                plan with { ReferenceRequirements = [] }, donorSettings, source.Entities, workspace.Content);
+            Equal(3, referencePlan.ReferenceRequirements!.Count,
+                "donor scene links require mappings when their geometry families are skipped");
+            Equal(true, referencePlan.ReferenceRequirements.Single(value =>
+                value.FieldKey == ProjectReferences.LevelShipCameraCuboidStart)
+                .CandidateEntityIds.Contains(importedCuboidId), "retained cuboids are offered as camera mapping targets");
             await ThrowsAsync<InvalidDataException>(() =>
                 UyaLevelSettingsContentImportService.PrepareCommitAsync(
                     workspace, catalog, source, plan, []));
-            var choice = new UyaMobyExternalReferenceChoice(
+            var choice = new ContentImportReferenceChoice(
                 -1,
                 ProjectReferences.LevelShipPath,
                 5,
-                UyaMobyExternalReferenceAction.Map,
+                ContentImportReferenceAction.Map,
                 targetSpline.EntityId);
             var command = await UyaLevelSettingsContentImportService.PrepareCommitAsync(
                 workspace, catalog, source, plan, [choice], 1234);

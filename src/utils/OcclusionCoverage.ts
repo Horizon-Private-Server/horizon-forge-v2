@@ -7,11 +7,16 @@ export const PRIMARY_OCCLUSION_SOURCE_ID = 'primary';
 export const OCCLUSION_COVERAGE_LIMITS = { sources: 1024, markersPerGraph: 4096, markers: 16384, extent: 1_000_000 };
 
 export function needsOcclusionCoverageGeneration(state?: OcclusionCoverageState): boolean {
-  return Boolean(state && (!state.primaryEnabled || state.sources.some(source => source.enabled)));
+  return Boolean(state?.sources.some(source => source.enabled));
+}
+
+export function isOcclusionCoverageDisabled(state?: OcclusionCoverageState): boolean {
+  return Boolean(state && !state.primaryEnabled && !needsOcclusionCoverageGeneration(state));
 }
 
 export function isOcclusionVisibilityCurrent(data: OcclusionVisibilityData | undefined, coverage?: OcclusionCoverageSnapshot): boolean {
   if (!data) return false;
+  if (isOcclusionCoverageDisabled(coverage?.state)) return data.octants.length === 0;
   if (data.coverageRecipeFingerprint || data.projectFingerprint)
     return data.source === 'generated' && data.coverageRecipeFingerprint === coverage?.recipeFingerprint
       && data.projectFingerprint === coverage?.visibilityFingerprint;

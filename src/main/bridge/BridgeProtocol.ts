@@ -55,6 +55,7 @@ export const BridgeOpcode = {
   PreviewOcclusionCoverage: 44,
   ValidateSourceIso: 45,
   ImportAssets: 46,
+  ListSourceLevels: 47,
 } as const;
 
 export const BridgeErrorCode = {

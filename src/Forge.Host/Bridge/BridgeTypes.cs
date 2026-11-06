@@ -59,6 +59,7 @@ public enum BridgeOpcode : ushort
     PreviewOcclusionCoverage = 44,
     ValidateSourceIso = 45,
     ImportAssets = 46,
+    ListSourceLevels = 47,
 }
 
 public enum BridgeErrorCode : ushort

@@ -18,6 +18,8 @@ internal static class UyaOcclusionBakeService
         var workspace = await ForgeProjectWorkspace.OpenAsync(projectRoot, token);
         if (workspace.Manifest.Target is not { Game: "UYA", Region: "NTSC-U", Revision: "1.00" })
             throw new NotSupportedException("Occlusion scene export currently supports UYA NTSC-U 1.00.");
+        if (workspace.Content.OcclusionCoverage.IsDisabled)
+            throw new InvalidOperationException("Occlusion is disabled. Build the map to write an empty occlusion template.");
 #if FORGE_OCCLUSION_COVERAGE_GENERATION
         if (workspace.Content.OcclusionCoverage.RequiresGeneration)
         {
@@ -137,6 +139,8 @@ internal static class UyaOcclusionBakeService
     internal static async Task<LevelArchiveBuildResult?> ApplyAsync(string projectRoot, byte[] wad, CancellationToken token)
     {
         var workspace = await ForgeProjectWorkspace.OpenAsync(projectRoot, token);
+        if (workspace.Content.OcclusionCoverage.IsDisabled)
+            return OcclusionComposer.ClearCoverageFromLevel(GameId.UYA, wad, token);
         if (workspace.Content.OcclusionCoverage.RequiresGeneration)
         {
 #if FORGE_OCCLUSION_COVERAGE_GENERATION

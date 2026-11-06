@@ -134,7 +134,9 @@ internal static class OcclusionBakeTests
     {
         var project = await ForgeProjectWorkspace.CreateAsync(root, "Coverage identity",
             new("DL", "NTSC-U", "1.00", "dl-ntsc-u"), new("DL", "NTSC-U", "1.00", 3, new string('a', 32)), []);
-        project.SetPrimaryOcclusionCoverageEnabled(false);
+        project.SetOcclusionCoverage(new(1, false,
+            [new(EntityId.New(), "Coverage", true, ProjectOcclusionCoverageRole.Include,
+                ProjectTransform.Identity, BoxSize: new(4, 4, 4))]));
         const int algorithmVersion = 7;
         var identity = new OcclusionBakeCoverage(project.OcclusionCoverageRecipeFingerprint, project.OcclusionVisibilityFingerprint,
             algorithmVersion, new string('a', 64), []);
@@ -158,7 +160,12 @@ internal static class OcclusionBakeTests
         await OcclusionBakeStore.CommitAsync(root, cache with { Coverage = null }, default);
         Equal(true, await OcclusionBakeStore.ReadCoverageAsync(project, algorithmVersion, default) is null,
             "source-mode caches cannot satisfy authored coverage reads");
-        project.SetPrimaryOcclusionCoverageEnabled(true);
+        project.SetOcclusionCoverage(new(1, false, []));
+        identity = identity with { RecipeHash = project.OcclusionCoverageRecipeFingerprint };
+        await OcclusionBakeStore.CommitAsync(root, cache with { Coverage = identity }, default);
+        Equal(true, await OcclusionBakeStore.ReadCoverageAsync(project, algorithmVersion, default) is null,
+            "Disabled occlusion ignores authored caches even when their identity matches");
+        project.SetOcclusionCoverage(ProjectOcclusionCoverageState.PrimaryOnly);
         identity = identity with { RecipeHash = project.OcclusionCoverageRecipeFingerprint };
         await OcclusionBakeStore.CommitAsync(root, cache with { Coverage = identity }, default);
         Throws<InvalidDataException>(() => OcclusionBakeStore.ValidateCoverageIdentity(project, identity, algorithmVersion));

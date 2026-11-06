@@ -382,13 +382,14 @@ export interface ForgeApi {
   chooseAssetSource(game: AssetSourceGame): Promise<{ path: string; identity: IsoIdentity } | undefined>;
   createDevelopmentIso(): Promise<DevelopmentIsoResult | undefined>;
   importAssets(game: AssetSourceGame, force?: boolean): Promise<AssetImportResult>;
-  getContentImportOptions(): Promise<ContentImportOptions>;
-  planContentImport(sourceLevel: number, selections: ContentImportSelection[]): Promise<ContentImportPlan>;
+  getContentImportOptions(game: AssetSourceGame): Promise<ContentImportOptions>;
+  planContentImport(sourceLevel: number, selections: ContentImportSelection[], sourceGame?: AssetSourceGame): Promise<ContentImportPlan>;
   applyContentImport(
     sourceLevel: number,
     batchId: string,
     selections: ContentImportSelection[],
     referenceChoices: ContentImportReferenceChoice[],
+    sourceGame?: AssetSourceGame,
   ): Promise<EditorSnapshot>;
   cancelContentImport(): Promise<void>;
   planContentImportRemoval(batchId: string): Promise<ContentImportRemovalPlan>;

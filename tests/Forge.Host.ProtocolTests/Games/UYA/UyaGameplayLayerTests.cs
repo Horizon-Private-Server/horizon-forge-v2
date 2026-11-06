@@ -187,8 +187,8 @@ internal static class UyaGameplayLayerTests
             3, 0, [cuboids, spheres, splines, paths, areas], [], [], [areaRequirement]);
         var areaChoices = new[]
         {
-            new UyaMobyExternalReferenceChoice(
-                0, ProjectReferences.AreaCylinders, 2, UyaMobyExternalReferenceAction.Clear),
+            new ContentImportReferenceChoice(
+                0, ProjectReferences.AreaCylinders, 2, ContentImportReferenceAction.Clear),
         };
         var first = UyaGeometryContentImportService.PrepareCommit(
             workspace, [donorCuboid, donorSphere, donorSpline, donorPath, donorArea], plan, 1234,
@@ -263,6 +263,29 @@ internal static class UyaGameplayLayerTests
         Equal("0:11,1:21", string.Join(',', rebuiltCollision.Primitives.Select(value =>
                 $"{value.Index}:{value.IntValue}")),
             "shape replacement remaps retained and imported camera-collision entries");
+        foreach (var game in new[] { "GC", "RC1", "DL" })
+        {
+            var converted = workspace.CreateProjection(workspace.Content with
+            {
+                Entities = workspace.Content.Entities.Select(entity => entity.Provenance is { } provenance
+                    ? entity with { Provenance = provenance with { Game = game } } : entity).ToArray(),
+            });
+            var convertedInput = await UyaGameplayLayerStore.CreateBakeInputAsync(converted, default);
+            Equal(0, convertedInput.Blockers!.Count, $"{game} converted area and camera-collision references serialize");
+            var convertedPlan = BakeLayerGraph.CreatePlan(Context(),
+            [
+                new(BakeLayerId.Mobys, "mobys"u8.ToArray(), [], ReadOnlyMemory<byte>.Empty), convertedInput,
+            ]);
+            var convertedSnapshot = await UyaGameplayLayerStore.StageAsync(converted, staging,
+                convertedPlan.Layers.Single(value => value.Layer == BakeLayerId.Gameplay), default);
+            var convertedOutput = Path.Combine(staging.RootPath, convertedSnapshot.RelativePath, "pvars");
+            foreach (var section in new[] { "areas", "camera_collision_grid" })
+            {
+                var originalBytes = await File.ReadAllBytesAsync(Path.Combine(output, section + ".bin"));
+                var convertedBytes = await File.ReadAllBytesAsync(Path.Combine(convertedOutput, section + ".bin"));
+                Equal(true, originalBytes.SequenceEqual(convertedBytes), $"{game} converted {section} uses native reference indices");
+            }
+        }
     }
 
     private static ContentImportFamilyPlan FamilyPlan(

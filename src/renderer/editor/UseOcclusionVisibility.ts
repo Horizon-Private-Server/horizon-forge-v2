@@ -4,18 +4,19 @@ import type { EditorSnapshot } from '../../types/EditorRuntime.js';
 import type { OcclusionCoverageAuthoring } from '../../types/OcclusionCoverage.js';
 import type { OcclusionVisibilityResult } from '../../types/Occlusion.js';
 import { errorMessage } from '../../utils/Errors.ts';
-import { isOcclusionVisibilityCurrent, needsOcclusionCoverageGeneration } from '../../utils/OcclusionCoverage.ts';
+import { isOcclusionCoverageDisabled, isOcclusionVisibilityCurrent, needsOcclusionCoverageGeneration } from '../../utils/OcclusionCoverage.ts';
 import { useLogStatus } from '../log/UseLog.ts';
 
 export function useOcclusionVisibility(project: Pick<EditorSnapshot, 'projectId' | 'projectPath'>,
-  coverage: OcclusionCoverageAuthoring, hostAvailable: boolean, busy: boolean, bakeRevision: number) {
+  coverage: OcclusionCoverageAuthoring, hostAvailable: boolean, busy: boolean, bakeRevision: number, sourceRevision = '') {
   const [attempt, setAttempt] = useState(0);
   const [read, setRead] = useState<{ key: string; value?: OcclusionVisibilityResult; error?: string }>();
   const [loading, setLoading] = useState(false);
   const completed = useRef<string | undefined>(undefined);
   const ready = hostAvailable && (!coverage.available || Boolean(coverage.snapshot));
   const authored = needsOcclusionCoverageGeneration(coverage.snapshot?.state);
-  const key = JSON.stringify([project.projectId, project.projectPath, authored, bakeRevision, attempt]);
+  const key = JSON.stringify([project.projectId, project.projectPath, authored,
+    isOcclusionCoverageDisabled(coverage.snapshot?.state), sourceRevision, bakeRevision, attempt]);
   const reload = useCallback(() => setAttempt(value => value + 1), []);
 
   useEffect(() => {

@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using Forge.Host.Domain;
 using RatchetPs2.Games.UYA.Gameplay;
 
@@ -56,7 +54,7 @@ internal static class UyaDirectionalLightsContentImportService
 
         var imported = donor.Select(value => value with
         {
-            EntityId = new EntityId(StableGuid(
+            EntityId = new EntityId(ContentImportIdentity.SkyOrLightGuid(
                 $"{plan.BatchId}\nentity\ndirectionalLights\n{value.Provenance!.SourceIndex}")),
             Name = $"Imported {value.Name}",
             State = null,
@@ -102,14 +100,4 @@ internal static class UyaDirectionalLightsContentImportService
 
     private static bool IsDirectionalLight(ProjectEntity value) =>
         value.Lighting?.DirectionalLight is not null;
-
-    private static Guid StableGuid(string value)
-    {
-        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(value));
-        Span<byte> guid = stackalloc byte[16];
-        bytes.AsSpan(0, guid.Length).CopyTo(guid);
-        guid[7] = (byte)((guid[7] & 0x0f) | 0x40);
-        guid[8] = (byte)((guid[8] & 0x3f) | 0x80);
-        return new(guid, bigEndian: true);
-    }
 }

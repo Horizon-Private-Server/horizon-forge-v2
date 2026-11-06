@@ -654,7 +654,8 @@ public sealed partial class ForgeProjectWorkspace
         || Content.Hud?.Additions.Any(addition => addition.Texture.Id == id) == true
         || Content.Fx?.SourceTextures.Any(source => source.Texture?.Id == id) == true
         || Content.Fx?.Additions.Any(addition => addition.Texture.Id == id) == true
-        || Content.Occlusion?.SourcePayload.Id == id;
+        || Content.Occlusion?.SourcePayload.Id == id
+        || Content.ImportBatches.Any(batch => batch.SourcePayload?.Id == id);
 
     public async Task<IReadOnlyList<AssetId>> CollectUnreferencedAssetsAsync(
         CancellationToken cancellationToken = default)
@@ -714,6 +715,8 @@ public sealed partial class ForgeProjectWorkspace
                 .Select(addition => addition.Texture.Id))
             .Concat(contents.SelectMany(content => ProjectSounds.AssetIds(content.Sounds)))
             .Concat(contents.Select(content => content.Occlusion?.SourcePayload.Id).OfType<AssetId>())
+            .Concat(contents.SelectMany(content => content.ImportBatches)
+                .Select(batch => batch.SourcePayload?.Id).OfType<AssetId>())
             .ToHashSet();
         var assets = contents.SelectMany(content => content.Assets).ToArray();
         while (assets.Where(asset => referenced.Contains(asset.Id))

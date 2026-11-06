@@ -307,6 +307,19 @@ public sealed partial class ForgeProjectWorkspace
             source, effective, global.CanonicalFormatVersion, global.Size, globalPath, false);
     }
 
+    internal Task<byte[]> ReadAssetVerifiedAsync(ProjectAssetReference source, AssetCatalogStore catalog,
+        long maxBytes, CancellationToken cancellationToken)
+    {
+        var reference = ResolveAssetReference(source);
+        if (Content.Assets.Any(asset => asset.Id == reference.Id))
+            return ReadAttachedAssetVerifiedAsync(reference, maxBytes, cancellationToken);
+        var entry = catalog.Query(new(Id: reference.Id)).SingleOrDefault()
+            ?? throw new FileNotFoundException($"Asset blob {reference.Id} is missing.");
+        if (entry.Kind != reference.Kind)
+            throw new InvalidDataException($"Asset {reference.Id} kind does not match its reference.");
+        return AssetCatalogBlobReader.ReadVerifiedAsync(catalog, entry, maxBytes, cancellationToken);
+    }
+
     internal Task<byte[]> ReadAttachedAssetVerifiedAsync(
         ProjectAssetReference reference,
         long maxBytes,

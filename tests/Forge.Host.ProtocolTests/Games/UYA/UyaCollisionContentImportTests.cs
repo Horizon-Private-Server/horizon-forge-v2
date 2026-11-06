@@ -225,7 +225,7 @@ internal static class UyaCollisionContentImportTests
         }
     }
 
-    private static IReadOnlyList<ProjectEntity> Entities(
+    internal static IReadOnlyList<ProjectEntity> Entities(
         CollisionInspection inspection,
         AssetId assetId,
         int level) => inspection.Pieces.Select(value => new ProjectEntity(

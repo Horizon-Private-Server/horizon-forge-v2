@@ -188,6 +188,8 @@ internal ref struct PayloadReader(ReadOnlySpan<byte> payload)
         return values;
     }
 
+    public int RemainingBytes => _payload.Length - _offset;
+
     public void Complete()
     {
         if (_offset != _payload.Length) PayloadFormat.Malformed("Payload has trailing bytes");

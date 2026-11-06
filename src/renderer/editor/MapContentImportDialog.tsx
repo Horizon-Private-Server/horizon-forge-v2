@@ -1,12 +1,12 @@
 import {
-  Accordion, Alert, Badge, Button, Code, Group, Modal, Progress, ScrollArea, Select, Stack, Text,
+  Accordion, Alert, Badge, Button, Code, Group, Modal, Progress, ScrollArea, SegmentedControl, Select, Stack, Text,
 } from '@mantine/core';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type {
   ContentImportOptions, ContentImportPlan, ContentImportReferenceChoice, ContentImportSelection,
 } from '../../types/ContentImport.js';
-import type { EditorSnapshot, Progress as ForgeProgress } from '../../types/ForgeApi.js';
+import type { AssetSourceGame, EditorSnapshot, Progress as ForgeProgress } from '../../types/ForgeApi.js';
 import { editorEntityDisplayName } from '../../utils/EntityDisplay.ts';
 import { createContentImportQualificationRecord } from '../../utils/ContentImportQualification.ts';
 import { errorMessage } from '../../utils/Errors.ts';
@@ -24,6 +24,7 @@ interface MapContentImportDialogProps {
 }
 
 export function MapContentImportDialog({ opened, project, onClose, onApplied }: MapContentImportDialogProps) {
+  const [sourceGame, setSourceGame] = useState<AssetSourceGame>('UYA');
   const [options, setOptions] = useState<ContentImportOptions>();
   const [sourceLevel, setSourceLevel] = useState<string | null>(null);
   const [selections, setSelections] = useState<Record<string, 'add' | 'replace'>>({});
@@ -60,7 +61,7 @@ export function MapContentImportDialog({ opened, project, onClose, onApplied }: 
     () => new Map(project.entities.map((entity) => [entity.id, entity])),
     [project.entities],
   );
-  const signature = JSON.stringify([sourceLevel, selectionList]);
+  const signature = JSON.stringify([sourceGame, sourceLevel, selectionList]);
   const reportCurrent = Boolean(plan) && signature === plannedSignature;
 
   useEffect(() => {
@@ -86,10 +87,10 @@ export function MapContentImportDialog({ opened, project, onClose, onApplied }: 
     setApplying(false);
     setReferenceTargets({});
     setQualificationCopied(false);
-    void window.forge.getContentImportOptions()
+    void window.forge.getContentImportOptions(sourceGame)
       .then((value) => { if (requestVersion.current === version) setOptions(value); })
       .catch((cause) => { if (requestVersion.current === version) setError(errorMessage(cause)); });
-  }, [opened, project.projectId]);
+  }, [opened, project.projectId, sourceGame]);
   useEffect(() => {
     let active = true;
     setQualificationRecord(undefined);
@@ -109,7 +110,7 @@ export function MapContentImportDialog({ opened, project, onClose, onApplied }: 
     const version = ++requestVersion.current;
     const requestedSelections: ContentImportSelection[] = useDefaults ? [] : selectionList;
     try {
-      const next = await window.forge.planContentImport(Number(level), requestedSelections);
+      const next = await window.forge.planContentImport(Number(level), requestedSelections, sourceGame);
       if (requestVersion.current !== version) return;
       setPlan(next);
       setReferenceTargets({});
@@ -119,7 +120,7 @@ export function MapContentImportDialog({ opened, project, onClose, onApplied }: 
         .map((family) => [family.family, family.mode === 'replace' ? 'replace' : 'add'])) as
         Record<string, 'add' | 'replace'>;
       setSelections(nextSelections);
-      setPlannedSignature(JSON.stringify([level, Object.entries(nextSelections)
+      setPlannedSignature(JSON.stringify([sourceGame, level, Object.entries(nextSelections)
         .map(([family, mode]) => ({ family, mode }))
         .sort((left, right) => left.family.localeCompare(right.family))]));
       setShowPreview(openPreview);
@@ -151,7 +152,7 @@ export function MapContentImportDialog({ opened, project, onClose, onApplied }: 
     const version = ++requestVersion.current;
     try {
       const snapshot = await window.forge.applyContentImport(
-        Number(sourceLevel), plan.batchId, selectionList, referenceChoiceList);
+        Number(sourceLevel), plan.batchId, selectionList, referenceChoiceList, sourceGame);
       if (requestVersion.current !== version) return;
       setBusy(false);
       setApplying(false);
@@ -195,9 +196,17 @@ export function MapContentImportDialog({ opened, project, onClose, onApplied }: 
     <Stack>
       <Text size="sm">{showPreview
         ? `Review the planned changes to ${project.projectName}.`
-        : `Choose what to bring into ${project.projectName} from another ${project.target.game} level.`}</Text>
+        : `Choose what to bring into ${project.projectName} from another level.`}</Text>
       {error && <Alert color="red" title="Map content import failed">{error}</Alert>}
       {!showPreview && options?.warnings.map((warning) => <Alert color="yellow" key={warning}>{warning}</Alert>)}
+      {!showPreview && <SegmentedControl
+        aria-label="Donor game"
+        fullWidth
+        data={['RC1', 'GC', 'UYA', 'DL']}
+        value={sourceGame}
+        disabled={busy}
+        onChange={(value) => setSourceGame(value as AssetSourceGame)}
+      />}
       {!showPreview && <Select
         autoFocus
         searchable

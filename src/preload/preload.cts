@@ -42,15 +42,16 @@ const forgeApi = Object.freeze({
   chooseAssetSource: (game: AssetSourceGame) => ipcRenderer.invoke('forge:setup-choose-source', game),
   createDevelopmentIso: () => ipcRenderer.invoke('forge:setup-create-development-iso'),
   importAssets: (game: AssetSourceGame, force = false) => ipcRenderer.invoke('forge:setup-import-assets', game, force),
-  getContentImportOptions: () => ipcRenderer.invoke('forge:content-import-options'),
-  planContentImport: (sourceLevel: number, selections: ContentImportSelection[]) =>
-    ipcRenderer.invoke('forge:content-import-plan', sourceLevel, selections),
+  getContentImportOptions: (game: AssetSourceGame) => ipcRenderer.invoke('forge:content-import-options', game),
+  planContentImport: (sourceLevel: number, selections: ContentImportSelection[], sourceGame: AssetSourceGame = 'UYA') =>
+    ipcRenderer.invoke('forge:content-import-plan', sourceLevel, selections, sourceGame),
   applyContentImport: (
     sourceLevel: number,
     batchId: string,
     selections: ContentImportSelection[],
     referenceChoices: ContentImportReferenceChoice[],
-  ) => ipcRenderer.invoke('forge:content-import-apply', sourceLevel, batchId, selections, referenceChoices),
+    sourceGame: AssetSourceGame = 'UYA',
+  ) => ipcRenderer.invoke('forge:content-import-apply', sourceLevel, batchId, selections, referenceChoices, sourceGame),
   cancelContentImport: () => ipcRenderer.invoke('forge:content-import-cancel'),
   planContentImportRemoval: (batchId: string) =>
     ipcRenderer.invoke('forge:content-import-removal-plan', batchId),

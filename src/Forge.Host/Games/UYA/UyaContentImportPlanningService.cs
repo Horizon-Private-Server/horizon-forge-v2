@@ -36,7 +36,13 @@ internal sealed record UyaContentImportPlanningInput(
     IReadOnlyList<UyaContentImportSourceFamily> SourceFamilies,
     ForgeProjectContent Target,
     IReadOnlyList<ContentImportSelection> Selections,
-    IReadOnlyList<string>? Warnings = null);
+    IReadOnlyList<string>? Warnings = null,
+    string SourceGame = "UYA",
+    string SourceRegion = "NTSC-U",
+    string SourceRevision = "1.00",
+    ContentImportCapabilityMatrix? Capabilities = null,
+    bool ReplacesSceneSettings = true,
+    string? SourceCatalogRevision = null);
 
 internal sealed record UyaContentImportPlanningContext(
     ForgeProjectWorkspace Workspace,
@@ -46,7 +52,7 @@ internal sealed record UyaContentImportPlanningContext(
 
 internal static partial class UyaContentImportPlanningService
 {
-    private static readonly string[] FamilyOrder =
+    internal static readonly string[] FamilyOrder =
     [
         "ties", "shrubs", "tfrags", "mobys", "collision", "cuboids", "spheres", "splines",
         "paths", "areas", "mapGroups", "skybox", "levelSettings", "directionalLights", "hud", "fx", "occlusion",
@@ -94,7 +100,7 @@ internal static partial class UyaContentImportPlanningService
             snapshot.Families,
             workspace.Content,
             request.Selections,
-            snapshot.Warnings));
+            snapshot.Warnings, SourceCatalogRevision: catalog.Revision));
         result = AddExternalReferenceRequirements(
             result, snapshot.ExternalReferences, workspace.Content);
         result = AddLevelSettingsReferenceRequirements(
@@ -127,8 +133,8 @@ internal static partial class UyaContentImportPlanningService
 
         var inventory = input.SourceFamilies.Select(value =>
             new ContentImportFamilyInventory(value.Family, value.State, value.Diagnostic)).ToArray();
-        var matrix = UyaContentImportCapabilities.Create("NTSC-U", "1.00", inventory);
-        var replacesLevelSettings = selections.TryGetValue("levelSettings", out var levelSettingsSelection)
+        var matrix = input.Capabilities ?? UyaContentImportCapabilities.Create("NTSC-U", "1.00", inventory);
+        var replacesLevelSettings = input.ReplacesSceneSettings && selections.TryGetValue("levelSettings", out var levelSettingsSelection)
             && levelSettingsSelection.Mode == ContentImportMode.Replace;
         var replacesMapGroups = selections.TryGetValue("mapGroups", out var mapGroupSelection)
             && mapGroupSelection.Mode == ContentImportMode.Replace;
@@ -208,6 +214,7 @@ internal static partial class UyaContentImportPlanningService
                 : new Dictionary<string, string[]>(StringComparer.Ordinal);
             if (replacing && capability.Family == "tfrags")
                 ExpandTfragOwnerProtection(target, protection);
+            if (replacing) ExpandReferenceProtection(target, graph, protection, cancellationToken);
             var protectedIds = protection.Where(value => value.Value.Length > 0)
                 .Select(value => value.Key).Order(StringComparer.Ordinal).ToArray();
             if (selected && capability.Family == "skybox" && protectedIds.Length > 0)
@@ -256,7 +263,6 @@ internal static partial class UyaContentImportPlanningService
 
         AddOwnedCollisionRemovals(plans, input.Target);
         AddMapGroupDependencyBlockers(plans);
-        AddOcclusionDependencyBlockers(plans);
 
         var warnings = (input.Warnings ?? []).Concat(
                 plans.Any(value => value.Selected) ? [] : ["No import families are currently selected."])
@@ -268,9 +274,9 @@ internal static partial class UyaContentImportPlanningService
             ContentImportPlanSchema.CurrentVersion,
             matrix.SchemaVersion,
             BatchId(input, plans),
-            "UYA",
-            "NTSC-U",
-            "1.00",
+            input.SourceGame,
+            input.SourceRegion,
+            input.SourceRevision,
             input.SourceFingerprint,
             input.SourceLevelHash,
             input.SourceLevel,
@@ -347,9 +353,14 @@ internal static partial class UyaContentImportPlanningService
         var selections = string.Join(';', plans.Where(value => value.Selected)
             .OrderBy(value => value.Family, StringComparer.Ordinal)
             .Select(value => $"{value.Family}:{(byte)value.Mode}"));
-        var value = $"{ContentImportPlanSchema.CurrentVersion}\n{input.TargetProjectId}\n{input.TargetFingerprint}\n"
-            + $"{input.SourceFingerprint}\n{input.SourceLevelHash}\n{input.SourceLevel}\n{selections}";
-        return $"import-{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant()[..32]}";
+        var value = new StringBuilder($"{ContentImportPlanSchema.CurrentVersion}\n{input.TargetProjectId}\n{input.TargetFingerprint}\n"
+            + $"{input.SourceFingerprint}\n{input.SourceLevelHash}\n{input.SourceLevel}\n{selections}");
+        if (input.SourceGame != "UYA") value.Append($"\n{input.SourceGame}\n{input.SourceRegion}\n{input.SourceRevision}");
+        value.Append($"\ncatalog:{input.SourceCatalogRevision}");
+        foreach (var family in input.SourceFamilies.OrderBy(family => family.Family, StringComparer.Ordinal))
+            foreach (var item in family.Items.OrderBy(item => item.Key, StringComparer.Ordinal))
+                value.Append($"\n{family.Family}:{item.Key}:{item.AssetId}:{item.ClassId}");
+        return $"import-{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value.ToString()))).ToLowerInvariant()[..32]}";
     }
 
     private static string[] Limit(IEnumerable<string> values) => values

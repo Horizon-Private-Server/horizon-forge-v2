@@ -22,7 +22,10 @@ public sealed record ProjectOcclusionCoverageState(
         ProjectOcclusionCoverageSchema.CurrentVersion, true, []);
 
     [JsonIgnore]
-    public bool RequiresGeneration => !PrimaryEnabled || Sources.Any(source => source.Enabled);
+    public bool RequiresGeneration => Sources.Any(source => source.Enabled);
+
+    [JsonIgnore]
+    public bool IsDisabled => !PrimaryEnabled && !RequiresGeneration;
 }
 
 public sealed record ProjectOcclusionCoverageSource(

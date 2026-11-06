@@ -750,6 +750,12 @@ test('operation payloads round trip and reject trailing data', () => {
     decodeContentImportPlanRequest(encodeContentImportPlanRequest(importPlanRequest)),
     importPlanRequest,
   );
+  const gcPlanRequest = { ...importPlanRequest, sourceGame: 'GC' as const };
+  assert.deepEqual(decodeContentImportPlanRequest(encodeContentImportPlanRequest(gcPlanRequest)), gcPlanRequest);
+  const rc1PlanRequest = { ...importPlanRequest, sourceGame: 'RC1' as const, sourceLevel: 1 };
+  assert.deepEqual(decodeContentImportPlanRequest(encodeContentImportPlanRequest(rc1PlanRequest)), rc1PlanRequest);
+  const dlPlanRequest = { ...importPlanRequest, sourceGame: 'DL' as const, sourceLevel: 42 };
+  assert.deepEqual(decodeContentImportPlanRequest(encodeContentImportPlanRequest(dlPlanRequest)), dlPlanRequest);
   const importApplyRequest = {
     ...importPlanRequest,
     batchId: `import-${'b'.repeat(32)}`,
@@ -762,6 +768,13 @@ test('operation payloads round trip and reject trailing data', () => {
     decodeContentImportApplyRequest(encodeContentImportApplyRequest(importApplyRequest)),
     importApplyRequest,
   );
+  const gcApplyRequest = { ...importApplyRequest, sourceGame: 'GC' as const,
+    selections: [{ family: 'ties', mode: 'replace' as const }] };
+  assert.deepEqual(decodeContentImportApplyRequest(encodeContentImportApplyRequest(gcApplyRequest)), gcApplyRequest);
+  const rc1ApplyRequest = { ...gcApplyRequest, sourceGame: 'RC1' as const, sourceLevel: 1 };
+  assert.deepEqual(decodeContentImportApplyRequest(encodeContentImportApplyRequest(rc1ApplyRequest)), rc1ApplyRequest);
+  const dlApplyRequest = { ...gcApplyRequest, sourceGame: 'DL' as const, sourceLevel: 42 };
+  assert.deepEqual(decodeContentImportApplyRequest(encodeContentImportApplyRequest(dlApplyRequest)), dlApplyRequest);
   assert.deepEqual(
     decodeContentImportRemovalPlanRequest(encodeContentImportRemovalPlanRequest('/project', importApplyRequest.batchId)),
     { projectPath: '/project', batchId: importApplyRequest.batchId },

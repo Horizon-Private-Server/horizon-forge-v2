@@ -187,11 +187,8 @@ internal static class UyaInstancedCollisionCompositionService
         AssetKind kind,
         CancellationToken cancellationToken)
     {
-        var resolved = workspace.ResolveAsset(new(assetId, kind), catalog)
-            ?? throw new FileNotFoundException($"Asset blob {assetId} is missing.");
-        return await AssetCatalogBlobReader.ReadVerifiedAsync(
-            resolved.Effective.Id, resolved.Effective.Kind, resolved.CanonicalFormatVersion, resolved.Size,
-            resolved.Path, ForgeProjectWorkspace.MaxAttachedAssetBytes, cancellationToken);
+        return await workspace.ReadAssetVerifiedAsync(new(assetId, kind), catalog,
+            ForgeProjectWorkspace.MaxAttachedAssetBytes, cancellationToken);
     }
 
     internal static CollisionInstanceTransform ToCollisionTransform(ProjectTransform transform) => new(

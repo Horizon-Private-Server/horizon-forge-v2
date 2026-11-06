@@ -2,7 +2,8 @@ namespace Forge.Host.Domain;
 
 internal static partial class ForgeProjectValidation
 {
-    private static void ValidateImportBatches(IReadOnlyList<ContentImportBatch> batches)
+    private static void ValidateImportBatches(
+        IReadOnlyList<ContentImportBatch> batches, IReadOnlyList<ProjectAttachedAsset> assets)
     {
         if (batches.Count > ContentImportBatchSchema.MaximumBatches
             || batches.Any(batch => batch is null))
@@ -39,6 +40,9 @@ internal static partial class ForgeProjectValidation
             ValidateStableIds(batch.BatchId, "reused", batch.Reused);
             ValidateStableIds(batch.BatchId, "replaced", batch.Replaced);
             ValidateStableIds(batch.BatchId, "protected", batch.Protected);
+            if (batch.SourcePayload is { } payload
+                && !assets.Any(asset => asset.Id == payload.Id && asset.Kind == payload.Kind))
+                throw new InvalidDataException($"Import batch {batch.BatchId} source payload is not attached.");
         }
     }
 

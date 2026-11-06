@@ -51,7 +51,8 @@ internal static class UyaMobyPVarService
     public static ProjectMobyPVarState? Import(
         IReadOnlyList<ProjectEntity> entities,
         GameplayPvarTables? tables,
-        MobyDexCatalog catalog)
+        MobyDexCatalog catalog,
+        string sourceGame = "UYA")
     {
         if (tables is null) return null;
         var mobys = entities.Where(value => value.Layer == "mobys")
@@ -70,7 +71,7 @@ internal static class UyaMobyPVarService
             if (entity.Source?.RawRecord.Length != UyaMobyInstancesReader.RecordSize) continue;
             var instance = UyaMobyInstancesReader.ReadInstance(entity.Source.RawRecord);
             if (instance.PvarIndex < 0 || instance.PvarIndex >= tables.Entries.Count) continue;
-            var definition = catalog.Resolve(null, "UYA", entity.Source.ClassId)?.Entry.PVar;
+            var definition = catalog.Resolve(null, sourceGame, entity.Source.ClassId)?.Entry.PVar;
             var source = tables.Entries[instance.PvarIndex];
             var references = (definition?.Length == source.Length
                 ? ResolveReferences(source.Data, definition, entityIndexes)

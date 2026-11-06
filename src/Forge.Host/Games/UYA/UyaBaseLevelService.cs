@@ -25,10 +25,42 @@ internal static partial class UyaBaseLevelService
         CancellationToken cancellationToken = default)
     {
         var prepared = Prepare(iso, catalog, level, cancellationToken);
+        return ReadPrepared(prepared, catalog, level, mobyDex, "UYA", cancellationToken);
+    }
+
+    internal static UyaBaseLevelData ReadConverted(
+        byte[] originalWad, LevelContentConversion conversion,
+        AssetCatalogStore catalog, int level, MobyDexCatalog mobyDex, string sourceGame,
+        CancellationToken cancellationToken)
+    {
+        var header = UyaLevelWadReader.ReadLevelWad(
+            conversion.Files.SingleOrDefault(file => file.Path == "level_wad/header.bin")?.Bytes ?? originalWad) with
+        {
+            SoundBank = new(0, 0),
+            Chunks = Enumerable.Repeat(new UyaFileBlock(0, 0), conversion.ChunkSlotCount).ToArray(),
+        };
+        var prepared = Prepare(originalWad, new(header, conversion.Files), catalog, level, cancellationToken);
+        var native = ReadPrepared(prepared, catalog, level, mobyDex, sourceGame, cancellationToken, conversion.TerrainTextures);
+        return native with
+        {
+            HasSceneSettings = conversion.HasSceneSettings,
+            LevelSettings = !conversion.HasSceneSettings && native.LevelSettings is { } settings
+                ? settings with { Scene = null } : native.LevelSettings,
+            Entities = native.Entities.Select(entity => entity.SkyShell is { } shell
+                && conversion.SkyAngularVelocitiesRadiansPerSecond.TryGetValue(shell.SourceShellIndex, out var velocity)
+                    ? entity with { SkyShell = shell with { AngularVelocityRadiansPerSecond = new(velocity.X, velocity.Y, velocity.Z) } }
+                    : entity).ToArray(),
+        };
+    }
+
+    private static UyaBaseLevelData ReadPrepared(
+        PreparedBase prepared, AssetCatalogStore catalog, int level, MobyDexCatalog? mobyDex,
+        string sourceGame, CancellationToken cancellationToken, IReadOnlyList<byte[]>? terrainTextureBytes = null)
+    {
         var layers = PrepareLayers(prepared.Package, prepared.Entities, level, cancellationToken);
 
-        var hud = UyaHudProjectService.TryRead(prepared.Package)?.State;
-        var fx = UyaFxProjectService.TryRead(prepared.Package)?.State;
+        var hud = UyaHudProjectService.TryRead(prepared.Package);
+        var fx = UyaFxProjectService.TryRead(prepared.Package);
 
         var soundBankBytes = UyaLevelWadReader.ReadSectorFileBlock(prepared.Wad, prepared.Package.LevelWad.SoundBank);
 
@@ -40,22 +72,25 @@ internal static partial class UyaBaseLevelService
             : SoundBankReader.InspectRemap(
                 GameId.UYA, prepared.Source.HeaderBytes, soundBank.Programs.Count, cancellationToken);
 
-        var terrainTextures = ReadTerrainTextures(prepared.Source, prepared.Header, cancellationToken);
+        var terrainTextures = terrainTextureBytes?.Select((bytes, index) => new UyaTerrainTextureSource(index, bytes)).ToArray()
+            ?? ReadTerrainTextures(prepared.Source, prepared.Header, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         var levelSettings = prepared.Gameplay.Blocks.SingleOrDefault(value => value.SemanticName == "level_settings")?.LevelSettings;
 
-        _ = UyaInstancedCollisionLinkRecoveryService.Recover(prepared.Entities, layers.BaseLayers, catalog);
+        if (sourceGame == "UYA")
+            _ = UyaInstancedCollisionLinkRecoveryService.Recover(prepared.Entities, layers.BaseLayers, catalog);
 
         cancellationToken.ThrowIfCancellationRequested();
 
         var mobyPVars = UyaMobyPVarService.Import(
             prepared.Entities,
             prepared.Gameplay.PvarTables,
-            mobyDex ?? new MobyDexCatalog(UyaMobyDexDataset.Create()));
+            mobyDex ?? new MobyDexCatalog(UyaMobyDexDataset.Create()), sourceGame);
 
         var opaqueSections = UyaOpaqueContentService.Capture(prepared.Wad, prepared.Package, prepared.Source.HeaderBytes, soundRemap);
         var gameplayOcclusion = opaqueSections.SingleOrDefault(value => value.Name == "gameplay/occlusion")?.Bytes;
-        var levelOcclusion = opaqueSections.SingleOrDefault(value => value.Name == "level/occlusion")?.Bytes;
+        var levelOcclusion = prepared.Package.Files.SingleOrDefault(value => value.Path == "occlusion/occlusion.bin")?.Bytes
+            ?? opaqueSections.SingleOrDefault(value => value.Name == "level/occlusion")?.Bytes;
         var assetOcclusion = UyaOcclusionGridReader.ReadLevelAssetPayload(
             prepared.Source.HeaderBytes, prepared.Source.AssetWadBytes);
         UyaOcclusionImportSource? occlusion = gameplayOcclusion is { Length: > 0 }
@@ -84,15 +119,17 @@ internal static partial class UyaBaseLevelService
             ],
             prepared.Gameplay,
             levelSettings is null ? null : ProjectSettings(levelSettings, prepared.Entities),
-            hud,
-            fx,
+            hud?.State,
+            fx?.State,
             mobyPVars,
             layers.Tfrags,
             soundBank is null || soundRemap is null
                 ? ProjectSoundState.Empty
                 : SoundProjectService.Create(
                     GameId.UYA, level, soundBankBytes, soundBank, soundRemap, prepared.MobyAssets),
-            terrainTextures);
+            terrainTextures,
+            (hud?.Textures.Select(texture => texture.CanonicalBytes) ?? [])
+                .Concat(fx?.Textures.Select(texture => texture.CanonicalBytes) ?? []).ToArray(), catalog.Revision);
     }
 
     private static IReadOnlyList<UyaTerrainTextureSource> ReadTerrainTextures(
@@ -708,6 +745,7 @@ internal sealed record UyaBaseLevelData(
     ProjectMobyPVarState? MobyPVars,
     UyaTfragProjectImport Tfrags,
     ProjectSoundState Sounds,
-    IReadOnlyList<UyaTerrainTextureSource> TerrainTextures);
+    IReadOnlyList<UyaTerrainTextureSource> TerrainTextures,
+    IReadOnlyList<byte[]>? HudFxTextures = null, string? CatalogRevision = null, bool HasSceneSettings = true);
 
 internal sealed record UyaTerrainTextureSource(int SourceTextureId, byte[] PifBytes);

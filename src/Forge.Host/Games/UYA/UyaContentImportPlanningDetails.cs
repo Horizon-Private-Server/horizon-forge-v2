@@ -68,6 +68,28 @@ internal static partial class UyaContentImportPlanningService
                 group => group.Select(value => $"settings:project field {value.Item1}").ToArray());
     }
 
+    private static void ExpandReferenceProtection(
+        IReadOnlyList<TargetItem> target,
+        ProjectReferenceGraph graph,
+        IDictionary<string, string[]> protection,
+        CancellationToken cancellationToken)
+    {
+        var pending = new Queue<EntityId>(target.Where(item => item.Entity is not null
+                && protection[item.Key].Length > 0).Select(item => item.Entity!.EntityId));
+        while (pending.TryDequeue(out var owner))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            foreach (var edge in graph.Outgoing(owner))
+            {
+                if (edge.Reference.EntityId is not { } id
+                    || !protection.TryGetValue($"entity:{id}", out var reasons) || reasons.Length > 0)
+                    continue;
+                protection[$"entity:{id}"] = [$"entity:{owner} field {edge.Reference.FieldKey}"];
+                pending.Enqueue(id);
+            }
+        }
+    }
+
     private static HashSet<string> ImportedGroupStableIds(ForgeProjectContent content) =>
         content.ImportBatches.SelectMany(batch => batch.Added)
             .Where(value => value.StartsWith("group:", StringComparison.Ordinal))
@@ -95,29 +117,6 @@ internal static partial class UyaContentImportPlanningService
                 blockers.Add($"Map-group replacement requires every target {label} instance to be replaceable.");
         }
         plans[mapGroupsIndex] = mapGroups with { Blockers = Limit(blockers) };
-    }
-
-    private static void AddOcclusionDependencyBlockers(IList<ContentImportFamilyPlan> plans)
-    {
-        var occlusionIndex = plans.Select((value, index) => (value, index))
-            .Single(value => value.value.Family == "occlusion").index;
-        var occlusion = plans[occlusionIndex];
-        if (!occlusion.Selected) return;
-        var blockers = occlusion.Blockers.ToList();
-        foreach (var (family, label) in new[]
-        {
-            ("ties", "TIEs"),
-            ("mobys", "Mobys"),
-            ("tfrags", "tfrags"),
-        })
-        {
-            var dependency = plans.Single(value => value.Family == family);
-            if (!dependency.Selected || dependency.Mode != ContentImportMode.Replace)
-                blockers.Add($"Occlusion replacement requires {label} to be selected in replace mode.");
-            else if (dependency.Protect.Count > 0)
-                blockers.Add($"Occlusion replacement requires every target {label} item to be replaceable.");
-        }
-        plans[occlusionIndex] = occlusion with { Blockers = Limit(blockers) };
     }
 
     private static void ExpandTfragOwnerProtection(

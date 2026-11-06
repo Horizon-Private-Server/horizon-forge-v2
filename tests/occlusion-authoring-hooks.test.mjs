@@ -51,12 +51,12 @@ function fixture() {
   const calls = [];
   globalThis.window = { forge: { getOcclusionVisibility: () => new Promise((resolve, reject) => calls.push({ resolve, reject })) } };
   const snapshot = { projectFingerprint: 'a'.repeat(64), visibilityFingerprint: 'b'.repeat(64), recipeFingerprint: 'c'.repeat(64),
-    state: { schemaVersion: 1, primaryEnabled: false, sources: [] } };
+    state: { schemaVersion: 1, primaryEnabled: false, sources: [createOcclusionCoverageSource('box', 'Include')] } };
   const props = { project: { projectId: 'project', projectPath: '/project' }, coverage: { available: true, snapshot },
-    host: true, busy: false, revision: 0 };
+    host: true, busy: false, revision: 0, sourceRevision: '' };
   const data = { schemaVersion: 1, source: 'generated', projectFingerprint: snapshot.visibilityFingerprint,
     coverageRecipeFingerprint: snapshot.recipeFingerprint, octants: [], entities: [], masks: new Uint8Array(), gridHash: 'd'.repeat(64) };
-  const render = () => react.render(() => useOcclusionVisibility(props.project, props.coverage, props.host, props.busy, props.revision));
+  const render = () => react.render(() => useOcclusionVisibility(props.project, props.coverage, props.host, props.busy, props.revision, props.sourceRevision));
   const settle = async value => { calls.at(-1).resolve(value); await new Promise(setImmediate); return render(); };
   return { calls, props, data, render, settle };
 }
@@ -82,6 +82,23 @@ test('visibility waits for metadata and edits stale loaded masks without repeate
   f.props.revision++;
   f.render(); assert.equal(f.calls.length, 2);
   assert.equal((await f.settle(f.data)).visibility, f.data);
+  react.reset();
+});
+
+test('importing occlusion and undoing the import reload Primary masks', async () => {
+  const f = fixture();
+  f.props.coverage.snapshot = { ...f.props.coverage.snapshot,
+    state: { schemaVersion: 1, primaryEnabled: true, sources: [] } };
+  const vanilla = { ...f.data, source: 'vanilla', coverageRecipeFingerprint: undefined, projectFingerprint: undefined };
+  f.render(); await f.settle(vanilla);
+  f.props.sourceRevision = 'aridia-import';
+  assert.equal(f.render().visibility, undefined);
+  assert.equal(f.calls.length, 2);
+  const imported = { ...vanilla, gridHash: 'e'.repeat(64), octants: [{ x: 1, y: 2, z: 3, mask: 0 }] };
+  assert.equal((await f.settle(imported)).visibility, imported);
+  f.props.sourceRevision = '';
+  f.render(); assert.equal(f.calls.length, 3);
+  assert.equal((await f.settle(vanilla)).visibility, vanilla);
   react.reset();
 });
 

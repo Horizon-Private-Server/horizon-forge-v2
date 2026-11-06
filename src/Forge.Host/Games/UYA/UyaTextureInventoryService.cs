@@ -39,9 +39,10 @@ public static class UyaTextureInventoryService
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var catalogEntry = catalog.Query(new(Id: definition.Asset.Id)).SingleOrDefault();
+                var attached = project.Content.Assets.Any(asset => asset.Id == definition.Asset.Id);
                 var custom = layer == BakeLayerId.Ties
                     && project.Content.CustomModels.Models.Any(model => model.Canonical == definition.Asset);
-                if (catalogEntry is null && !custom)
+                if (catalogEntry is null && !attached && !custom)
                     throw new InvalidDataException($"Staged {layer} asset {definition.Asset.Id} is absent from the catalog and project.");
                 if (catalogEntry?.Tags.Contains("texture:placeholder", StringComparer.Ordinal) == true)
                     throw new InvalidDataException(

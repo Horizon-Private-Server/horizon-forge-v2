@@ -2,6 +2,23 @@ namespace Forge.Host.Domain;
 
 internal static class AssetCatalogBlobReader
 {
+    public static Task<byte[]> ReadVerifiedAsync(AssetCatalogStore catalog, AssetCatalogEntry entry,
+        long maxBytes, CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        if (maxBytes <= 0) throw new ArgumentOutOfRangeException(nameof(maxBytes));
+        if (catalog.ReadTransientBlob(entry.Id) is { } memory)
+        {
+            if (memory.Length != entry.Size || memory.Length == 0 || memory.Length > maxBytes)
+                throw new InvalidDataException($"Asset blob {entry.Id} size does not match its catalog entry.");
+            if (AssetId.Compute(entry.Kind, entry.CanonicalFormatVersion, memory.Span) != entry.Id)
+                throw new InvalidDataException($"Asset blob {entry.Id} failed integrity verification.");
+            return Task.FromResult(memory.ToArray());
+        }
+        var path = catalog.ResolveBlobPath(entry.Id) ?? throw new FileNotFoundException($"Asset blob {entry.Id} is missing.");
+        return ReadVerifiedAsync(entry, path, maxBytes, token);
+    }
+
     public static Task<byte[]> ReadVerifiedAsync(
         AssetCatalogEntry entry,
         string path,

@@ -190,7 +190,7 @@ public sealed partial class EditorRuntime
             _eventSequence,
             RuntimeCapabilities.Where(HasCapability).ToArray(),
             RuntimeTools.ToArray(),
-            _diagnostics.Concat(PlacementDiagnostics(workspace)).Concat(GroupDiagnostics(groups))
+            _diagnostics.Concat(_placementDiagnosticResolver?.Invoke(workspace) ?? []).Concat(GroupDiagnostics(groups))
                 .TakeLast(MaxDiagnostics).ToArray(),
             SoundWorkspaceService.Revision(workspace.Content.Sounds));
     }
@@ -212,17 +212,6 @@ public sealed partial class EditorRuntime
                 _savedInstancedCollisionBindings.GetValueOrDefault(individualBindingKey),
                 bindings.GetValueOrDefault(individualBindingKey));
     }
-
-    private static IEnumerable<EditorDiagnostic> PlacementDiagnostics(ForgeProjectWorkspace workspace) =>
-        workspace.Content.Entities
-            .Where(entity => entity.Asset?.Kind == AssetKind.Moby && entity.Provenance is null
-                && entity.Source?.RawRecord.Length >= 0x6c
-                && System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(
-                    entity.Source.RawRecord.AsSpan(0x68)) == -1)
-            .Select(entity => new EditorDiagnostic(
-                "moby.pvar-not-generated",
-                EditorDiagnosticSeverity.Warning,
-                $"{entity.Name}: No generated Pvar data; class-specific behavior may be unavailable."));
 
     private static EditorEntityGeometry? Visualization(ProjectEntity entity)
     {

@@ -336,6 +336,10 @@ internal static class UyaTfragProjectTests
         Equal(6, TfragTerrainReader.Read(composed["primary.bin"]).TfragCount,
             "primary and relocated donor chunk groups semantically re-read after composition");
 
+        var proxyOwner = workspace.Content.Entities.First(value => value.Tfrag is not null);
+        await workspace.ApplyInstancedCollisionProxyAsync(proxyOwner.EntityId,
+            UyaRenderPackageTests.BuildCollisionFixture(), 0,
+            new(ProjectInstancedCollisionRecipeKind.Surface, 1, 1, 0, 0));
         var remove = workspace.Content.Entities.Where(value => value.Tfrag is not null)
             .Select(value => $"entity:{value.EntityId}").Order(StringComparer.Ordinal).ToArray();
         var replaceFamily = family with { Mode = ContentImportMode.Replace, Remove = remove };
@@ -346,6 +350,8 @@ internal static class UyaTfragProjectTests
             Families = [replaceFamily],
         };
         var replace = UyaTfragContentImportService.PrepareCommit(workspace, source, replacePlan, 2345);
+        Equal(0, replace.Content.InstancedCollisionBindings.Count,
+            "replacing terrain removes collision proxy bindings owned by removed pieces");
         Equal(0, replace.Attachments.Count,
             "reimport does not restage tfrag assets already owned by the project");
         Equal(true, replace.Batch.Reused.Any(value => value.StartsWith("asset:", StringComparison.Ordinal)),
@@ -1088,7 +1094,7 @@ internal static class UyaTfragProjectTests
         sourceIndex,
         SyntheticTerrain());
 
-    private static byte[] SyntheticTerrain(int groupCount = 2)
+    internal static byte[] SyntheticTerrain(int groupCount = 2)
     {
         const int tableOffset = 0x40;
         const int recordSize = 0x40;

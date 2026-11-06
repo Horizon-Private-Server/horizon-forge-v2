@@ -133,6 +133,7 @@ export function encodeContentImportPlanRequest(value: ContentImportPlanRequest):
     writer.writeString(selection.family);
     writer.writeUInt32(modeIds[selection.mode]);
   });
+  if (value.sourceGame !== undefined && value.sourceGame !== 'UYA') writer.writeString(value.sourceGame);
   return writer.toBuffer();
 }
 
@@ -150,8 +151,12 @@ export function decodeContentImportPlanRequest(payload: Uint8Array): ContentImpo
     if (mode !== 'add' && mode !== 'replace') malformed('Import selection must use add or replace mode');
     return { family, mode };
   });
+  const sourceGame = reader.remainingBytes > 0 ? reader.readString() : undefined;
+  if (sourceGame !== undefined && sourceGame !== 'UYA' && sourceGame !== 'GC' && sourceGame !== 'RC1' && sourceGame !== 'DL')
+    malformed('Unsupported content preview source game');
   reader.complete();
-  return { projectPath, catalogRootPath, sourceIsoPath, sourceFingerprint, sourceLevel, selections };
+  return { projectPath, catalogRootPath, sourceIsoPath, sourceFingerprint, sourceLevel, selections,
+    ...(sourceGame === undefined ? {} : { sourceGame: sourceGame as 'UYA' | 'GC' | 'RC1' | 'DL' }) };
 }
 
 export function encodeContentImportApplyRequest(value: ContentImportApplyRequest): Buffer {
@@ -178,6 +183,7 @@ export function encodeContentImportApplyRequest(value: ContentImportApplyRequest
     writer.writeBoolean(choice.targetEntityId !== undefined);
     if (choice.targetEntityId !== undefined) writer.writeString(choice.targetEntityId);
   });
+  if (value.sourceGame !== undefined && value.sourceGame !== 'UYA') writer.writeString(value.sourceGame);
   return writer.toBuffer();
 }
 
@@ -207,10 +213,14 @@ export function decodeContentImportApplyRequest(payload: Uint8Array): ContentImp
     return { ownerSourceIndex, fieldKey, sourceValue, action: actionId === 1 ? 'map' as const : 'clear' as const,
       targetEntityId };
   });
+  const sourceGame = reader.remainingBytes > 0 ? reader.readString() : undefined;
+  if (sourceGame !== undefined && sourceGame !== 'UYA' && sourceGame !== 'GC' && sourceGame !== 'RC1' && sourceGame !== 'DL')
+    malformed('Unsupported content import source game');
   reader.complete();
   return {
     projectPath, catalogRootPath, sourceIsoPath, sourceFingerprint, sourceLevel, batchId,
     selections, referenceChoices,
+    ...(sourceGame === undefined ? {} : { sourceGame: sourceGame as 'UYA' | 'GC' | 'RC1' | 'DL' }),
   };
 }
 

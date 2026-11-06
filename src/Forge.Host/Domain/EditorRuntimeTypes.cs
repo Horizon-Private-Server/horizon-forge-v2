@@ -593,3 +593,5 @@ public sealed record EditorSnapshot(
     IReadOnlyList<EditorTool> Tools,
     IReadOnlyList<EditorDiagnostic> Diagnostics,
     string SoundRevision = "");
+
+public delegate IEnumerable<EditorDiagnostic> EditorPlacementDiagnosticResolver(ForgeProjectWorkspace workspace);

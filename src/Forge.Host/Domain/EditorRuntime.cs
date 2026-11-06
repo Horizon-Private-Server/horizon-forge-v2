@@ -43,6 +43,7 @@ public sealed partial class EditorRuntime : IAsyncDisposable
     private readonly List<EditorDiagnostic> _diagnostics = [];
     private readonly EditorHistory _history = new();
     private readonly EditorAssetPlacementResolver? _placementResolver;
+    private readonly EditorPlacementDiagnosticResolver? _placementDiagnosticResolver;
     private readonly EditorTransformCapabilityResolver? _transformCapabilityResolver;
     private readonly EditorSourceClassNameResolver? _sourceClassNameResolver;
     private readonly EditorSkyShellCommandExecutor? _skyShellCommandExecutor;
@@ -95,9 +96,11 @@ public sealed partial class EditorRuntime : IAsyncDisposable
         IReadOnlyList<EditorGroupTemplateDefinition>? groupTemplates = null,
         EditorCustomAssetCommandExecutor? customAssetCommandExecutor = null,
         EditorOcclusionCoveragePreviewExecutor? occlusionCoveragePreviewExecutor = null,
-        bool occlusionCoverageBuildAvailable = false)
+        bool occlusionCoverageBuildAvailable = false,
+        EditorPlacementDiagnosticResolver? placementDiagnosticResolver = null)
     {
         _placementResolver = placementResolver;
+        _placementDiagnosticResolver = placementDiagnosticResolver;
         _transformCapabilityResolver = transformCapabilityResolver;
         _skyShellCommandExecutor = skyShellCommandExecutor;
         _instancedCollisionPreviewExecutor = instancedCollisionPreviewExecutor;

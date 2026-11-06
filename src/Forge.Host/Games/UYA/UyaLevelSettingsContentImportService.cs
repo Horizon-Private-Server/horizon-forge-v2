@@ -13,7 +13,7 @@ internal static class UyaLevelSettingsContentImportService
         AssetCatalogStore catalog,
         UyaLevelSettingsContentImportSource source,
         ContentImportPlan plan,
-        IReadOnlyList<UyaMobyExternalReferenceChoice>? referenceChoices = null,
+        IReadOnlyList<ContentImportReferenceChoice>? referenceChoices = null,
         long? importedUnixMilliseconds = null,
         CancellationToken cancellationToken = default)
     {
@@ -39,7 +39,7 @@ internal static class UyaLevelSettingsContentImportService
             throw new InvalidDataException("Level-settings reference choices do not match the approved plan.");
         var choiceByKey = choices.ToDictionary(Key);
         var scene = donor.Scene;
-        var settings = scene is null ? donor : donor with
+        var settings = scene is null ? donor with { Scene = workspace.Content.LevelSettings?.Scene } : donor with
         {
             Scene = scene with
             {
@@ -107,7 +107,7 @@ internal static class UyaLevelSettingsContentImportService
             var choice = choiceByKey[key];
             if (!Enum.IsDefined(choice.Action))
                 throw new InvalidDataException("A level-settings reference choice has an invalid action.");
-            if (choice.Action == UyaMobyExternalReferenceAction.Clear)
+            if (choice.Action == ContentImportReferenceAction.Clear)
             {
                 if (choice.TargetEntityId is not null)
                     throw new InvalidDataException(
@@ -129,7 +129,7 @@ internal static class UyaLevelSettingsContentImportService
     }
 
     private static (int OwnerSourceIndex, string FieldKey, int SourceValue) Key(
-        UyaMobyExternalReferenceChoice value) =>
+        ContentImportReferenceChoice value) =>
         (value.OwnerSourceIndex, value.FieldKey, value.SourceValue);
 
     private static (int OwnerSourceIndex, string FieldKey, int SourceValue) Key(

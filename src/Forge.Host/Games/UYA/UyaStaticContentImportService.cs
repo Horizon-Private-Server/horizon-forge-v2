@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using Forge.Host.Domain;
 using RatchetPs2.Games.UYA.Gameplay;
 
@@ -247,10 +245,8 @@ internal static class UyaStaticContentImportService
                 && value.Revision == "1.00" && value.Level == level
                 && value.Fingerprint.Equals(sourceFingerprint, StringComparison.OrdinalIgnoreCase)))
             throw new InvalidDataException($"Donor asset {asset.Id} has no matching {level} source identity.");
-        var path = catalog.ResolveBlobPath(asset.Id)
-            ?? throw new FileNotFoundException($"Donor asset blob {asset.Id} is missing.");
         var bytes = await AssetCatalogBlobReader.ReadVerifiedAsync(
-            entry, path, MaximumAssetBytes, cancellationToken);
+            catalog, entry, MaximumAssetBytes, cancellationToken);
         var canonical = UyaCanonicalAssetCodec.Decode(bytes);
         var definitionLength = asset.Kind == AssetKind.Tie ? 0x20 : 0x30;
         if (canonical.DefinitionBytes.Length != definitionLength)
@@ -270,7 +266,7 @@ internal static class UyaStaticContentImportService
         if (sections.Length > 1) throw new InvalidDataException($"Donor {family} contain duplicate group sections.");
         var groups = UyaTieGroupsReader.Read(sections[0].Bytes).Groups;
         return groups.Select((members, index) => new ProjectGroup(
-            new(StableGuid($"{plan.BatchId}\ngroup\n{family}\n{index}")),
+            new(ContentImportIdentity.EntityGuid($"{plan.BatchId}\ngroup\n{family}\n{index}")),
             $"Imported level {plan.SourceLevel} {family} group {index + 1}",
             members.Select(sourceIndex => imported.TryGetValue(sourceIndex, out var id)
                     ? id
@@ -300,16 +296,9 @@ internal static class UyaStaticContentImportService
         .Select(value => GroupId.Parse(value["group:".Length..]))
         .ToHashSet();
 
-    private static Guid StableGuid(string value)
-    {
-        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(value))[..16];
-        bytes[7] = (byte)((bytes[7] & 0x0f) | 0x50);
-        bytes[8] = (byte)((bytes[8] & 0x3f) | 0x80);
-        return new(bytes);
-    }
 
     internal static EntityId ImportedEntityId(string batchId, string family, ProjectEntity entity) =>
-        new(StableGuid(
+        new(ContentImportIdentity.EntityGuid(
             $"{batchId}\nentity\n{family}\n{entity.Provenance!.SourceIndex}\n{entity.Asset!.Id}"));
 
     private static AssetKind Kind(string family) => family switch

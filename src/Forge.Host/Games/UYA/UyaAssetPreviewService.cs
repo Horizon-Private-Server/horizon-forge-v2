@@ -49,6 +49,9 @@ public static class UyaAssetPreviewService
             ? await UyaRenderPackageService.BuildAssetPackageAsync(
                 projectAsset.Effective.Id, projectAsset.Effective.Kind, projectAsset.CanonicalFormatVersion,
                 projectAsset.Size, projectAsset.Path, cancellationToken)
+            : projectAsset is { ProjectAttached: true, CanonicalFormatVersion: UyaBaseLayerSchema.CanonicalFormatVersion }
+                && request.Kind == AssetKind.Sky
+                ? await BuildProjectSkyPackageAsync(projectAsset, request.ShellIndex, cancellationToken)
             : entry?.Kind switch
         {
             AssetKind.Texture => await BuildTexturePackageAsync(
@@ -96,7 +99,7 @@ public static class UyaAssetPreviewService
         ForgeProjectWorkspace? projectWorkspace,
         CancellationToken cancellationToken)
     {
-        if (request.Kind is not (AssetKind.Tie or AssetKind.Tfrag or AssetKind.Shrub or AssetKind.Moby)
+        if (request.Kind is not (AssetKind.Tie or AssetKind.Tfrag or AssetKind.Shrub or AssetKind.Moby or AssetKind.Sky)
             || string.IsNullOrWhiteSpace(request.ProjectPath))
             return sdkRevision;
         var workspace = projectWorkspace
@@ -290,6 +293,18 @@ public static class UyaAssetPreviewService
                 if (CachedCatalog?.Opening == opening) CachedCatalog = null;
             throw;
         }
+    }
+
+    private static async Task<PackedFilePackage> BuildProjectSkyPackageAsync(
+        ProjectResolvedAsset asset,
+        int? shellIndex,
+        CancellationToken cancellationToken)
+    {
+        var bytes = await AssetCatalogBlobReader.ReadVerifiedAsync(
+            asset.Effective.Id, asset.Effective.Kind, asset.CanonicalFormatVersion, asset.Size,
+            asset.Path, ForgeProjectWorkspace.MaxAttachedAssetBytes, cancellationToken);
+        return await Task.Run(() => SkyboxPreviewPackageBuilder.Build(
+            GameId.UYA, bytes, shellIndex: shellIndex, cancellationToken: cancellationToken), cancellationToken);
     }
 
     private static async Task<PackedFilePackage> BuildSkyPackageAsync(

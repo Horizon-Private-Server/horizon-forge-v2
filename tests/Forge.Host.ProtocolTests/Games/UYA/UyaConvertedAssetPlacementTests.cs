@@ -42,6 +42,23 @@ internal static class UyaConvertedAssetPlacementTests
                 var bytes = CatalogModelCodec.Encode(GameId.DL, new byte[kind == AssetKind.Shrub ? 0x30 : 0x20], model, []);
                 sources.Add(await catalog.PutAsync(kind, 1, bytes, Metadata(kind)));
             }
+            var sharedSource = await UyaConvertedModelService.ReadAsync(catalog, sources[0], 0x1234, default);
+            var sharedNative = await UyaConvertedModelService.ConvertAsync(sharedSource, AssetKind.Tie, 0x9000, default);
+            var cachedNative = await UyaConvertedModelService.ConvertAsync(
+                await UyaConvertedModelService.ReadAsync(catalog, sources[0], 0x1234, default), AssetKind.Tie, 0x9000, default);
+            Check(ReferenceEquals(sharedNative, cachedNative), "verified identical model conversions reuse native bytes");
+            var otherClass = await UyaConvertedModelService.ConvertAsync(sharedSource, AssetKind.Tie, 0x9001, default);
+            Check(!ReferenceEquals(sharedNative, otherClass), "conversion cache separates target classes");
+            var originalBlob = sharedSource.OriginalBytes.ToArray();
+            var corruptBlob = originalBlob.ToArray(); corruptBlob[^1] ^= 1;
+            await File.WriteAllBytesAsync(catalog.ResolveBlobPath(sources[0].Id)!, corruptBlob);
+            try
+            {
+                await UyaConvertedModelService.ReadAsync(catalog, sources[0], 0x1234, default);
+                throw new Exception("A cached conversion must not bypass source blob integrity checks.");
+            }
+            catch (InvalidDataException) { }
+            await File.WriteAllBytesAsync(catalog.ResolveBlobPath(sources[0].Id)!, originalBlob);
             var collision = UyaCustomTieClassRegistry.AllocateConverted(ProjectCustomClassRegistry.Empty,
                 AssetKind.Tie, sources[0].Id, 0x1234, new HashSet<int> { 0x9000 });
             Check(collision.Allocations.Single().ClassId == 0x9001, "conversion avoids occupied native classes");

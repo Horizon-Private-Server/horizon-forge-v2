@@ -131,9 +131,9 @@ test('disabling Primary clears loaded and frozen masks until Primary is restored
 });
 
 test('authored visibility requires the current recipe and scene and remains active with Primary disabled', async () => {
-  const { isOcclusionVisibilityCurrent } = await import('../src/utils/OcclusionCoverage.ts');
+  const { isOcclusionVisibilityCurrent, createOcclusionCoverageSource } = await import('../src/utils/OcclusionCoverage.ts');
   const coverage = { projectFingerprint: 'a'.repeat(64), visibilityFingerprint: 'b'.repeat(64), recipeFingerprint: 'c'.repeat(64),
-    state: { schemaVersion: 1 as const, primaryEnabled: false, sources: [] } };
+    state: { schemaVersion: 1 as const, primaryEnabled: false, sources: [createOcclusionCoverageSource('box', 'Include')] } };
   const data = fixture();
   assert.equal(isOcclusionVisibilityCurrent(data, coverage), false);
   data.coverageRecipeFingerprint = coverage.recipeFingerprint; data.projectFingerprint = coverage.visibilityFingerprint;
@@ -148,4 +148,27 @@ test('authored visibility requires the current recipe and scene and remains acti
   assert.equal(view.state.octant?.id, 0); assert.deepEqual([...view.hidden], ['a']);
   view.setData(fixture(), false); view.update({ x: 1, y: 1, z: -1 }, true, false);
   assert.equal(view.hidden.size, 0);
+});
+
+test('all coverage off requires no bake and cannot reuse old viewport masks', async () => {
+  const { createOcclusionCoverageSource, isOcclusionCoverageDisabled, isOcclusionVisibilityCurrent,
+    needsOcclusionCoverageGeneration } = await import('../src/utils/OcclusionCoverage.ts');
+  const state = { schemaVersion: 1 as const, primaryEnabled: false, sources: [
+    { ...createOcclusionCoverageSource('box', 'Off'), enabled: false },
+  ] };
+  assert.equal(isOcclusionCoverageDisabled(state), true);
+  assert.equal(needsOcclusionCoverageGeneration(state), false);
+  assert.equal(isOcclusionCoverageDisabled({ ...state, primaryEnabled: true }), false);
+  assert.equal(needsOcclusionCoverageGeneration({ ...state, sources: [{ ...state.sources[0], enabled: true }] }), true);
+  const coverage = { state, projectFingerprint: 'a'.repeat(64), visibilityFingerprint: 'b'.repeat(64), recipeFingerprint: 'c'.repeat(64) };
+  assert.equal(isOcclusionVisibilityCurrent(fixture(), coverage), false);
+  const empty = { ...fixture(), source: 'generated' as const, octants: [], masks: new Uint8Array(), entities: [],
+    coverageRecipeFingerprint: coverage.recipeFingerprint, projectFingerprint: coverage.visibilityFingerprint };
+  assert.equal(isOcclusionVisibilityCurrent(empty, coverage), true);
+  assert.equal(isOcclusionVisibilityCurrent(empty, { ...coverage, visibilityFingerprint: 'e'.repeat(64) }), true,
+    'scene edits cannot invalidate empty visibility while all occlusion remains off');
+  const view = new ViewportOcclusion(); view.setData(fixture()); view.update({ x: 1, y: 1, z: -1 }, true, true);
+  view.setData(empty, false); view.update({ x: 1, y: 1, z: -1 }, true, true);
+  assert.equal(view.hidden.size, 0);
+  assert.equal(view.state.octant, undefined);
 });

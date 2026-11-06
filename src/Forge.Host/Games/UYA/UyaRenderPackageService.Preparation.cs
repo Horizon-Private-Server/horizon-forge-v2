@@ -28,23 +28,34 @@ public static partial class UyaRenderPackageService
 
         var terrain = await UyaCustomTfragRenderService.BuildAsync(
             levelWad, level, project.Workspace, project.Catalog, cancellationToken);
+        var octants = await ReadOcclusionOctantsAsync(project.Workspace, levelWad, cancellationToken);
 
         var packages = await Task.Run(() =>
         {
-            var octants = UyaOcclusionGridReader.ReadLevelWad(levelWad).Octants.Select(value =>
-                new RenderOcclusionOctant(value.X, value.Y, value.Z, value.MaskIndex)).ToArray();
             return (
                 Sky: FrontendMapPackageBuilder.BuildLevelWadPart(
                     levelWad, GameId.UYA, FrontendMapAssetGroup.Common),
-                Environment: UyaRenderEnvironmentReader.Read(levelWad),
-                Octants: (IReadOnlyList<RenderOcclusionOctant>)octants);
+                Environment: UyaRenderEnvironmentReader.Read(levelWad));
         }, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         await ReportAsync(progress, 5_000, 10_000);
 
         var renderedAssets = await BuildAssetsAsync(project.Assets, progress, cancellationToken);
         await ReportAsync(progress, 8_000, 10_000);
-        return new(terrain, packages.Sky, packages.Environment, packages.Octants, renderedAssets);
+        return new(terrain, packages.Sky, packages.Environment, octants, renderedAssets);
+    }
+
+    internal static async Task<IReadOnlyList<RenderOcclusionOctant>> ReadOcclusionOctantsAsync(
+        ForgeProjectWorkspace workspace, byte[] levelWad, CancellationToken cancellationToken)
+    {
+        var imported = await UyaOcclusionImportPayload.ReadAsync(workspace, cancellationToken);
+        return await Task.Run(() =>
+        {
+            var grid = imported is null ? UyaOcclusionGridReader.ReadLevelWad(levelWad)
+                : UyaOcclusionGridReader.Read(imported.AssetGrid, 1_000_000, cancellationToken);
+            return (IReadOnlyList<RenderOcclusionOctant>)grid.Octants.Select(value =>
+                new RenderOcclusionOctant(value.X, value.Y, value.Z, value.MaskIndex)).ToArray();
+        }, cancellationToken);
     }
 
     private sealed record PreparedProducts(
