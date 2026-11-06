@@ -61,36 +61,13 @@ export class UpdateActivationManager {
     await this.ensureSafeRoot();
     if (this.startupHealth) return false;
     const entries = await readdir(this.options.root, { withFileTypes: true });
-    const pending: { name: string; modified: number }[] = [];
-    const rolledBack: { name: string; modified: number }[] = [];
+    const records: { name: string; modified: number }[] = [];
     for (const entry of entries) {
       if (!entry.isDirectory() || !noncePattern.test(entry.name)) continue;
       const directory = path.join(this.options.root, entry.name);
       try {
-        try {
-          await readBounded(path.join(directory, 'failure.txt'));
-          this.fail('The previous update activation failed. Forge kept the current installation and will remain open.');
-          continue;
-        } catch (error) {
-          if (!isRecord(error) || error.code !== 'ENOENT') throw error;
-        }
-        const checkpoint = await readCheckpoint(path.join(directory, 'state.json'));
-        if (checkpoint === 'healthy') continue;
-        if (checkpoint === 'rolled-back') {
-          try {
-            await stat(path.join(directory, 'reported'));
-          } catch (error) {
-            if (!isRecord(error) || error.code !== 'ENOENT') throw error;
-            rolledBack.push({ name: entry.name, modified: (await stat(path.join(directory, 'state.json'))).mtimeMs });
-          }
-          continue;
-        }
-        if (checkpoint === 'recovery-required') {
-          this.fail('An interrupted update requires manual recovery. See its activation record for details.');
-          continue;
-        }
         const modified = (await stat(path.join(directory, handoffName))).mtimeMs;
-        pending.push({ name: entry.name, modified });
+        records.push({ name: entry.name, modified });
       } catch (error) {
         if (isRecord(error) && error.code === 'ENOENT') {
           await rm(directory, { recursive: true, force: true });
@@ -99,21 +76,33 @@ export class UpdateActivationManager {
         }
       }
     }
-    pending.sort((left, right) => right.modified - left.modified);
-    if (!pending[0]) {
-      rolledBack.sort((left, right) => right.modified - left.modified);
-      if (rolledBack[0]) {
-        const directory = path.join(this.options.root, rolledBack[0].name);
+    // A newer attempt supersedes older failures and interrupted handoffs.
+    records.sort((left, right) => right.modified - left.modified);
+    if (!records[0]) return false;
+    const directory = path.join(this.options.root, records[0].name);
+    try {
+      try {
+        const failurePath = path.join(directory, 'failure.txt');
+        const failure = await readBounded(failurePath);
+        this.fail(`The previous update activation failed. Forge will remain open.\n\n${failure.toString('utf8').trim()}\n\nActivation log: ${failurePath}`);
+        return false;
+      } catch (error) {
+        if (!isRecord(error) || error.code !== 'ENOENT') throw error;
+      }
+      const checkpoint = await readCheckpoint(path.join(directory, 'state.json'));
+      if (checkpoint === 'healthy') return false;
+      if (checkpoint === 'rolled-back') {
         this.update({
           state: 'rolled-back',
           message: 'The update did not start successfully. Forge restored and launched the previous version.',
         });
-        await writeFile(path.join(directory, 'reported'), '\n', { flag: 'wx', mode: 0o600 });
+        return false;
       }
-      return false;
-    }
-    try {
-      await this.launchExisting(pending[0].name);
+      if (checkpoint === 'recovery-required') {
+        this.fail(`An interrupted update requires manual recovery. See ${path.join(directory, 'state.json')} for details.`);
+        return false;
+      }
+      await this.launchExisting(records[0].name);
       return true;
     } catch (error) {
       this.fail(`Interrupted update could not resume: ${errorMessage(error)}`);
@@ -241,7 +230,7 @@ async function spawnDetachedHelper(
 ): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const child = spawn(helperPath, [handoffPath, nonce, digest, String(sourcePid)], {
-      detached: true, stdio: 'ignore', windowsHide: true,
+      cwd: path.dirname(helperPath), detached: true, stdio: 'ignore', windowsHide: true,
     });
     child.once('error', reject);
     child.once('spawn', () => { child.unref(); resolve(); });

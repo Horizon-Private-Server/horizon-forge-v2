@@ -153,6 +153,12 @@ and target. Checkpoints are atomically replaced in `state.json`; an interrupted 
 reconciles the verified active/candidate/rollback roots rather than trusting a
 checkpoint alone.
 
+The executable bundles its native .NET runtime libraries and starts with its activation
+directory as the working directory, so it can run independently without locking the
+Windows installation directory. Startup recovery considers only the newest handoff.
+An activation failure or rollback remains visible instead of automatically preparing
+the cached package again; failures include the helper diagnostic and its log path.
+
 Dirty projects block the quit handoff. Download and extraction never close Forge.
 Explicit save, discard, or cancel remains in the ordinary project lifecycle; the
 updater cannot write or infer project state.

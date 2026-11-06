@@ -101,6 +101,16 @@ jobs:
           FORGE_UPDATE_PUBLIC_KEY_SPKI: ${{ vars.FORGE_UPDATE_PUBLIC_KEY_SPKI }}
         run: npm run package:windows 2>&1 | tee artifacts/ci-logs/package.log
 
+      - name: Verify relocated updater package
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            export FORGE_TEST_UPDATER_PATH=artifacts/horizon-forge-windows-x64/resources/updater/Forge.Updater.exe
+          else
+            export FORGE_TEST_UPDATER_PATH=artifacts/horizon-forge-linux-x64/resources/updater/Forge.Updater
+          fi
+          node --test tests/update-helper-package.test.mjs
+
       - name: Smoke packaged Linux app
         if: runner.os == 'Linux'
         shell: bash

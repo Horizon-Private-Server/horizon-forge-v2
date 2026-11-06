@@ -136,6 +136,8 @@ export class UpdateService {
 
   startBackgroundRecovery(): void {
     if (this.startupRecovery) return;
+    // Preserve activation failures and rollback results until the user chooses another action.
+    if (this.activationManager && this.activationManager.state.state !== 'idle') return;
     this.startupRecovery = this.recoverDownloadedUpdate().catch((error) => {
       console.error('Forge update recovery failed', error);
     });
@@ -181,6 +183,9 @@ export class UpdateService {
     try {
       this.startBackgroundRecovery();
       await this.startupRecovery;
+      if (!manual && ['failed', 'rolled-back', 'restarting'].includes(this.lifecycle.state.state)) return {
+        status: 'busy', title: 'Update needs attention', message: this.lifecycle.state.message,
+      };
       const update = await findGitHubUpdate({
         channel,
         installedChannel: this.options.channel,
